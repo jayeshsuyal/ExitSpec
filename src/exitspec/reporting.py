@@ -1,4 +1,4 @@
-"""Static, inspectable decision-packet rendering for Brick 1."""
+"""Static, inspectable POC proof rendering for ExitSpec."""
 
 from __future__ import annotations
 
@@ -183,6 +183,221 @@ def render_define_review(
     )
 
 
+def _source_quote(criterion: Criterion) -> str:
+    """Return a short, safe explanation of where a criterion came from."""
+
+    source = criterion.source
+    if source is None:
+        return (
+            "No customer quote is attached. This criterion was explicitly added by a "
+            "human reviewer."
+        )
+    return "{0} said: “{1}” ({2})".format(
+        escape(source.speaker), escape(source.quote), escape(source.location)
+    )
+
+
+def _criterion_rule_summary(criterion: Criterion) -> str:
+    """Use plain language for the currently supported proportion rule."""
+
+    return (
+        "At least {threshold} {metric} across at least {minimum_samples} samples. "
+        "The two-sided {confidence_level} Wilson lower bound must also meet "
+        "{threshold}."
+    ).format(
+        threshold=_rate(criterion.rule.threshold),
+        metric=escape(criterion.metric.value.replace("_", " ")),
+        minimum_samples=criterion.rule.minimum_samples,
+        confidence_level="{0:.0%}".format(criterion.rule.confidence_level),
+    )
+
+
+def _evidence_sufficiency_rows(
+    criterion: Criterion, measurement: ProportionMeasurement
+) -> str:
+    """Render the evidence checks that can make a result insufficient."""
+
+    evidence_state = (
+        "Present: {0}".format(
+            ", ".join(escape(reference) for reference in measurement.evidence_refs)
+        )
+        if measurement.evidence_refs
+        else "Missing: no raw evidence records were produced."
+    )
+    sample_state = "{0} / {1} collected ({2})".format(
+        measurement.sample_count,
+        criterion.rule.minimum_samples,
+        "minimum met"
+        if measurement.sample_count >= criterion.rule.minimum_samples
+        else "minimum not met",
+    )
+    execution_state = "Completed"
+    if measurement.external_blocked_reason:
+        execution_state = "Blocked: {0}".format(
+            escape(measurement.external_blocked_reason)
+        )
+    elif measurement.internal_error:
+        execution_state = "Measurement error: {0}".format(
+            escape(measurement.internal_error)
+        )
+
+    rows = (
+        ("Execution", execution_state),
+        ("Raw evidence records", evidence_state),
+        (
+            "Run metadata",
+            "Complete" if measurement.metadata_complete else "Missing required metadata",
+        ),
+        (
+            "Approved workload",
+            "Fixture hash matches" if measurement.workload_hash_matches else "Fixture hash mismatch",
+        ),
+        (
+            "Artifact integrity",
+            "Valid" if measurement.artifact_integrity_valid else "Integrity check failed",
+        ),
+        ("Minimum sample count", sample_state),
+    )
+    return "\n".join(
+        "<tr><th>{0}</th><td>{1}</td></tr>".format(escape(label), value)
+        for label, value in rows
+    )
+
+
+def _human_next_action(verdict: OverallVerdict) -> str:
+    """State the human decision needed after a proof outcome without authorizing it."""
+
+    actions = {
+        "PASS": (
+            "Review this Proof Pack with the customer and decide whether the stated "
+            "POC scope is sufficient for the next step. This result alone does not "
+            "authorize any action."
+        ),
+        "FAIL": (
+            "Review the failed evidence with the customer and POC owners. Decide "
+            "whether to revise the plan, change the system, or stop this POC scope."
+        ),
+        "NOT_PROVEN": (
+            "Close the evidence gaps, then re-run the frozen contract. Do not treat "
+            "this result as a pass."
+        ),
+        "BLOCKED": (
+            "Resolve the external block, verify the run conditions, then re-run the "
+            "frozen contract before drawing a conclusion."
+        ),
+    }
+    return actions[verdict.verdict.value]
+
+
+def _limitations(criterion_verdict: CriterionVerdict, contract: POCContract) -> str:
+    """Keep reported limits visible rather than burying them in an artifact."""
+
+    limitations = list(criterion_verdict.limitations)
+    limitations.extend(contract.non_goals)
+    if not limitations:
+        limitations.append("No additional limitations were recorded for this run.")
+    return "\n".join("<li>{0}</li>".format(escape(item)) for item in limitations)
+
+
+def render_customer_draft(contract: POCContract) -> str:
+    """Render a static, customer-facing acceptance draft for the review/share step.
+
+    It intentionally describes a proposed POC test. It neither freezes a contract nor
+    grants permission to deploy, buy, or take another operational action.
+    """
+
+    criterion_cards = "\n".join(
+        """<article class="criterion-card">
+  <p class="label">What we heard</p>
+  <p>{source_quote}</p>
+  <h2>{title}</h2>
+  <p>{claim}</p>
+  <p class="label">How we will measure it</p>
+  <p>{rule}</p>
+  <dl>
+    <div><dt>Workload slice</dt><dd>{workload_slice}</dd></div>
+    <div><dt>Measurement adapter</dt><dd>{adapter}@{adapter_version}</dd></div>
+    <div><dt>Evidence retained</dt><dd>{evidence_policy}</dd></div>
+  </dl>
+</article>""".format(
+            source_quote=_source_quote(criterion),
+            title=escape(criterion.title),
+            claim=escape(criterion.normalized_claim),
+            rule=_criterion_rule_summary(criterion),
+            workload_slice=escape(criterion.workload_slice),
+            adapter=escape(criterion.adapter),
+            adapter_version=escape(criterion.adapter_version),
+            evidence_policy=escape(criterion.evidence_policy),
+        )
+        for criterion in contract.criteria
+    )
+    is_frozen = contract.canonical_hash is not None
+    version_state = (
+        "This version is frozen with canonical hash <code>{0}</code>. Any meaningful "
+        "change requires a new version."
+    ).format(escape(contract.canonical_hash)) if is_frozen else (
+        "This version is not frozen yet. Please review the wording and measurement "
+        "before a human freezes the agreed version."
+    )
+
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ExitSpec customer review draft — {contract_id}</title>
+  <style>
+    :root {{ color: #172033; background: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    body {{ margin: 0; }} main {{ max-width: 940px; margin: 0 auto; padding: 40px 24px 56px; }}
+    h1 {{ font-size: clamp(2rem, 6vw, 3.75rem); letter-spacing: -.045em; margin: 6px 0 16px; }} h2 {{ margin: 6px 0 10px; }}
+    p {{ line-height: 1.55; }} .eyebrow, .label {{ color: #52647a; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }}
+    .lead {{ color: #39485f; font-size: 1.15rem; max-width: 720px; }} .notice, .criterion-card {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 22px; margin-top: 18px; }}
+    .notice {{ border-color: #c8d7f4; background: #f3f7ff; }} .criterion-card p {{ color: #39485f; }}
+    dl {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 20px 0 0; }} dt {{ color: #52647a; font-size: .78rem; font-weight: 700; text-transform: uppercase; }} dd {{ margin: 6px 0 0; line-height: 1.45; }} code {{ word-break: break-all; }}
+    @media (max-width: 720px) {{ main {{ padding: 28px 16px 40px; }} dl {{ grid-template-columns: 1fr; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">ExitSpec / customer review draft</p>
+    <h1>Proposed POC acceptance criteria</h1>
+    <p class="lead">This is the plain-language test we propose for {customer}. It turns the POC promise into a measurement plan before anyone treats results as proof.</p>
+
+    <section class="notice">
+      <p class="label">Review before testing</p>
+      <p>{version_state}</p>
+      <p>This draft documents a proposed POC test. It does not authorize deployment, spending, procurement, production traffic, or any other action.</p>
+    </section>
+
+    <section class="notice">
+      <p class="label">POC context</p>
+      <p><strong>Use case:</strong> {use_case}</p>
+      <p><strong>Target under test:</strong> {provider} / {endpoint_class} / {model}</p>
+      <p><strong>Approved workload version:</strong> <code>{workload_hash}</code></p>
+    </section>
+
+    {criterion_cards}
+
+    <section class="notice">
+      <p class="label">Confirmation requested</p>
+      <p>Please confirm that the quoted requirement, metric, workload, and acceptance rule reflect the POC we should run. If anything is wrong, change the draft before it is frozen and measured.</p>
+    </section>
+  </main>
+</body>
+</html>
+""".format(
+        contract_id=escape(contract.id),
+        customer=escape(contract.customer),
+        version_state=version_state,
+        use_case=escape(contract.use_case),
+        provider=escape(contract.target_system.provider),
+        endpoint_class=escape(contract.target_system.endpoint_class),
+        model=escape(contract.target_system.model),
+        workload_hash=escape(contract.workload.sha256),
+        criterion_cards=criterion_cards,
+    )
+
+
 def render_decision_packet(
     contract: POCContract,
     manifest: RunManifest,
@@ -191,72 +406,115 @@ def render_decision_packet(
     criterion_verdict: CriterionVerdict,
     overall: OverallVerdict,
 ) -> str:
-    """Render a minimal report that keeps source, rule, evidence, and verdict adjacent."""
+    """Render a customer-readable Proof Pack while preserving the Brick 1 API.
 
-    source = criterion.source
-    source_text = "Human-added criterion" if source is None else "{0}: “{1}” ({2})".format(
-        escape(source.speaker), escape(source.quote), escape(source.location)
+    The historical function name and the ``decision-packet.html`` output path remain
+    stable for callers. The rendered artifact is evidence for a defined POC criterion,
+    not an authorization decision.
+    """
+
+    contract_hash = contract.canonical_hash or "Unavailable — contract was not frozen"
+    frozen_at = (
+        contract.frozen_at.isoformat()
+        if contract.frozen_at is not None
+        else "Unavailable — contract was not frozen"
     )
-    evidence_links = ", ".join(escape(reference) for reference in measurement.evidence_refs) or "No raw records produced"
+    evidence_sufficiency = _evidence_sufficiency_rows(criterion, measurement)
 
     return """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ExitSpec decision packet — {contract_id}</title>
+  <title>ExitSpec Proof Pack — {contract_id}</title>
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #f5f7fb; margin: 0; }}
-    main {{ max-width: 960px; margin: 40px auto; padding: 0 24px 48px; }}
-    section {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 12px; padding: 24px; margin-top: 16px; }}
-    h1, h2 {{ margin-top: 0; }}
-    .eyebrow {{ color: #52647a; font-size: 0.9rem; text-transform: uppercase; letter-spacing: .08em; }}
-    .verdict {{ display: inline-block; padding: 8px 12px; border-radius: 999px; font-weight: 700; background: #e8eef9; }}
-    table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ text-align: left; padding: 10px 0; border-bottom: 1px solid #e8edf4; vertical-align: top; }}
-    th {{ width: 34%; color: #52647a; font-weight: 600; }}
-    code {{ word-break: break-all; }}
+    :root {{ color: #172033; background: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    body {{ margin: 0; }} main {{ max-width: 1040px; margin: 0 auto; padding: 40px 24px 56px; }}
+    h1 {{ font-size: clamp(2.1rem, 6vw, 4rem); letter-spacing: -.05em; margin: 6px 0 10px; }} h2 {{ margin: 0 0 14px; }} p {{ line-height: 1.55; }}
+    .eyebrow {{ color: #52647a; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }} .lead {{ color: #39485f; font-size: 1.12rem; max-width: 760px; }}
+    section {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 24px; margin-top: 18px; }} .verdict-panel {{ border-color: #c8d7f4; background: #f3f7ff; }}
+    .verdict {{ display: inline-block; border-radius: 999px; font-size: .9rem; font-weight: 750; padding: 8px 12px; background: #e7edf9; }} .status-PASS {{ background: #e6f4eb; color: #1f6b43; }} .status-FAIL {{ background: #fde9e8; color: #9b2c2c; }} .status-BLOCKED {{ background: #fff4d8; color: #805b00; }} .status-NOT_PROVEN {{ background: #eeeaf9; color: #62489a; }}
+    table {{ border-collapse: collapse; width: 100%; }} th, td {{ border-bottom: 1px solid #e8edf4; padding: 12px 0; text-align: left; vertical-align: top; }} th {{ color: #52647a; font-size: .88rem; font-weight: 700; padding-right: 24px; width: 31%; }}
+    ul {{ line-height: 1.55; margin-bottom: 0; padding-left: 20px; }} code {{ word-break: break-all; }} .disclaimer {{ color: #52647a; font-size: .92rem; }}
+    @media (max-width: 700px) {{ main {{ padding: 28px 16px 40px; }} th {{ display: block; width: auto; padding-bottom: 4px; }} td {{ display: block; padding-top: 4px; }} }}
   </style>
 </head>
 <body>
   <main>
-    <p class="eyebrow">ExitSpec / synthetic evidence packet</p>
-    <h1>Support-agent POC decision</h1>
-    <p class="verdict">Overall verdict: {overall_verdict}</p>
-    <p>{overall_reason}</p>
+    <p class="eyebrow">ExitSpec / POC Proof Pack / synthetic demonstration</p>
+    <h1>Proof Pack: {criterion_title}</h1>
+    <p class="lead">A readable record of the agreed POC test, the evidence collected, and what a human needs to decide next.</p>
+
+    <section class="verdict-panel">
+      <p class="eyebrow">Evidence outcome</p>
+      <p class="verdict status-{overall_verdict}">{overall_verdict}</p>
+      <p>{overall_reason}</p>
+      <p class="disclaimer">This report documents evidence against a POC acceptance contract. It does not authorize deployment, spending, procurement, production traffic, or any external action.</p>
+    </section>
 
     <section>
+      <p class="eyebrow">1. What the customer asked us to prove</p>
+      <h2>Source quote</h2>
+      <p>{source_quote}</p>
+      <p><strong>Normalized acceptance claim:</strong> {normalized_claim}</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">2. The frozen agreement</p>
       <h2>Frozen contract</h2>
       <table>
         <tr><th>Contract</th><td>{contract_id} v{contract_version}</td></tr>
+        <tr><th>Contract status</th><td>{contract_status}</td></tr>
+        <tr><th>Frozen at</th><td>{frozen_at}</td></tr>
         <tr><th>Canonical hash</th><td><code>{contract_hash}</code></td></tr>
-        <tr><th>Customer statement</th><td>{source_text}</td></tr>
-        <tr><th>Approved rule</th><td>Exact tool selection ≥ {threshold}; at least {minimum_samples} samples; two-sided {confidence_level} Wilson lower bound.</td></tr>
+        <tr><th>POC use case</th><td>{use_case}</td></tr>
       </table>
     </section>
 
     <section>
-      <h2>Criterion: {criterion_title}</h2>
-      <p class="verdict">{criterion_verdict}</p>
+      <p class="eyebrow">3. The exact test</p>
+      <h2>Exact measurement</h2>
+      <table>
+        <tr><th>Criterion</th><td>{criterion_id}: {criterion_title}</td></tr>
+        <tr><th>Metric and aggregation</th><td>{metric} / {aggregation}</td></tr>
+        <tr><th>Acceptance rule</th><td>{rule_summary}</td></tr>
+        <tr><th>Workload slice</th><td>{workload_slice}</td></tr>
+        <tr><th>Workload hash</th><td><code>{workload_hash}</code></td></tr>
+        <tr><th>Measurement adapter</th><td>{adapter}@{adapter_version}</td></tr>
+      </table>
+    </section>
+
+    <section>
+      <p class="eyebrow">4. Is the evidence sufficient?</p>
+      <h2>Evidence sufficiency</h2>
+      <table>{evidence_sufficiency}</table>
+    </section>
+
+    <section>
+      <p class="eyebrow">5. What the test observed</p>
+      <h2>Criterion result</h2>
+      <p class="verdict status-{criterion_verdict}">{criterion_verdict}</p>
       <p>{criterion_reason}</p>
       <table>
+        <tr><th>Successful cases</th><td>{success_count} / {measurement_sample_count}</td></tr>
         <tr><th>Observed rate</th><td>{observed_rate}</td></tr>
-        <tr><th>Sample count</th><td>{sample_count}</td></tr>
         <tr><th>Wilson lower bound</th><td>{lower_bound}</td></tr>
-        <tr><th>Evidence</th><td>{evidence_links}</td></tr>
         <tr><th>Calculation version</th><td>{calculation_version}</td></tr>
-        <tr><th>Limitations</th><td>{limitations}</td></tr>
+        <tr><th>Run</th><td>{run_id} ({run_status})</td></tr>
+        <tr><th>Target under test</th><td>{provider} / {endpoint_class} / {model}</td></tr>
       </table>
     </section>
 
     <section>
-      <h2>Run manifest</h2>
-      <table>
-        <tr><th>Run</th><td>{run_id}</td></tr>
-        <tr><th>Target</th><td>{provider} / {endpoint_class} / {model}</td></tr>
-        <tr><th>Fixture hash</th><td><code>{fixture_hash}</code></td></tr>
-        <tr><th>Run status</th><td>{run_status}</td></tr>
-      </table>
+      <p class="eyebrow">6. What this does not prove</p>
+      <h2>Limits of this proof</h2>
+      <ul>{limitations}</ul>
+    </section>
+
+    <section>
+      <p class="eyebrow">7. Human follow-up</p>
+      <h2>Explicit next human action</h2>
+      <p>{next_action}</p>
     </section>
   </main>
 </body>
@@ -264,26 +522,36 @@ def render_decision_packet(
 """.format(
         contract_id=escape(contract.id),
         contract_version=escape(contract.version),
-        contract_hash=escape(contract.canonical_hash or "unavailable"),
+        contract_status=escape(contract.status.value),
+        contract_hash=escape(contract_hash),
+        frozen_at=escape(frozen_at),
+        use_case=escape(contract.use_case),
         overall_verdict=escape(overall.verdict.value),
         overall_reason=escape(overall.reason),
-        source_text=source_text,
-        threshold=_rate(criterion.rule.threshold),
-        minimum_samples=criterion.rule.minimum_samples,
-        confidence_level="{0:.0%}".format(criterion.rule.confidence_level),
+        source_quote=_source_quote(criterion),
+        normalized_claim=escape(criterion.normalized_claim),
+        criterion_id=escape(criterion.id),
         criterion_title=escape(criterion.title),
+        metric=escape(criterion.metric.value.replace("_", " ")),
+        aggregation=escape(criterion.aggregation),
+        rule_summary=_criterion_rule_summary(criterion),
+        workload_slice=escape(criterion.workload_slice),
+        workload_hash=escape(contract.workload.sha256),
+        adapter=escape(criterion.adapter),
+        adapter_version=escape(criterion.adapter_version),
+        evidence_sufficiency=evidence_sufficiency,
         criterion_verdict=escape(criterion_verdict.verdict.value),
         criterion_reason=escape(criterion_verdict.reason),
+        success_count=measurement.success_count,
+        measurement_sample_count=measurement.sample_count,
         observed_rate=_rate(criterion_verdict.observed_rate),
-        sample_count=criterion_verdict.sample_count,
         lower_bound=_rate(criterion_verdict.confidence_lower_bound),
-        evidence_links=evidence_links,
         calculation_version=escape(criterion_verdict.calculation_version),
-        limitations=escape("; ".join(criterion_verdict.limitations) or "None recorded."),
         run_id=escape(manifest.run_id),
+        run_status=escape(manifest.status.value),
         provider=escape(manifest.provider),
         endpoint_class=escape(manifest.endpoint_class),
         model=escape(manifest.model),
-        fixture_hash=escape(manifest.fixture_hash),
-        run_status=escape(manifest.status.value),
+        limitations=_limitations(criterion_verdict, contract),
+        next_action=escape(_human_next_action(overall)),
     )

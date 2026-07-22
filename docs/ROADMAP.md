@@ -18,6 +18,7 @@ The schedule is a build sprint, not a claim of complete subject-matter mastery. 
 
 - **Brick 1 — truth kernel:** complete locally. A frozen contract, deterministic measurement, evidence artifacts, confidence calculation, and four terminal verdict paths are tested.
 - **Brick 2 — Define:** complete locally. A synthetic transcript produces source-linked drafts, explicit approval/rejection records, an approved contract, and a static review artifact. It intentionally rejects an ambiguous request.
+- **Demo loop — Define → Prove → Decide:** complete locally. `exitspec serve` gives a field engineer a loopback-only browser flow for synthetic meeting notes, visible review choices, a customer review draft, real deterministic runs, and customer-readable Proof Packs. It does not call providers or claim authorization.
 - **Next — Prove against a real endpoint:** add redaction primitives before any non-synthetic text is persisted, then add an OpenAI-compatible endpoint client with typed failure handling. Fireworks is the leading first provider candidate once Jayesh approves credentials and a spend ceiling.
 
 ## First 20 issues in dependency order

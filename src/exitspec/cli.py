@@ -9,6 +9,7 @@ from typing import Optional, Sequence
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import run_define_demo
 from .runner import run_demo
+from .web import serve_demo
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +58,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     define.add_argument("--output-dir", type=Path, default=Path("runs"))
     define.add_argument("--session-id", type=str, default=None)
+
+    serve = subparsers.add_parser(
+        "serve", help="Run the local synthetic Define → Prove → Decide browser demo."
+    )
+    serve.add_argument("--host", type=str, default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--output-dir", type=Path, default=Path("runs"))
+    serve.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Open the loopback demo URL after the server starts.",
+    )
     return parser
 
 
@@ -88,6 +101,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 result.contract.id, result.contract.version
             )
         )
+        return 0
+    if args.command == "serve":
+        server = serve_demo(
+            host=args.host,
+            port=args.port,
+            output_root=args.output_dir,
+            open_browser=args.open_browser,
+        )
+        print("ExitSpec local demo: http://{0}:{1}".format(args.host, server.server_port))
+        print("Synthetic-only. No provider calls. Press Ctrl+C to stop.")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
         return 0
     return 1
 

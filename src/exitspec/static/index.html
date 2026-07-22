@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="ExitSpec turns POC promises into human-approved acceptance evidence."
+    />
+    <title>ExitSpec — Define, Prove, Decide</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#define">Skip to the POC workflow</a>
+
+    <main class="shell">
+      <header class="masthead">
+        <a class="brand" href="#top" aria-label="ExitSpec home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>
+            <strong>ExitSpec</strong>
+            <small>Acceptance evidence for AI infrastructure POCs</small>
+          </span>
+        </a>
+        <p class="mode-chip" id="mode-chip" aria-live="polite">Loading demo state…</p>
+      </header>
+
+      <section class="hero" id="top" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">POC alignment, made concrete</p>
+          <h1 id="page-title">Define the promise.<br />Prove the work.<br />Decide with confidence.</h1>
+          <p class="hero-copy">
+            ExitSpec turns the customer’s words into a measurable POC contract and a
+            proof pack they can actually review.
+          </p>
+        </div>
+        <aside class="truth-card" aria-label="ExitSpec safety boundary">
+          <p class="truth-title">The boundary is deliberate</p>
+          <p><strong>AI may draft.</strong> Humans approve.</p>
+          <p><strong>PASS is evidence—not authorization.</strong></p>
+        </aside>
+      </section>
+
+      <nav class="workflow" aria-label="ExitSpec workflow">
+        <a href="#define"><span>01</span><strong>Define</strong><small>Turn a conversation into an agreement</small></a>
+        <a href="#prove"><span>02</span><strong>Prove</strong><small>Run evidence against the frozen criteria</small></a>
+        <a href="#decide"><span>03</span><strong>Decide</strong><small>Review the proof and choose the next step</small></a>
+      </nav>
+
+      <section class="intake panel" aria-labelledby="intake-title">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">Call-to-contract starter</p>
+            <h2 id="intake-title">Paste meeting notes</h2>
+          </div>
+          <p class="synthetic-notice">Synthetic demo only — no real customer data in this build.</p>
+        </div>
+        <div class="intake-grid">
+          <label class="notes-field" for="meeting-notes">
+            <span>Meeting notes</span>
+            <textarea id="meeting-notes" rows="3" spellcheck="false">Customer: Our support agent must select the correct tool at least 95% of the time. We want to inspect any mistakes before we scale traffic.</textarea>
+          </label>
+          <div class="intake-actions">
+            <p>ExitSpec captures source-linked candidates from synthetic notes. It does not invent a metric or make a customer commitment.</p>
+            <button class="button primary" id="load-transcript" type="button">Capture notes</button>
+            <button class="button secondary" id="reset-demo" type="button">Restore support-agent sample</button>
+          </div>
+        </div>
+        <p class="inline-status" id="intake-status" aria-live="polite"></p>
+      </section>
+
+      <section class="stage" id="define" aria-labelledby="define-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 / Define</p>
+            <h2 id="define-title">What did the customer actually ask for?</h2>
+          </div>
+          <p>Every candidate stays connected to the source. Vague requests stay visible until a person makes them measurable.</p>
+        </div>
+
+        <div class="define-grid">
+          <article class="panel transcript-card">
+            <div class="card-heading">
+              <div>
+                <p class="card-kicker">Source transcript</p>
+                <h3 id="transcript-title">Synthetic discovery call</h3>
+              </div>
+              <span class="source-chip">Source-linked</span>
+            </div>
+            <ol class="transcript" id="transcript-lines" aria-label="Synthetic transcript lines"></ol>
+          </article>
+
+          <article class="panel requirements-card">
+            <div class="card-heading">
+              <div>
+                <p class="card-kicker">Candidate requirements</p>
+                <h3>Human review required</h3>
+              </div>
+              <span class="review-count" id="review-count"></span>
+            </div>
+            <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
+            <div class="customer-draft-actions">
+              <button class="button secondary" id="create-customer-draft" type="button">Prepare customer review draft</button>
+              <a class="button secondary button-link" id="customer-draft-link" href="#" target="_blank" rel="noopener" hidden>Open customer draft</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="stage" id="prove" aria-labelledby="prove-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 / Prove</p>
+            <h2 id="prove-title">What does the evidence say?</h2>
+          </div>
+          <p>Choose a deterministic outcome. The local runner writes real evidence artifacts against the reviewed, frozen contract.</p>
+        </div>
+
+        <div class="prove-grid">
+          <article class="panel scenario-card">
+            <div class="card-heading">
+              <div>
+                <p class="card-kicker">POC scenario</p>
+                <h3>Run against the frozen contract</h3>
+              </div>
+              <span class="contract-chip" id="contract-chip">Awaiting review</span>
+            </div>
+
+            <fieldset class="scenario-options" aria-label="Demo proof scenario">
+              <label class="scenario-option pass-option">
+                <input type="radio" name="scenario" value="pass" checked />
+                <span class="radio-copy"><strong>PASS</strong><small>197 / 200 fixed cases meet the evidence bar</small></span>
+              </label>
+              <label class="scenario-option not-proven-option">
+                <input type="radio" name="scenario" value="inconclusive" />
+                <span class="radio-copy"><strong>NOT_PROVEN</strong><small>The confidence bound misses the agreed target</small></span>
+              </label>
+              <label class="scenario-option blocked-option">
+                <input type="radio" name="scenario" value="blocked" />
+                <span class="radio-copy"><strong>BLOCKED</strong><small>The evidence cannot be trusted or completed</small></span>
+              </label>
+            </fieldset>
+            <button class="button primary full-width" id="run-proof" type="button">Run proof</button>
+            <a class="button secondary button-link full-width" id="proof-pack-link" href="#" target="_blank" rel="noopener" hidden>Open full Proof Pack</a>
+            <p class="inline-status" id="prove-status" aria-live="polite"></p>
+          </article>
+
+          <article class="panel evidence-card" aria-labelledby="evidence-title">
+            <div class="card-heading">
+              <div>
+                <p class="card-kicker">Evidence readout</p>
+                <h3 id="evidence-title">Current proof</h3>
+              </div>
+              <span id="proof-verdict" class="verdict-badge">AWAITING</span>
+            </div>
+            <div class="metric-row" id="metric-row"></div>
+            <p class="evidence-explanation" id="evidence-explanation"></p>
+            <div class="evidence-footnote" id="evidence-footnote"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="stage" id="decide" aria-labelledby="decide-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">03 / Decide</p>
+            <h2 id="decide-title">Give the customer a proof pack, not a black box.</h2>
+          </div>
+          <p>Everything needed to inspect the claim, the measurement, and the human next step—without confusing evidence with permission.</p>
+        </div>
+
+        <article class="proof-pack" aria-labelledby="proof-pack-title">
+          <header class="proof-pack-header">
+            <div>
+              <p class="card-kicker">Customer-ready Proof Pack</p>
+              <h3 id="proof-pack-title">Support agent tool-selection POC</h3>
+            </div>
+            <span class="pack-id" id="pack-id">LOCAL / SYNTHETIC</span>
+          </header>
+          <div class="proof-pack-grid">
+            <div class="proof-item source-item">
+              <span>Customer source</span>
+              <blockquote id="pack-source"></blockquote>
+            </div>
+            <div class="proof-item">
+              <span>Approved acceptance criterion</span>
+              <p id="pack-criterion"></p>
+            </div>
+            <div class="proof-item">
+              <span>Frozen contract</span>
+              <code id="pack-contract"></code>
+            </div>
+            <div class="proof-item proof-result">
+              <span>Evidence result</span>
+              <p id="pack-result"></p>
+            </div>
+          </div>
+          <footer class="proof-pack-footer">
+            <div>
+              <span class="footer-label">Human next step</span>
+              <p id="pack-next-step"></p>
+            </div>
+            <p class="authorization-note">PASS is evidence—not authorization. A named human must decide what may move next.</p>
+          </footer>
+        </article>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

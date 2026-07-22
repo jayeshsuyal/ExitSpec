@@ -8,7 +8,8 @@ The core rule is simple: missing or insufficient evidence never passes.
 
 ## Project status
 
-ExitSpec has completed **Brick 2: Define**. It now proves one local source-to-decision path:
+ExitSpec now has a **local Define → Prove → Decide demo loop** over one synthetic
+support-agent POC:
 
 ```text
 synthetic discovery transcript
@@ -20,7 +21,7 @@ synthetic discovery transcript
     -> versioned raw evidence
     -> statistical calculation
     -> criterion and overall verdicts
-    -> static decision packet
+    -> customer-readable Proof Pack
 ```
 
 Brick 2 deliberately rejects one vague customer request rather than quietly turning it into a test. The approved first criterion measures exact tool selection on a fixed synthetic fixture. The sample supports four evidence outcomes:
@@ -43,7 +44,7 @@ Eval and benchmark tools produce measurements. Presales tools organize plans. Ex
 
 ExitSpec will consume mature load and eval tools rather than recreate them.
 
-## Planned product flow
+## Product flow
 
 The public demo uses three screens:
 
@@ -53,7 +54,12 @@ Define -> Prove -> Decide
 
 - **Define:** connect customer statements to reviewed criteria and freeze the contract.
 - **Prove:** execute adapters and expose typed progress, failures, and evidence.
-- **Decide:** show the overall decision, per-criterion verdicts, limitations, and downloadable evidence pack.
+- **Decide:** show the overall decision, per-criterion verdicts, limitations, and a customer-readable Proof Pack.
+
+The browser demo is deliberately local and synthetic. It makes the authority
+boundary visible: a model or a prepared draft can suggest a criterion, but a named
+human must review it; a `PASS` proves evidence sufficiency, not automatic approval
+to ship.
 
 ## Learning contract
 
@@ -71,9 +77,14 @@ pytest
 exitspec define --session-id define-demo
 exitspec demo --scenario pass --contract runs/define-demo/approved-contract.json
 exitspec demo --scenario insufficient
+exitspec serve --open-browser
 ```
 
 Demo artifacts are written under `runs/` by default. `runs/` is intentionally ignored by Git; curated public evidence bundles will be copied into a separately reviewed example directory later.
+
+`exitspec serve` binds only to `127.0.0.1` by default. It uses the built-in
+synthetic transcript and deterministic fixture, makes no provider calls, and keeps
+review state only in memory for the running demo.
 
 ## Documentation
 
@@ -88,7 +99,11 @@ Demo artifacts are written under `runs/` by default. `runs/` is intentionally ig
 
 ## Honest scope
 
-Bricks 1 and 2 are deterministic and local. The authoring workflow validates a synthetic transcript and explicit human decisions; it does not yet prove LLM extraction quality, interactive authorization, hosted-endpoint behavior, production privacy guarantees, multi-user operation, or deployment reliability. Those claims remain explicitly unproven until the corresponding evidence exists.
+The current loop is deterministic and local. It validates a synthetic transcript and
+explicit human decisions; it does not yet prove live LLM extraction quality,
+hosted-endpoint behavior, production privacy guarantees, multi-user operation, or
+deployment reliability. Those claims remain explicitly unproven until the
+corresponding evidence exists.
 
 ## License
 
