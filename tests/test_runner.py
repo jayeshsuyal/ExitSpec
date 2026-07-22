@@ -3,8 +3,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from exitspec.fixtures import fixture_sha256
 from exitspec.models import RunStatus, VerdictStatus
-from exitspec.runner import run_demo
+from exitspec.runner import load_contract, run_demo
 
 
 FIXED_TIME = datetime(2026, 7, 22, 17, 0, tzinfo=timezone.utc)
@@ -23,6 +24,12 @@ def run_scenario(tmp_path, fixture_path, scenario):
         run_id="demo-" + scenario,
         now=FIXED_TIME,
     )
+
+
+def test_example_contract_declares_the_committed_fixture_hash(fixture_path):
+    contract = load_contract(CONTRACT_PATH)
+
+    assert contract.workload.sha256 == fixture_sha256(fixture_path)
 
 
 def test_pass_run_writes_complete_evidence_packet(tmp_path, fixture_path):

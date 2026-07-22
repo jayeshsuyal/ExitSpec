@@ -11,7 +11,7 @@
   },
   "workload": {
     "fixture_path": "examples/support-agent/fixtures/tool-selection-200.json",
-    "sha256": "2be8efe9ba79d5c09cd37b7df7ded4d66129fd114a934c208c67aadc64f86bd0"
+    "sha256": "75ef6f83450de100a920e9489a0b5966464f1dba2e3d339c4b57e64fb95d8271"
   },
   "owners": [
     "customer_vp_engineering",
