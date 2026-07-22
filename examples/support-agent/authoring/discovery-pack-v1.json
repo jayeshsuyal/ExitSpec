@@ -1,0 +1,85 @@
+{
+  "transcript": {
+    "id": "support-discovery-v1",
+    "title": "Synthetic support-agent discovery call",
+    "synthetic": true,
+    "lines": [
+      {
+        "line_number": 1,
+        "speaker": "customer_vp_engineering",
+        "text": "We are evaluating a hosted inference endpoint for a support agent that selects tools to look up, update, search, or escalate tickets."
+      },
+      {
+        "line_number": 2,
+        "speaker": "customer_vp_engineering",
+        "text": "For the first proof point, at least 95% of the approved 200 support cases must choose the exact support tool. We need to inspect why any case is wrong."
+      },
+      {
+        "line_number": 3,
+        "speaker": "vendor_solutions_engineer",
+        "text": "We will freeze the fixture, record the exact rule, and provide the raw case-level evidence and calculation with the final recommendation."
+      }
+    ]
+  },
+  "drafts": [
+    {
+      "id": "DRAFT-TOOL-SELECT-01",
+      "status": "NEEDS_REVIEW",
+      "source_span": {
+        "transcript_id": "support-discovery-v1",
+        "start_line": 2,
+        "end_line": 2,
+        "speaker": "customer_vp_engineering",
+        "quote": "For the first proof point, at least 95% of the approved 200 support cases must choose the exact support tool."
+      },
+      "human_added": false,
+      "normalized_claim": "The agent selects the exact expected support tool on at least 95% of the approved 200-case fixture under the approved Wilson confidence rule.",
+      "proposed_criterion": {
+        "id": "TOOL-SELECT-01",
+        "title": "Exact tool selection",
+        "must_have": true,
+        "source": {
+          "speaker": "customer_vp_engineering",
+          "quote": "For the first proof point, at least 95% of the approved 200 support cases must choose the exact support tool.",
+          "location": "support-discovery-v1:2"
+        },
+        "human_added": false,
+        "normalized_claim": "The agent selects the exact expected support tool on at least 95% of the approved 200-case fixture under the approved Wilson confidence rule.",
+        "metric": "exact_tool_selection_rate",
+        "unit": "proportion",
+        "aggregation": "exact-match proportion",
+        "rule": {
+          "operator": "gte",
+          "threshold": 0.95,
+          "minimum_samples": 200,
+          "confidence_level": 0.95,
+          "confidence_method": "wilson_two_sided_lower_bound"
+        },
+        "workload_slice": "support-tool-selection-v1",
+        "adapter": "deterministic_tool_selection",
+        "adapter_version": "1.0.0",
+        "owner": "vendor_solutions_engineer",
+        "evidence_policy": "Persist synthetic case IDs, expected/actual tool names, calculation inputs, and SHA-256 digests.",
+        "approved": false
+      },
+      "open_questions": []
+    },
+    {
+      "id": "DRAFT-INSPECTION-01",
+      "status": "NEEDS_REVIEW",
+      "source_span": {
+        "transcript_id": "support-discovery-v1",
+        "start_line": 2,
+        "end_line": 2,
+        "speaker": "customer_vp_engineering",
+        "quote": "We need to inspect why any case is wrong."
+      },
+      "human_added": false,
+      "normalized_claim": "Operators can inspect the cause of every incorrect tool-selection case.",
+      "proposed_criterion": null,
+      "open_questions": [
+        "What inspection workflow, evidence fields, and response-time expectation should define success?"
+      ]
+    }
+  ]
+}

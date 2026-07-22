@@ -1,0 +1,7 @@
+[Synthetic discovery transcript — not customer data]
+
+Customer VP Engineering: We are evaluating a hosted inference endpoint for a support agent that selects tools to look up, update, search, or escalate tickets.
+
+Customer VP Engineering: For the first proof point, at least 95% of the approved 200 support cases must choose the exact support tool. We need to inspect why any case is wrong.
+
+Vendor Solutions Engineer: We will freeze the fixture, record the exact rule, and provide the raw case-level evidence and calculation with the final recommendation.

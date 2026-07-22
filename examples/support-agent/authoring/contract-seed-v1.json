@@ -1,0 +1,24 @@
+{
+  "id": "support-agent-tool-selection",
+  "version": "0.1.0",
+  "created_at": "2026-07-22T16:00:00Z",
+  "customer": "Synthetic Support Automation Co.",
+  "use_case": "Evaluate exact tool selection for a hosted support agent.",
+  "target_system": {
+    "provider": "deterministic-local",
+    "endpoint_class": "mock",
+    "model": "deterministic-tool-selector-v1"
+  },
+  "workload": {
+    "fixture_path": "examples/support-agent/fixtures/tool-selection-200.json",
+    "sha256": "2be8efe9ba79d5c09cd37b7df7ded4d66129fd114a934c208c67aadc64f86bd0"
+  },
+  "owners": [
+    "customer_vp_engineering",
+    "vendor_solutions_engineer"
+  ],
+  "non_goals": [
+    "This Brick 2 contract does not establish live-endpoint performance, production quality, or a review workflow for failed cases."
+  ],
+  "evidence_retention_policy": "Synthetic fixture only; no secrets or raw PII; local artifacts retained for demo review."
+}
