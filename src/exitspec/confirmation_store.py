@@ -35,9 +35,15 @@ _OperationKey = tuple[str, str, "IdempotencyKeyDigest"]
 _SafeMetadata = tuple[tuple[str, str], ...]
 
 
+def _require_no_nul(value: str, field_name: str) -> None:
+    if "\x00" in value:
+        raise ValueError("{0} must not contain NUL.".format(field_name))
+
+
 def _require_non_empty(value: str, field_name: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("{0} must be non-empty.".format(field_name))
+    _require_no_nul(value, field_name)
 
 
 def _require_digest(value: str, field_name: str) -> None:
@@ -197,6 +203,7 @@ def _validate_decision_payload(
         raise ValueError("agreement_acknowledged must be a boolean.")
     if not isinstance(rationale, str):
         raise ValueError("rationale must be a string.")
+    _require_no_nul(rationale, "rationale")
     if len(rationale) > 2000:
         raise ValueError("rationale must contain at most 2000 characters.")
     if (
@@ -707,6 +714,8 @@ class RecordDecision:
             self.reviewer_display_name_snapshot,
             "reviewer_display_name_snapshot",
         )
+        if isinstance(self.rationale, str):
+            _require_no_nul(self.rationale, "rationale")
         _require_aware(self.decided_at, "decided_at")
 
 
