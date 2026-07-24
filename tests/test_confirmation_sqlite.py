@@ -1001,17 +1001,70 @@ def test_temp_schema_migration_rolls_back_without_history(
 
 def test_migration_cannot_write_preexisting_temp_object(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    connection = open_confirmation_database(tmp_path / "confirmation.db")
-    connection.execute(
-        "CREATE TEMP TABLE transient_state (id INTEGER)"
+    original_connect = confirmation_sqlite_module.sqlite3.connect
+
+    def connect_with_temp_table(
+        *args: object,
+        **kwargs: object,
+    ) -> sqlite3.Connection:
+        raw_connection = original_connect(*args, **kwargs)
+        raw_connection.execute(
+            "CREATE TEMP TABLE transient_state (id INTEGER)"
+        )
+        return raw_connection
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.sqlite3,
+        "connect",
+        connect_with_temp_table,
     )
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
     write_transient = migration(
         name="write_transient_state",
         sql="INSERT INTO temp.transient_state (id) VALUES (1)",
     )
 
     try:
+        connection.execute(
+            "INSERT INTO temp.transient_state (id) VALUES (7)"
+        )
+        assert connection.execute(
+            "SELECT id FROM temp.transient_state"
+        ).fetchone()[0] == 7
+        connection.execute("DELETE FROM temp.transient_state")
+
+        for forbidden_sql in (
+            "CREATE TEMP TABLE another_temp_table (id INTEGER)",
+            """
+            CREATE TEMP VIEW transient_view AS
+            SELECT id FROM transient_state
+            """,
+            """
+            CREATE INDEX temp.transient_state_idx
+            ON transient_state (id)
+            """,
+            """
+            CREATE TEMP TRIGGER transient_state_trigger
+            AFTER INSERT ON transient_state
+            BEGIN
+                SELECT 1;
+            END
+            """,
+            """
+            CREATE VIRTUAL TABLE temp.transient_search
+            USING fts5(content)
+            """,
+            "ALTER TABLE temp.transient_state ADD COLUMN forged TEXT",
+            "DROP TABLE temp.transient_state",
+        ):
+            with pytest.raises(
+                sqlite3.DatabaseError,
+                match="not authorized",
+            ):
+                connection.execute(forbidden_sql)
+
         with pytest.raises(
             MigrationFailed,
             match="^Database migration failed\\.$",
@@ -1022,6 +1075,29 @@ def test_migration_cannot_write_preexisting_temp_object(
             "SELECT COUNT(*) FROM temp.transient_state"
         ).fetchone()[0] == 0
         assert read_applied_migrations(connection) == ()
+    finally:
+        connection.close()
+
+
+def test_normal_alter_is_denied_when_rename_target_is_not_authorized(
+    tmp_path: Path,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    create_scratch = migration(
+        name="create_main_scratch",
+        sql="CREATE TABLE main_scratch (id INTEGER)",
+    )
+    try:
+        apply_migrations(connection, (create_scratch,), now=NOW)
+        with pytest.raises(
+            sqlite3.DatabaseError,
+            match="not authorized",
+        ):
+            connection.execute(
+                "ALTER TABLE main_scratch RENAME TO renamed_scratch"
+            )
+        assert "main_scratch" in table_names(connection)
+        assert "renamed_scratch" not in table_names(connection)
     finally:
         connection.close()
 

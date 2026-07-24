@@ -1,7 +1,8 @@
 """Hardened SQLite connection and forward-only migration primitives.
 
-This module intentionally owns only database infrastructure. Domain ledger
-tables and the ``ConfirmationStore`` adapter belong to later slices.
+This module intentionally owns only database infrastructure. The frozen domain
+schema lives separately; the ``ConfirmationStore`` adapter belongs to a later
+slice.
 """
 
 from __future__ import annotations
@@ -129,6 +130,7 @@ _PROTECTED_HISTORY_ACTIONS = {
     sqlite3.SQLITE_DROP_TRIGGER,
     sqlite3.SQLITE_DROP_VIEW,
     sqlite3.SQLITE_UPDATE,
+    *_VIRTUAL_TABLE_ACTIONS,
     *(
         getattr(sqlite3, name, -1)
         for name in (
@@ -143,6 +145,51 @@ _PROTECTED_HISTORY_ACTIONS = {
         )
     ),
 }
+_DOMAIN_LEDGER_TABLES = frozenset(
+    {
+        "review_invitations",
+        "invitation_revocations",
+        "confirmation_decisions",
+        "idempotency_operations",
+        "confirmation_audit_events",
+    }
+)
+_DOMAIN_LEDGER_INDEXES = frozenset(
+    {
+        "review_invitations_binding_idx",
+        "review_invitations_expiry_idx",
+        "confirmation_audit_events_binding_sequence_idx",
+        "confirmation_audit_events_invitation_sequence_idx",
+        "confirmation_audit_events_confirmation_sequence_idx",
+    }
+)
+_DOMAIN_LEDGER_TRIGGERS = frozenset(
+    {
+        "review_invitations_consistent_fingerprint",
+        "confirmation_audit_events_consistent_fingerprint",
+        "confirmation_decisions_active_invitation",
+        "review_invitations_block_replace",
+        "invitation_revocations_block_replace",
+        "confirmation_decisions_block_replace",
+        "idempotency_operations_block_replace",
+        "confirmation_audit_events_block_replace",
+        "review_invitations_block_update",
+        "review_invitations_block_delete",
+        "invitation_revocations_block_update",
+        "invitation_revocations_block_delete",
+        "confirmation_decisions_block_update",
+        "confirmation_decisions_block_delete",
+        "idempotency_operations_block_update",
+        "idempotency_operations_block_delete",
+        "confirmation_audit_events_block_update",
+        "confirmation_audit_events_block_delete",
+    }
+)
+_DOMAIN_LEDGER_OBJECTS = (
+    _DOMAIN_LEDGER_TABLES
+    | _DOMAIN_LEDGER_INDEXES
+    | _DOMAIN_LEDGER_TRIGGERS
+)
 
 
 class ConfirmationSQLiteError(RuntimeError):
@@ -301,6 +348,15 @@ class _ConfirmationConnection(sqlite3.Connection):
             )
         ):
             return sqlite3.SQLITE_DENY
+        if self.__mode == "normal" and (
+            action == sqlite3.SQLITE_ALTER_TABLE
+            or action in _TEMP_SCHEMA_ACTIONS
+            or (
+                action in _VIRTUAL_TABLE_ACTIONS
+                and (database or "").lower() == "temp"
+            )
+        ):
+            return sqlite3.SQLITE_DENY
 
         if (
             action in _CREATE_TRIGGER_ACTIONS
@@ -308,11 +364,29 @@ class _ConfirmationConnection(sqlite3.Connection):
         ):
             return sqlite3.SQLITE_DENY
 
-        targets = {first, second}
+        targets = {
+            value.lower()
+            for value in (first, second)
+            if isinstance(value, str)
+        }
         history_targeted = _HISTORY_TABLE in targets
         required_trigger_targeted = bool(
             targets.intersection(_SCHEMA_MIGRATIONS_TRIGGER_SQL)
         )
+        domain_object_targeted = bool(
+            targets.intersection(_DOMAIN_LEDGER_OBJECTS)
+        )
+
+        if (
+            self.__mode == "normal"
+            and (database or "").lower() == "temp"
+            and (
+                history_targeted
+                or required_trigger_targeted
+                or domain_object_targeted
+            )
+        ):
+            return sqlite3.SQLITE_DENY
 
         if self.__mode == "migration" and history_targeted:
             return sqlite3.SQLITE_DENY
@@ -327,6 +401,12 @@ class _ConfirmationConnection(sqlite3.Connection):
 
         if action in _PROTECTED_HISTORY_ACTIONS and (
             history_targeted or required_trigger_targeted
+        ):
+            return sqlite3.SQLITE_DENY
+        if (
+            self.__mode == "normal"
+            and action in _PROTECTED_HISTORY_ACTIONS
+            and domain_object_targeted
         ):
             return sqlite3.SQLITE_DENY
         return sqlite3.SQLITE_OK
@@ -666,7 +746,7 @@ def apply_migrations(
                 try:
                     guarded_connection.execute(
                         """
-                        INSERT INTO schema_migrations (
+                        INSERT INTO main.schema_migrations (
                             version,
                             name,
                             checksum,
@@ -884,7 +964,7 @@ def _bootstrap_schema_migrations(
         object_row = connection.execute(
             """
             SELECT type, name, tbl_name, sql
-            FROM sqlite_master
+            FROM main.sqlite_master
             WHERE name = ?
             """,
             (_HISTORY_TABLE,),
@@ -908,7 +988,7 @@ def _validate_bootstrap_shape(
     primary_objects = connection.execute(
         """
         SELECT type, name, tbl_name, sql
-        FROM sqlite_master
+        FROM main.sqlite_master
         WHERE name = ?
         """,
         (_HISTORY_TABLE,),
@@ -923,7 +1003,7 @@ def _validate_bootstrap_shape(
         raise ValueError
 
     columns = connection.execute(
-        "PRAGMA table_xinfo(schema_migrations)"
+        "PRAGMA main.table_xinfo(schema_migrations)"
     ).fetchall()
     actual_columns = tuple(
         (
@@ -942,7 +1022,7 @@ def _validate_bootstrap_shape(
     related_objects = connection.execute(
         """
         SELECT type, name, tbl_name, sql
-        FROM sqlite_master
+        FROM main.sqlite_master
         WHERE tbl_name = ?
           AND type IN ('index', 'trigger')
         ORDER BY type, name
@@ -963,7 +1043,7 @@ def _validate_bootstrap_shape(
     all_trigger_rows = connection.execute(
         """
         SELECT name, sql
-        FROM sqlite_master
+        FROM main.sqlite_master
         WHERE type = 'trigger'
         """
     ).fetchall()
@@ -1045,7 +1125,7 @@ def _read_history(
     rows = connection.execute(
         """
         SELECT version, name, checksum, applied_at_us
-        FROM schema_migrations
+        FROM main.schema_migrations
         ORDER BY version ASC
         """
     ).fetchall()
