@@ -1,4 +1,8 @@
-"""Frozen SQLite schema for the durable confirmation ledger."""
+"""Frozen SQLite schema for the durable confirmation ledger.
+
+Migration 0001 requires SQLite 3.37.0 or newer because its five domain tables
+use ``STRICT`` storage.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +17,80 @@ from .confirmation_sqlite import (
 )
 
 
-CONFIRMATION_LEDGER_SQL = """
+MINIMUM_CONFIRMATION_SQLITE_VERSION = (3, 37, 0)
+_PYTHON_STRIP_CODEPOINTS = (
+    9,
+    10,
+    11,
+    12,
+    13,
+    28,
+    29,
+    30,
+    31,
+    32,
+    133,
+    160,
+    5760,
+    8192,
+    8193,
+    8194,
+    8195,
+    8196,
+    8197,
+    8198,
+    8199,
+    8200,
+    8201,
+    8202,
+    8232,
+    8233,
+    8239,
+    8287,
+    12288,
+)
+_PYTHON_STRIP_CHARACTERS_SQL = "char({0})".format(
+    ", ".join(str(codepoint) for codepoint in _PYTHON_STRIP_CODEPOINTS)
+)
+
+
+def _python_nonblank_sql(column: str) -> str:
+    """Return frozen SQL matching Python 3.12 ``bool(value.strip())``."""
+
+    if re.fullmatch(r"[a-z][a-z0-9_]*", column) is None:
+        raise RuntimeError("invalid frozen schema column")
+    return "length(trim({0}, {1})) > 0".format(
+        column,
+        _PYTHON_STRIP_CHARACTERS_SQL,
+    )
+
+
+def require_confirmation_schema_runtime() -> None:
+    """Fail safely when this process cannot execute the frozen schema."""
+
+    try:
+        current_version = tuple(sqlite3.sqlite_version_info[:3])
+    except (AttributeError, TypeError, ValueError):
+        raise LedgerUnavailable() from None
+    if (
+        len(current_version) != 3
+        or any(
+            isinstance(part, bool) or not isinstance(part, int)
+            for part in current_version
+        )
+        or current_version < MINIMUM_CONFIRMATION_SQLITE_VERSION
+    ):
+        raise LedgerUnavailable()
+
+
+require_confirmation_schema_runtime()
+
+
+CONFIRMATION_LEDGER_SQL = f"""
 CREATE TABLE review_invitations (
     invitation_id TEXT NOT NULL PRIMARY KEY CHECK (
         length(invitation_id) BETWEEN 8 AND 64
+        AND instr(invitation_id, char(0)) = 0
         AND substr(invitation_id, 1, 7) = 'review-'
         AND substr(invitation_id, 8) NOT GLOB '*[^a-z0-9-]*'
         AND substr(invitation_id, 8, 1) GLOB '[a-z0-9]'
@@ -24,27 +98,34 @@ CREATE TABLE review_invitations (
         AND invitation_id NOT GLOB '*--*'
     ),
     contract_id TEXT NOT NULL CHECK (
-        length(trim(contract_id)) > 0
+        instr(contract_id, char(0)) = 0
+        AND {_python_nonblank_sql("contract_id")}
     ),
     contract_version TEXT NOT NULL CHECK (
-        length(trim(contract_version)) > 0
+        instr(contract_version, char(0)) = 0
+        AND {_python_nonblank_sql("contract_version")}
     ),
     confirmation_fingerprint TEXT NOT NULL CHECK (
         length(confirmation_fingerprint) = 64
+        AND instr(confirmation_fingerprint, char(0)) = 0
         AND confirmation_fingerprint NOT GLOB '*[^a-f0-9]*'
     ),
     token_digest TEXT NOT NULL UNIQUE CHECK (
         length(token_digest) = 64
+        AND instr(token_digest, char(0)) = 0
         AND token_digest NOT GLOB '*[^a-f0-9]*'
     ),
     token_digest_version TEXT NOT NULL CHECK (
-        length(trim(token_digest_version)) > 0
+        instr(token_digest_version, char(0)) = 0
+        AND {_python_nonblank_sql("token_digest_version")}
     ),
     intended_organization_id TEXT NOT NULL CHECK (
-        length(trim(intended_organization_id)) > 0
+        instr(intended_organization_id, char(0)) = 0
+        AND {_python_nonblank_sql("intended_organization_id")}
     ),
     issued_by_subject TEXT NOT NULL CHECK (
-        length(trim(issued_by_subject)) > 0
+        instr(issued_by_subject, char(0)) = 0
+        AND {_python_nonblank_sql("issued_by_subject")}
     ),
     issued_at_us INTEGER NOT NULL CHECK (
         typeof(issued_at_us) = 'integer'
@@ -74,17 +155,21 @@ CREATE INDEX review_invitations_expiry_idx
 ON review_invitations (expires_at_us);
 
 CREATE TABLE invitation_revocations (
-    invitation_id TEXT NOT NULL PRIMARY KEY,
+    invitation_id TEXT NOT NULL PRIMARY KEY CHECK (
+        instr(invitation_id, char(0)) = 0
+    ),
     revoked_at_us INTEGER NOT NULL CHECK (
         typeof(revoked_at_us) = 'integer'
         AND revoked_at_us >= 0
     ),
     revoked_by_subject TEXT NOT NULL CHECK (
         length(revoked_by_subject) BETWEEN 1 AND 256
-        AND length(trim(revoked_by_subject)) > 0
+        AND instr(revoked_by_subject, char(0)) = 0
+        AND {_python_nonblank_sql("revoked_by_subject")}
     ),
     reason_code TEXT NOT NULL CHECK (
-        reason_code IN (
+        instr(reason_code, char(0)) = 0
+        AND reason_code IN (
             'MANUAL',
             'REISSUED',
             'CONTRACT_SUPERSEDED',
@@ -100,34 +185,45 @@ CREATE TABLE invitation_revocations (
 CREATE TABLE confirmation_decisions (
     confirmation_id TEXT NOT NULL PRIMARY KEY CHECK (
         length(confirmation_id) = 68
+        AND instr(confirmation_id, char(0)) = 0
         AND substr(confirmation_id, 1, 4) = 'cnf_'
         AND substr(confirmation_id, 5) NOT GLOB '*[^a-f0-9]*'
     ),
-    invitation_id TEXT NOT NULL UNIQUE,
+    invitation_id TEXT NOT NULL UNIQUE CHECK (
+        instr(invitation_id, char(0)) = 0
+    ),
     contract_id TEXT NOT NULL CHECK (
-        length(trim(contract_id)) > 0
+        instr(contract_id, char(0)) = 0
+        AND {_python_nonblank_sql("contract_id")}
     ),
     contract_version TEXT NOT NULL CHECK (
-        length(trim(contract_version)) > 0
+        instr(contract_version, char(0)) = 0
+        AND {_python_nonblank_sql("contract_version")}
     ),
     confirmation_fingerprint TEXT NOT NULL CHECK (
         length(confirmation_fingerprint) = 64
+        AND instr(confirmation_fingerprint, char(0)) = 0
         AND confirmation_fingerprint NOT GLOB '*[^a-f0-9]*'
     ),
     reviewer_issuer TEXT NOT NULL CHECK (
-        length(trim(reviewer_issuer)) > 0
+        instr(reviewer_issuer, char(0)) = 0
+        AND {_python_nonblank_sql("reviewer_issuer")}
     ),
     reviewer_subject TEXT NOT NULL CHECK (
-        length(trim(reviewer_subject)) > 0
+        instr(reviewer_subject, char(0)) = 0
+        AND {_python_nonblank_sql("reviewer_subject")}
     ),
     reviewer_organization_id TEXT NOT NULL CHECK (
-        length(trim(reviewer_organization_id)) > 0
+        instr(reviewer_organization_id, char(0)) = 0
+        AND {_python_nonblank_sql("reviewer_organization_id")}
     ),
     reviewer_display_name_snapshot TEXT NOT NULL CHECK (
-        length(trim(reviewer_display_name_snapshot)) > 0
+        instr(reviewer_display_name_snapshot, char(0)) = 0
+        AND {_python_nonblank_sql("reviewer_display_name_snapshot")}
     ),
     decision TEXT NOT NULL CHECK (
-        decision IN ('CONFIRM', 'REQUEST_CHANGES')
+        instr(decision, char(0)) = 0
+        AND decision IN ('CONFIRM', 'REQUEST_CHANGES')
     ),
     agreement_acknowledged INTEGER NOT NULL CHECK (
         typeof(agreement_acknowledged) = 'integer'
@@ -135,6 +231,7 @@ CREATE TABLE confirmation_decisions (
     ),
     rationale TEXT NOT NULL CHECK (
         length(rationale) <= 2000
+        AND instr(rationale, char(0)) = 0
     ),
     decided_at_us INTEGER NOT NULL CHECK (
         typeof(decided_at_us) = 'integer'
@@ -142,6 +239,7 @@ CREATE TABLE confirmation_decisions (
     ),
     request_digest TEXT NOT NULL CHECK (
         length(request_digest) = 64
+        AND instr(request_digest, char(0)) = 0
         AND request_digest NOT GLOB '*[^a-f0-9]*'
     ),
     CHECK (
@@ -151,7 +249,7 @@ CREATE TABLE confirmation_decisions (
         )
         OR (
             decision = 'REQUEST_CHANGES'
-            AND length(trim(rationale)) BETWEEN 1 AND 2000
+            AND {_python_nonblank_sql("rationale")}
         )
     ),
     UNIQUE (contract_id, contract_version),
@@ -202,23 +300,30 @@ END;
 CREATE TABLE idempotency_operations (
     operation_digest TEXT NOT NULL PRIMARY KEY CHECK (
         length(operation_digest) = 64
+        AND instr(operation_digest, char(0)) = 0
         AND operation_digest NOT GLOB '*[^a-f0-9]*'
     ),
     contract_id TEXT NOT NULL CHECK (
-        length(trim(contract_id)) > 0
+        instr(contract_id, char(0)) = 0
+        AND {_python_nonblank_sql("contract_id")}
     ),
     contract_version TEXT NOT NULL CHECK (
-        length(trim(contract_version)) > 0
+        instr(contract_version, char(0)) = 0
+        AND {_python_nonblank_sql("contract_version")}
     ),
     idempotency_key_digest TEXT NOT NULL CHECK (
         length(idempotency_key_digest) = 64
+        AND instr(idempotency_key_digest, char(0)) = 0
         AND idempotency_key_digest NOT GLOB '*[^a-f0-9]*'
     ),
     request_digest TEXT NOT NULL CHECK (
         length(request_digest) = 64
+        AND instr(request_digest, char(0)) = 0
         AND request_digest NOT GLOB '*[^a-f0-9]*'
     ),
-    confirmation_id TEXT NOT NULL UNIQUE,
+    confirmation_id TEXT NOT NULL UNIQUE CHECK (
+        instr(confirmation_id, char(0)) = 0
+    ),
     created_at_us INTEGER NOT NULL CHECK (
         typeof(created_at_us) = 'integer'
         AND created_at_us >= 0
@@ -247,6 +352,7 @@ CREATE TABLE idempotency_operations (
 CREATE TABLE confirmation_audit_events (
     event_id TEXT NOT NULL PRIMARY KEY CHECK (
         length(event_id) BETWEEN 7 AND 64
+        AND instr(event_id, char(0)) = 0
         AND substr(event_id, 1, 6) = 'audit-'
         AND substr(event_id, 7) NOT GLOB '*[^a-z0-9-]*'
         AND substr(event_id, 7, 1) GLOB '[a-z0-9]'
@@ -258,7 +364,8 @@ CREATE TABLE confirmation_audit_events (
         AND event_sequence > 0
     ),
     event_type TEXT NOT NULL CHECK (
-        event_type IN (
+        instr(event_type, char(0)) = 0
+        AND event_type IN (
             'INVITATION_ISSUED',
             'INVITATION_REVOKED',
             'INVITATION_REISSUED',
@@ -274,19 +381,23 @@ CREATE TABLE confirmation_audit_events (
         AND occurred_at_us >= 0
     ),
     contract_id TEXT NOT NULL CHECK (
-        length(trim(contract_id)) > 0
+        instr(contract_id, char(0)) = 0
+        AND {_python_nonblank_sql("contract_id")}
     ),
     contract_version TEXT NOT NULL CHECK (
-        length(trim(contract_version)) > 0
+        instr(contract_version, char(0)) = 0
+        AND {_python_nonblank_sql("contract_version")}
     ),
     confirmation_fingerprint TEXT NOT NULL CHECK (
         length(confirmation_fingerprint) = 64
+        AND instr(confirmation_fingerprint, char(0)) = 0
         AND confirmation_fingerprint NOT GLOB '*[^a-f0-9]*'
     ),
     invitation_id TEXT CHECK (
         invitation_id IS NULL
         OR (
             length(invitation_id) BETWEEN 8 AND 64
+            AND instr(invitation_id, char(0)) = 0
             AND substr(invitation_id, 1, 7) = 'review-'
             AND substr(invitation_id, 8) NOT GLOB '*[^a-z0-9-]*'
             AND substr(invitation_id, 8, 1) GLOB '[a-z0-9]'
@@ -298,6 +409,7 @@ CREATE TABLE confirmation_audit_events (
         confirmation_id IS NULL
         OR (
             length(confirmation_id) = 68
+            AND instr(confirmation_id, char(0)) = 0
             AND substr(confirmation_id, 1, 4) = 'cnf_'
             AND substr(confirmation_id, 5) NOT GLOB '*[^a-f0-9]*'
         )
@@ -306,30 +418,35 @@ CREATE TABLE confirmation_audit_events (
         actor_issuer IS NULL
         OR (
             length(actor_issuer) BETWEEN 1 AND 256
-            AND length(trim(actor_issuer)) > 0
+            AND instr(actor_issuer, char(0)) = 0
+            AND {_python_nonblank_sql("actor_issuer")}
         )
     ),
     actor_subject TEXT CHECK (
         actor_subject IS NULL
         OR (
             length(actor_subject) BETWEEN 1 AND 256
-            AND length(trim(actor_subject)) > 0
+            AND instr(actor_subject, char(0)) = 0
+            AND {_python_nonblank_sql("actor_subject")}
         )
     ),
     actor_organization_id TEXT CHECK (
         actor_organization_id IS NULL
         OR (
             length(actor_organization_id) BETWEEN 1 AND 256
-            AND length(trim(actor_organization_id)) > 0
+            AND instr(actor_organization_id, char(0)) = 0
+            AND {_python_nonblank_sql("actor_organization_id")}
         )
     ),
     outcome TEXT NOT NULL CHECK (
-        outcome IN ('SUCCEEDED', 'REPLAYED', 'REJECTED')
+        instr(outcome, char(0)) = 0
+        AND outcome IN ('SUCCEEDED', 'REPLAYED', 'REJECTED')
     ),
     reason_code TEXT CHECK (
         reason_code IS NULL
         OR (
             length(reason_code) BETWEEN 1 AND 64
+            AND instr(reason_code, char(0)) = 0
             AND substr(reason_code, 1, 1) GLOB '[A-Z]'
             AND reason_code NOT GLOB '*[^A-Z0-9_]*'
         )
@@ -338,20 +455,30 @@ CREATE TABLE confirmation_audit_events (
         trace_id IS NULL
         OR (
             length(trace_id) = 32
+            AND instr(trace_id, char(0)) = 0
             AND trace_id NOT GLOB '*[^a-f0-9]*'
         )
     ),
     metadata_schema_version TEXT NOT NULL CHECK (
-        metadata_schema_version = '1'
+        instr(metadata_schema_version, char(0)) = 0
+        AND metadata_schema_version = '1'
     ),
     metadata_adapter_name TEXT CHECK (
         metadata_adapter_name IS NULL
-        OR metadata_adapter_name IN ('memory', 'sqlite', 'postgresql')
+        OR (
+            instr(metadata_adapter_name, char(0)) = 0
+            AND metadata_adapter_name IN (
+                'memory',
+                'sqlite',
+                'postgresql'
+            )
+        )
     ),
     metadata_adapter_version TEXT CHECK (
         metadata_adapter_version IS NULL
         OR (
-            metadata_adapter_version NOT GLOB '*[^0-9.]*'
+            instr(metadata_adapter_version, char(0)) = 0
+            AND metadata_adapter_version NOT GLOB '*[^0-9.]*'
             AND substr(metadata_adapter_version, 1, 1) != '.'
             AND substr(metadata_adapter_version, -1, 1) != '.'
             AND metadata_adapter_version NOT GLOB '*..*'
@@ -822,6 +949,7 @@ def validate_confirmation_schema(connection: object) -> None:
     """Fail closed unless migration 0001 and every domain object are exact."""
 
     try:
+        require_confirmation_schema_runtime()
         history = read_applied_migrations(connection)
         if (
             len(history) != 1

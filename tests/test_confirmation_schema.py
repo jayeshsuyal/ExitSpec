@@ -7,17 +7,22 @@ from typing import Any
 
 import pytest
 
+import exitspec.confirmation_schema as confirmation_schema_module
 from exitspec.confirmation_schema import (
     CONFIRMATION_LEDGER_INDEX_NAMES,
     CONFIRMATION_LEDGER_MIGRATION,
     CONFIRMATION_LEDGER_MIGRATIONS,
     CONFIRMATION_LEDGER_SQL,
     CONFIRMATION_LEDGER_TRIGGER_NAMES,
+    MINIMUM_CONFIRMATION_SQLITE_VERSION,
+    require_confirmation_schema_runtime,
     validate_confirmation_schema,
 )
 from exitspec.confirmation_sqlite import (
     AppliedMigration,
     LedgerUnavailable,
+    Migration,
+    MigrationFailed,
     apply_migrations,
     open_confirmation_database,
     read_applied_migrations,
@@ -33,6 +38,52 @@ CONFIRMATION_ID = "cnf_" + "e" * 64
 ISSUED_AT_US = 1_000_000
 DECIDED_AT_US = 1_500_000
 EXPIRES_AT_US = 2_000_000
+PYTHON_STRIP_CODEPOINTS = (
+    9,
+    10,
+    11,
+    12,
+    13,
+    28,
+    29,
+    30,
+    31,
+    32,
+    133,
+    160,
+    5760,
+    8192,
+    8193,
+    8194,
+    8195,
+    8196,
+    8197,
+    8198,
+    8199,
+    8200,
+    8201,
+    8202,
+    8232,
+    8233,
+    8239,
+    8287,
+    12288,
+)
+PR6_SCHEMA_MIGRATIONS_SQL = """
+CREATE TABLE schema_migrations (
+    version INTEGER NOT NULL PRIMARY KEY CHECK (version > 0),
+    name TEXT NOT NULL CHECK (
+        length(name) BETWEEN 1 AND 64
+        AND substr(name, 1, 1) GLOB '[a-z]'
+        AND name NOT GLOB '*[^a-z0-9_]*'
+    ),
+    checksum TEXT NOT NULL CHECK (
+        length(checksum) = 64
+        AND checksum NOT GLOB '*[^a-f0-9]*'
+    ),
+    applied_at_us INTEGER NOT NULL CHECK (applied_at_us >= 0)
+)
+""".strip()
 
 DOMAIN_TABLES = {
     "review_invitations",
@@ -338,6 +389,59 @@ def test_migration_is_one_frozen_exact_version() -> None:
         migration.name = "changed"  # type: ignore[misc]
 
 
+def test_confirmation_schema_requires_sqlite_3_37_with_safe_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert MINIMUM_CONFIRMATION_SQLITE_VERSION == (3, 37, 0)
+    monkeypatch.setattr(
+        confirmation_schema_module.sqlite3,
+        "sqlite_version_info",
+        (3, 36, 99),
+    )
+
+    with pytest.raises(
+        LedgerUnavailable,
+        match="^Confirmation ledger is unavailable\\.$",
+    ) as error:
+        require_confirmation_schema_runtime()
+    assert error.value.args == ("Confirmation ledger is unavailable.",)
+
+    monkeypatch.setattr(
+        confirmation_schema_module.sqlite3,
+        "sqlite_version_info",
+        MINIMUM_CONFIRMATION_SQLITE_VERSION,
+    )
+    require_confirmation_schema_runtime()
+
+
+def test_domain_schema_preserves_and_reopens_pr6_bootstrap_shape(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    created = open_confirmation_database(database_path)
+    try:
+        assert created.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = 'schema_migrations'
+            """
+        ).fetchone()[0] == PR6_SCHEMA_MIGRATIONS_SQL
+    finally:
+        created.close()
+
+    reopened = open_confirmation_database(database_path)
+    try:
+        assert apply_migrations(
+            reopened,
+            CONFIRMATION_LEDGER_MIGRATIONS,
+            now=MIGRATED_AT,
+        ) == 1
+    finally:
+        reopened.close()
+
+
 def test_clean_apply_has_exact_domain_shape_and_links(ledger: Any) -> None:
     assert _object_names(ledger, "table") == DOMAIN_TABLES | {
         "schema_migrations"
@@ -584,6 +688,195 @@ def test_invitation_rejects_invalid_identifiers_digests_text_and_time(
     assert ledger.execute(
         "SELECT COUNT(*) FROM review_invitations"
     ).fetchone()[0] == 0
+
+
+def test_schema_rejects_nul_in_all_text_authority_categories(
+    ledger: Any,
+) -> None:
+    invitation_changes = (
+        {"invitation_id": "review-first\x00hidden"},
+        {"contract_id": "contract-1\x00hidden"},
+        {"contract_version": "v1\x00hidden"},
+        {"confirmation_fingerprint": FINGERPRINT + "\x00hidden"},
+        {"token_digest": TOKEN_DIGEST + "\x00first"},
+        {"token_digest": TOKEN_DIGEST + "\x00second"},
+        {"token_digest_version": "sha256-v1\x00hidden"},
+        {"intended_organization_id": "org-1\x00hidden"},
+        {"issued_by_subject": "employee-1\x00hidden"},
+    )
+    for changes in invitation_changes:
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_invitation(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM review_invitations"
+    ).fetchone()[0] == 0
+    _insert_invitation(ledger)
+
+    for changes in (
+        {"invitation_id": "review-first\x00hidden"},
+        {"revoked_by_subject": "s" * 256 + "\x00hidden"},
+        {"reason_code": "MANUAL\x00hidden"},
+    ):
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_revocation(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM invitation_revocations"
+    ).fetchone()[0] == 0
+
+    decision_changes = (
+        {"confirmation_id": CONFIRMATION_ID + "\x00hidden"},
+        {"invitation_id": "review-first\x00hidden"},
+        {"contract_id": "contract-1\x00hidden"},
+        {"contract_version": "v1\x00hidden"},
+        {"confirmation_fingerprint": FINGERPRINT + "\x00hidden"},
+        {"reviewer_issuer": "issuer\x00hidden"},
+        {"reviewer_subject": "subject\x00hidden"},
+        {"reviewer_organization_id": "org-1\x00hidden"},
+        {"reviewer_display_name_snapshot": "Reviewer\x00hidden"},
+        {"decision": "CONFIRM\x00hidden"},
+        {"rationale": "r" * 2000 + "\x00hidden"},
+        {"request_digest": REQUEST_DIGEST + "\x00hidden"},
+    )
+    for changes in decision_changes:
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_decision(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM confirmation_decisions"
+    ).fetchone()[0] == 0
+    _insert_decision(ledger)
+
+    operation_changes = (
+        {"operation_digest": "1" * 64 + "\x00hidden"},
+        {"contract_id": "contract-1\x00hidden"},
+        {"contract_version": "v1\x00hidden"},
+        {"idempotency_key_digest": "2" * 64 + "\x00hidden"},
+        {"request_digest": REQUEST_DIGEST + "\x00hidden"},
+        {"confirmation_id": CONFIRMATION_ID + "\x00hidden"},
+    )
+    for changes in operation_changes:
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_operation(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM idempotency_operations"
+    ).fetchone()[0] == 0
+
+    audit_changes = (
+        {"event_id": "audit-first\x00hidden"},
+        {"event_type": "INVITATION_ISSUED\x00hidden"},
+        {"contract_id": "contract-1\x00hidden"},
+        {"contract_version": "v1\x00hidden"},
+        {"confirmation_fingerprint": FINGERPRINT + "\x00hidden"},
+        {"invitation_id": "review-first\x00hidden"},
+        {
+            "event_type": "DECISION_RECORDED",
+            "confirmation_id": CONFIRMATION_ID + "\x00hidden",
+        },
+        {"actor_issuer": "issuer\x00hidden"},
+        {"actor_subject": "s" * 256 + "\x00hidden"},
+        {"actor_organization_id": "org-1\x00hidden"},
+        {"outcome": "SUCCEEDED\x00hidden"},
+        {
+            "event_type": "INVITATION_REVOKED",
+            "reason_code": "MANUAL\x00hidden",
+        },
+        {"trace_id": "3" * 32 + "\x00hidden"},
+        {"metadata_schema_version": "1\x00hidden"},
+        {"metadata_adapter_name": "sqlite\x00hidden"},
+        {"metadata_adapter_version": "1.2\x00hidden"},
+    )
+    for changes in audit_changes:
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_audit_event(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM confirmation_audit_events"
+    ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "codepoint",
+    PYTHON_STRIP_CODEPOINTS,
+    ids=lambda codepoint: "U+{0:04X}".format(codepoint),
+)
+def test_non_empty_sql_text_matches_python_strip_for_all_whitespace(
+    ledger: Any,
+    codepoint: int,
+) -> None:
+    whitespace = chr(codepoint)
+    assert whitespace.strip() == ""
+
+    for changes in (
+        {"contract_id": whitespace},
+        {"contract_version": whitespace},
+        {"token_digest_version": whitespace},
+        {"intended_organization_id": whitespace},
+        {"issued_by_subject": whitespace},
+    ):
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_invitation(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM review_invitations"
+    ).fetchone()[0] == 0
+    _insert_invitation(ledger)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        _insert_revocation(ledger, revoked_by_subject=whitespace)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM invitation_revocations"
+    ).fetchone()[0] == 0
+
+    for changes in (
+        {"contract_id": whitespace},
+        {"contract_version": whitespace},
+        {"reviewer_issuer": whitespace},
+        {"reviewer_subject": whitespace},
+        {"reviewer_organization_id": whitespace},
+        {"reviewer_display_name_snapshot": whitespace},
+        {
+            "decision": "REQUEST_CHANGES",
+            "agreement_acknowledged": 0,
+            "rationale": whitespace,
+        },
+    ):
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_decision(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM confirmation_decisions"
+    ).fetchone()[0] == 0
+    _insert_decision(ledger)
+
+    for changes in (
+        {"contract_id": whitespace},
+        {"contract_version": whitespace},
+    ):
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_operation(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM idempotency_operations"
+    ).fetchone()[0] == 0
+
+    for changes in (
+        {"contract_id": whitespace},
+        {"contract_version": whitespace},
+        {"actor_issuer": whitespace},
+        {"actor_subject": whitespace},
+        {"actor_organization_id": whitespace},
+    ):
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert_audit_event(ledger, **changes)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM confirmation_audit_events"
+    ).fetchone()[0] == 0
+
+
+def test_non_empty_sql_text_does_not_overstrip_zero_width_space(
+    ledger: Any,
+) -> None:
+    value = "\u200b"
+    assert value.strip() == value
+    _insert_invitation(ledger, contract_id=value)
+    assert ledger.execute(
+        "SELECT contract_id FROM review_invitations"
+    ).fetchone()[0] == value
 
 
 def test_schema_does_not_invent_limits_absent_from_domain_models(
@@ -1381,3 +1674,134 @@ def test_normal_facade_cannot_change_domain_schema_or_triggers(
         object_type: _object_names(ledger, object_type)
         for object_type in ("table", "index", "trigger")
     } == original_objects
+
+
+def test_normal_facade_denies_virtual_tables_using_any_protected_name(
+    tmp_path: Path,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    protected_names = DOMAIN_TABLES | DOMAIN_INDEXES | DOMAIN_TRIGGERS
+    try:
+        for name in sorted(protected_names):
+            with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+                connection.execute(
+                    "CREATE VIRTUAL TABLE {0} USING fts5(content)".format(name)
+                )
+            assert not connection.in_transaction
+        assert not (
+            protected_names
+            & {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master"
+                ).fetchall()
+            }
+        )
+    finally:
+        connection.close()
+
+
+def test_pre_migration_virtual_table_name_occupation_is_fail_closed(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    raw = sqlite3.connect(database_path, isolation_level=None)
+    raw.execute(
+        "CREATE VIRTUAL TABLE review_invitations USING fts5(content)"
+    )
+    raw.close()
+
+    guarded = open_confirmation_database(database_path)
+    try:
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+            guarded.execute("DROP TABLE review_invitations")
+        with pytest.raises(
+            MigrationFailed,
+            match="^Database migration failed\\.$",
+        ):
+            apply_migrations(
+                guarded,
+                CONFIRMATION_LEDGER_MIGRATIONS,
+                now=MIGRATED_AT,
+            )
+        assert read_applied_migrations(guarded) == ()
+        assert guarded.execute(
+            """
+            SELECT type
+            FROM sqlite_master
+            WHERE name = 'review_invitations'
+            """
+        ).fetchone()[0] == "table"
+    finally:
+        guarded.close()
+
+
+def test_post_migration_virtual_replacement_keeps_protected_name_guarded(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    guarded = open_confirmation_database(database_path)
+    apply_migrations(
+        guarded,
+        CONFIRMATION_LEDGER_MIGRATIONS,
+        now=MIGRATED_AT,
+    )
+    guarded.close()
+
+    raw = sqlite3.connect(database_path, isolation_level=None)
+    raw.execute("DROP INDEX review_invitations_expiry_idx")
+    raw.execute(
+        """
+        CREATE VIRTUAL TABLE review_invitations_expiry_idx
+        USING fts5(content)
+        """
+    )
+    raw.close()
+
+    reopened = open_confirmation_database(database_path)
+    try:
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+            reopened.execute("DROP TABLE review_invitations_expiry_idx")
+        with pytest.raises(LedgerUnavailable):
+            validate_confirmation_schema(reopened)
+        assert reopened.execute(
+            """
+            SELECT type
+            FROM sqlite_master
+            WHERE name = 'review_invitations_expiry_idx'
+            """
+        ).fetchone()[0] == "table"
+    finally:
+        reopened.close()
+
+
+def test_migration_cannot_create_temp_virtual_table(tmp_path: Path) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    migration = Migration(
+        version=1,
+        name="temp_virtual",
+        sql=(
+            "CREATE VIRTUAL TABLE temp.ephemeral "
+            "USING fts5(content);"
+        ),
+    )
+    try:
+        with pytest.raises(
+            MigrationFailed,
+            match="^Database migration failed\\.$",
+        ):
+            apply_migrations(
+                connection,
+                (migration,),
+                now=MIGRATED_AT,
+            )
+        assert connection.execute(
+            """
+            SELECT name
+            FROM sqlite_temp_master
+            WHERE name = 'ephemeral'
+            """
+        ).fetchall() == []
+        assert read_applied_migrations(connection) == ()
+    finally:
+        connection.close()

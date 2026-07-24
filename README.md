@@ -88,7 +88,8 @@ action.
 
 ## Local development
 
-ExitSpec requires Python 3.12 or newer.
+ExitSpec requires Python 3.12 or newer. The frozen confirmation-ledger schema
+also requires SQLite 3.37.0 or newer because it uses `STRICT` tables.
 
 ```bash
 python3 -m pip install -e '.[dev]'

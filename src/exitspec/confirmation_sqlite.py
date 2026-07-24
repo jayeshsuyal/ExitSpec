@@ -130,6 +130,7 @@ _PROTECTED_HISTORY_ACTIONS = {
     sqlite3.SQLITE_DROP_TRIGGER,
     sqlite3.SQLITE_DROP_VIEW,
     sqlite3.SQLITE_UPDATE,
+    *_VIRTUAL_TABLE_ACTIONS,
     *(
         getattr(sqlite3, name, -1)
         for name in (
