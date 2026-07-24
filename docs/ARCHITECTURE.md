@@ -1,265 +1,143 @@
 # Architecture
 
-## System boundary
+## Scope and governing invariant
 
-The product journey begins with customer source material. The trusted decision
-boundary begins later, at a named human decision and an immutable frozen contract.
-Redaction and assisted extraction are authoring controls; neither is verdict
-evidence.
+ExitSpec owns the agreement and evidence chain around an AI infrastructure POC.
+The current implementation deliberately proves one vertical slice: an exact
+support-tool-selection proportion rule over a fixed 200-case synthetic fixture.
 
 ```text
-customer source (raw, ephemeral at intake)
-      |
-      v
-best-effort redaction + fresh egress check
-      |
-      +-- raw source stops here
-      v
-redacted source -> optional structured provider assistance
-                         |
-                         v
-              locally validated facts only
-                         |
-                         v
-              source-linked NEEDS_REVIEW drafts
-                         |
-                         v
-           named human approval or rejection
-                         |
-                         v
-              version-scoped customer review
-                         |
-                         v
-          immutable exact-version confirmation
-                         |
-                         v
-              explicit immutable FROZEN contract + digest
-                                      |
-                                      v
-                         provider-neutral measurement adapter
-                                      |
-                                      v
-                         deterministic verdict engine
-                                      |
-                                      v
-                  POC Acceptance Evidence Pack
+synthetic customer source
+        |
+        v
+redaction-first intake
+        |
+        v
+unresolved source candidate
+        |
+        +-- human defines the supported structured rule
+        v
+named internal review
+        |
+        v
+canonical customer-visible agreement
+        |
+        v
+explicit customer decision bound to its fingerprint
+        |
+        v
+immutable frozen contract + canonical hash
+        |
+        v
+measurement facts + hashed artifacts
+        |
+        v
+deterministic verdict
+        |
+        v
+POC Acceptance Evidence Pack
 ```
 
-This is the required product boundary. `build_assisted_discovery_pack` now
-implements the redaction-first assisted-authoring composition as a side-effect-free
-service: it redacts and parses raw notes, performs a fresh provider-egress check,
-executes a provider-neutral structured request, validates returned facts and exact
-source anchors locally, applies only locally supplied execution policy, and emits
-`NEEDS_REVIEW` drafts. Tests exercise this service through the real
-`FireworksProvider` with a fake injected transport.
+Missing, invalid, or insufficient evidence never becomes `PASS`. Agreement,
+measurement, verdict, and business authorization are separate authorities.
 
-The service performs no persistence or browser/session mutation, has no built-in
-live network transport, and is not wired into the browser UI. The browser follows
-a separate redaction-first, provider-free path.
+## Authority boundaries
 
-## Architectural rules
-
-1. Raw customer source cannot cross the provider or persistence boundary.
-2. Redaction is best-effort; its allow decision is not a guarantee that content is
-   free of personal, confidential, or regulated data.
-3. A fresh `assert_redaction_egress` check is required immediately before any
-   redacted source is sent or persisted.
-4. Provider output contains candidate facts only. It cannot set review status,
-   approval, contract state, hashes, or verdicts.
-5. Every candidate is source-linked and enters as `NEEDS_REVIEW`; vague material
-   remains unresolved instead of receiving an invented measurement rule.
-6. A named human records internal approval or rejection. Customer confirmation is
-   a separate immutable record bound to contract ID, version, and fingerprint;
-   it is never inferred from provider output.
-7. Measurement adapters return facts and artifacts; they do not assign verdicts.
-8. The verdict engine receives only a frozen criterion plus validated measurement
-   facts.
-9. Frozen contract objects and their nested contract graph are immutable. A new
-   agreement becomes a new draft version.
-10. The domain package does not import a web framework, frontend framework, or
-    provider SDK.
-
-## Current implementation map
-
-| Boundary | Current evidence | Current limitation |
+| Boundary | Authority | Explicitly excluded |
 | --- | --- | --- |
-| Intake | Browser notes are redacted before the bounded `Speaker: message` parser and retained only as redacted source plus safe summary metadata | Synthetic demo only; provider-free; no STT |
-| Redaction | Immutable result, category placeholders, line-only findings, and fresh egress rescans are used by browser intake and assisted authoring | Best-effort patterns still require human review |
-| Assisted facts | `build_assisted_discovery_pack` composes redaction, provider execution, strict DTO validation, exact source matching, local policy, and `NEEDS_REVIEW` drafts; tests use `FireworksProvider` with fake injected transport | Side-effect-free service only; not exposed in browser or hosted workflow; no live call |
-| Draft review | Exact source-span validation and named approval/rejection records | Pasted notes remain unresolved; the complete sample uses prepared synthetic drafts |
-| Customer review | Expiring local review link, immutable idempotent decision, and exact ID/version/fingerprint binding | Local typed identity only; no authentication or durable persistence |
-| Contract | `DRAFT -> IN_REVIEW -> APPROVED` for internal review, then confirmation-gated RFC 8785 JCS freeze | One local POC shape; legacy non-web freeze primitive remains for compatibility |
-| Measurement | Deterministic exact-tool-selection adapter and fixed fixture | No hosted endpoint adapter |
-| Decision | Deterministic four-way verdict and consistency-checked report | Current report supports exactly one frozen criterion |
+| Intake and assisted authoring | Redact source and propose source-linked facts | Approval, confirmation, freeze, adapter policy, verdict |
+| Internal human review | Approve, reject, or correct one proposed requirement | Customer confirmation and evidence |
+| Customer review | Confirm the exact visible agreement or request changes | Evidence creation and production authorization |
+| Contract service | Validate lifecycle, freeze the confirmed version, calculate its digest | Measurement and business decision |
+| Measurement adapter | Return typed facts and evidence artifacts | Acceptance verdict |
+| Verdict engine | Apply the frozen deterministic rule | Deployment, spend, or procurement authorization |
+| Evidence renderer | Present verified inputs, calculation, limits, and artifacts | Expand the scope of what was proved |
 
-## Version-one components
+The domain core does not import a frontend framework or provider SDK. The browser
+calls a loopback HTTP boundary, and the server delegates to the same typed domain
+services used by the CLI.
 
-### Domain core
+## Browser authoring
 
-Pure Python models and services for:
+The browser accepts only synthetic pasted notes. Raw text is handled transiently,
+redacted before parsing, and replaced by redacted source plus safe summary
+metadata. Source lines become unresolved candidates; intake does not manufacture a
+metric, threshold, workload, or approval.
 
-- contract and criterion validation;
-- state transitions;
-- canonical serialization and digest verification;
-- statistical calculations;
-- criterion and overall verdict aggregation.
+The human can define or correct the one supported rule through four fields:
 
-### Authoring workflow
+- title;
+- threshold percentage;
+- minimum sample count; and
+- workload label.
 
-The local **Define** path uses strict domain models plus CLI and browser review
-artifacts:
+The server fixes the metric, unit, aggregation, adapter, adapter version,
+confidence method, and evidence policy. It generates the normalized customer
+claim from the structured fields and rejects a submitted `normalized_claim`.
+Consequently, the displayed claim cannot drift from the executable rule. A
+second unrelated request remains context until a compatible adapter exists.
 
-1. A transcript span must name its transcript, speaker, line range, and exact quote.
-2. A candidate draft must preserve that source in its proposed criterion, or be explicitly human-added with a rationale.
-3. A human review records an approval or rejection with reviewer, timestamp, and rationale.
-4. Open questions, missing measurement fields, or an unreviewed draft cannot enter contract assembly.
-5. Only approved drafts can create the internally approved contract proposed to
-   the customer.
-6. Only an affirmative confirmation matching that exact ID, version, and
-   confirmation fingerprint can enter the web freeze-and-run path.
+Every candidate remains `NEEDS_REVIEW` until a named internal reviewer records an
+approval or rejection with rationale. All visible candidates must be resolved,
+and at least one supported rule must be approved, before customer review can
+begin.
 
-The current UI is a dependency-free local browser demo served by `exitspec serve`.
-It calls an in-process, loopback-only HTTP boundary that delegates to the same
-domain functions; the page never reimplements approval, freezing, or verdict
-logic. It accepts only synthetic pasted notes, redacts them before parsing, and
-retains only the redacted transcript and safe redaction summary in memory for the
-running demo. It makes no provider call. Pasted notes become unresolved source
-candidates; ExitSpec does not pretend that a parser negotiated a complete
-criterion.
+## Customer agreement trust boundary
 
-In the current model, `APPROVED` means the internal review is complete; customer
-confirmation is a separate immutable record rather than another contract status.
-The local browser issues an expiring capability, records an idempotent terminal
-decision against the exact confirmation fingerprint, and calls
-`freeze_confirmed_contract`. Confirmation and review-link state live only in the
-running unauthenticated process, so they are not signatures, durable approvals,
-or production authorization.
-
-### Redaction boundary
-
-`redact_transcript` receives raw text transiently and returns an immutable
-`RedactionResult` containing only redacted text, aggregate categories, counts, and
-line numbers. It never returns the matched values. `assert_redaction_egress`
-rescans the result under the current policy immediately before provider or
-persistence egress and denies forged, stale, blocked, or inconsistent results.
-
-This boundary detects a documented set of patterns and configured customer terms.
-It is not a general PII detector. Real-customer use therefore still requires human
-review, consent, retention policy, and additional controls.
-
-Both browser intake and assisted authoring call this boundary before raw notes can
-enter returned application state. Assisted authoring performs another fresh
-egress check immediately before invoking its injected executor.
-
-### Structured provider boundary
-
-`StructuredJSONRequest` pins the model, messages, schema, timeout, token estimate,
-and optional budget. JSON Schema Draft 2020-12 is validated locally, external
-schema references are rejected, and returned content is checked locally before a
-typed callback receives it.
-
-`FireworksProvider` is one replaceable implementation. It builds the documented
-Fireworks Chat Completions structured-output request, accepts an injected
-transport, records a content-free receipt, bounds retries, and emits sanitized
-typed errors. It imports no ExitSpec contract or verdict model. It may assist
-authoring or execute a typed provider operation, but it is never an authority.
-
-The assisted-authoring integration tests pass `FireworksProvider` an injected fake
-transport and verify redaction order, authority-field rejection, source matching,
-failure sanitization, and review-only output. There is no built-in live network
-transport in the current repository, and the browser never constructs or invokes
-this provider path.
-
-### Run orchestrator
-
-The orchestrator validates the frozen contract and environment, writes a manifest before execution, invokes adapters, records events, validates artifacts, and requests verdict calculation.
-
-Version one begins as one local process. Hosted long-running benchmarks will move to a separate worker boundary when the need is demonstrated; no queue infrastructure is introduced in Brick 1.
-
-### Measurement adapters
-
-Each adapter has a stable name and version and implements a narrow interface:
-
-```python
-class MeasurementAdapter(Protocol):
-    name: str
-    version: str
-
-    def validate(self, criterion, environment) -> list[ValidationIssue]: ...
-    def execute(self, criterion, fixture, context) -> MeasurementResult: ...
-```
-
-The interface will become asynchronous when endpoint I/O is added. The initial deterministic adapter remains synchronous so its semantics are easy to inspect.
-
-### Evidence store
-
-The artifact store uses a run-scoped directory:
+`canonical_confirmation_payload` is the single source for customer rendering and
+the confirmation fingerprint. It contains:
 
 ```text
-runs/<run-id>/
-  contract.json
-  run-manifest.json
-  calculations.json
-  verdicts.json
-  decision-packet.html
-  artifact-hashes.json
-  evidence/
-    <criterion-id>.jsonl
+id, version, customer, use_case, target_system, workload,
+criteria, owners, non_goals, evidence_retention_policy
 ```
 
-`decision-packet.html` is retained as an internal compatibility filename; the
-public artifact is the **POC Acceptance Evidence Pack**. SQLite may later index
-contracts, criteria, runs, verdicts, and artifact metadata. It is not part of the
-current local implementation.
+Every bound field is visible in the customer review, including an expandable
+exact agreement manifest. Internal review rationale, raw transcripts, lifecycle
+state, and verdict data are not part of this projection.
 
-### Verdict engine
+The projection is serialized with RFC 8785 JCS and hashed with SHA-256 under a
+confirmation-specific domain. The review capability is bound to the contract ID,
+version, and that fingerprint. An expired pending capability is reissued and the
+old token becomes invalid.
 
-The engine is deterministic and versioned. For the first proportion criterion:
+Customer decisions are immutable and idempotent:
 
-1. Return `BLOCKED` for a declared attributable external block.
-2. Return `NOT_PROVEN` for internal measurement errors, metadata gaps, workload mismatch, artifact-integrity failure, or insufficient samples.
-3. Return `FAIL` when sufficient evidence exists and the observed rate is below the approved threshold.
-4. Return `PASS` when the approved Wilson lower bound is at or above the threshold.
-5. Otherwise return `NOT_PROVEN` because the point estimate is favorable but statistically inconclusive.
+- `CONFIRM` requires `agreement_acknowledged=true`; the server rejects missing or
+  false acknowledgement even if a client bypasses the checkbox.
+- `REQUEST_CHANGES` requires a rationale but does not masquerade as confirmation.
+- One terminal decision cannot be replaced on the same version.
 
-### Local browser demo
+The local reviewer name is typed, not authenticated. Capabilities, identities,
+decisions, and idempotency records live only in memory and disappear with the
+process. They are demo records, not signatures or durable authorization.
 
-The current browser surface is a small HTML/CSS/JavaScript client with a Python
-standard-library server:
+## Revision and workbench continuity
 
-```text
-Define -> Prove -> Decide
-```
+The employee workbench polls state every 1.8 seconds only while a valid customer
+review is pending. It stops on a terminal decision, page exit, reset, or inactive
+workflow state. Focus and visibility changes trigger safe reconciliation without
+creating a second polling loop.
 
-- **Define** shows source text beside candidate requirements and requires explicit
-  approval or rejection.
-- **Prove** runs a real deterministic scenario only after internal review,
-  customer confirmation, and explicit freeze are complete.
-- **Decide** exposes the verdict, its limits, the next human action, and the full
-  static POC Acceptance Evidence Pack.
+A customer change request creates a new draft contract version and records the
+prior `contract@version` as its parent. Approved criteria reopen for explicit
+editing and review. Editing invalidates the old review capability, confirmation,
+frozen state, and proof; history is not silently rewritten.
 
-The client consumes the local API response contracts and never reimplements
-verdict logic. It is not an authorization surface; a `PASS` remains evidence for a
-human decision.
+The employee can then:
 
-## State machines
+1. apply a structured revision;
+2. review the generated claim;
+3. issue a new customer link;
+4. receive acknowledgement and confirmation for that exact version;
+5. freeze it; and
+6. prove it.
 
-### Contract
+Recording mode is query-driven at `/app?mode=recording`. `Restart` restores the
+bundled source, draft state, Reference A selection, closed drawers, and empty
+downstream state deterministically.
 
-```text
-DRAFT -> IN_REVIEW -> APPROVED (internal review complete)
-                               |
-                               +-- exact affirmative confirmation
-                                      |
-                                      +-- explicit freeze --> FROZEN
-                                                                |
-                                                                +-- terminal immutable record
-```
-
-No backward transition is allowed. `FROZEN` cannot be mutated to `SUPERSEDED`;
-future supersession must be represented by a separate record that points from the
-old frozen version to its replacement. Editing an approved or frozen contract
-creates a new `DRAFT` revision with `parent_version` rather than mutating history.
+## Contract and run lifecycle
 
 ### Criterion draft
 
@@ -269,90 +147,132 @@ NEEDS_REVIEW -> APPROVED
       +-------> REJECTED
 ```
 
-This is deliberately separate from contract lifecycle. `APPROVED` means a human accepted one proposed criterion; it does not mean the whole POC contract is frozen.
+### Customer decision
+
+```text
+PENDING -> CONFIRM
+    |
+    +-----> REQUEST_CHANGES -> new DRAFT version -> new review
+```
+
+### Contract
+
+```text
+DRAFT -> IN_REVIEW -> APPROVED
+                            |
+                  matching CONFIRM + acknowledgement
+                            |
+                            v
+                          FROZEN
+```
+
+`FROZEN` is immutable. A later agreement is represented by another version, not a
+mutation or backward transition.
 
 ### Run
 
 ```text
 QUEUED -> VALIDATING -> RUNNING -> AGGREGATING -> COMPLETED
-             |             |            |
+             |             |             |
              +----------> BLOCKED <------+
              +-------> FAILED_INTERNAL
              +------------> CANCELLED
 ```
 
-A criterion failing is not a run software failure. A crashed adapter is not evidence that the target system failed.
+A failed criterion is not a software failure. An adapter crash is not evidence
+that the target system failed.
 
-## Repository structure
+## Deterministic measurement and verdicts
+
+The current adapter runs fixed synthetic cases and returns facts only. The runner:
+
+1. requires a customer-confirmed frozen contract with a valid digest;
+2. writes the initial run manifest;
+3. records case-level evidence;
+4. checks the approved fixture hash and artifact integrity;
+5. calculates the proportion and two-sided 95% Wilson interval; and
+6. asks the verdict engine to apply the frozen rule.
+
+The browser exposes Reference A (`PASS`), Reference B (`NOT_PROVEN`), and
+Reference C (`BLOCKED`). The CLI also retains deterministic `FAIL`,
+insufficient-evidence, and internal-error cases. A user can rerun another
+reference set against the same frozen contract. Starting the rerun clears the
+previous proof, and only a completed run becomes the current result.
+
+For Reference A:
 
 ```text
-.
-├── README.md
-├── pyproject.toml
-├── docs/
-├── examples/
-│   └── support-agent/
-│       ├── authoring/
-│       ├── contracts/
-│       └── fixtures/
-├── src/exitspec/
-│   ├── adapters/
-│   ├── assisted_authoring.py
-│   ├── authoring.py
-│   ├── canonical.py
-│   ├── intake.py
-│   ├── models.py
-│   ├── contracts.py
-│   ├── providers/
-│   ├── redaction.py
-│   ├── statistics.py
-│   ├── verdicts.py
-│   ├── runner.py
-│   ├── reporting.py
-│   ├── web.py
-│   ├── static/
-│   └── cli.py
-└── tests/
+Required ≥ 95.00% · Observed 197/200 (98.50%)
+· Wilson lower bound 95.68% · PASS
 ```
 
-Hosted API and multi-user frontend layers will be added only when the local domain
-contracts and demo loop have earned that complexity.
+## Evidence store and renderer
 
-## Key decisions and rejected alternatives
+Each run owns an inspectable directory:
 
-### Canonical JSON instead of hashing YAML
+```text
+runs/<run-id>/
+  contract.json
+  run-manifest.json
+  evidence-artifacts.json
+  calculations.json
+  verdicts.json
+  artifact-hashes.json
+  decision-packet.html
+  evidence/
+    <criterion-id>.jsonl
+```
 
-YAML formatting, comments, aliases, and key order can change without changing meaning. ExitSpec validates the input into a typed model and hashes a documented canonical JSON representation.
+`decision-packet.html` is the compatibility filename for the public **POC
+Acceptance Evidence Pack**. Before rendering, ExitSpec checks the frozen digest,
+manifest identity, criterion identity, measurement identity, artifact integrity,
+and deterministic verdict consistency.
 
-### Filesystem artifacts now, metadata index later
+The compact graphite/orange first viewport contains the verdict, reason, exact
+equation, limitation, next human action, canonical contract hash, and links to
+the six top-level JSON artifacts. Seven audit records remain collapsed by
+default. The pack contains no scripts or remote dependencies and states that
+evidence is not authorization.
 
-Storing raw evidence as database blobs would make inspection and static bundles
-harder. The current local implementation uses run-scoped filesystem artifacts.
-If relationship and state queries later require an index, SQLite can index
-metadata while artifact content remains inspectable files.
+The current renderer accepts exactly one frozen criterion.
 
-### CLI and local loopback server before hosted execution
+## Provider boundary
 
-The first slices exercise the same domain functions with fewer moving parts. The
-`define` CLI and `serve` demo produce inspectable local artifacts; any later hosted
-API or client will be a consumer of the proven core rather than the place where the
-core rules live.
+`StructuredJSONRequest` pins model, messages, schema, timeout, token estimate, and
+optional budget. JSON Schema Draft 2020-12 output is validated locally and
+external schema references are rejected.
 
-### Source-linked drafts instead of autonomous contract creation
+`FireworksProvider` is a replaceable adapter with an injected transport,
+content-free receipt, bounded retries, and sanitized typed errors. Tests execute
+the real adapter and assisted-authoring composition with fake transports. There
+is no built-in live transport, no live Fireworks evidence, and no provider path
+wired into the browser.
 
-An LLM or a deterministic extractor may propose a criterion, but the proposal is not allowed to become contract input until its source survives validation and a human records an explicit decision. A vague quote becomes a visible rejection or clarification request, not a silently invented metric.
+Provider output can propose facts; it cannot set review status, confirmation,
+contract state, adapter selection, canonical hashes, or verdicts.
 
-### Replaceable providers instead of provider authority
+## Packaging and runtime
 
-Provider adapters stop at structured, locally validated output and observable
-execution receipts. Contract approval, adapter selection, workload selection,
-freezing, and verdict assignment stay in local policy and deterministic domain
-code. Replacing Fireworks must not alter those authority boundaries.
+The package uses a `src/` layout. Browser assets and deterministic support-agent
+inputs are package data. A resource context resolves the discovery pack, review
+plan, contract seed, frozen contract, and fixture for both source installs and
+installed wheels.
 
-### Mature load generator instead of a custom generator
+Therefore `exitspec define`, `exitspec demo`, and `exitspec serve` do not depend
+on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 
-Performance traffic generation has subtle correctness risks. ExitSpec will wrap and validate structured GuideLLM output rather than create a competing load engine.
+- browser JavaScript syntax;
+- the full Python test suite; and
+- a wheel build/install/run from outside the repository.
 
-## Scale path, not version-one scope
+## Deliberate limits and scale path
 
-If evidence supports multi-user or hosted use, the natural evolution is PostgreSQL metadata, object storage, an isolated worker queue, signed identity/audit events, tenant-scoped authorization, and retention jobs. None is required to prove the first customer-shaped evidence chain.
+The current system is one local process with filesystem artifacts and in-memory
+review state. It has no speech-to-text, live endpoint adapter, hosted identity,
+durable confirmation store, queue, object store, generic metric engine, or
+multi-tenant authorization.
+
+If the product earns hosted use, the next boundaries are authenticated identity,
+append-only durable decisions, PostgreSQL metadata, object storage, isolated
+workers, tenant-scoped authorization, and retention jobs. Those additions must
+preserve the same agreement, measurement, verdict, and authorization separation.

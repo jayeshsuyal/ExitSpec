@@ -2,152 +2,230 @@
 
 ## Product thesis
 
-AI infrastructure POCs often begin with customer promises distributed across transcripts, spreadsheets, scripts, dashboards, and slides. The measurement plan is rarely frozen with the promise, and the final narrative can overstate what the evidence establishes.
+AI infrastructure POCs often begin with a promise in a call and end with a
+manually assembled success narrative. The exact acceptance rule, customer
+agreement, measurement conditions, and evidence are rarely kept as one
+inspectable chain.
 
-ExitSpec converts agreed success criteria into a versioned executable contract, runs approved measurements against a target system, and produces a traceable decision for every must-have promise.
+ExitSpec turns one customer-shaped requirement into a versioned executable
+contract, binds confirmation to the exact visible agreement, runs an approved
+measurement, and produces a defensible evidence handoff.
 
-The primary user is a field, solutions, deployment, or customer engineer who needs to run a technically honest POC and defend the final recommendation to both the customer and the product team.
+## Users and jobs
 
-## User job
+The primary user is a field, solutions, deployment, or customer engineer.
 
-> Help the customer and vendor agree on what success means before execution, then make the final go/no-go decision reproducible without trusting a manually assembled narrative.
+> Agree on what success means before execution, preserve every material change,
+> and make the final POC result reproducible without trusting narration.
 
-## Differentiated seam
+The secondary user is the customer approver.
 
-ExitSpec is neither a generic eval platform nor a presales management system.
+> Review the complete agreement in plain language, confirm that exact version or
+> request a change, and inspect what the final evidence does and does not prove.
 
-- Presales products may own discovery documents, tasks, and CRM visibility.
+## Differentiated product boundary
+
+ExitSpec is not a generic eval dashboard, benchmark runner, CRM, or autonomous
+POC generator.
+
 - Eval products may own datasets, traces, graders, and experiment comparison.
-- Benchmark products may own request generation and performance measurements.
-- ExitSpec owns source-linked criteria, internal review, exact-version customer
-  confirmation, explicit freeze, contract versioning, evidence sufficiency, typed
-  verdicts, and the final decision packet.
+- Benchmark products may own traffic generation and performance measurements.
+- Presales products may own discovery documents, tasks, and CRM visibility.
+- ExitSpec owns source-linked criteria, structured human review, exact-version
+  customer confirmation, immutable freeze, evidence sufficiency, deterministic
+  verdicts, and the acceptance evidence handoff.
 
-The project does not claim that no adjacent product can add this workflow. Its value depends on implementing the complete evidence chain credibly and making it easy enough to use.
+The product may consume mature evaluation and load tools later. Those tools do
+not receive agreement or verdict authority.
 
-## First vertical scenario
+## Current supported vertical
 
-A support-automation company is evaluating a hosted inference endpoint for a production tool-calling agent.
+The completed local product supports one synthetic support-agent POC and exactly
+one executable criterion:
 
-The eventual demonstration includes five must-have criteria:
+> Exact expected support-tool selection must meet a human-defined proportion
+> threshold over a human-defined minimum sample count, and the two-sided 95%
+> Wilson lower bound must meet the same threshold.
 
-1. p95 end-to-end latency below 2.5 seconds at 20 requests per second.
-2. At least 99% JSON-schema-valid tool calls under an approved confidence rule.
-3. At least 95% exact tool selection on a fixed 200-case fixture.
-4. Estimated model cost below $0.02 per successfully completed ticket.
-5. No PII detected in persisted evidence or the generated report under a declared detector and policy.
+The prepared primary contract uses a 95% threshold and 200-case minimum. Reference
+A observes 197 exact selections out of 200:
 
-Brick 1 implements only criterion 3 so that the contract and verdict semantics are proven before the product generalizes.
+```text
+Required ≥ 95.00% · Observed 197/200 (98.50%)
+· Wilson lower bound 95.68% · PASS
+```
+
+The browser does not claim that arbitrary pasted metrics are executable.
 
 ## Product principles
 
-### Evidence before narrative
+### Agreement before evidence
 
-Every displayed result must connect the source statement, normalized criterion, measurement rule, workload, run environment, evidence, calculation, verdict, and limitations.
+The customer-visible requirement must be exact and confirmed before a run can
+produce acceptance evidence.
 
 ### Missing evidence never passes
 
-Insufficient samples, invalid workloads, missing metadata, corrupted artifacts, adapter failures, and inconclusive statistics produce `NOT_PROVEN` unless an attributable external condition makes the correct state `BLOCKED`.
+Insufficient samples, invalid workload identity, missing metadata, corrupted
+artifacts, adapter failure, and statistical inconclusiveness must remain visible
+as `BLOCKED` or `NOT_PROVEN`.
+
+### Structured facts, generated claims
+
+Humans edit the supported fields. ExitSpec generates the normalized claim from
+those fields so prose and execution cannot contradict each other.
 
 ### Models may propose; deterministic systems decide
 
-An LLM may draft criteria, identify ambiguity, or explain a verified result. It cannot silently assign a terminal verdict.
+A model may suggest source-linked candidate facts. It cannot approve, confirm,
+freeze, select execution policy, or assign an acceptance verdict.
 
-### Humans approve the contract
+### Frozen means immutable
 
-The normalized claim, metric, threshold, workload, sample requirement, measurement method, failure semantics, and retention policy require explicit approval.
-The customer confirmation is recorded separately against the exact proposed
-version and content fingerprint before freeze.
+Any material change creates another version and another customer decision. A
+frozen version is never edited in place.
 
-### Frozen contracts are append-only
+### Evidence is not authorization
 
-A frozen contract cannot be silently changed. Revision creates a new version with a parent reference.
+`PASS` answers only the frozen POC acceptance question. It never authorizes
+deployment, spend, procurement, production traffic, or policy exceptions.
 
-### Integrity claims remain narrow
+## Functional requirements
 
-A digest can show that a recorded artifact has changed since its hash was computed. It cannot prove that the original measurement was honest or complete.
+### R1. Source capture and supported rule definition
 
-## Required verdicts
+- Ship a deterministic prepared synthetic source and allow pasted synthetic
+  notes.
+- Redact pasted notes before they enter returned browser state.
+- Create unresolved, source-linked candidates without inventing a measurement
+  rule.
+- Let a human define or correct title, threshold, minimum samples, and workload
+  label for exact tool selection.
+- Fix metric, unit, aggregation, adapter, confidence method, and evidence policy
+  in trusted server policy.
+- Generate the normalized claim server-side and reject client-supplied claim
+  text.
+- Permit only one executable rule in the current product; preserve other asks as
+  context.
 
-- `PASS`: sufficient valid evidence exists and the approved condition is established.
-- `FAIL`: sufficient valid evidence exists and the approved condition is not met.
-- `BLOCKED`: execution cannot complete because of an attributable external or environmental condition.
-- `NOT_PROVEN`: the evidence cannot justify either pass or fail.
+### R2. Internal review
 
-Overall must-have precedence for version one is:
+- Require a named reviewer and rationale for approval or rejection.
+- Keep each candidate in `NEEDS_REVIEW` until an explicit decision exists.
+- Require every visible candidate to be resolved and at least one rule to be
+  approved before customer review.
+
+### R3. Canonical customer confirmation
+
+- Derive rendering and fingerprinting from one canonical customer-visible
+  projection.
+- Display every bound term: identity, version, customer, use case, target system,
+  workload, criteria, owners, non-goals, and retention policy.
+- Bind a review capability to contract ID, version, and confirmation
+  fingerprint.
+- Require server-enforced `agreement_acknowledged=true` for `CONFIRM`.
+- Record immutable, idempotent terminal decisions.
+- Allow `REQUEST_CHANGES` with rationale without treating it as confirmation.
+- Reissue expired pending links and invalidate the old capability.
+
+### R4. Versioning and employee continuity
+
+- Convert a customer change request into a new version with a parent reference.
+- Reopen the approved rule for explicit structured revision and review.
+- Invalidate stale downstream review, confirmation, freeze, and proof state after
+  a revision.
+- Poll only while a customer decision is pending and stop on a terminal or
+  inactive state.
+- Carry the user automatically to the next valid action.
+
+### R5. Freeze and prove
+
+- Freeze only an internally approved contract with a matching affirmative
+  customer confirmation and explicit acknowledgement.
+- Calculate and verify a canonical contract digest.
+- Run only an approved, allowlisted measurement adapter.
+- Record manifest, fixture hash, case-level evidence, calculation, verdict, and
+  artifact hashes.
+- Return `PASS`, `FAIL`, `BLOCKED`, or `NOT_PROVEN` with an exact reason.
+- Allow another deterministic reference set to rerun against the same frozen
+  contract.
+- Never retain a stale prior result when a replacement run fails before proof is
+  recorded.
+
+### R6. Evidence handoff
+
+- Render a static POC Acceptance Evidence Pack only from a frozen contract and
+  consistency-checked run.
+- Put verdict, reason, exact equation, limitation, next action, canonical
+  contract hash, and six artifact links in the first viewport.
+- Keep seven detailed proof-chain sections collapsed by default.
+- Link the contract, evidence index, calculation, verdict, manifest, and hash
+  manifest with relative URLs.
+- State prominently that evidence is not authorization.
+
+### R7. Demo reliability and distribution
+
+- Provide a query-driven recording mode and deterministic `Restart`.
+- Keep the desktop workbench usable at 1280×720 without workflow-length body
+  scroll.
+- Bundle all deterministic demo inputs and browser assets in the wheel.
+- Make `exitspec define`, `exitspec demo`, and `exitspec serve` operate outside
+  the source checkout.
+- Gate Python 3.12 and 3.13, JavaScript syntax, the full suite, and installed-wheel
+  behavior in CI.
+
+## Verdict semantics
+
+- `PASS`: sufficient valid evidence establishes the approved rule.
+- `FAIL`: sufficient valid evidence establishes that the approved rule was not
+  met.
+- `BLOCKED`: an attributable external condition prevented a valid measurement.
+- `NOT_PROVEN`: evidence is missing, invalid, or statistically inconclusive.
+
+For multi-criterion future work, the current proposed must-have precedence is:
 
 ```text
 FAIL > BLOCKED > NOT_PROVEN > PASS
 ```
 
-This precedence is provisional and must be explicitly approved before the public contract specification is frozen.
+The current browser and evidence pack intentionally support one criterion, so no
+multi-criterion aggregation claim is made.
 
-## Version-one requirements
+## Quality bar
 
-### Contract
+The product is accepted when:
 
-- Source-linked or explicitly human-added criteria.
-- Strict schema validation.
-- Explicit human approval.
-- Separate affirmative customer confirmation bound to the exact version and
-  confirmation fingerprint.
-- Application-enforced immutable frozen versions.
-- Canonical JSON serialization and SHA-256 digest.
+- the 75-second primary script is repeatable from `Restart`;
+- the optional revision script preserves 95%/200 and ends in a legitimate
+  Reference A `PASS`;
+- direct confirmation without acknowledgement is rejected;
+- stale versions and fingerprints cannot freeze;
+- all four verdict classes and exact reasons are tested;
+- all six pack links resolve and every artifact listed in the hash manifest
+  verifies;
+- a built wheel runs outside the repository; and
+- public copy never implies live Fireworks, speech-to-text, authenticated
+  customer identity, arbitrary metric execution, or production authorization.
 
-### Execution
+## Non-goals for the current product
 
-- Deterministic local mock endpoint or adapter.
-- One OpenAI-compatible live provider after the local chain is solid.
-- Independently testable, versioned adapters.
-- Typed external, internal, and evidentiary failures.
+- Live Fireworks or any other provider execution.
+- Speech-to-text or real customer call ingestion.
+- Generic metrics, multi-criterion contracts, latency or cost execution.
+- Hosted endpoint measurement or load testing.
+- Authenticated customer identity, durable signatures, or durable review storage.
+- Multi-tenant authorization, CRM integration, billing, or Kubernetes.
+- Automatic deployment, rollback, procurement, or traffic-expansion decisions.
 
-### Evidence
+## Principal risks
 
-- Run manifest and fixture hash.
-- Raw redacted artifacts stored separately from relational metadata.
-- SHA-256 digest for every published artifact.
-- Calculation version and direct evidence references.
-
-### Decision packet
-
-- Overall and per-criterion verdicts.
-- Observed result, threshold, sample count, and uncertainty.
-- Source, evidence, calculation, assumptions, and limitations.
-- Downloadable static HTML and machine-readable JSON.
-
-## Three largest product risks
-
-1. **Category convergence:** eval or presales incumbents can add contract and reporting features.
-2. **Authoring friction:** users may prefer a spreadsheet if creating a rigorous contract feels expensive.
-3. **Thin-wrapper perception:** the project will look superficial unless versioning, evidence sufficiency, and verdict semantics are visibly substantive.
-
-## Five largest technical risks
-
-1. Statistical rules may be misconfigured or overclaimed.
-2. Performance measurements may hide errors, retries, coordinated omission, or workload drift.
-3. Adapter failures may be confused with customer-system failures.
-4. Sensitive data may reach storage before redaction.
-5. Canonicalization or artifact provenance may be inconsistent across versions.
-
-## Claims narrowed before implementation
-
-- Replace absolute “no PII” claims with a declared detection and redaction policy unless a stronger prevention mechanism is proven.
-- Distinguish estimated token cost from billed and total platform cost.
-- Treat live performance results as time- and environment-specific, not universally reproducible.
-- Do not claim cryptographic truth, tamper-proof execution, reduced sales cycles, or improved win rates.
-- Do not call a 200-case 99% proportion test conclusive under a 95% Wilson lower-bound rule; the sample policy must make passing mathematically possible.
-
-## Non-goals
-
-Version one does not include CRM integration, multi-tenant authentication, billing, a generic workflow builder, automatic POC generation, a new tracing platform, a new load generator, automatic remediation, broad provider coverage, or Kubernetes.
-
-## Public-version completion bar
-
-- Complete local deterministic evidence chain.
-- At least one hosted endpoint and one real load test.
-- At least 25 automated tests spanning success and failure paths.
-- Inspectable curated evidence bundle with no secrets or raw PII.
-- Intentional `NOT_PROVEN` or failure in the public demo.
-- Five-minute local setup and a reliable 90-second recording.
-- Architecture diagram that matches the implementation.
-- Two field/solutions/presales practitioner reviews, or a prominent statement that validation is still outstanding.
+1. **Authoring friction:** rigorous agreement must remain faster than a
+   spreadsheet.
+2. **Authority confusion:** customer confirmation, evidence, and production
+   approval must never collapse into one status.
+3. **Statistical overclaim:** a point estimate must not override the approved
+   confidence rule.
+4. **Integrity overclaim:** hashes detect later changes; they do not prove the
+   original source or execution was honest or complete.
+5. **Thin-wrapper perception:** the value must remain visible in versioning,
+   trust boundaries, evidence sufficiency, reruns, and inspectable artifacts.
