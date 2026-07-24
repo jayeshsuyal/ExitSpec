@@ -5,206 +5,282 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="ExitSpec turns POC promises into human-approved acceptance evidence."
+      content="ExitSpec turns customer POC requirements into a confirmed contract and inspectable acceptance evidence."
     />
-    <title>ExitSpec — Define, Prove, Decide</title>
+    <title>ExitSpec — POC workbench</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
-    <a class="skip-link" href="#define">Skip to the POC workflow</a>
+  <body data-mode="standard">
+    <a class="skip-link" href="#current-task">Skip to the current task</a>
 
-    <main class="shell">
-      <header class="masthead">
-        <a class="brand" href="#top" aria-label="ExitSpec home">
-          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span>
-            <strong>ExitSpec</strong>
-            <small>Acceptance evidence for AI infrastructure POCs</small>
-          </span>
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="/app" aria-label="ExitSpec workbench">
+          <span class="brand-name">ExitSpec</span>
         </a>
-        <p class="mode-chip" id="mode-chip" aria-live="polite">Loading demo state…</p>
+
+        <div class="poc-identity">
+          <span>POC</span>
+          <strong>Support-agent tool selection</strong>
+        </div>
+
+        <ol class="journey-steps sr-only" aria-label="POC journey">
+          <li class="journey-step is-current" id="step-define">
+            <span>1</span><strong>Define</strong>
+          </li>
+          <li class="journey-step" id="step-prove">
+            <span>2</span><strong>Prove</strong>
+          </li>
+          <li class="journey-step" id="step-decide">
+            <span>3</span><strong>Decide</strong>
+          </li>
+        </ol>
+
+        <div class="header-meta">
+          <span class="mode-chip" id="mode-chip" aria-live="polite">Loading demo…</span>
+        </div>
       </header>
 
-      <section class="hero" id="top" aria-labelledby="page-title">
-        <div>
-          <p class="eyebrow">POC alignment, made concrete</p>
-          <h1 id="page-title">Define the promise.<br />Prove the work.<br />Decide with confidence.</h1>
-          <p class="hero-copy">
-            ExitSpec turns the customer’s words into a measurable POC contract and a
-            proof pack they can actually review.
-          </p>
-        </div>
-        <aside class="truth-card" aria-label="ExitSpec safety boundary">
-          <p class="truth-title">The boundary is deliberate</p>
-          <p><strong>AI may draft.</strong> Humans approve.</p>
-          <p><strong>PASS is evidence—not authorization.</strong></p>
-        </aside>
-      </section>
+      <aside class="recording-cue" id="recording-cue" aria-label="Recording walkthrough" hidden>
+        <strong>75-second walkthrough</strong>
+        <span>Define → Prove → Decide</span>
+      </aside>
 
-      <nav class="workflow" aria-label="ExitSpec workflow">
-        <a href="#define"><span>01</span><strong>Define</strong><small>Turn a conversation into an agreement</small></a>
-        <a href="#prove"><span>02</span><strong>Prove</strong><small>Run evidence against the frozen criteria</small></a>
-        <a href="#decide"><span>03</span><strong>Decide</strong><small>Review the proof and choose the next step</small></a>
-      </nav>
+      <main class="workspace" id="app-main">
+        <div class="proof-workspace">
+          <nav class="custody-rail" aria-label="POC chain of custody">
+            <ol class="custody-ledger">
+              <li id="custody-source">
+                <span class="custody-number" aria-hidden="true">01</span>
+                <span class="custody-label">Source</span>
+                <span class="custody-state" id="custody-source-state">Captured</span>
+              </li>
+              <li id="custody-agreement">
+                <span class="custody-number" aria-hidden="true">02</span>
+                <span class="custody-label">Agreement</span>
+                <span class="custody-state" id="custody-agreement-state">In review</span>
+              </li>
+              <li id="custody-customer">
+                <span class="custody-number" aria-hidden="true">03</span>
+                <span class="custody-label">Customer</span>
+                <span class="custody-state" id="custody-customer-state">Pending</span>
+              </li>
+              <li id="custody-freeze">
+                <span class="custody-number" aria-hidden="true">04</span>
+                <span class="custody-label">Freeze</span>
+                <span class="custody-state" id="custody-freeze-state">Pending</span>
+              </li>
+              <li id="custody-evidence">
+                <span class="custody-number" aria-hidden="true">05</span>
+                <span class="custody-label">Evidence</span>
+                <span class="custody-state" id="custody-evidence-state">Not run</span>
+              </li>
+              <li id="custody-decision">
+                <span class="custody-number" aria-hidden="true">06</span>
+                <span class="custody-label">Decision</span>
+                <span class="custody-state" id="custody-decision-state">Pending</span>
+              </li>
+            </ol>
+          </nav>
 
-      <section class="intake panel" aria-labelledby="intake-title">
-        <div class="section-heading compact">
-          <div>
-            <p class="eyebrow">Call-to-contract starter</p>
-            <h2 id="intake-title">Paste meeting notes</h2>
-          </div>
-          <p class="synthetic-notice">Synthetic demo only — no real customer data in this build.</p>
-        </div>
-        <div class="intake-grid">
-          <label class="notes-field" for="meeting-notes">
-            <span>Meeting notes</span>
-            <textarea id="meeting-notes" rows="3" spellcheck="false">Customer: Our support agent must select the correct tool at least 95% of the time. We want to inspect any mistakes before we scale traffic.</textarea>
-          </label>
-          <div class="intake-actions">
-            <p>ExitSpec captures source-linked candidates from synthetic notes. It does not invent a metric or make a customer commitment.</p>
-            <button class="button primary" id="load-transcript" type="button">Capture notes</button>
-            <button class="button secondary" id="reset-demo" type="button">Restore support-agent sample</button>
-          </div>
-        </div>
-        <p class="inline-status" id="intake-status" aria-live="polite"></p>
-      </section>
-
-      <section class="stage" id="define" aria-labelledby="define-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">01 / Define</p>
-            <h2 id="define-title">What did the customer actually ask for?</h2>
-          </div>
-          <p>Every candidate stays connected to the source. Vague requests stay visible until a person makes them measurable.</p>
-        </div>
-
-        <div class="define-grid">
-          <article class="panel transcript-card">
-            <div class="card-heading">
+          <section class="proof-sheet" id="current-task" aria-labelledby="current-task-title">
+            <header class="task-heading">
               <div>
-                <p class="card-kicker">Source transcript</p>
-                <h3 id="transcript-title">Synthetic discovery call</h3>
+                <p class="eyebrow" id="workspace-eyebrow">Define · Requirement 1 of 2</p>
+                <h1 id="current-task-title">Does this rule match the customer’s intent?</h1>
+                <p id="current-task-copy">Compare the customer’s words with the measurable rule below.</p>
               </div>
-              <span class="source-chip">Source-linked</span>
-            </div>
-            <ol class="transcript" id="transcript-lines" aria-label="Synthetic transcript lines"></ol>
-          </article>
-
-          <article class="panel requirements-card">
-            <div class="card-heading">
-              <div>
-                <p class="card-kicker">Candidate requirements</p>
-                <h3>Human review required</h3>
+              <div class="sheet-state">
+                <span class="sr-only" id="review-count" aria-live="polite">0 of 2 reviewed</span>
+                <dl class="sheet-ledger" aria-label="POC status">
+                  <div>
+                    <dt>Agreement</dt>
+                    <dd id="agreement-status">Draft</dd>
+                  </div>
+                  <div>
+                    <dt>Evidence</dt>
+                    <dd id="evidence-status">Not run</dd>
+                  </div>
+                  <div class="boundary-state">
+                    <dt>Boundary</dt>
+                    <dd>PASS is not authorization</dd>
+                  </div>
+                </dl>
+                <aside class="sr-only" aria-labelledby="blocker-title">
+                  <h2 id="blocker-title">Current blocker</h2>
+                  <ul id="blocker-list">
+                    <li>Two requirements need review.</li>
+                  </ul>
+                </aside>
               </div>
-              <span class="review-count" id="review-count"></span>
+            </header>
+
+            <div class="task-main">
+              <section class="task-view is-current" id="define" data-stage="define" aria-label="Define the POC agreement">
+                <aside class="revision-request" id="revision-request-card" hidden>
+                  <span>Customer requested a change</span>
+                  <blockquote id="revision-request-text"></blockquote>
+                </aside>
+                <div class="candidate-list" id="candidate-list" aria-live="polite"></div>
+                <p class="inline-status" id="intake-status" aria-live="polite"></p>
+              </section>
+
+              <section class="task-view" id="prove" data-stage="prove" aria-label="Prove the frozen agreement" hidden>
+                <article class="run-card">
+                  <header class="card-heading">
+                    <div>
+                      <p class="eyebrow">Frozen agreement</p>
+                      <h2>Exact support-tool selection</h2>
+                    </div>
+                    <span class="contract-chip" id="contract-chip">Awaiting agreement</span>
+                  </header>
+
+                  <fieldset class="scenario-options" aria-label="Demo proof dataset">
+                    <legend class="sr-only">Choose a fixed evaluation dataset</legend>
+                    <label class="scenario-option">
+                      <input type="radio" name="scenario" value="pass" checked />
+                      <span><strong>Reference set A</strong><small>Approved fixed support cases</small></span>
+                    </label>
+                    <label class="scenario-option">
+                      <input type="radio" name="scenario" value="inconclusive" />
+                      <span><strong>Reference set B</strong><small>Approved fixed support cases</small></span>
+                    </label>
+                    <label class="scenario-option">
+                      <input type="radio" name="scenario" value="blocked" />
+                      <span><strong>Reference set C</strong><small>Approved fixed support cases</small></span>
+                    </label>
+                  </fieldset>
+                </article>
+
+                <article class="evidence-card" aria-labelledby="evidence-title" hidden>
+                  <header class="card-heading">
+                    <div>
+                      <p class="eyebrow">Result</p>
+                      <h2 id="evidence-title">Acceptance evidence</h2>
+                    </div>
+                    <span class="verdict-badge" id="proof-verdict">AWAITING</span>
+                  </header>
+                  <div class="metric-row" id="metric-row"></div>
+                  <p class="evidence-explanation" id="evidence-explanation"></p>
+                  <div class="next-human-action">
+                    <span>Next human action</span>
+                    <p id="evidence-footnote"></p>
+                  </div>
+                </article>
+              </section>
+
+              <section class="task-view" id="decide" data-stage="decide" aria-label="Decide from the evidence" hidden>
+                <article
+                  class="proof-pack"
+                  aria-labelledby="acceptance-pack-title"
+                  aria-label="Customer-facing acceptance artifact"
+                  data-legacy-artifact-name="Proof Pack"
+                >
+                  <header class="proof-pack-header">
+                    <div>
+                      <span class="sr-only">Turn POC claims into proof.</span>
+                      <p class="eyebrow">Recorded result</p>
+                      <h2 id="acceptance-pack-title">Acceptance evidence</h2>
+                      <p id="proof-pack-title">Support-agent tool-selection POC</p>
+                    </div>
+                    <span class="pack-id" id="pack-id">LOCAL / SYNTHETIC</span>
+                  </header>
+
+                  <div class="verdict-hero">
+                    <span>Verdict</span>
+                    <strong class="pack-verdict" id="pack-verdict">AWAITING</strong>
+                    <p id="pack-why">No evidence run exists yet.</p>
+                  </div>
+
+                  <dl class="decision-list" aria-label="POC acceptance decision summary">
+                    <div>
+                      <dt>Not proven</dt>
+                      <dd id="pack-limits">No broader production claim is made.</dd>
+                    </div>
+                    <div>
+                      <dt>Next human action</dt>
+                      <dd id="pack-next-step"></dd>
+                    </div>
+                  </dl>
+
+                  <details class="evidence-details">
+                    <summary>Inspect evidence details</summary>
+                    <div class="evidence-detail-grid">
+                      <div>
+                        <span>Customer source</span>
+                        <blockquote id="pack-source"></blockquote>
+                      </div>
+                      <div>
+                        <span>Approved criterion</span>
+                        <p id="pack-criterion"></p>
+                      </div>
+                      <div>
+                        <span>Frozen contract</span>
+                        <code id="pack-contract"></code>
+                      </div>
+                      <div>
+                        <span>Evidence readout</span>
+                        <p id="pack-result"></p>
+                      </div>
+                    </div>
+                  </details>
+                </article>
+              </section>
+
+              <footer class="task-footer decision-dock">
+                <details class="source-details">
+                  <summary>Meeting source</summary>
+                  <div class="source-drawer">
+                    <p class="eyebrow">Source and demo controls</p>
+                    <blockquote class="source-quote" id="source-title">
+                      “At least 95% of 200 cases must choose the exact tool.”
+                    </blockquote>
+                    <div class="source-card">
+                      <strong id="transcript-title">Synthetic discovery call</strong>
+                      <ol class="transcript" id="transcript-lines" aria-label="Synthetic transcript lines"></ol>
+                    </div>
+                    <div class="intake-drawer">
+                      <label for="meeting-notes">Replace with meeting notes</label>
+                      <textarea id="meeting-notes" rows="4" spellcheck="false">Customer: Our support agent must select the correct tool at least 95% of the time. We want to inspect any mistakes before we scale traffic.</textarea>
+                      <div class="button-row">
+                        <button class="button secondary" id="load-transcript" type="button">Capture notes</button>
+                        <button class="text-action" id="reset-demo" type="button">Restore sample</button>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="primary-actions" aria-label="Current action">
+                  <div class="sr-only">
+                    <h2 id="next-action-title">Review requirement</h2>
+                    <p id="next-action-label">Take the visible action.</p>
+                  </div>
+                  <button class="button primary" id="create-customer-draft" type="button" hidden>
+                    Create customer review
+                  </button>
+                  <a class="button primary button-link" id="customer-draft-link" href="#" target="_blank" rel="noopener" hidden>
+                    Open customer review
+                  </a>
+                  <button class="button primary" id="start-revision" type="button" hidden>
+                    Start revision
+                  </button>
+                  <button class="button primary" id="freeze-contract" type="button" hidden>
+                    Freeze confirmed contract
+                  </button>
+                  <button class="button primary" id="run-proof" type="button" hidden>
+                    Run this POC
+                  </button>
+                  <a class="button primary button-link" id="proof-pack-link" href="#" target="_blank" rel="noopener" hidden>
+                    Open evidence pack
+                  </a>
+                  <p class="inline-status" id="prove-status" aria-live="polite"></p>
+                </div>
+              </footer>
             </div>
-            <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
-            <div class="customer-draft-actions">
-              <button class="button secondary" id="create-customer-draft" type="button">Prepare customer review draft</button>
-              <a class="button secondary button-link" id="customer-draft-link" href="#" target="_blank" rel="noopener" hidden>Open customer draft</a>
-            </div>
-          </article>
+          </section>
         </div>
-      </section>
-
-      <section class="stage" id="prove" aria-labelledby="prove-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">02 / Prove</p>
-            <h2 id="prove-title">What does the evidence say?</h2>
-          </div>
-          <p>Choose a deterministic outcome. The local runner writes real evidence artifacts against the reviewed, frozen contract.</p>
-        </div>
-
-        <div class="prove-grid">
-          <article class="panel scenario-card">
-            <div class="card-heading">
-              <div>
-                <p class="card-kicker">POC scenario</p>
-                <h3>Run against the frozen contract</h3>
-              </div>
-              <span class="contract-chip" id="contract-chip">Awaiting review</span>
-            </div>
-
-            <fieldset class="scenario-options" aria-label="Demo proof scenario">
-              <label class="scenario-option pass-option">
-                <input type="radio" name="scenario" value="pass" checked />
-                <span class="radio-copy"><strong>PASS</strong><small>197 / 200 fixed cases meet the evidence bar</small></span>
-              </label>
-              <label class="scenario-option not-proven-option">
-                <input type="radio" name="scenario" value="inconclusive" />
-                <span class="radio-copy"><strong>NOT_PROVEN</strong><small>The confidence bound misses the agreed target</small></span>
-              </label>
-              <label class="scenario-option blocked-option">
-                <input type="radio" name="scenario" value="blocked" />
-                <span class="radio-copy"><strong>BLOCKED</strong><small>The evidence cannot be trusted or completed</small></span>
-              </label>
-            </fieldset>
-            <button class="button primary full-width" id="run-proof" type="button">Run proof</button>
-            <a class="button secondary button-link full-width" id="proof-pack-link" href="#" target="_blank" rel="noopener" hidden>Open full Proof Pack</a>
-            <p class="inline-status" id="prove-status" aria-live="polite"></p>
-          </article>
-
-          <article class="panel evidence-card" aria-labelledby="evidence-title">
-            <div class="card-heading">
-              <div>
-                <p class="card-kicker">Evidence readout</p>
-                <h3 id="evidence-title">Current proof</h3>
-              </div>
-              <span id="proof-verdict" class="verdict-badge">AWAITING</span>
-            </div>
-            <div class="metric-row" id="metric-row"></div>
-            <p class="evidence-explanation" id="evidence-explanation"></p>
-            <div class="evidence-footnote" id="evidence-footnote"></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="stage" id="decide" aria-labelledby="decide-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">03 / Decide</p>
-            <h2 id="decide-title">Give the customer a proof pack, not a black box.</h2>
-          </div>
-          <p>Everything needed to inspect the claim, the measurement, and the human next step—without confusing evidence with permission.</p>
-        </div>
-
-        <article class="proof-pack" aria-labelledby="proof-pack-title">
-          <header class="proof-pack-header">
-            <div>
-              <p class="card-kicker">Customer-ready Proof Pack</p>
-              <h3 id="proof-pack-title">Support agent tool-selection POC</h3>
-            </div>
-            <span class="pack-id" id="pack-id">LOCAL / SYNTHETIC</span>
-          </header>
-          <div class="proof-pack-grid">
-            <div class="proof-item source-item">
-              <span>Customer source</span>
-              <blockquote id="pack-source"></blockquote>
-            </div>
-            <div class="proof-item">
-              <span>Approved acceptance criterion</span>
-              <p id="pack-criterion"></p>
-            </div>
-            <div class="proof-item">
-              <span>Frozen contract</span>
-              <code id="pack-contract"></code>
-            </div>
-            <div class="proof-item proof-result">
-              <span>Evidence result</span>
-              <p id="pack-result"></p>
-            </div>
-          </div>
-          <footer class="proof-pack-footer">
-            <div>
-              <span class="footer-label">Human next step</span>
-              <p id="pack-next-step"></p>
-            </div>
-            <p class="authorization-note">PASS is evidence—not authorization. A named human must decide what may move next.</p>
-          </footer>
-        </article>
-      </section>
-    </main>
+      </main>
+    </div>
 
     <script src="./app.js"></script>
   </body>
