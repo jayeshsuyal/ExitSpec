@@ -1,0 +1,13 @@
+{
+  "fixture_id": "support-tool-selection-v1",
+  "synthetic": true,
+  "description": "A deterministic 200-case synthetic support-agent fixture for the Brick 1 exact-tool-selection contract.",
+  "case_count": 200,
+  "prompt_template": "Synthetic support request {case_number}. Select the approved support tool.",
+  "expected_tool_cycle": [
+    "lookup_ticket",
+    "update_ticket",
+    "search_knowledge_base",
+    "escalate_to_human"
+  ]
+}
