@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from threading import RLock
 from typing import Protocol, runtime_checkable
@@ -15,6 +15,9 @@ from .confirmations import ConfirmationDecision
 
 _SHA256_DIGEST = re.compile(r"^[a-f0-9]{64}$")
 _CONFIRMATION_ID = re.compile(r"^cnf_[a-f0-9]{64}$")
+_EVENT_ID = re.compile(r"^audit-[a-z0-9]+(?:-[a-z0-9]+)*$")
+_INVITATION_ID = re.compile(r"^review-[a-z0-9]+(?:-[a-z0-9]+)*$")
+_TRACE_ID = re.compile(r"^[a-f0-9]{32}$")
 _MACHINE_REASON_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _SAFE_ADAPTER_VERSION = re.compile(
     r"^[0-9]{1,4}(?:\.[0-9]{1,4}){0,2}$"
@@ -47,6 +50,18 @@ def _require_digest(value: str, field_name: str) -> None:
 def _require_aware(timestamp: datetime, field_name: str) -> None:
     if not isinstance(timestamp, datetime) or timestamp.tzinfo is None:
         raise ValueError("{0} must be timezone-aware.".format(field_name))
+    try:
+        offset = timestamp.utcoffset()
+    except Exception:
+        raise ValueError(
+            "{0} must be timezone-aware UTC.".format(field_name)
+        ) from None
+    if offset is None:
+        raise ValueError("{0} must be timezone-aware UTC.".format(field_name))
+    if offset != timedelta(0):
+        raise ValueError(
+            "{0} must use UTC offset zero.".format(field_name)
+        )
 
 
 def _require_bounded_non_empty(
@@ -79,6 +94,40 @@ def _require_optional_bounded_non_empty(
         )
 
 
+def _require_event_id(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) > 64
+        or not _EVENT_ID.fullmatch(value)
+    ):
+        raise ValueError("event_id must be a valid machine identifier.")
+
+
+def _require_invitation_id(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) > 64
+        or not _INVITATION_ID.fullmatch(value)
+    ):
+        raise ValueError(
+            "invitation_id must be a valid machine identifier."
+        )
+
+
+def _require_optional_invitation_id(value: str | None) -> None:
+    if value is not None:
+        _require_invitation_id(value)
+
+
+def _require_optional_trace_id(value: str | None) -> None:
+    if value is not None and (
+        not isinstance(value, str) or not _TRACE_ID.fullmatch(value)
+    ):
+        raise ValueError(
+            "trace_id must be a 32-character lowercase-hex identifier."
+        )
+
+
 def _require_revocation_fields(
     *,
     invitation_id: str,
@@ -86,7 +135,7 @@ def _require_revocation_fields(
     revoked_by_subject: str,
     reason_code: object,
 ) -> None:
-    _require_bounded_non_empty(invitation_id, "invitation_id")
+    _require_invitation_id(invitation_id)
     _require_aware(revoked_at, "revoked_at")
     _require_bounded_non_empty(
         revoked_by_subject,
@@ -206,6 +255,97 @@ class AuditOutcome(str, Enum):
     REJECTED = "REJECTED"
 
 
+_AUDIT_EVENT_RULES = {
+    AuditEventType.INVITATION_ISSUED: (
+        AuditOutcome.SUCCEEDED,
+        True,
+        False,
+        "ABSENT",
+    ),
+    AuditEventType.INVITATION_REVOKED: (
+        AuditOutcome.SUCCEEDED,
+        True,
+        False,
+        "REVOCATION",
+    ),
+    AuditEventType.INVITATION_REISSUED: (
+        AuditOutcome.SUCCEEDED,
+        True,
+        False,
+        "REISSUED",
+    ),
+    AuditEventType.INVITATION_REJECTED: (
+        AuditOutcome.REJECTED,
+        True,
+        False,
+        "MACHINE",
+    ),
+    AuditEventType.DECISION_RECORDED: (
+        AuditOutcome.SUCCEEDED,
+        True,
+        True,
+        "ABSENT",
+    ),
+    AuditEventType.DECISION_REPLAYED: (
+        AuditOutcome.REPLAYED,
+        True,
+        True,
+        "ABSENT",
+    ),
+    AuditEventType.DECISION_REJECTED: (
+        AuditOutcome.REJECTED,
+        True,
+        False,
+        "MACHINE",
+    ),
+    AuditEventType.CONTRACT_SUPERSEDED: (
+        AuditOutcome.SUCCEEDED,
+        False,
+        False,
+        "CONTRACT_SUPERSEDED",
+    ),
+}
+
+
+def _validate_audit_event_invariants(
+    *,
+    event_type: AuditEventType,
+    outcome: AuditOutcome,
+    invitation_id: str | None,
+    confirmation_id: str | None,
+    reason_code: str | None,
+) -> None:
+    (
+        expected_outcome,
+        invitation_required,
+        confirmation_required,
+        reason_policy,
+    ) = _AUDIT_EVENT_RULES[event_type]
+    if outcome != expected_outcome:
+        raise ValueError("outcome contradicts event_type.")
+    if (invitation_id is not None) != invitation_required:
+        raise ValueError("invitation_id contradicts event_type.")
+    if (confirmation_id is not None) != confirmation_required:
+        raise ValueError("confirmation_id contradicts event_type.")
+
+    if reason_policy == "ABSENT":
+        valid_reason = reason_code is None
+    elif reason_policy == "MACHINE":
+        valid_reason = reason_code is not None
+    elif reason_policy == "REVOCATION":
+        valid_reason = reason_code in {
+            reason.value for reason in RevocationReason
+        }
+    elif reason_policy == "REISSUED":
+        valid_reason = reason_code == RevocationReason.REISSUED.value
+    else:
+        valid_reason = (
+            reason_code == RevocationReason.CONTRACT_SUPERSEDED.value
+        )
+    if not valid_reason:
+        raise ValueError("reason_code contradicts event_type.")
+
+
 @dataclass(frozen=True, slots=True)
 class TokenDigest:
     """A precomputed review-token digest; the raw capability never enters here."""
@@ -277,7 +417,7 @@ class ReviewInvitationRecord:
     expires_at: datetime
 
     def __post_init__(self) -> None:
-        _require_non_empty(self.invitation_id, "invitation_id")
+        _require_invitation_id(self.invitation_id)
         if not isinstance(self.binding, ContractBinding):
             raise TypeError("binding must be a ContractBinding.")
         if not isinstance(self.token_digest, TokenDigest):
@@ -341,10 +481,7 @@ class ReissueInvitation:
     revoked_by_subject: str
 
     def __post_init__(self) -> None:
-        _require_bounded_non_empty(
-            self.previous_invitation_id,
-            "previous_invitation_id",
-        )
+        _require_invitation_id(self.previous_invitation_id)
         if not isinstance(self.previous_token_digest, TokenDigest):
             raise TypeError(
                 "previous_token_digest must be a TokenDigest."
@@ -358,6 +495,11 @@ class ReissueInvitation:
             self.revoked_by_subject,
             "revoked_by_subject",
         )
+        if self.replacement.issued_at != self.revoked_at:
+            raise ValueError(
+                "Replacement issuance and revocation must share one "
+                "transaction time."
+            )
         if self.replacement.invitation_id == self.previous_invitation_id:
             raise ValueError(
                 "Replacement invitation must use a different identity."
@@ -383,19 +525,18 @@ class ConfirmationAuditEvent:
     outcome: AuditOutcome
     invitation_id: str | None = None
     confirmation_id: str | None = None
-    actor_issuer: str | None = None
-    actor_subject: str | None = None
-    actor_organization_id: str | None = None
+    actor_issuer: str | None = field(default=None, repr=False)
+    actor_subject: str | None = field(default=None, repr=False)
+    actor_organization_id: str | None = field(
+        default=None,
+        repr=False,
+    )
     reason_code: str | None = None
-    trace_id: str | None = None
+    trace_id: str | None = field(default=None, repr=False)
     safe_metadata: _SafeMetadata = (("schema_version", "1"),)
 
     def __post_init__(self) -> None:
-        _require_bounded_non_empty(
-            self.event_id,
-            "event_id",
-            max_length=128,
-        )
+        _require_event_id(self.event_id)
         if (
             not isinstance(self.event_sequence, int)
             or isinstance(self.event_sequence, bool)
@@ -409,10 +550,7 @@ class ConfirmationAuditEvent:
             raise TypeError("binding must be a ContractBinding.")
         if not isinstance(self.outcome, AuditOutcome):
             raise TypeError("outcome must be an AuditOutcome.")
-        _require_optional_bounded_non_empty(
-            self.invitation_id,
-            "invitation_id",
-        )
+        _require_optional_invitation_id(self.invitation_id)
         if (
             self.confirmation_id is not None
             and (
@@ -458,10 +596,13 @@ class ConfirmationAuditEvent:
                 raise ValueError(
                     "reason_code must be a bounded machine reason."
                 )
-        _require_optional_bounded_non_empty(
-            self.trace_id,
-            "trace_id",
-            max_length=128,
+        _require_optional_trace_id(self.trace_id)
+        _validate_audit_event_invariants(
+            event_type=self.event_type,
+            outcome=self.outcome,
+            invitation_id=self.invitation_id,
+            confirmation_id=self.confirmation_id,
+            reason_code=self.reason_code,
         )
         object.__setattr__(
             self,
@@ -472,20 +613,18 @@ class ConfirmationAuditEvent:
 
 @dataclass(frozen=True, slots=True)
 class AuditQuery:
-    """Bounded filter for one exact contract binding's audit history."""
+    """Read ascending events where sequence is greater than ``after_sequence``."""
 
     binding: ContractBinding
     invitation_id: str | None = None
     confirmation_id: str | None = None
+    after_sequence: int = 0
     limit: int = 100
 
     def __post_init__(self) -> None:
         if not isinstance(self.binding, ContractBinding):
             raise TypeError("binding must be a ContractBinding.")
-        _require_optional_bounded_non_empty(
-            self.invitation_id,
-            "invitation_id",
-        )
+        _require_optional_invitation_id(self.invitation_id)
         if (
             self.confirmation_id is not None
             and (
@@ -495,6 +634,14 @@ class AuditQuery:
         ):
             raise ValueError(
                 "confirmation_id must be a valid confirmation digest."
+            )
+        if (
+            not isinstance(self.after_sequence, int)
+            or isinstance(self.after_sequence, bool)
+            or self.after_sequence < 0
+        ):
+            raise ValueError(
+                "after_sequence must be a nonnegative integer."
             )
         if (
             not isinstance(self.limit, int)
@@ -547,7 +694,7 @@ class RecordDecision:
             self.confirmation_id
         ):
             raise ValueError("confirmation_id must be a valid confirmation digest.")
-        _require_non_empty(self.invitation_id, "invitation_id")
+        _require_invitation_id(self.invitation_id)
         if not isinstance(self.binding, ContractBinding):
             raise TypeError("binding must be a ContractBinding.")
         _require_non_empty(self.reviewer_issuer, "reviewer_issuer")
@@ -585,7 +732,7 @@ class ConfirmationDecisionRecord:
             self.confirmation_id
         ):
             raise ValueError("confirmation_id must be a valid confirmation digest.")
-        _require_non_empty(self.invitation_id, "invitation_id")
+        _require_invitation_id(self.invitation_id)
         if not isinstance(self.binding, ContractBinding):
             raise TypeError("binding must be a ContractBinding.")
         _require_non_empty(self.reviewer_issuer, "reviewer_issuer")
@@ -673,6 +820,9 @@ class InvitationConsumed(ConfirmationStoreError):
 class InvitationRevoked(ConfirmationStoreError):
     """A recognized review invitation has been permanently revoked."""
 
+    def __init__(self) -> None:
+        super().__init__("Review capability has been revoked.")
+
 
 class ContractBindingMismatch(ConfirmationStoreError):
     """A contract ID and version is bound to a different fingerprint."""
@@ -688,6 +838,9 @@ class DecisionAlreadyRecorded(ConfirmationStoreError):
 
 class LedgerUnavailable(ConfirmationStoreError):
     """The authoritative confirmation ledger cannot safely serve the request."""
+
+    def __init__(self) -> None:
+        super().__init__("Confirmation ledger is unavailable.")
 
 
 @runtime_checkable

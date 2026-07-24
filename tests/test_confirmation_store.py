@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from threading import Barrier
 
 import pytest
@@ -43,6 +43,7 @@ from exitspec.confirmations import ConfirmationDecision
 
 
 FIXED_TIME = datetime(2026, 7, 24, 12, 0, tzinfo=timezone.utc)
+CONFIRMATION_ID = "cnf_{0}".format("d" * 64)
 BINDING = ContractBinding(
     contract_id="support-agent-poc",
     contract_version="1.0.0",
@@ -135,7 +136,7 @@ def make_audit_event(**changes) -> ConfirmationAuditEvent:
         "actor_issuer": "https://identity.example",
         "actor_subject": "seller-subject",
         "actor_organization_id": "seller-org",
-        "trace_id": "trace-0001",
+        "trace_id": "1" * 32,
         "safe_metadata": (
             ("schema_version", "1"),
             ("adapter_name", "sqlite"),
@@ -724,6 +725,225 @@ def test_lifecycle_enums_are_exactly_closed_to_the_adr_vocabulary():
 
 
 @pytest.mark.parametrize(
+    "changes",
+    (
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_ISSUED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "invitation_id": "review-primary",
+                "confirmation_id": None,
+                "reason_code": None,
+            },
+            id="invitation-issued",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REVOKED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "invitation_id": "review-primary",
+                "confirmation_id": None,
+                "reason_code": RevocationReason.MANUAL,
+            },
+            id="invitation-revoked",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REISSUED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "invitation_id": "review-replacement",
+                "confirmation_id": None,
+                "reason_code": RevocationReason.REISSUED,
+            },
+            id="invitation-reissued",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REJECTED,
+                "outcome": AuditOutcome.REJECTED,
+                "invitation_id": "review-primary",
+                "confirmation_id": None,
+                "reason_code": "AUTHORIZATION_REJECTED",
+            },
+            id="invitation-rejected",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_RECORDED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "invitation_id": "review-primary",
+                "confirmation_id": CONFIRMATION_ID,
+                "reason_code": None,
+            },
+            id="decision-recorded",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_REPLAYED,
+                "outcome": AuditOutcome.REPLAYED,
+                "invitation_id": "review-primary",
+                "confirmation_id": CONFIRMATION_ID,
+                "reason_code": None,
+            },
+            id="decision-replayed",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_REJECTED,
+                "outcome": AuditOutcome.REJECTED,
+                "invitation_id": "review-primary",
+                "confirmation_id": None,
+                "reason_code": "IDEMPOTENCY_CONFLICT",
+            },
+            id="decision-rejected",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.CONTRACT_SUPERSEDED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "invitation_id": None,
+                "confirmation_id": None,
+                "reason_code": RevocationReason.CONTRACT_SUPERSEDED,
+            },
+            id="contract-superseded",
+        ),
+    ),
+)
+def test_audit_event_matrix_accepts_only_consistent_facts(changes):
+    event = make_audit_event(**changes)
+
+    assert event.event_type == changes["event_type"]
+    assert event.outcome == changes["outcome"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        pytest.param(
+            {"outcome": AuditOutcome.REJECTED},
+            id="issued-wrong-outcome",
+        ),
+        pytest.param(
+            {"invitation_id": None},
+            id="issued-missing-invitation",
+        ),
+        pytest.param(
+            {"confirmation_id": CONFIRMATION_ID},
+            id="issued-forbidden-confirmation",
+        ),
+        pytest.param(
+            {"reason_code": "UNEXPECTED_REASON"},
+            id="issued-forbidden-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REVOKED,
+                "reason_code": None,
+            },
+            id="revoked-missing-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REVOKED,
+                "reason_code": "AUTHORIZATION_REJECTED",
+            },
+            id="revoked-non-revocation-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REISSUED,
+                "reason_code": RevocationReason.MANUAL,
+            },
+            id="reissued-wrong-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REJECTED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "reason_code": "AUTHORIZATION_REJECTED",
+            },
+            id="invitation-rejected-wrong-outcome",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.INVITATION_REJECTED,
+                "outcome": AuditOutcome.REJECTED,
+                "reason_code": None,
+            },
+            id="invitation-rejected-missing-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_RECORDED,
+                "confirmation_id": None,
+            },
+            id="recorded-missing-confirmation",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_RECORDED,
+                "confirmation_id": CONFIRMATION_ID,
+                "reason_code": "UNEXPECTED_REASON",
+            },
+            id="recorded-forbidden-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_REPLAYED,
+                "outcome": AuditOutcome.SUCCEEDED,
+                "confirmation_id": CONFIRMATION_ID,
+            },
+            id="replayed-wrong-outcome",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_REJECTED,
+                "outcome": AuditOutcome.REJECTED,
+                "reason_code": "IDEMPOTENCY_CONFLICT",
+                "confirmation_id": CONFIRMATION_ID,
+            },
+            id="decision-rejected-forbidden-confirmation",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.DECISION_REJECTED,
+                "outcome": AuditOutcome.REJECTED,
+                "reason_code": None,
+            },
+            id="decision-rejected-missing-reason",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.CONTRACT_SUPERSEDED,
+                "invitation_id": None,
+                "reason_code": RevocationReason.CONTRACT_SUPERSEDED,
+                "outcome": AuditOutcome.REJECTED,
+            },
+            id="superseded-wrong-outcome",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.CONTRACT_SUPERSEDED,
+                "reason_code": RevocationReason.CONTRACT_SUPERSEDED,
+            },
+            id="superseded-forbidden-invitation",
+        ),
+        pytest.param(
+            {
+                "event_type": AuditEventType.CONTRACT_SUPERSEDED,
+                "invitation_id": None,
+                "reason_code": RevocationReason.MANUAL,
+            },
+            id="superseded-wrong-reason",
+        ),
+    ),
+)
+def test_audit_event_matrix_rejects_contradictory_facts(changes):
+    with pytest.raises(ValueError, match="contradicts event_type"):
+        make_audit_event(**changes)
+
+
+@pytest.mark.parametrize(
     "record_type",
     (InvitationRevocationRecord, RevokeInvitation),
 )
@@ -795,6 +1015,31 @@ def test_reissue_requires_aware_trusted_revocation_time():
         )
 
 
+def test_reissue_uses_one_trusted_transaction_time():
+    replacement = make_invitation(
+        invitation_id="review-replacement",
+        token_digest=TokenDigest("8" * 64),
+    )
+
+    command = ReissueInvitation(
+        previous_invitation_id="review-primary",
+        previous_token_digest=TokenDigest("b" * 64),
+        replacement=replacement,
+        revoked_at=replacement.issued_at,
+        revoked_by_subject="seller-subject",
+    )
+
+    assert command.revoked_at == command.replacement.issued_at
+    with pytest.raises(ValueError, match="transaction time"):
+        replace(
+            command,
+            replacement=replace(
+                replacement,
+                issued_at=replacement.issued_at + timedelta(seconds=1),
+            ),
+        )
+
+
 def test_audit_event_metadata_is_canonical_and_deeply_immutable():
     event = make_audit_event(
         safe_metadata=(
@@ -856,6 +1101,64 @@ def test_audit_metadata_rejects_forbidden_names_and_values_without_echoing(
 
 
 @pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("event_id", "audit_0001"),
+        ("event_id", "AUDIT-0001"),
+        ("event_id", "a" * 64),
+        ("event_id", "audit-{0}".format("a" * 59)),
+        ("event_id", "reviewer@example.com"),
+        ("invitation_id", "review_primary"),
+        ("invitation_id", "REVIEW-primary"),
+        ("invitation_id", "b" * 64),
+        ("invitation_id", "review-{0}".format("b" * 58)),
+        ("invitation_id", "reviewer@example.com"),
+    ),
+)
+def test_audit_identifiers_reject_non_machine_or_adjacent_sensitive_values(
+    field_name,
+    invalid_value,
+):
+    with pytest.raises(ValueError, match="machine identifier") as error:
+        make_audit_event(**{field_name: invalid_value})
+
+    assert invalid_value not in str(error.value)
+
+
+def test_strict_invitation_identifier_is_shared_by_all_new_domain_types():
+    invalid_id = "review-{0}".format("b" * 64)
+    constructors = (
+        lambda: make_invitation(invitation_id=invalid_id),
+        lambda: make_revocation(invitation_id=invalid_id),
+        lambda: AuditQuery(binding=BINDING, invitation_id=invalid_id),
+    )
+
+    for constructor in constructors:
+        with pytest.raises(ValueError, match="machine identifier") as error:
+            constructor()
+        assert invalid_id not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "invalid_trace_id",
+    (
+        "1" * 31,
+        "1" * 33,
+        "A" * 32,
+        "trace-0001",
+        "reviewer@example.com",
+    ),
+)
+def test_audit_trace_id_is_strict_lowercase_hex_without_value_echo(
+    invalid_trace_id,
+):
+    with pytest.raises(ValueError, match="lowercase-hex") as error:
+        make_audit_event(trace_id=invalid_trace_id)
+
+    assert invalid_trace_id not in str(error.value)
+
+
+@pytest.mark.parametrize(
     "changes",
     (
         {"actor_issuer": None},
@@ -880,9 +1183,60 @@ def test_audit_actor_fields_are_optional_but_consistent(changes):
     assert anonymous.actor_subject is None
 
 
+def test_audit_repr_hides_persisted_actor_and_trace_values():
+    event = make_audit_event()
+    representation = repr(event)
+
+    for sensitive_value in (
+        event.actor_issuer,
+        event.actor_subject,
+        event.actor_organization_id,
+        event.trace_id,
+    ):
+        assert sensitive_value not in representation
+
+
 def test_audit_event_requires_an_aware_occurrence_time():
     with pytest.raises(ValueError, match="timezone-aware"):
         make_audit_event(occurred_at=datetime(2026, 7, 24, 12, 0))
+
+
+def test_timestamp_validation_rejects_non_utc_offsets_globally():
+    non_utc = datetime(
+        2026,
+        7,
+        24,
+        13,
+        0,
+        tzinfo=timezone(timedelta(hours=1)),
+    )
+
+    with pytest.raises(ValueError, match="UTC offset zero"):
+        make_audit_event(occurred_at=non_utc)
+
+
+def test_timestamp_validation_rejects_tzinfo_with_no_real_offset():
+    class MissingOffsetTimezone(tzinfo):
+        def utcoffset(self, value):
+            return None
+
+        def dst(self, value):
+            return None
+
+        def tzname(self, value):
+            return "missing-offset"
+
+    fake_aware = datetime(
+        2026,
+        7,
+        24,
+        12,
+        0,
+        tzinfo=MissingOffsetTimezone(),
+    )
+
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        make_revocation(revoked_at=fake_aware)
 
 
 @pytest.mark.parametrize("event_sequence", (0, -1, True, 1.5))
@@ -896,10 +1250,12 @@ def test_audit_query_filters_one_exact_binding_with_bounded_limit():
         binding=BINDING,
         invitation_id="review-primary",
         confirmation_id="cnf_{0}".format("d" * 64),
+        after_sequence=500,
         limit=500,
     )
 
     assert query.binding is BINDING
+    assert query.after_sequence == 500
     assert query.limit == 500
     with pytest.raises(FrozenInstanceError):
         query.limit = 1
@@ -912,6 +1268,35 @@ def test_audit_query_filters_one_exact_binding_with_bounded_limit():
     assert unfiltered.confirmation_id is None
     with pytest.raises(ValueError, match="confirmation_id"):
         replace(query, confirmation_id="not-a-confirmation-id")
+
+
+def test_audit_query_represents_complete_pagination_beyond_first_500():
+    first_page = AuditQuery(
+        binding=BINDING,
+        after_sequence=0,
+        limit=500,
+    )
+    second_page = replace(first_page, after_sequence=500)
+    third_page = replace(second_page, after_sequence=1000)
+
+    assert (
+        first_page.after_sequence,
+        second_page.after_sequence,
+        third_page.after_sequence,
+    ) == (0, 500, 1000)
+    assert all(
+        page.limit == 500
+        for page in (first_page, second_page, third_page)
+    )
+
+
+@pytest.mark.parametrize("after_sequence", (-1, True, 1.5, "500", None))
+def test_audit_query_rejects_invalid_sequence_cursors(after_sequence):
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        AuditQuery(
+            binding=BINDING,
+            after_sequence=after_sequence,
+        )
 
 
 def test_lifecycle_errors_and_repr_do_not_leak_sensitive_digests():
@@ -930,10 +1315,18 @@ def test_lifecycle_errors_and_repr_do_not_leak_sensitive_digests():
 
     assert sensitive_digest not in repr(command)
     assert replacement_digest not in repr(command)
-    for error_type in (InvitationRevoked, LedgerUnavailable):
-        error = error_type("Confirmation ledger operation was rejected.")
-        assert sensitive_digest not in str(error)
-        assert sensitive_digest not in repr(error)
+    expected_messages = {
+        InvitationRevoked: "Review capability has been revoked.",
+        LedgerUnavailable: "Confirmation ledger is unavailable.",
+    }
+    secret_message = "secret-{0}".format(sensitive_digest)
+    for error_type, expected_message in expected_messages.items():
+        error = error_type()
+        assert str(error) == expected_message
+        assert secret_message not in repr(error)
+        with pytest.raises(TypeError) as rejected:
+            error_type(secret_message)
+        assert secret_message not in str(rejected.value)
 
 
 def test_lifecycle_vocabulary_does_not_expand_the_store_protocol_or_behavior():
