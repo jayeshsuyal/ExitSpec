@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -32,6 +33,36 @@ def _require_digest(value: str, field_name: str) -> None:
 def _require_aware(timestamp: datetime, field_name: str) -> None:
     if not isinstance(timestamp, datetime) or timestamp.tzinfo is None:
         raise ValueError("{0} must be timezone-aware.".format(field_name))
+
+
+def _validate_decision_payload(
+    *,
+    decision: object,
+    agreement_acknowledged: object,
+    rationale: object,
+) -> None:
+    if not isinstance(decision, ConfirmationDecision):
+        raise ValueError("decision must be a ConfirmationDecision.")
+    if not isinstance(agreement_acknowledged, bool):
+        raise ValueError("agreement_acknowledged must be a boolean.")
+    if not isinstance(rationale, str):
+        raise ValueError("rationale must be a string.")
+    if len(rationale) > 2000:
+        raise ValueError("rationale must contain at most 2000 characters.")
+    if (
+        decision == ConfirmationDecision.CONFIRM
+        and not agreement_acknowledged
+    ):
+        raise ValueError("CONFIRM requires explicit agreement acknowledgement.")
+    if (
+        decision == ConfirmationDecision.REQUEST_CHANGES
+        and not rationale.strip()
+    ):
+        raise ValueError("REQUEST_CHANGES requires a non-empty rationale.")
+
+
+def _digests_equal(left: TokenDigest, right: TokenDigest) -> bool:
+    return hmac.compare_digest(left.value, right.value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +160,7 @@ class RecordDecision:
     operation_digest: OperationDigest
     idempotency_key_digest: IdempotencyKeyDigest
     request_digest: RequestDigest
+    token_digest: TokenDigest
     confirmation_id: str
     invitation_id: str
     binding: ContractBinding
@@ -150,6 +182,8 @@ class RecordDecision:
             )
         if not isinstance(self.request_digest, RequestDigest):
             raise TypeError("request_digest must be a RequestDigest.")
+        if not isinstance(self.token_digest, TokenDigest):
+            raise TypeError("token_digest must be a TokenDigest.")
         if not isinstance(self.confirmation_id, str) or not _CONFIRMATION_ID.fullmatch(
             self.confirmation_id
         ):
@@ -167,22 +201,6 @@ class RecordDecision:
             self.reviewer_display_name_snapshot,
             "reviewer_display_name_snapshot",
         )
-        if not isinstance(self.decision, ConfirmationDecision):
-            raise TypeError("decision must be a ConfirmationDecision.")
-        if not isinstance(self.agreement_acknowledged, bool):
-            raise TypeError("agreement_acknowledged must be a boolean.")
-        if (
-            self.decision == ConfirmationDecision.CONFIRM
-            and not self.agreement_acknowledged
-        ):
-            raise ValueError("CONFIRM requires explicit agreement acknowledgement.")
-        if not isinstance(self.rationale, str) or len(self.rationale) > 2000:
-            raise ValueError("rationale must contain at most 2000 characters.")
-        if (
-            self.decision == ConfirmationDecision.REQUEST_CHANGES
-            and not self.rationale.strip()
-        ):
-            raise ValueError("REQUEST_CHANGES requires a non-empty rationale.")
         _require_aware(self.decided_at, "decided_at")
 
 
@@ -203,6 +221,33 @@ class ConfirmationDecisionRecord:
     decided_at: datetime
     request_digest: RequestDigest
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.confirmation_id, str) or not _CONFIRMATION_ID.fullmatch(
+            self.confirmation_id
+        ):
+            raise ValueError("confirmation_id must be a valid confirmation digest.")
+        _require_non_empty(self.invitation_id, "invitation_id")
+        if not isinstance(self.binding, ContractBinding):
+            raise TypeError("binding must be a ContractBinding.")
+        _require_non_empty(self.reviewer_issuer, "reviewer_issuer")
+        _require_non_empty(self.reviewer_subject, "reviewer_subject")
+        _require_non_empty(
+            self.reviewer_organization_id,
+            "reviewer_organization_id",
+        )
+        _require_non_empty(
+            self.reviewer_display_name_snapshot,
+            "reviewer_display_name_snapshot",
+        )
+        _validate_decision_payload(
+            decision=self.decision,
+            agreement_acknowledged=self.agreement_acknowledged,
+            rationale=self.rationale,
+        )
+        _require_aware(self.decided_at, "decided_at")
+        if not isinstance(self.request_digest, RequestDigest):
+            raise TypeError("request_digest must be a RequestDigest.")
+
 
 @dataclass(frozen=True, slots=True)
 class IdempotencyOperationRecord:
@@ -215,6 +260,23 @@ class IdempotencyOperationRecord:
     request_digest: RequestDigest
     confirmation_id: str
     created_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.operation_digest, OperationDigest):
+            raise TypeError("operation_digest must be an OperationDigest.")
+        _require_non_empty(self.contract_id, "contract_id")
+        _require_non_empty(self.contract_version, "contract_version")
+        if not isinstance(self.idempotency_key_digest, IdempotencyKeyDigest):
+            raise TypeError(
+                "idempotency_key_digest must be an IdempotencyKeyDigest."
+            )
+        if not isinstance(self.request_digest, RequestDigest):
+            raise TypeError("request_digest must be a RequestDigest.")
+        if not isinstance(self.confirmation_id, str) or not _CONFIRMATION_ID.fullmatch(
+            self.confirmation_id
+        ):
+            raise ValueError("confirmation_id must be a valid confirmation digest.")
+        _require_aware(self.created_at, "created_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +301,14 @@ class TokenDigestConflict(ConfirmationStoreError):
 
 class InvitationNotFound(ConfirmationStoreError):
     """The decision references an invitation that is not stored."""
+
+
+class InvitationExpired(ConfirmationStoreError):
+    """A recognized review invitation is no longer active."""
+
+
+class InvitationConsumed(ConfirmationStoreError):
+    """A recognized review invitation already produced a terminal decision."""
 
 
 class ContractBindingMismatch(ConfirmationStoreError):
@@ -272,8 +342,9 @@ class ConfirmationStore(Protocol):
     def resolve_invitation(
         self,
         token_digest: TokenDigest,
+        now: datetime,
     ) -> ReviewInvitationRecord | None:
-        """Resolve only a precomputed token digest."""
+        """Resolve an active invitation using only a precomputed digest."""
 
     def record_decision(self, command: RecordDecision) -> DecisionWriteResult:
         """Atomically record, replay, or reject a terminal decision."""
@@ -301,6 +372,7 @@ class InMemoryConfirmationStore:
             ConfirmationDecisionRecord,
         ] = {}
         self._decisions_by_id: dict[str, ConfirmationDecisionRecord] = {}
+        self._decision_ids_by_invitation: dict[str, str] = {}
         self._operations_by_digest: dict[
             OperationDigest,
             IdempotencyOperationRecord,
@@ -351,14 +423,19 @@ class InMemoryConfirmationStore:
     def resolve_invitation(
         self,
         token_digest: TokenDigest,
+        now: datetime,
     ) -> ReviewInvitationRecord | None:
         if not isinstance(token_digest, TokenDigest):
             raise TypeError("token_digest must be a TokenDigest, never a raw token.")
+        _require_aware(now, "now")
         with self._lock:
-            invitation_id = self._invitation_ids_by_token_digest.get(token_digest)
-            if invitation_id is None:
+            invitation = self._invitation_for_digest(token_digest)
+            if invitation is None:
                 return None
-            return self._invitations[invitation_id]
+            if invitation.invitation_id in self._decision_ids_by_invitation:
+                raise InvitationConsumed("Review capability is no longer active.")
+            self._require_not_expired(invitation, now)
+            return invitation
 
     def record_decision(self, command: RecordDecision) -> DecisionWriteResult:
         if not isinstance(command, RecordDecision):
@@ -378,10 +455,14 @@ class InMemoryConfirmationStore:
                     "Idempotency digest is already bound to another operation."
                 )
 
+            invitation = self._invitation_for_digest(command.token_digest)
+            if (
+                invitation is None
+                or invitation.invitation_id != command.invitation_id
+            ):
+                raise InvitationNotFound("Review capability is unavailable.")
+            self._require_not_expired(invitation, command.decided_at)
             self._require_consistent_binding(command.binding)
-            invitation = self._invitations.get(command.invitation_id)
-            if invitation is None:
-                raise InvitationNotFound("Decision invitation was not found.")
             if invitation.binding != command.binding:
                 raise ContractBindingMismatch(
                     "Invitation and decision contract bindings do not match."
@@ -403,6 +484,7 @@ class InMemoryConfirmationStore:
                     "Confirmation identity already names a terminal decision."
                 )
 
+            self._validate_first_write(command)
             decision = self._decision_from_command(command)
             operation = IdempotencyOperationRecord(
                 operation_digest=command.operation_digest,
@@ -415,6 +497,9 @@ class InMemoryConfirmationStore:
             )
             self._decisions_by_binding[command.binding] = decision
             self._decisions_by_id[decision.confirmation_id] = decision
+            self._decision_ids_by_invitation[decision.invitation_id] = (
+                decision.confirmation_id
+            )
             self._operations_by_digest[command.operation_digest] = operation
             self._operation_digests_by_key[operation_key] = (
                 command.operation_digest
@@ -444,11 +529,44 @@ class InMemoryConfirmationStore:
             and operation.request_digest == command.request_digest
         )
         decision = self._decisions_by_id[operation.confirmation_id]
-        if not expected_operation or not self._same_request(decision, command):
+        invitation = self._invitations[decision.invitation_id]
+        if (
+            not expected_operation
+            or not _digests_equal(invitation.token_digest, command.token_digest)
+            or not self._same_request(decision, command)
+        ):
             raise IdempotencyConflict(
                 "Operation digest is already bound to a different request."
             )
         return DecisionWriteResult(decision=decision, replayed=True)
+
+    def _invitation_for_digest(
+        self,
+        token_digest: TokenDigest,
+    ) -> ReviewInvitationRecord | None:
+        invitation_id = self._invitation_ids_by_token_digest.get(token_digest)
+        if invitation_id is None:
+            return None
+        invitation = self._invitations[invitation_id]
+        if not _digests_equal(invitation.token_digest, token_digest):
+            return None
+        return invitation
+
+    @staticmethod
+    def _require_not_expired(
+        invitation: ReviewInvitationRecord,
+        now: datetime,
+    ) -> None:
+        if now >= invitation.expires_at:
+            raise InvitationExpired("Review capability is no longer active.")
+
+    @staticmethod
+    def _validate_first_write(command: RecordDecision) -> None:
+        _validate_decision_payload(
+            decision=command.decision,
+            agreement_acknowledged=command.agreement_acknowledged,
+            rationale=command.rationale,
+        )
 
     def _require_consistent_binding(self, binding: ContractBinding) -> None:
         version = (binding.contract_id, binding.contract_version)
