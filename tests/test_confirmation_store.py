@@ -7,6 +7,10 @@ import pytest
 
 import exitspec.confirmation_store as confirmation_store_module
 from exitspec.confirmation_store import (
+    AuditEventType,
+    AuditOutcome,
+    AuditQuery,
+    ConfirmationAuditEvent,
     ConfirmationDecisionRecord,
     ConfirmationStore,
     ContractBinding,
@@ -21,10 +25,17 @@ from exitspec.confirmation_store import (
     InvitationExpired,
     InvitationIdentityConflict,
     InvitationNotFound,
+    InvitationRevocationRecord,
+    InvitationRevoked,
+    InvitationState,
+    LedgerUnavailable,
     OperationDigest,
     RecordDecision,
+    ReissueInvitation,
     RequestDigest,
+    RevokeInvitation,
     ReviewInvitationRecord,
+    RevocationReason,
     TokenDigest,
     TokenDigestConflict,
 )
@@ -96,6 +107,43 @@ def ready_store() -> InMemoryConfirmationStore:
     store = InMemoryConfirmationStore()
     store.issue_invitation(make_invitation())
     return store
+
+
+def make_revocation(
+    record_type=InvitationRevocationRecord,
+    **changes,
+):
+    values = {
+        "invitation_id": "review-primary",
+        "revoked_at": FIXED_TIME,
+        "revoked_by_subject": "seller-subject",
+        "reason_code": RevocationReason.MANUAL,
+    }
+    values.update(changes)
+    return record_type(**values)
+
+
+def make_audit_event(**changes) -> ConfirmationAuditEvent:
+    values = {
+        "event_id": "audit-0001",
+        "event_sequence": 1,
+        "event_type": AuditEventType.INVITATION_ISSUED,
+        "occurred_at": FIXED_TIME,
+        "binding": BINDING,
+        "outcome": AuditOutcome.SUCCEEDED,
+        "invitation_id": "review-primary",
+        "actor_issuer": "https://identity.example",
+        "actor_subject": "seller-subject",
+        "actor_organization_id": "seller-org",
+        "trace_id": "trace-0001",
+        "safe_metadata": (
+            ("schema_version", "1"),
+            ("adapter_name", "sqlite"),
+            ("adapter_version", "1.0.0"),
+        ),
+    }
+    values.update(changes)
+    return ConfirmationAuditEvent(**values)
 
 
 def test_in_memory_adapter_implements_the_typed_port():
@@ -642,3 +690,266 @@ def test_concurrent_different_operations_allow_one_terminal_decision():
     assert sum(not result.replayed for result in stored) == 1
     assert all(result.decision is stored[0].decision for result in stored)
     assert len(stored) + len(conflicts) == len(attempts)
+
+
+def test_lifecycle_enums_are_exactly_closed_to_the_adr_vocabulary():
+    assert tuple(RevocationReason) == (
+        RevocationReason.MANUAL,
+        RevocationReason.REISSUED,
+        RevocationReason.CONTRACT_SUPERSEDED,
+        RevocationReason.SECURITY_RESPONSE,
+    )
+    assert tuple(InvitationState) == (
+        InvitationState.REVOKED,
+        InvitationState.DECIDED,
+        InvitationState.EXPIRED,
+        InvitationState.STALE,
+        InvitationState.ACTIVE,
+    )
+    assert tuple(AuditEventType) == (
+        AuditEventType.INVITATION_ISSUED,
+        AuditEventType.INVITATION_REVOKED,
+        AuditEventType.INVITATION_REISSUED,
+        AuditEventType.INVITATION_REJECTED,
+        AuditEventType.DECISION_RECORDED,
+        AuditEventType.DECISION_REPLAYED,
+        AuditEventType.DECISION_REJECTED,
+        AuditEventType.CONTRACT_SUPERSEDED,
+    )
+    assert tuple(AuditOutcome) == (
+        AuditOutcome.SUCCEEDED,
+        AuditOutcome.REPLAYED,
+        AuditOutcome.REJECTED,
+    )
+
+
+@pytest.mark.parametrize(
+    "record_type",
+    (InvitationRevocationRecord, RevokeInvitation),
+)
+def test_revocation_types_are_frozen_aware_and_have_no_free_form_reason(
+    record_type,
+):
+    revocation = make_revocation(record_type)
+
+    assert not hasattr(revocation, "rationale")
+    with pytest.raises(FrozenInstanceError):
+        revocation.revoked_by_subject = "changed"
+    with pytest.raises(ValueError, match="timezone-aware"):
+        make_revocation(
+            record_type,
+            revoked_at=datetime(2026, 7, 24, 12, 0),
+        )
+    with pytest.raises(TypeError, match="RevocationReason"):
+        make_revocation(record_type, reason_code="MANUAL")
+
+
+def test_reissue_requires_distinct_invitation_identity_and_token_digest():
+    previous_digest = TokenDigest("b" * 64)
+    replacement = make_invitation(
+        invitation_id="review-replacement",
+        token_digest=TokenDigest("8" * 64),
+    )
+    command = ReissueInvitation(
+        previous_invitation_id="review-primary",
+        previous_token_digest=previous_digest,
+        replacement=replacement,
+        revoked_at=FIXED_TIME,
+        revoked_by_subject="seller-subject",
+    )
+
+    assert command.replacement is replacement
+    assert not hasattr(command, "reason_code")
+    assert not hasattr(command, "rationale")
+    with pytest.raises(FrozenInstanceError):
+        command.previous_invitation_id = "changed"
+    with pytest.raises(ValueError, match="different identity"):
+        replace(
+            command,
+            replacement=replace(
+                replacement,
+                invitation_id=command.previous_invitation_id,
+            ),
+        )
+    with pytest.raises(ValueError, match="different token digest"):
+        replace(
+            command,
+            replacement=replace(
+                replacement,
+                token_digest=previous_digest,
+            ),
+        )
+
+
+def test_reissue_requires_aware_trusted_revocation_time():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        ReissueInvitation(
+            previous_invitation_id="review-primary",
+            previous_token_digest=TokenDigest("b" * 64),
+            replacement=make_invitation(
+                invitation_id="review-replacement",
+                token_digest=TokenDigest("8" * 64),
+            ),
+            revoked_at=datetime(2026, 7, 24, 12, 0),
+            revoked_by_subject="seller-subject",
+        )
+
+
+def test_audit_event_metadata_is_canonical_and_deeply_immutable():
+    event = make_audit_event(
+        safe_metadata=(
+            ("adapter_version", "1.2.3"),
+            ("schema_version", "1"),
+            ("adapter_name", "memory"),
+        )
+    )
+
+    assert event.safe_metadata == (
+        ("adapter_name", "memory"),
+        ("adapter_version", "1.2.3"),
+        ("schema_version", "1"),
+    )
+    with pytest.raises(FrozenInstanceError):
+        event.safe_metadata = (("schema_version", "1"),)
+    with pytest.raises(TypeError, match="immutable tuple"):
+        make_audit_event(
+            safe_metadata={"schema_version": "1"},
+        )
+    with pytest.raises(TypeError, match="immutable string pairs"):
+        make_audit_event(
+            safe_metadata=(("schema_version", ["1"]),),
+        )
+
+
+@pytest.mark.parametrize(
+    "safe_metadata",
+    (
+        (("schema_version", "1"), ("token_digest", "a" * 64)),
+        (("schema_version", "1"), ("idempotency_key_digest", "b" * 64)),
+        (("schema_version", "1"), ("rationale", "customer said yes")),
+        (("schema_version", "1"), ("request_body", "{}")),
+        (("schema_version", "1"), ("email", "reviewer@example.com")),
+        (("schema_version", "1"), ("authorization", "Bearer credential")),
+        (("schema_version", "1"), ("customer_key", "customer-value")),
+        (("schema_version", "1"), ("schema_version", "1")),
+        (("schema_version", "2"),),
+        (("schema_version", "1"), ("adapter_name", "customer-controlled")),
+        (("schema_version", "1"), ("adapter_version", "secret-value")),
+    ),
+)
+def test_audit_metadata_rejects_forbidden_names_and_values_without_echoing(
+    safe_metadata,
+):
+    flattened_sensitive_values = {
+        value
+        for _, value in safe_metadata
+        if isinstance(value, str) and value not in {"1", "2"}
+    }
+
+    with pytest.raises((TypeError, ValueError)) as error:
+        make_audit_event(safe_metadata=safe_metadata)
+
+    assert all(
+        sensitive_value not in str(error.value)
+        for sensitive_value in flattened_sensitive_values
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"actor_issuer": None},
+        {"actor_subject": None},
+        {
+            "actor_issuer": None,
+            "actor_subject": None,
+            "actor_organization_id": "seller-org",
+        },
+    ),
+)
+def test_audit_actor_fields_are_optional_but_consistent(changes):
+    with pytest.raises(ValueError, match="actor"):
+        make_audit_event(**changes)
+
+    anonymous = make_audit_event(
+        actor_issuer=None,
+        actor_subject=None,
+        actor_organization_id=None,
+    )
+    assert anonymous.actor_issuer is None
+    assert anonymous.actor_subject is None
+
+
+def test_audit_event_requires_an_aware_occurrence_time():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        make_audit_event(occurred_at=datetime(2026, 7, 24, 12, 0))
+
+
+@pytest.mark.parametrize("event_sequence", (0, -1, True, 1.5))
+def test_audit_event_requires_a_positive_integer_sequence(event_sequence):
+    with pytest.raises(ValueError, match="positive integer"):
+        make_audit_event(event_sequence=event_sequence)
+
+
+def test_audit_query_filters_one_exact_binding_with_bounded_limit():
+    query = AuditQuery(
+        binding=BINDING,
+        invitation_id="review-primary",
+        confirmation_id="cnf_{0}".format("d" * 64),
+        limit=500,
+    )
+
+    assert query.binding is BINDING
+    assert query.limit == 500
+    with pytest.raises(FrozenInstanceError):
+        query.limit = 1
+    for invalid_limit in (0, -1, 501, True, 1.5):
+        with pytest.raises(ValueError, match="between 1 and 500"):
+            replace(query, limit=invalid_limit)
+
+    unfiltered = AuditQuery(binding=BINDING)
+    assert unfiltered.invitation_id is None
+    assert unfiltered.confirmation_id is None
+    with pytest.raises(ValueError, match="confirmation_id"):
+        replace(query, confirmation_id="not-a-confirmation-id")
+
+
+def test_lifecycle_errors_and_repr_do_not_leak_sensitive_digests():
+    sensitive_digest = "b" * 64
+    replacement_digest = "8" * 64
+    command = ReissueInvitation(
+        previous_invitation_id="review-primary",
+        previous_token_digest=TokenDigest(sensitive_digest),
+        replacement=make_invitation(
+            invitation_id="review-replacement",
+            token_digest=TokenDigest(replacement_digest),
+        ),
+        revoked_at=FIXED_TIME,
+        revoked_by_subject="seller-subject",
+    )
+
+    assert sensitive_digest not in repr(command)
+    assert replacement_digest not in repr(command)
+    for error_type in (InvitationRevoked, LedgerUnavailable):
+        error = error_type("Confirmation ledger operation was rejected.")
+        assert sensitive_digest not in str(error)
+        assert sensitive_digest not in repr(error)
+
+
+def test_lifecycle_vocabulary_does_not_expand_the_store_protocol_or_behavior():
+    protocol_operations = {
+        name
+        for name, value in ConfirmationStore.__dict__.items()
+        if callable(value) and not name.startswith("_")
+    }
+
+    assert protocol_operations == {
+        "issue_invitation",
+        "get_invitation",
+        "resolve_invitation",
+        "record_decision",
+        "get_decision",
+    }
+    assert not hasattr(InMemoryConfirmationStore, "revoke_invitation")
+    assert not hasattr(InMemoryConfirmationStore, "reissue_invitation")
+    assert not hasattr(InMemoryConfirmationStore, "list_audit_events")

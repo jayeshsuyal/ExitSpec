@@ -6,6 +6,7 @@ import hmac
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from threading import RLock
 from typing import Protocol, runtime_checkable
 
@@ -14,8 +15,21 @@ from .confirmations import ConfirmationDecision
 
 _SHA256_DIGEST = re.compile(r"^[a-f0-9]{64}$")
 _CONFIRMATION_ID = re.compile(r"^cnf_[a-f0-9]{64}$")
+_MACHINE_REASON_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_SAFE_ADAPTER_VERSION = re.compile(
+    r"^[0-9]{1,4}(?:\.[0-9]{1,4}){0,2}$"
+)
+_SAFE_METADATA_SCHEMA_VERSION = "1"
+_SAFE_METADATA_VALUE_LIMIT = 64
+_AUDIT_QUERY_LIMIT = 500
+_SAFE_METADATA_VALUE_PATTERNS = {
+    "schema_version": re.compile(r"^1$"),
+    "adapter_name": re.compile(r"^(?:memory|sqlite|postgresql)$"),
+    "adapter_version": _SAFE_ADAPTER_VERSION,
+}
 _ContractVersion = tuple[str, str]
 _OperationKey = tuple[str, str, "IdempotencyKeyDigest"]
+_SafeMetadata = tuple[tuple[str, str], ...]
 
 
 def _require_non_empty(value: str, field_name: str) -> None:
@@ -33,6 +47,93 @@ def _require_digest(value: str, field_name: str) -> None:
 def _require_aware(timestamp: datetime, field_name: str) -> None:
     if not isinstance(timestamp, datetime) or timestamp.tzinfo is None:
         raise ValueError("{0} must be timezone-aware.".format(field_name))
+
+
+def _require_bounded_non_empty(
+    value: str,
+    field_name: str,
+    *,
+    max_length: int = 256,
+) -> None:
+    _require_non_empty(value, field_name)
+    if len(value) > max_length:
+        raise ValueError(
+            "{0} must contain at most {1} characters.".format(
+                field_name,
+                max_length,
+            )
+        )
+
+
+def _require_optional_bounded_non_empty(
+    value: str | None,
+    field_name: str,
+    *,
+    max_length: int = 256,
+) -> None:
+    if value is not None:
+        _require_bounded_non_empty(
+            value,
+            field_name,
+            max_length=max_length,
+        )
+
+
+def _require_revocation_fields(
+    *,
+    invitation_id: str,
+    revoked_at: datetime,
+    revoked_by_subject: str,
+    reason_code: object,
+) -> None:
+    _require_bounded_non_empty(invitation_id, "invitation_id")
+    _require_aware(revoked_at, "revoked_at")
+    _require_bounded_non_empty(
+        revoked_by_subject,
+        "revoked_by_subject",
+    )
+    if not isinstance(reason_code, RevocationReason):
+        raise TypeError("reason_code must be a RevocationReason.")
+
+
+def _canonical_safe_metadata(value: object) -> _SafeMetadata:
+    if not isinstance(value, tuple):
+        raise TypeError("safe_metadata must be an immutable tuple of pairs.")
+    if not value:
+        raise ValueError("safe_metadata must declare schema version 1.")
+
+    seen: set[str] = set()
+    canonical: list[tuple[str, str]] = []
+    for item in value:
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+        ):
+            raise TypeError(
+                "safe_metadata must contain only immutable string pairs."
+            )
+        key, metadata_value = item
+        pattern = _SAFE_METADATA_VALUE_PATTERNS.get(key)
+        if pattern is None or key in seen:
+            raise ValueError(
+                "safe_metadata contains an unsupported or duplicate field."
+            )
+        if (
+            not metadata_value
+            or len(metadata_value) > _SAFE_METADATA_VALUE_LIMIT
+            or not pattern.fullmatch(metadata_value)
+        ):
+            raise ValueError("safe_metadata contains an unsupported value.")
+        seen.add(key)
+        canonical.append((key, metadata_value))
+
+    if dict(canonical).get("schema_version") != (
+        _SAFE_METADATA_SCHEMA_VERSION
+    ):
+        raise ValueError("safe_metadata must declare schema version 1.")
+    return tuple(sorted(canonical))
 
 
 def _validate_decision_payload(
@@ -63,6 +164,46 @@ def _validate_decision_payload(
 
 def _digests_equal(left: TokenDigest, right: TokenDigest) -> bool:
     return hmac.compare_digest(left.value, right.value)
+
+
+class RevocationReason(str, Enum):
+    """Closed machine reasons for permanently revoking an invitation."""
+
+    MANUAL = "MANUAL"
+    REISSUED = "REISSUED"
+    CONTRACT_SUPERSEDED = "CONTRACT_SUPERSEDED"
+    SECURITY_RESPONSE = "SECURITY_RESPONSE"
+
+
+class InvitationState(str, Enum):
+    """Derived invitation states in their deterministic precedence order."""
+
+    REVOKED = "REVOKED"
+    DECIDED = "DECIDED"
+    EXPIRED = "EXPIRED"
+    STALE = "STALE"
+    ACTIVE = "ACTIVE"
+
+
+class AuditEventType(str, Enum):
+    """Closed initial event vocabulary for the confirmation ledger."""
+
+    INVITATION_ISSUED = "INVITATION_ISSUED"
+    INVITATION_REVOKED = "INVITATION_REVOKED"
+    INVITATION_REISSUED = "INVITATION_REISSUED"
+    INVITATION_REJECTED = "INVITATION_REJECTED"
+    DECISION_RECORDED = "DECISION_RECORDED"
+    DECISION_REPLAYED = "DECISION_REPLAYED"
+    DECISION_REJECTED = "DECISION_REJECTED"
+    CONTRACT_SUPERSEDED = "CONTRACT_SUPERSEDED"
+
+
+class AuditOutcome(str, Enum):
+    """Bounded outcomes suitable for durable audit records and metrics."""
+
+    SUCCEEDED = "SUCCEEDED"
+    REPLAYED = "REPLAYED"
+    REJECTED = "REJECTED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +292,220 @@ class ReviewInvitationRecord:
         _require_aware(self.expires_at, "expires_at")
         if self.expires_at <= self.issued_at:
             raise ValueError("expires_at must be later than issued_at.")
+
+
+@dataclass(frozen=True, slots=True)
+class InvitationRevocationRecord:
+    """Immutable append-only fact that permanently revokes an invitation."""
+
+    invitation_id: str
+    revoked_at: datetime
+    revoked_by_subject: str
+    reason_code: RevocationReason
+
+    def __post_init__(self) -> None:
+        _require_revocation_fields(
+            invitation_id=self.invitation_id,
+            revoked_at=self.revoked_at,
+            revoked_by_subject=self.revoked_by_subject,
+            reason_code=self.reason_code,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RevokeInvitation:
+    """Trusted, digest-free command to append one revocation fact."""
+
+    invitation_id: str
+    revoked_at: datetime
+    revoked_by_subject: str
+    reason_code: RevocationReason
+
+    def __post_init__(self) -> None:
+        _require_revocation_fields(
+            invitation_id=self.invitation_id,
+            revoked_at=self.revoked_at,
+            revoked_by_subject=self.revoked_by_subject,
+            reason_code=self.reason_code,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ReissueInvitation:
+    """Bind one old capability to a distinct replacement invitation."""
+
+    previous_invitation_id: str
+    previous_token_digest: TokenDigest = field(repr=False)
+    replacement: ReviewInvitationRecord
+    revoked_at: datetime
+    revoked_by_subject: str
+
+    def __post_init__(self) -> None:
+        _require_bounded_non_empty(
+            self.previous_invitation_id,
+            "previous_invitation_id",
+        )
+        if not isinstance(self.previous_token_digest, TokenDigest):
+            raise TypeError(
+                "previous_token_digest must be a TokenDigest."
+            )
+        if not isinstance(self.replacement, ReviewInvitationRecord):
+            raise TypeError(
+                "replacement must be a ReviewInvitationRecord."
+            )
+        _require_aware(self.revoked_at, "revoked_at")
+        _require_bounded_non_empty(
+            self.revoked_by_subject,
+            "revoked_by_subject",
+        )
+        if self.replacement.invitation_id == self.previous_invitation_id:
+            raise ValueError(
+                "Replacement invitation must use a different identity."
+            )
+        if _digests_equal(
+            self.replacement.token_digest,
+            self.previous_token_digest,
+        ):
+            raise ValueError(
+                "Replacement invitation must use a different token digest."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmationAuditEvent:
+    """Immutable, bounded audit fact with no secret-bearing metadata sink."""
+
+    event_id: str
+    event_sequence: int
+    event_type: AuditEventType
+    occurred_at: datetime
+    binding: ContractBinding
+    outcome: AuditOutcome
+    invitation_id: str | None = None
+    confirmation_id: str | None = None
+    actor_issuer: str | None = None
+    actor_subject: str | None = None
+    actor_organization_id: str | None = None
+    reason_code: str | None = None
+    trace_id: str | None = None
+    safe_metadata: _SafeMetadata = (("schema_version", "1"),)
+
+    def __post_init__(self) -> None:
+        _require_bounded_non_empty(
+            self.event_id,
+            "event_id",
+            max_length=128,
+        )
+        if (
+            not isinstance(self.event_sequence, int)
+            or isinstance(self.event_sequence, bool)
+            or self.event_sequence < 1
+        ):
+            raise ValueError("event_sequence must be a positive integer.")
+        if not isinstance(self.event_type, AuditEventType):
+            raise TypeError("event_type must be an AuditEventType.")
+        _require_aware(self.occurred_at, "occurred_at")
+        if not isinstance(self.binding, ContractBinding):
+            raise TypeError("binding must be a ContractBinding.")
+        if not isinstance(self.outcome, AuditOutcome):
+            raise TypeError("outcome must be an AuditOutcome.")
+        _require_optional_bounded_non_empty(
+            self.invitation_id,
+            "invitation_id",
+        )
+        if (
+            self.confirmation_id is not None
+            and (
+                not isinstance(self.confirmation_id, str)
+                or not _CONFIRMATION_ID.fullmatch(self.confirmation_id)
+            )
+        ):
+            raise ValueError(
+                "confirmation_id must be a valid confirmation digest."
+            )
+        _require_optional_bounded_non_empty(
+            self.actor_issuer,
+            "actor_issuer",
+        )
+        _require_optional_bounded_non_empty(
+            self.actor_subject,
+            "actor_subject",
+        )
+        _require_optional_bounded_non_empty(
+            self.actor_organization_id,
+            "actor_organization_id",
+        )
+        actor_identity_present = (
+            self.actor_issuer is not None,
+            self.actor_subject is not None,
+        )
+        if actor_identity_present[0] != actor_identity_present[1]:
+            raise ValueError(
+                "actor_issuer and actor_subject must be supplied together."
+            )
+        if (
+            self.actor_organization_id is not None
+            and not actor_identity_present[0]
+        ):
+            raise ValueError(
+                "actor organization requires an actor identity."
+            )
+        if self.reason_code is not None:
+            if (
+                not isinstance(self.reason_code, str)
+                or not _MACHINE_REASON_CODE.fullmatch(self.reason_code)
+            ):
+                raise ValueError(
+                    "reason_code must be a bounded machine reason."
+                )
+        _require_optional_bounded_non_empty(
+            self.trace_id,
+            "trace_id",
+            max_length=128,
+        )
+        object.__setattr__(
+            self,
+            "safe_metadata",
+            _canonical_safe_metadata(self.safe_metadata),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AuditQuery:
+    """Bounded filter for one exact contract binding's audit history."""
+
+    binding: ContractBinding
+    invitation_id: str | None = None
+    confirmation_id: str | None = None
+    limit: int = 100
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.binding, ContractBinding):
+            raise TypeError("binding must be a ContractBinding.")
+        _require_optional_bounded_non_empty(
+            self.invitation_id,
+            "invitation_id",
+        )
+        if (
+            self.confirmation_id is not None
+            and (
+                not isinstance(self.confirmation_id, str)
+                or not _CONFIRMATION_ID.fullmatch(self.confirmation_id)
+            )
+        ):
+            raise ValueError(
+                "confirmation_id must be a valid confirmation digest."
+            )
+        if (
+            not isinstance(self.limit, int)
+            or isinstance(self.limit, bool)
+            or not 1 <= self.limit <= _AUDIT_QUERY_LIMIT
+        ):
+            raise ValueError(
+                "limit must be between 1 and {0}.".format(
+                    _AUDIT_QUERY_LIMIT,
+                )
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +670,10 @@ class InvitationConsumed(ConfirmationStoreError):
     """A recognized review invitation already produced a terminal decision."""
 
 
+class InvitationRevoked(ConfirmationStoreError):
+    """A recognized review invitation has been permanently revoked."""
+
+
 class ContractBindingMismatch(ConfirmationStoreError):
     """A contract ID and version is bound to a different fingerprint."""
 
@@ -325,6 +684,10 @@ class IdempotencyConflict(ConfirmationStoreError):
 
 class DecisionAlreadyRecorded(ConfirmationStoreError):
     """A different operation attempted to replace a terminal decision."""
+
+
+class LedgerUnavailable(ConfirmationStoreError):
+    """The authoritative confirmation ledger cannot safely serve the request."""
 
 
 @runtime_checkable
