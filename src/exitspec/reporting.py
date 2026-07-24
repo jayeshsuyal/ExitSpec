@@ -292,14 +292,25 @@ def _human_next_action(verdict: OverallVerdict) -> str:
     return actions[verdict.verdict.value]
 
 
-def _limitations(criterion_verdict: CriterionVerdict, contract: POCContract) -> str:
-    """Keep reported limits visible rather than burying them in an artifact."""
+def _limitation_items(
+    criterion_verdict: CriterionVerdict, contract: POCContract
+) -> list[str]:
+    """Return every recorded limit in stable, customer-readable order."""
 
     limitations = list(criterion_verdict.limitations)
     limitations.extend(contract.non_goals)
     if not limitations:
         limitations.append("No additional limitations were recorded for this run.")
-    return "\n".join("<li>{0}</li>".format(escape(item)) for item in limitations)
+    return limitations
+
+
+def _limitations(criterion_verdict: CriterionVerdict, contract: POCContract) -> str:
+    """Keep reported limits visible rather than burying them in an artifact."""
+
+    return "\n".join(
+        "<li>{0}</li>".format(escape(item))
+        for item in _limitation_items(criterion_verdict, contract)
+    )
 
 
 def _reject_inconsistent_packet(reason: str) -> None:
@@ -495,6 +506,12 @@ def render_decision_packet(
     contract_hash = contract.canonical_hash
     frozen_at = contract.frozen_at.isoformat()
     evidence_sufficiency = _evidence_sufficiency_rows(criterion, measurement)
+    limitations = _limitation_items(criterion_verdict, contract)
+    limitations_html = "\n".join(
+        "<li>{0}</li>".format(escape(item)) for item in limitations
+    )
+    primary_limitation = limitations[0]
+    next_action = _human_next_action(overall)
 
     return """<!doctype html>
 <html lang="en">
@@ -503,98 +520,425 @@ def render_decision_packet(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ExitSpec POC Acceptance Evidence Pack — {contract_id}</title>
   <style>
-    :root {{ color: #172033; background: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-    body {{ margin: 0; }} main {{ max-width: 1040px; margin: 0 auto; padding: 40px 24px 56px; }}
-    h1 {{ font-size: clamp(2.1rem, 6vw, 4rem); letter-spacing: -.05em; margin: 6px 0 10px; }} h2 {{ margin: 0 0 14px; }} p {{ line-height: 1.55; }}
-    .eyebrow {{ color: #52647a; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }} .lead {{ color: #39485f; font-size: 1.12rem; max-width: 760px; }}
-    section {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 24px; margin-top: 18px; }} .verdict-panel {{ border-color: #d7e0ea; background: #f8fafc; }} .status-panel-PASS {{ border-color: #bcdcca; background: #f2faf6; }} .status-panel-FAIL {{ border-color: #efc9c7; background: #fff6f5; }} .status-panel-BLOCKED {{ border-color: #ead7a8; background: #fffbef; }} .status-panel-NOT_PROVEN {{ border-color: #d8cfee; background: #f8f6fc; }}
-    .verdict {{ display: inline-block; border-radius: 999px; font-size: .9rem; font-weight: 750; padding: 8px 12px; background: #e7edf9; }} .status-PASS {{ background: #e6f4eb; color: #1f6b43; }} .status-FAIL {{ background: #fde9e8; color: #9b2c2c; }} .status-BLOCKED {{ background: #fff4d8; color: #805b00; }} .status-NOT_PROVEN {{ background: #eeeaf9; color: #62489a; }}
-    .decision-summary {{ display: grid; grid-template-columns: .9fr 1.1fr 1.1fr; gap: 12px; margin-top: 18px; }} .decision-summary article {{ border: 1px solid #dce7e1; border-radius: 10px; padding: 15px; background: #fff; }} .decision-summary .label {{ display: block; margin-bottom: 8px; color: #52647a; font-size: .74rem; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }} .decision-summary p, .decision-summary ul {{ margin: 0; color: #39485f; font-size: .92rem; line-height: 1.5; }}
-    table {{ border-collapse: collapse; width: 100%; }} th, td {{ border-bottom: 1px solid #e8edf4; padding: 12px 0; text-align: left; vertical-align: top; }} th {{ color: #52647a; font-size: .88rem; font-weight: 700; padding-right: 24px; width: 31%; }}
-    ul {{ line-height: 1.55; margin-bottom: 0; padding-left: 20px; }} code {{ word-break: break-all; }} .disclaimer {{ color: #52647a; font-size: .92rem; }}
-    @media (max-width: 700px) {{ main {{ padding: 28px 16px 40px; }} .decision-summary {{ grid-template-columns: 1fr; }} th {{ display: block; width: auto; padding-bottom: 4px; }} td {{ display: block; padding-top: 4px; }} }}
+    :root {{
+      color-scheme: dark;
+      color: #f4f1e9;
+      background: #0d1215;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      min-width: 320px;
+      margin: 0;
+      background:
+        radial-gradient(circle at 74% -12%, rgba(255, 119, 36, .10), transparent 32rem),
+        #0d1215;
+    }}
+    main {{ width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 18px 0 64px; }}
+    p, h1, h2 {{ margin-top: 0; }}
+    p {{ line-height: 1.48; }}
+    a {{ color: inherit; }}
+    code {{
+      color: #d8d6ce;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }}
+    .product-bar {{
+      display: flex;
+      min-height: 42px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid #2b3439;
+      padding: 0 2px 14px;
+    }}
+    .identity {{ display: flex; align-items: center; gap: 11px; }}
+    .identity-mark {{
+      display: grid;
+      width: 31px;
+      height: 31px;
+      place-items: center;
+      border: 1px solid #ff7a24;
+      border-radius: 8px;
+      color: #ff8b43;
+      font-size: .68rem;
+      font-weight: 900;
+      letter-spacing: -.04em;
+    }}
+    .identity strong {{ display: block; font-size: .94rem; letter-spacing: -.01em; }}
+    .identity span:last-child {{ display: block; color: #89949a; font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; }}
+    .packet-ref {{
+      margin: 0;
+      color: #89949a;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .72rem;
+      text-align: right;
+    }}
+    .proof-sheet {{
+      --status: #ff8b43;
+      --status-soft: rgba(255, 139, 67, .11);
+      position: relative;
+      overflow: hidden;
+      margin-top: 14px;
+      border: 1px solid #303a40;
+      border-top: 3px solid var(--status);
+      border-radius: 17px;
+      background: linear-gradient(145deg, rgba(29, 37, 42, .98), rgba(20, 27, 31, .98));
+      box-shadow: 0 22px 60px rgba(0, 0, 0, .24);
+      padding: 20px 22px 18px;
+    }}
+    .proof-sheet::after {{
+      position: absolute;
+      z-index: 0;
+      top: -8rem;
+      right: -7rem;
+      width: 26rem;
+      height: 22rem;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--status-soft), transparent 68%);
+      content: "";
+      pointer-events: none;
+    }}
+    .proof-sheet > * {{ position: relative; z-index: 1; }}
+    .status-panel-PASS {{ --status: #58d693; --status-soft: rgba(88, 214, 147, .12); }}
+    .status-panel-FAIL {{ --status: #ff6c5f; --status-soft: rgba(255, 108, 95, .12); }}
+    .status-panel-BLOCKED {{ --status: #ffad42; --status-soft: rgba(255, 173, 66, .13); }}
+    .status-panel-NOT_PROVEN {{ --status: #8eb6c6; --status-soft: rgba(142, 182, 198, .12); }}
+    .verdict-row {{
+      display: grid;
+      grid-template-columns: minmax(220px, .42fr) minmax(0, 1fr);
+      align-items: end;
+      gap: 28px;
+    }}
+    .eyebrow, .label {{
+      display: block;
+      margin: 0 0 6px;
+      color: #8e999f;
+      font-size: .66rem;
+      font-weight: 800;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }}
+    h1 {{
+      margin: 0;
+      color: var(--status);
+      font-size: clamp(2.55rem, 5vw, 4.7rem);
+      font-weight: 830;
+      letter-spacing: -.065em;
+      line-height: .86;
+    }}
+    .verdict-reason {{
+      max-width: 720px;
+      margin: 0;
+      color: #c5cbcd;
+      font-size: .94rem;
+    }}
+    .equation-panel {{
+      margin-top: 16px;
+      border: 1px solid #364147;
+      border-radius: 11px;
+      background: #101619;
+      padding: 11px 14px 12px;
+    }}
+    .equation {{
+      margin: 0;
+      color: #f4f1e9;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: clamp(.83rem, 1.55vw, 1.06rem);
+      font-weight: 720;
+      letter-spacing: -.025em;
+      line-height: 1.35;
+    }}
+    .equation .operator {{ color: #ff8b43; padding: 0 .33rem; }}
+    .decision-grid {{
+      display: grid;
+      grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr);
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    .decision-grid article {{
+      min-height: 72px;
+      border: 1px solid #303a40;
+      border-radius: 10px;
+      background: rgba(13, 18, 21, .56);
+      padding: 10px 12px;
+    }}
+    .decision-grid p {{ margin: 0; color: #c3c9cb; font-size: .79rem; line-height: 1.38; }}
+    .integrity-row {{
+      display: grid;
+      grid-template-columns: 165px minmax(0, 1fr);
+      align-items: center;
+      gap: 14px;
+      margin-top: 10px;
+      border-top: 1px solid #303a40;
+      padding-top: 10px;
+    }}
+    .integrity-row .label {{ margin: 0; }}
+    .integrity-row code {{ font-size: .69rem; line-height: 1.4; }}
+    .artifact-row {{
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 7px;
+      margin-top: 10px;
+    }}
+    .artifact-row a {{
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border: 1px solid #344047;
+      border-radius: 9px;
+      background: #11181b;
+      padding: 9px 10px;
+      color: #cbd0d1;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .63rem;
+      text-decoration: none;
+      transition: border-color .15s ease, color .15s ease, transform .15s ease;
+    }}
+    .artifact-row a::after {{ color: #ff8b43; content: "↗"; font-family: inherit; }}
+    .artifact-row a:hover, .artifact-row a:focus-visible {{
+      border-color: #ff7a24;
+      color: #fff;
+      outline: none;
+      transform: translateY(-1px);
+    }}
+    .disclaimer {{
+      margin: 10px 0 0;
+      color: #858f94;
+      font-size: .68rem;
+      line-height: 1.35;
+    }}
+    .disclaimer strong {{ color: #e2dfd7; }}
+    .audit-trail {{ margin-top: 16px; }}
+    .audit-heading {{
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 2px 8px;
+    }}
+    .audit-heading h2 {{ margin: 0; font-size: 1.08rem; letter-spacing: -.025em; }}
+    .audit-heading p {{ margin: 0; color: #7f8a90; font-size: .72rem; }}
+    details {{
+      border-top: 1px solid #2a3439;
+      background: rgba(20, 27, 31, .52);
+    }}
+    details:last-child {{ border-bottom: 1px solid #2a3439; }}
+    summary {{
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) minmax(170px, .5fr);
+      align-items: center;
+      gap: 12px;
+      min-height: 49px;
+      padding: 0 14px;
+      color: #e4e2dc;
+      cursor: pointer;
+      font-size: .83rem;
+      font-weight: 720;
+    }}
+    summary::marker {{ color: #ff8b43; }}
+    .row-number {{
+      color: #ff8b43;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .66rem;
+      letter-spacing: .08em;
+    }}
+    .row-hint {{ color: #778389; font-size: .69rem; font-weight: 500; text-align: right; }}
+    details[open] summary {{ border-bottom: 1px solid #2a3439; background: rgba(255, 122, 36, .035); }}
+    .detail-body {{ padding: 17px 58px 20px; color: #bdc4c6; font-size: .84rem; }}
+    .detail-body h2 {{ margin: 0 0 10px; color: #f0ede6; font-size: 1rem; }}
+    .detail-body p:last-child, .detail-body ul:last-child {{ margin-bottom: 0; }}
+    .detail-verdict {{
+      display: inline-block;
+      margin: 0 0 8px;
+      border: 1px solid var(--status);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--status);
+      font-size: .7rem;
+      font-weight: 850;
+    }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th, td {{
+      border-bottom: 1px solid #2a3439;
+      padding: 9px 0;
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{ width: 29%; padding-right: 24px; color: #7f8b90; font-size: .72rem; font-weight: 750; }}
+    td {{ color: #c7cdcf; font-size: .82rem; }}
+    ul {{ margin: 8px 0 0; padding-left: 19px; line-height: 1.5; }}
+    @media (max-width: 900px) {{
+      .artifact-row {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+      .proof-sheet {{ padding: 18px; }}
+    }}
+    @media (max-width: 700px) {{
+      main {{ width: min(100% - 24px, 1180px); padding-top: 12px; }}
+      .product-bar {{ align-items: flex-start; }}
+      .packet-ref {{ max-width: 56%; }}
+      .verdict-row, .decision-grid {{ grid-template-columns: 1fr; gap: 10px; }}
+      .verdict-row {{ align-items: start; }}
+      h1 {{ font-size: 2.75rem; }}
+      .artifact-row {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .integrity-row {{ grid-template-columns: 1fr; gap: 5px; }}
+      summary {{ grid-template-columns: 32px minmax(0, 1fr); padding: 0 10px; }}
+      .row-hint {{ display: none; }}
+      .detail-body {{ padding: 15px 18px 18px; }}
+      th {{ display: block; width: auto; border-bottom: 0; padding: 9px 0 0; }}
+      td {{ display: block; padding-top: 4px; }}
+    }}
+    @media print {{
+      :root {{ color-scheme: light; }}
+      body {{ background: #fff; color: #172033; }}
+      main {{ width: 100%; padding: 0; }}
+      .product-bar, .proof-sheet, details {{ break-inside: avoid; }}
+      .proof-sheet {{ background: #fff; box-shadow: none; }}
+      details {{ background: #fff; }}
+      details > .detail-body {{ display: block; }}
+      .artifact-row a {{ background: #fff; }}
+    }}
   </style>
 </head>
 <body>
   <main data-legacy-artifact-name="Proof Pack">
-    <p class="eyebrow">ExitSpec / POC Acceptance Evidence Pack / synthetic demonstration</p>
-    <h1>POC Acceptance Evidence Pack</h1>
-    <p class="lead">{criterion_title}: the agreed POC test, the evidence collected, what it does not prove, and what a human must decide next.</p>
-
-    <section class="verdict-panel status-panel-{overall_verdict}">
-      <p class="eyebrow">Verdict</p>
-      <p class="verdict status-{overall_verdict}">{overall_verdict}</p>
-      <div class="decision-summary">
-        <article><span class="label">Why this verdict</span><p>{overall_reason}</p></article>
-        <article><span class="label">What is not proven</span><ul>{limitations}</ul></article>
-        <article><span class="label">Exact next human action</span><p>{next_action}</p></article>
+    <header class="product-bar">
+      <div class="identity">
+        <span class="identity-mark" aria-hidden="true">E/S</span>
+        <div><strong>ExitSpec</strong><span>POC acceptance evidence</span></div>
       </div>
-      <p class="disclaimer">This report documents evidence against a POC acceptance contract. It does not authorize deployment, spending, procurement, production traffic, or any external action.</p>
+      <p class="packet-ref">{contract_id} · v{contract_version}<br>{run_id} · synthetic demonstration</p>
+    </header>
+
+    <section class="proof-sheet status-panel-{overall_verdict}" aria-labelledby="evidence-verdict">
+      <div class="verdict-row">
+        <div>
+          <span class="eyebrow">Evidence verdict</span>
+          <h1 id="evidence-verdict">{overall_verdict}</h1>
+        </div>
+        <p class="verdict-reason"><span class="label">Why this verdict</span>{overall_reason}</p>
+      </div>
+
+      <div class="equation-panel" aria-label="Evidence equation">
+        <span class="label">Exact evidence equation</span>
+        <p class="equation">Required ≥ {required_threshold}<span class="operator">·</span>Observed {success_count}/{measurement_sample_count} ({observed_rate})<span class="operator">·</span>Wilson lower bound {lower_bound}<span class="operator">·</span>{overall_verdict}</p>
+      </div>
+
+      <div class="decision-grid">
+        <article>
+          <span class="label">Concise limitation</span>
+          <p>{primary_limitation}</p>
+        </article>
+        <article>
+          <span class="label">Exact next human action</span>
+          <p>{next_action}</p>
+        </article>
+      </div>
+
+      <div class="integrity-row">
+        <span class="label">Canonical contract hash</span>
+        <code>{contract_hash}</code>
+      </div>
+
+      <nav class="artifact-row" aria-label="Evidence artifacts">
+        <a href="contract.json">contract.json</a>
+        <a href="evidence-artifacts.json">evidence-artifacts.json</a>
+        <a href="calculations.json">calculations.json</a>
+        <a href="verdicts.json">verdicts.json</a>
+        <a href="run-manifest.json">run-manifest.json</a>
+        <a href="artifact-hashes.json">artifact-hashes.json</a>
+      </nav>
+
+      <p class="disclaimer"><strong>Evidence is not authorization.</strong> This pack does not authorize deployment, spending, procurement, production traffic, or any external action.</p>
     </section>
 
-    <section>
-      <p class="eyebrow">1. What the customer asked us to prove</p>
-      <h2>Source quote</h2>
-      <p>{source_quote}</p>
-      <p><strong>Normalized acceptance claim:</strong> {normalized_claim}</p>
-    </section>
+    <section class="audit-trail" aria-labelledby="audit-heading">
+      <div class="audit-heading">
+        <h2 id="audit-heading">Inspect the proof chain</h2>
+        <p>Seven collapsed records · open only what you need</p>
+      </div>
 
-    <section>
-      <p class="eyebrow">2. The frozen agreement</p>
-      <h2>Frozen contract</h2>
-      <table>
-        <tr><th>Contract</th><td>{contract_id} v{contract_version}</td></tr>
-        <tr><th>Contract status</th><td>{contract_status}</td></tr>
-        <tr><th>Frozen at</th><td>{frozen_at}</td></tr>
-        <tr><th>Canonical hash</th><td><code>{contract_hash}</code></td></tr>
-        <tr><th>POC use case</th><td>{use_case}</td></tr>
-      </table>
-    </section>
+      <details class="disclosure-row">
+        <summary><span class="row-number">01</span><span>What the customer asked us to prove</span><span class="row-hint">Source + normalized claim</span></summary>
+        <div class="detail-body">
+          <h2>Source quote</h2>
+          <p>{source_quote}</p>
+          <p><strong>Normalized acceptance claim:</strong> {normalized_claim}</p>
+        </div>
+      </details>
 
-    <section>
-      <p class="eyebrow">3. The exact test</p>
-      <h2>Exact measurement</h2>
-      <table>
-        <tr><th>Criterion</th><td>{criterion_id}: {criterion_title}</td></tr>
-        <tr><th>Metric and aggregation</th><td>{metric} / {aggregation}</td></tr>
-        <tr><th>Acceptance rule</th><td>{rule_summary}</td></tr>
-        <tr><th>Workload slice</th><td>{workload_slice}</td></tr>
-        <tr><th>Workload hash</th><td><code>{workload_hash}</code></td></tr>
-        <tr><th>Measurement adapter</th><td>{adapter}@{adapter_version}</td></tr>
-      </table>
-    </section>
+      <details class="disclosure-row">
+        <summary><span class="row-number">02</span><span>The frozen agreement</span><span class="row-hint">Version + canonical identity</span></summary>
+        <div class="detail-body">
+          <h2>Frozen contract</h2>
+          <table>
+            <tr><th>Contract</th><td>{contract_id} v{contract_version}</td></tr>
+            <tr><th>Contract status</th><td>{contract_status}</td></tr>
+            <tr><th>Frozen at</th><td>{frozen_at}</td></tr>
+            <tr><th>Canonical hash</th><td><code>{contract_hash}</code></td></tr>
+            <tr><th>POC use case</th><td>{use_case}</td></tr>
+          </table>
+        </div>
+      </details>
 
-    <section>
-      <p class="eyebrow">4. Is the evidence sufficient?</p>
-      <h2>Evidence sufficiency</h2>
-      <table>{evidence_sufficiency}</table>
-    </section>
+      <details class="disclosure-row">
+        <summary><span class="row-number">03</span><span>The exact test</span><span class="row-hint">Metric + rule + workload</span></summary>
+        <div class="detail-body">
+          <h2>Exact measurement</h2>
+          <table>
+            <tr><th>Criterion</th><td>{criterion_id}: {criterion_title}</td></tr>
+            <tr><th>Metric and aggregation</th><td>{metric} / {aggregation}</td></tr>
+            <tr><th>Acceptance rule</th><td>{rule_summary}</td></tr>
+            <tr><th>Workload slice</th><td>{workload_slice}</td></tr>
+            <tr><th>Workload hash</th><td><code>{workload_hash}</code></td></tr>
+            <tr><th>Measurement adapter</th><td>{adapter}@{adapter_version}</td></tr>
+          </table>
+        </div>
+      </details>
 
-    <section>
-      <p class="eyebrow">5. What the test observed</p>
-      <h2>Criterion result</h2>
-      <p class="verdict status-{criterion_verdict}">{criterion_verdict}</p>
-      <p>{criterion_reason}</p>
-      <table>
-        <tr><th>Successful cases</th><td>{success_count} / {measurement_sample_count}</td></tr>
-        <tr><th>Observed rate</th><td>{observed_rate}</td></tr>
-        <tr><th>Wilson lower bound</th><td>{lower_bound}</td></tr>
-        <tr><th>Calculation version</th><td>{calculation_version}</td></tr>
-        <tr><th>Run</th><td>{run_id} ({run_status})</td></tr>
-        <tr><th>Target under test</th><td>{provider} / {endpoint_class} / {model}</td></tr>
-      </table>
-    </section>
+      <details class="disclosure-row">
+        <summary><span class="row-number">04</span><span>Is the evidence sufficient?</span><span class="row-hint">Completeness + integrity checks</span></summary>
+        <div class="detail-body">
+          <h2>Evidence sufficiency</h2>
+          <table>{evidence_sufficiency}</table>
+        </div>
+      </details>
 
-    <section>
-      <p class="eyebrow">6. What this does not prove</p>
-      <h2>Limits / what is not proven</h2>
-      <ul>{limitations}</ul>
-    </section>
+      <details class="disclosure-row">
+        <summary><span class="row-number">05</span><span>What the test observed</span><span class="row-hint">Result + deterministic calculation</span></summary>
+        <div class="detail-body">
+          <h2>Criterion result</h2>
+          <p class="detail-verdict">{criterion_verdict}</p>
+          <p>{criterion_reason}</p>
+          <table>
+            <tr><th>Successful cases</th><td>{success_count} / {measurement_sample_count}</td></tr>
+            <tr><th>Observed rate</th><td>{observed_rate}</td></tr>
+            <tr><th>Wilson lower bound</th><td>{lower_bound}</td></tr>
+            <tr><th>Calculation version</th><td>{calculation_version}</td></tr>
+            <tr><th>Run</th><td>{run_id} ({run_status})</td></tr>
+            <tr><th>Target under test</th><td>{provider} / {endpoint_class} / {model}</td></tr>
+          </table>
+        </div>
+      </details>
 
-    <section>
-      <p class="eyebrow">7. Human follow-up</p>
-      <h2>Exact next human action</h2>
-      <p>{next_action}</p>
+      <details class="disclosure-row">
+        <summary><span class="row-number">06</span><span>What this does not prove</span><span class="row-hint">Limits + excluded claims</span></summary>
+        <div class="detail-body">
+          <h2>Limits / what is not proven</h2>
+          <ul>{limitations}</ul>
+        </div>
+      </details>
+
+      <details class="disclosure-row">
+        <summary><span class="row-number">07</span><span>Human follow-up</span><span class="row-hint">Evidence handoff, not authorization</span></summary>
+        <div class="detail-body">
+          <h2>Exact next human action</h2>
+          <p>{next_action}</p>
+          <p><strong>Evidence is not authorization.</strong> A human remains responsible for the next decision.</p>
+        </div>
+      </details>
     </section>
   </main>
 </body>
@@ -614,6 +958,7 @@ def render_decision_packet(
         criterion_title=escape(criterion.title),
         metric=escape(criterion.metric.value.replace("_", " ")),
         aggregation=escape(criterion.aggregation),
+        required_threshold=_rate(criterion.rule.threshold),
         rule_summary=_criterion_rule_summary(criterion),
         workload_slice=escape(criterion.workload_slice),
         workload_hash=escape(contract.workload.sha256),
@@ -632,6 +977,7 @@ def render_decision_packet(
         provider=escape(manifest.provider),
         endpoint_class=escape(manifest.endpoint_class),
         model=escape(manifest.model),
-        limitations=_limitations(criterion_verdict, contract),
-        next_action=escape(_human_next_action(overall)),
+        limitations=limitations_html,
+        primary_limitation=escape(primary_limitation),
+        next_action=escape(next_action),
     )

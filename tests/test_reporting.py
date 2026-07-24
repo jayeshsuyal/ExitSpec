@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -47,16 +48,32 @@ def _acceptance_evidence_pack(result):
     return render_decision_packet(**_packet_inputs(result))
 
 
+class _PackStructureParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.details = []
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "details":
+            self.details.append(attributes)
+        if tag == "a":
+            self.links.append(attributes)
+
+
 def test_acceptance_evidence_pack_makes_the_decision_readable_at_a_glance(tmp_path):
     result = _run(tmp_path, "pass")
 
     html = _acceptance_evidence_pack(result)
 
     for heading in (
-        "POC Acceptance Evidence Pack",
-        "Verdict",
+        "ExitSpec",
+        "POC acceptance evidence",
+        "Evidence verdict",
         "Why this verdict",
-        "What is not proven",
+        "Exact evidence equation",
+        "Concise limitation",
         "Exact next human action",
         "Source quote",
         "Frozen contract",
@@ -66,12 +83,64 @@ def test_acceptance_evidence_pack_makes_the_decision_readable_at_a_glance(tmp_pa
         assert heading in html
     assert result.contract.canonical_hash in html
     assert "At least 95%" in html
+    assert (
+        "Required ≥ 95.00%<span class=\"operator\">·</span>"
+        "Observed 197/200 (98.50%)<span class=\"operator\">·</span>"
+        "Wilson lower bound 95.68%<span class=\"operator\">·</span>PASS"
+    ) in html
     assert "200 / 200 collected (minimum met)" in html
+    assert "This establishes the approved fixture criterion" in html
     assert "Review this POC Acceptance Evidence Pack with the customer" in html
+    assert "Evidence is not authorization." in html
     assert "does not authorize deployment, spending, procurement" in html
     assert "<h1>Proof Pack:" not in html
     assert 'data-legacy-artifact-name="Proof Pack"' in html
-    assert 'class="verdict-panel status-panel-PASS"' in html
+    assert 'class="proof-sheet status-panel-PASS"' in html
+
+
+def test_pack_links_every_evidence_artifact_with_relative_urls(tmp_path):
+    html = _acceptance_evidence_pack(_run(tmp_path, "pass"))
+    parser = _PackStructureParser()
+    parser.feed(html)
+
+    assert [link["href"] for link in parser.links] == [
+        "contract.json",
+        "evidence-artifacts.json",
+        "calculations.json",
+        "verdicts.json",
+        "run-manifest.json",
+        "artifact-hashes.json",
+    ]
+    assert all(
+        "://" not in link["href"] and not link["href"].startswith("/")
+        for link in parser.links
+    )
+    assert "<script" not in html
+    assert "https://" not in html
+    assert "http://" not in html
+
+
+def test_pack_keeps_seven_audit_sections_collapsed_by_default(tmp_path):
+    html = _acceptance_evidence_pack(_run(tmp_path, "pass"))
+    parser = _PackStructureParser()
+    parser.feed(html)
+
+    assert len(parser.details) == 7
+    assert all("open" not in details for details in parser.details)
+    for number, title in enumerate(
+        (
+            "What the customer asked us to prove",
+            "The frozen agreement",
+            "The exact test",
+            "Is the evidence sufficient?",
+            "What the test observed",
+            "What this does not prove",
+            "Human follow-up",
+        ),
+        start=1,
+    ):
+        assert '<span class="row-number">{0:02d}</span>'.format(number) in html
+        assert title in html
 
 
 def test_not_proven_pack_tells_the_human_to_close_the_evidence_gap(tmp_path):
@@ -83,14 +152,33 @@ def test_not_proven_pack_tells_the_human_to_close_the_evidence_gap(tmp_path):
     assert "100 / 200 collected (minimum not met)" in html
     assert "Close the evidence gaps, then re-run the frozen contract." in html
     assert "Do not treat this result as a pass." in html
-    assert 'class="verdict-panel status-panel-NOT_PROVEN"' in html
+    assert (
+        "Required ≥ 95.00%<span class=\"operator\">·</span>"
+        "Observed 100/100 (—)<span class=\"operator\">·</span>"
+        "Wilson lower bound —<span class=\"operator\">·</span>NOT_PROVEN"
+    ) in html
+    assert 'class="proof-sheet status-panel-NOT_PROVEN"' in html
 
 
-def test_non_pass_reports_have_explicit_non_pass_panel_hooks(tmp_path):
-    for scenario, verdict in (("fail", "FAIL"), ("blocked", "BLOCKED")):
-        html = _acceptance_evidence_pack(_run(tmp_path, scenario))
+@pytest.mark.parametrize(
+    ("scenario", "verdict", "equation_result"),
+    [
+        ("pass", "PASS", "Observed 197/200 (98.50%)"),
+        ("fail", "FAIL", "Observed 189/200 (94.50%)"),
+        ("insufficient", "NOT_PROVEN", "Observed 100/100 (—)"),
+        ("blocked", "BLOCKED", "Observed 0/0 (—)"),
+    ],
+)
+def test_verdict_variants_have_distinct_hooks_and_honest_equations(
+    tmp_path, scenario, verdict, equation_result
+):
+    html = _acceptance_evidence_pack(_run(tmp_path, scenario))
 
-        assert 'class="verdict-panel status-panel-{0}"'.format(verdict) in html
+    assert 'class="proof-sheet status-panel-{0}"'.format(verdict) in html
+    assert "<h1 id=\"evidence-verdict\">{0}</h1>".format(verdict) in html
+    assert equation_result in html
+    assert "Wilson lower bound" in html
+    assert "Evidence is not authorization." in html
 
 
 def test_customer_draft_is_reviewable_and_does_not_claim_authority(approved_contract):
