@@ -27,7 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument(
         "--contract",
         type=Path,
-        default=Path("examples/support-agent/contracts/tool-selection-v1.yaml"),
+        default=Path(
+            "examples/support-agent/contracts/tool-selection-v1.frozen.yaml"
+        ),
     )
     demo.add_argument(
         "--fixture",

@@ -1,11 +1,13 @@
-"""Static, inspectable POC proof rendering for ExitSpec."""
+"""Static, inspectable POC acceptance-evidence rendering for ExitSpec."""
 
 from __future__ import annotations
 
 from html import escape
 from typing import Optional, Sequence
 
+from .contracts import verify_contract_digest
 from .models import (
+    ContractStatus,
     Criterion,
     CriterionDraft,
     CriterionVerdict,
@@ -16,6 +18,7 @@ from .models import (
     ProportionMeasurement,
     RunManifest,
 )
+from .verdicts import aggregate_overall_verdict, evaluate_proportion_criterion
 
 
 def _rate(value: Optional[float]) -> str:
@@ -269,9 +272,9 @@ def _human_next_action(verdict: OverallVerdict) -> str:
 
     actions = {
         "PASS": (
-            "Review this Proof Pack with the customer and decide whether the stated "
-            "POC scope is sufficient for the next step. This result alone does not "
-            "authorize any action."
+            "Review this POC Acceptance Evidence Pack with the customer and decide "
+            "whether the stated POC scope is sufficient for the next step. This "
+            "result alone does not authorize any action."
         ),
         "FAIL": (
             "Review the failed evidence with the customer and POC owners. Decide "
@@ -297,6 +300,71 @@ def _limitations(criterion_verdict: CriterionVerdict, contract: POCContract) -> 
     if not limitations:
         limitations.append("No additional limitations were recorded for this run.")
     return "\n".join("<li>{0}</li>".format(escape(item)) for item in limitations)
+
+
+def _reject_inconsistent_packet(reason: str) -> None:
+    """Reject contradictory inputs without echoing customer or evidence content."""
+
+    raise ValueError(
+        "Cannot render POC Acceptance Evidence Pack: {0}.".format(reason)
+    )
+
+
+def _validate_decision_packet_inputs(
+    contract: POCContract,
+    manifest: RunManifest,
+    criterion: Criterion,
+    measurement: ProportionMeasurement,
+    criterion_verdict: CriterionVerdict,
+    overall: OverallVerdict,
+) -> None:
+    """Fail closed unless every rendered decision input belongs to one proof chain."""
+
+    if contract.status != ContractStatus.FROZEN or contract.frozen_at is None:
+        _reject_inconsistent_packet("contract is not frozen")
+    if contract.canonical_hash is None or not verify_contract_digest(contract):
+        _reject_inconsistent_packet("contract digest is missing or invalid")
+
+    if (
+        manifest.contract_id != contract.id
+        or manifest.contract_version != contract.version
+        or manifest.contract_hash != contract.canonical_hash
+    ):
+        _reject_inconsistent_packet("run manifest does not match the frozen contract")
+
+    if len(contract.criteria) != 1:
+        _reject_inconsistent_packet(
+            "Brick 1 evidence packs require exactly one frozen criterion"
+        )
+    frozen_criterion = contract.criteria[0]
+    if criterion != frozen_criterion:
+        _reject_inconsistent_packet(
+            "rendered criterion does not match the frozen criterion"
+        )
+    if measurement.criterion_id != frozen_criterion.id:
+        _reject_inconsistent_packet(
+            "measurement does not match the frozen criterion"
+        )
+    if criterion_verdict.criterion_id != frozen_criterion.id:
+        _reject_inconsistent_packet(
+            "criterion verdict does not match the frozen criterion"
+        )
+
+    expected_criterion_verdict = evaluate_proportion_criterion(
+        frozen_criterion, measurement
+    )
+    if criterion_verdict != expected_criterion_verdict:
+        _reject_inconsistent_packet(
+            "criterion verdict does not match deterministic recomputation"
+        )
+
+    expected_overall = aggregate_overall_verdict(
+        contract.criteria, [expected_criterion_verdict]
+    )
+    if overall != expected_overall:
+        _reject_inconsistent_packet(
+            "overall verdict does not match deterministic recomputation"
+        )
 
 
 def render_customer_draft(contract: POCContract) -> str:
@@ -345,13 +413,13 @@ def render_customer_draft(contract: POCContract) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ExitSpec customer review draft — {contract_id}</title>
+  <title>ExitSpec customer confirmation draft — {contract_id}</title>
   <style>
     :root {{ color: #172033; background: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     body {{ margin: 0; }} main {{ max-width: 940px; margin: 0 auto; padding: 40px 24px 56px; }}
     h1 {{ font-size: clamp(2rem, 6vw, 3.75rem); letter-spacing: -.045em; margin: 6px 0 16px; }} h2 {{ margin: 6px 0 10px; }}
     p {{ line-height: 1.55; }} .eyebrow, .label {{ color: #52647a; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }}
-    .lead {{ color: #39485f; font-size: 1.15rem; max-width: 720px; }} .notice, .criterion-card {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 22px; margin-top: 18px; }}
+    .lead {{ color: #39485f; font-size: 1.15rem; max-width: 720px; }} .draft-state {{ display: inline-block; border: 1px solid #e2cc9e; border-radius: 999px; padding: 7px 10px; background: #fff8e7; color: #805b00; font-size: .75rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }} .notice, .criterion-card {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 22px; margin-top: 18px; }}
     .notice {{ border-color: #c8d7f4; background: #f3f7ff; }} .criterion-card p {{ color: #39485f; }}
     dl {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 20px 0 0; }} dt {{ color: #52647a; font-size: .78rem; font-weight: 700; text-transform: uppercase; }} dd {{ margin: 6px 0 0; line-height: 1.45; }} code {{ word-break: break-all; }}
     @media (max-width: 720px) {{ main {{ padding: 28px 16px 40px; }} dl {{ grid-template-columns: 1fr; }} }}
@@ -359,9 +427,11 @@ def render_customer_draft(contract: POCContract) -> str:
 </head>
 <body>
   <main>
-    <p class="eyebrow">ExitSpec / customer review draft</p>
-    <h1>Proposed POC acceptance criteria</h1>
-    <p class="lead">This is the plain-language test we propose for {customer}. It turns the POC promise into a measurement plan before anyone treats results as proof.</p>
+    <p class="eyebrow">ExitSpec / customer confirmation draft / not evidence</p>
+    <p class="draft-state">Draft — customer confirmation required</p>
+    <h1>Customer confirmation draft</h1>
+    <p class="label">Proposed POC acceptance criteria</p>
+    <p class="lead">This plain-language test turns the POC promise for {customer} into a measurement plan before anyone treats results as acceptance evidence.</p>
 
     <section class="notice">
       <p class="label">Review before testing</p>
@@ -406,19 +476,24 @@ def render_decision_packet(
     criterion_verdict: CriterionVerdict,
     overall: OverallVerdict,
 ) -> str:
-    """Render a customer-readable Proof Pack while preserving the Brick 1 API.
+    """Render a customer-readable POC Acceptance Evidence Pack.
 
     The historical function name and the ``decision-packet.html`` output path remain
     stable for callers. The rendered artifact is evidence for a defined POC criterion,
     not an authorization decision.
     """
 
-    contract_hash = contract.canonical_hash or "Unavailable — contract was not frozen"
-    frozen_at = (
-        contract.frozen_at.isoformat()
-        if contract.frozen_at is not None
-        else "Unavailable — contract was not frozen"
+    _validate_decision_packet_inputs(
+        contract,
+        manifest,
+        criterion,
+        measurement,
+        criterion_verdict,
+        overall,
     )
+
+    contract_hash = contract.canonical_hash
+    frozen_at = contract.frozen_at.isoformat()
     evidence_sufficiency = _evidence_sufficiency_rows(criterion, measurement)
 
     return """<!doctype html>
@@ -426,29 +501,34 @@ def render_decision_packet(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ExitSpec Proof Pack — {contract_id}</title>
+  <title>ExitSpec POC Acceptance Evidence Pack — {contract_id}</title>
   <style>
     :root {{ color: #172033; background: #f5f7fb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     body {{ margin: 0; }} main {{ max-width: 1040px; margin: 0 auto; padding: 40px 24px 56px; }}
     h1 {{ font-size: clamp(2.1rem, 6vw, 4rem); letter-spacing: -.05em; margin: 6px 0 10px; }} h2 {{ margin: 0 0 14px; }} p {{ line-height: 1.55; }}
     .eyebrow {{ color: #52647a; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }} .lead {{ color: #39485f; font-size: 1.12rem; max-width: 760px; }}
-    section {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 24px; margin-top: 18px; }} .verdict-panel {{ border-color: #c8d7f4; background: #f3f7ff; }}
+    section {{ background: #fff; border: 1px solid #dfe5ef; border-radius: 14px; padding: 24px; margin-top: 18px; }} .verdict-panel {{ border-color: #d7e0ea; background: #f8fafc; }} .status-panel-PASS {{ border-color: #bcdcca; background: #f2faf6; }} .status-panel-FAIL {{ border-color: #efc9c7; background: #fff6f5; }} .status-panel-BLOCKED {{ border-color: #ead7a8; background: #fffbef; }} .status-panel-NOT_PROVEN {{ border-color: #d8cfee; background: #f8f6fc; }}
     .verdict {{ display: inline-block; border-radius: 999px; font-size: .9rem; font-weight: 750; padding: 8px 12px; background: #e7edf9; }} .status-PASS {{ background: #e6f4eb; color: #1f6b43; }} .status-FAIL {{ background: #fde9e8; color: #9b2c2c; }} .status-BLOCKED {{ background: #fff4d8; color: #805b00; }} .status-NOT_PROVEN {{ background: #eeeaf9; color: #62489a; }}
+    .decision-summary {{ display: grid; grid-template-columns: .9fr 1.1fr 1.1fr; gap: 12px; margin-top: 18px; }} .decision-summary article {{ border: 1px solid #dce7e1; border-radius: 10px; padding: 15px; background: #fff; }} .decision-summary .label {{ display: block; margin-bottom: 8px; color: #52647a; font-size: .74rem; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }} .decision-summary p, .decision-summary ul {{ margin: 0; color: #39485f; font-size: .92rem; line-height: 1.5; }}
     table {{ border-collapse: collapse; width: 100%; }} th, td {{ border-bottom: 1px solid #e8edf4; padding: 12px 0; text-align: left; vertical-align: top; }} th {{ color: #52647a; font-size: .88rem; font-weight: 700; padding-right: 24px; width: 31%; }}
     ul {{ line-height: 1.55; margin-bottom: 0; padding-left: 20px; }} code {{ word-break: break-all; }} .disclaimer {{ color: #52647a; font-size: .92rem; }}
-    @media (max-width: 700px) {{ main {{ padding: 28px 16px 40px; }} th {{ display: block; width: auto; padding-bottom: 4px; }} td {{ display: block; padding-top: 4px; }} }}
+    @media (max-width: 700px) {{ main {{ padding: 28px 16px 40px; }} .decision-summary {{ grid-template-columns: 1fr; }} th {{ display: block; width: auto; padding-bottom: 4px; }} td {{ display: block; padding-top: 4px; }} }}
   </style>
 </head>
 <body>
-  <main>
-    <p class="eyebrow">ExitSpec / POC Proof Pack / synthetic demonstration</p>
-    <h1>Proof Pack: {criterion_title}</h1>
-    <p class="lead">A readable record of the agreed POC test, the evidence collected, and what a human needs to decide next.</p>
+  <main data-legacy-artifact-name="Proof Pack">
+    <p class="eyebrow">ExitSpec / POC Acceptance Evidence Pack / synthetic demonstration</p>
+    <h1>POC Acceptance Evidence Pack</h1>
+    <p class="lead">{criterion_title}: the agreed POC test, the evidence collected, what it does not prove, and what a human must decide next.</p>
 
-    <section class="verdict-panel">
-      <p class="eyebrow">Evidence outcome</p>
+    <section class="verdict-panel status-panel-{overall_verdict}">
+      <p class="eyebrow">Verdict</p>
       <p class="verdict status-{overall_verdict}">{overall_verdict}</p>
-      <p>{overall_reason}</p>
+      <div class="decision-summary">
+        <article><span class="label">Why this verdict</span><p>{overall_reason}</p></article>
+        <article><span class="label">What is not proven</span><ul>{limitations}</ul></article>
+        <article><span class="label">Exact next human action</span><p>{next_action}</p></article>
+      </div>
       <p class="disclaimer">This report documents evidence against a POC acceptance contract. It does not authorize deployment, spending, procurement, production traffic, or any external action.</p>
     </section>
 
@@ -507,13 +587,13 @@ def render_decision_packet(
 
     <section>
       <p class="eyebrow">6. What this does not prove</p>
-      <h2>Limits of this proof</h2>
+      <h2>Limits / what is not proven</h2>
       <ul>{limitations}</ul>
     </section>
 
     <section>
       <p class="eyebrow">7. Human follow-up</p>
-      <h2>Explicit next human action</h2>
+      <h2>Exact next human action</h2>
       <p>{next_action}</p>
     </section>
   </main>

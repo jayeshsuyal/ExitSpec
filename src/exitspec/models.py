@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -16,6 +16,12 @@ class ExitSpecModel(BaseModel):
     """Base model that rejects undocumented fields at the contract boundary."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class FrozenExitSpecModel(ExitSpecModel):
+    """Immutable base for every object participating in a contract digest."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class ContractStatus(str, Enum):
@@ -73,7 +79,7 @@ class ConfidenceMethod(str, Enum):
     WILSON_TWO_SIDED_LOWER_BOUND = "wilson_two_sided_lower_bound"
 
 
-class SourceReference(ExitSpecModel):
+class SourceReference(FrozenExitSpecModel):
     speaker: str = Field(min_length=1)
     quote: str = Field(min_length=1)
     location: str = Field(min_length=1)
@@ -135,18 +141,18 @@ class TranscriptSpan(ExitSpecModel):
         )
 
 
-class WorkloadReference(ExitSpecModel):
+class WorkloadReference(FrozenExitSpecModel):
     fixture_path: str = Field(min_length=1)
     sha256: str = Field(pattern=SHA256_PATTERN)
 
 
-class TargetSystem(ExitSpecModel):
+class TargetSystem(FrozenExitSpecModel):
     provider: str = Field(min_length=1)
     endpoint_class: str = Field(min_length=1)
     model: str = Field(min_length=1)
 
 
-class ProportionRule(ExitSpecModel):
+class ProportionRule(FrozenExitSpecModel):
     operator: ComparisonOperator = ComparisonOperator.GTE
     threshold: float = Field(ge=0.0, le=1.0)
     minimum_samples: int = Field(gt=0)
@@ -164,7 +170,7 @@ class ProportionRule(ExitSpecModel):
         return self
 
 
-class Criterion(ExitSpecModel):
+class Criterion(FrozenExitSpecModel):
     id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
     title: str = Field(min_length=1)
     must_have: bool = True
@@ -360,7 +366,7 @@ class ContractSeed(ExitSpecModel):
     evidence_retention_policy: str = Field(min_length=1)
 
 
-class POCContract(ExitSpecModel):
+class POCContract(FrozenExitSpecModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9-]{2,63}$")
     version: str = Field(min_length=1)
     status: ContractStatus = ContractStatus.DRAFT
@@ -371,16 +377,22 @@ class POCContract(ExitSpecModel):
     use_case: str = Field(min_length=1)
     target_system: TargetSystem
     workload: WorkloadReference
-    criteria: List[Criterion] = Field(min_length=1)
-    owners: List[str] = Field(min_length=1)
-    non_goals: List[str] = Field(default_factory=list)
+    criteria: Tuple[Criterion, ...] = Field(min_length=1)
+    owners: Tuple[str, ...] = Field(min_length=1)
+    non_goals: Tuple[str, ...] = Field(default_factory=tuple)
     evidence_retention_policy: str = Field(min_length=1)
     parent_version: Optional[str] = None
+    confirmation_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^cnf_[a-f0-9]{64}$",
+    )
     canonical_hash: Optional[str] = Field(default=None, pattern=SHA256_PATTERN)
 
     @field_validator("criteria")
     @classmethod
-    def require_unique_criterion_ids(cls, criteria: List[Criterion]) -> List[Criterion]:
+    def require_unique_criterion_ids(
+        cls, criteria: Tuple[Criterion, ...]
+    ) -> Tuple[Criterion, ...]:
         ids = [criterion.id for criterion in criteria]
         if len(ids) != len(set(ids)):
             raise ValueError("Criterion IDs must be unique within a contract version.")
@@ -397,6 +409,10 @@ class POCContract(ExitSpecModel):
                 )
         if self.status == ContractStatus.FROZEN and self.frozen_at is None:
             raise ValueError("Frozen contracts require frozen_at.")
+        if self.status != ContractStatus.FROZEN and self.confirmation_id is not None:
+            raise ValueError(
+                "Only a frozen contract may carry customer confirmation provenance."
+            )
         return self
 
 

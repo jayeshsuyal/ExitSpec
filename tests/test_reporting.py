@@ -1,13 +1,22 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from exitspec.models import SourceReference
+import pytest
+
+from exitspec.contracts import freeze_contract
+from exitspec.models import ContractStatus, SourceReference, VerdictStatus
 from exitspec.reporting import render_customer_draft, render_decision_packet
 from exitspec.runner import run_demo
+from exitspec.verdicts import (
+    aggregate_overall_verdict,
+    evaluate_proportion_criterion,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONTRACT_PATH = PROJECT_ROOT / "examples/support-agent/contracts/tool-selection-v1.yaml"
+CONTRACT_PATH = (
+    PROJECT_ROOT / "examples/support-agent/contracts/tool-selection-v1.frozen.yaml"
+)
 FIXTURE_PATH = PROJECT_ROOT / "examples/support-agent/fixtures/tool-selection-200.json"
 FIXED_TIME = datetime(2026, 7, 22, 19, 0, tzinfo=timezone.utc)
 
@@ -23,59 +32,207 @@ def _run(tmp_path, scenario):
     )
 
 
-def _proof_pack(result):
-    return render_decision_packet(
-        result.contract,
-        result.manifest,
-        result.contract.criteria[0],
-        result.measurement,
-        result.criterion_verdict,
-        result.overall_verdict,
-    )
+def _packet_inputs(result):
+    return {
+        "contract": result.contract,
+        "manifest": result.manifest,
+        "criterion": result.contract.criteria[0],
+        "measurement": result.measurement,
+        "criterion_verdict": result.criterion_verdict,
+        "overall": result.overall_verdict,
+    }
 
 
-def test_proof_pack_makes_the_contract_evidence_and_human_action_readable(tmp_path):
+def _acceptance_evidence_pack(result):
+    return render_decision_packet(**_packet_inputs(result))
+
+
+def test_acceptance_evidence_pack_makes_the_decision_readable_at_a_glance(tmp_path):
     result = _run(tmp_path, "pass")
 
-    html = _proof_pack(result)
+    html = _acceptance_evidence_pack(result)
 
     for heading in (
-        "Proof Pack",
+        "POC Acceptance Evidence Pack",
+        "Verdict",
+        "Why this verdict",
+        "What is not proven",
+        "Exact next human action",
         "Source quote",
         "Frozen contract",
         "Exact measurement",
         "Evidence sufficiency",
-        "Limits of this proof",
-        "Explicit next human action",
     ):
         assert heading in html
     assert result.contract.canonical_hash in html
     assert "At least 95%" in html
     assert "200 / 200 collected (minimum met)" in html
-    assert "Review this Proof Pack with the customer" in html
+    assert "Review this POC Acceptance Evidence Pack with the customer" in html
     assert "does not authorize deployment, spending, procurement" in html
+    assert "<h1>Proof Pack:" not in html
+    assert 'data-legacy-artifact-name="Proof Pack"' in html
+    assert 'class="verdict-panel status-panel-PASS"' in html
 
 
 def test_not_proven_pack_tells_the_human_to_close_the_evidence_gap(tmp_path):
     result = _run(tmp_path, "insufficient")
 
-    html = _proof_pack(result)
+    html = _acceptance_evidence_pack(result)
 
     assert "NOT_PROVEN" in html
     assert "100 / 200 collected (minimum not met)" in html
     assert "Close the evidence gaps, then re-run the frozen contract." in html
     assert "Do not treat this result as a pass." in html
+    assert 'class="verdict-panel status-panel-NOT_PROVEN"' in html
+
+
+def test_non_pass_reports_have_explicit_non_pass_panel_hooks(tmp_path):
+    for scenario, verdict in (("fail", "FAIL"), ("blocked", "BLOCKED")):
+        html = _acceptance_evidence_pack(_run(tmp_path, scenario))
+
+        assert 'class="verdict-panel status-panel-{0}"'.format(verdict) in html
 
 
 def test_customer_draft_is_reviewable_and_does_not_claim_authority(approved_contract):
     html = render_customer_draft(approved_contract)
 
-    assert "customer review draft" in html
+    assert "customer confirmation draft" in html
+    assert "Draft — customer confirmation required" in html
     assert "Proposed POC acceptance criteria" in html
     assert "This version is not frozen yet." in html
     assert "Please confirm that the quoted requirement" in html
     assert "does not authorize deployment, spending, procurement" in html
     assert "At least 95%" in html
+
+
+def test_pack_rejects_an_unfrozen_contract(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    packet["contract"] = packet["contract"].model_copy(
+        update={
+            "status": ContractStatus.APPROVED,
+            "frozen_at": None,
+            "canonical_hash": None,
+        }
+    )
+
+    with pytest.raises(ValueError, match="contract is not frozen"):
+        render_decision_packet(**packet)
+
+
+@pytest.mark.parametrize("canonical_hash", [None, "0" * 64])
+def test_pack_rejects_a_missing_or_invalid_contract_digest(tmp_path, canonical_hash):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    packet["contract"] = packet["contract"].model_copy(
+        update={"canonical_hash": canonical_hash}
+    )
+
+    with pytest.raises(ValueError, match="contract digest is missing or invalid"):
+        render_decision_packet(**packet)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("contract_id", "another-contract"),
+        ("contract_version", "another-version"),
+        ("contract_hash", "f" * 64),
+    ],
+)
+def test_pack_rejects_a_manifest_for_another_contract(
+    tmp_path, field, replacement
+):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    packet["manifest"] = packet["manifest"].model_copy(
+        update={field: replacement}
+    )
+
+    with pytest.raises(ValueError, match="run manifest does not match"):
+        render_decision_packet(**packet)
+
+
+def test_pack_rejects_more_than_the_supported_single_criterion(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    second_criterion = packet["criterion"].model_copy(
+        update={"id": "TOOL-SELECT-02"}
+    )
+    approved_contract = packet["contract"].model_copy(
+        update={
+            "status": ContractStatus.APPROVED,
+            "frozen_at": None,
+            "canonical_hash": None,
+            "criteria": (packet["criterion"], second_criterion),
+        }
+    )
+    packet["contract"] = freeze_contract(approved_contract, frozen_at=FIXED_TIME)
+    packet["manifest"] = packet["manifest"].model_copy(
+        update={"contract_hash": packet["contract"].canonical_hash}
+    )
+
+    with pytest.raises(ValueError, match="exactly one frozen criterion"):
+        render_decision_packet(**packet)
+
+
+def test_pack_rejects_a_criterion_not_frozen_in_the_contract(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    private_title = "different private criterion title"
+    packet["criterion"] = packet["criterion"].model_copy(
+        update={"title": private_title}
+    )
+
+    with pytest.raises(ValueError, match="rendered criterion does not match") as exc:
+        render_decision_packet(**packet)
+
+    assert private_title not in str(exc.value)
+
+
+def test_pack_rejects_a_measurement_for_another_criterion(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    packet["measurement"] = packet["measurement"].model_copy(
+        update={"criterion_id": "ANOTHER-CRITERION"}
+    )
+
+    with pytest.raises(ValueError, match="measurement does not match"):
+        render_decision_packet(**packet)
+
+
+def test_pack_rejects_a_verdict_for_another_criterion(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    packet["criterion_verdict"] = packet["criterion_verdict"].model_copy(
+        update={"criterion_id": "ANOTHER-CRITERION"}
+    )
+
+    with pytest.raises(ValueError, match="criterion verdict does not match"):
+        render_decision_packet(**packet)
+
+
+def test_pack_rejects_a_criterion_verdict_that_was_not_recomputed(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    private_reason = "private supplied reason"
+    packet["criterion_verdict"] = packet["criterion_verdict"].model_copy(
+        update={"verdict": VerdictStatus.FAIL, "reason": private_reason}
+    )
+
+    with pytest.raises(
+        ValueError, match="criterion verdict does not match deterministic recomputation"
+    ) as exc:
+        render_decision_packet(**packet)
+
+    assert private_reason not in str(exc.value)
+
+
+def test_pack_rejects_an_overall_verdict_that_was_not_recomputed(tmp_path):
+    packet = _packet_inputs(_run(tmp_path, "pass"))
+    private_reason = "private overall reason"
+    packet["overall"] = packet["overall"].model_copy(
+        update={"verdict": VerdictStatus.FAIL, "reason": private_reason}
+    )
+
+    with pytest.raises(
+        ValueError, match="overall verdict does not match deterministic recomputation"
+    ) as exc:
+        render_decision_packet(**packet)
+
+    assert private_reason not in str(exc.value)
 
 
 def test_reporting_escapes_customer_and_result_content(tmp_path):
@@ -90,19 +247,34 @@ def test_reporting_escapes_customer_and_result_content(tmp_path):
             "normalized_claim": "<img src=x onerror=alert(1)>",
         }
     )
-    overall = result.overall_verdict.model_copy(
-        update={"reason": "<script>alert('reason')</script>"}
+    approved_contract = result.contract.model_copy(
+        update={
+            "status": ContractStatus.APPROVED,
+            "frozen_at": None,
+            "canonical_hash": None,
+            "criteria": (criterion,),
+        }
     )
+    contract = freeze_contract(approved_contract, frozen_at=FIXED_TIME)
+    manifest = result.manifest.model_copy(
+        update={
+            "contract_hash": contract.canonical_hash,
+            "provider": "<script>alert('provider')</script>",
+        }
+    )
+    criterion_verdict = evaluate_proportion_criterion(criterion, result.measurement)
+    overall = aggregate_overall_verdict(contract.criteria, [criterion_verdict])
 
     html = render_decision_packet(
-        result.contract,
-        result.manifest,
+        contract,
+        manifest,
         criterion,
         result.measurement,
-        result.criterion_verdict,
+        criterion_verdict,
         overall,
     )
 
     assert "<script>alert" not in html
     assert "&lt;script&gt;alert(&#x27;quote&#x27;)&lt;/script&gt;" in html
     assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "&lt;script&gt;alert(&#x27;provider&#x27;)&lt;/script&gt;" in html
