@@ -306,10 +306,7 @@ def test_request_changes_can_start_a_structured_new_contract_version(tmp_path):
             base_url + "/api/revision/edit",
             {
                 "draft_id": reopened[0]["id"],
-                "normalized_claim": (
-                    "The agent selects the exact expected tool on at least 95% "
-                    "of 250 fixed multilingual support cases."
-                ),
+                "title": "Multilingual exact tool selection",
                 "threshold_percent": 95,
                 "minimum_samples": 250,
                 "workload_slice": "support-tool-selection-multilingual-v2",
@@ -318,6 +315,10 @@ def test_request_changes_can_start_a_structured_new_contract_version(tmp_path):
         revised_draft = edited["revised_draft"]
         assert revised_draft["open_questions"] == []
         assert revised_draft["proposed_criterion"]["rule"]["minimum_samples"] == 250
+        generated_claim = revised_draft["normalized_claim"]
+        assert revised_draft["proposed_criterion"]["normalized_claim"] == generated_claim
+        assert "250 fixed cases" in generated_claim
+        assert "support-tool-selection-multilingual-v2" in generated_claim
 
         reviewed = _post_json(
             base_url + "/api/review",
@@ -346,6 +347,14 @@ def test_request_changes_can_start_a_structured_new_contract_version(tmp_path):
         assert (
             revised_review["review"]["criteria"][0]["rule"]["minimum_samples"]
             == 250
+        )
+        assert (
+            revised_review["review"]["criteria"][0]["normalized_claim"]
+            == generated_claim
+        )
+        assert (
+            revised_review["review"]["criteria"][0]["title"]
+            == "Multilingual exact tool selection"
         )
     finally:
         server.shutdown()

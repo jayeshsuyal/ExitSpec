@@ -1,5 +1,6 @@
 import json
 import threading
+from contextlib import contextmanager
 from http.client import HTTPConnection
 from pathlib import Path
 from urllib.error import HTTPError
@@ -8,6 +9,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+import exitspec.web as web_module
 from exitspec.web import DemoSession, ExitSpecDemoServer
 
 
@@ -197,6 +199,48 @@ def test_local_api_captures_pasted_source_without_claiming_approval(tmp_path):
         assert state["ready_to_prove"] is False
         assert state["safety"]["provider_calls"] is False
 
+        try:
+            _post_json(
+                base_url + "/api/draft/define",
+                {
+                    "draft_id": state["drafts"][0]["id"],
+                    "title": "Exact tool selection",
+                    "threshold_percent": 95,
+                    "minimum_samples": 200,
+                    "workload_slice": "support-tool-selection-v2",
+                    "normalized_claim": "A contradictory client-authored claim.",
+                },
+            )
+        except HTTPError as error:
+            assert error.code == 400
+            error_payload = json.loads(error.read().decode("utf-8"))
+        else:
+            raise AssertionError("Client-authored normalized claim was accepted.")
+        assert "generated from the structured rule" in error_payload["error"]
+
+        defined = _post_json(
+            base_url + "/api/draft/define",
+            {
+                "draft_id": state["drafts"][0]["id"],
+                "title": "Exact tool selection",
+                "threshold_percent": 95,
+                "minimum_samples": 200,
+                "workload_slice": "support-tool-selection-v2",
+            },
+        )
+        defined_draft = defined["defined_draft"]
+        generated_claim = defined_draft["normalized_claim"]
+        assert defined_draft["status"] == "NEEDS_REVIEW"
+        assert defined_draft["open_questions"] == []
+        assert "95%" in generated_claim
+        assert "200 fixed cases" in generated_claim
+        assert "support-tool-selection-v2" in generated_claim
+        assert (
+            defined_draft["proposed_criterion"]["normalized_claim"]
+            == generated_claim
+        )
+        assert defined["state"]["ready_to_prepare_customer_review"] is False
+
         reset = _post_json(base_url + "/api/reset", {})
         assert reset["transcript"]["id"] == "support-discovery-v1"
         assert reset["transcript_redaction"] is None
@@ -352,3 +396,42 @@ def test_local_api_refuses_path_traversal_outside_demo_artifacts(tmp_path):
         server.shutdown()
         worker.join(timeout=5)
         server.server_close()
+
+
+def test_serve_demo_keeps_bundled_resources_alive_through_reset_and_close(
+    tmp_path,
+    monkeypatch,
+):
+    lifecycle = {"open": False, "closed": False}
+    original_resource_context = web_module.support_agent_demo_paths
+
+    @contextmanager
+    def tracked_resources():
+        with original_resource_context() as paths:
+            lifecycle["open"] = True
+            try:
+                yield paths
+            finally:
+                lifecycle["open"] = False
+                lifecycle["closed"] = True
+
+    monkeypatch.setattr(web_module, "support_agent_demo_paths", tracked_resources)
+    server = web_module.serve_demo(
+        host="127.0.0.1",
+        port=0,
+        output_root=tmp_path / "runs",
+    )
+    try:
+        assert lifecycle == {"open": True, "closed": False}
+        assert server.session.fixture_path.is_file()
+        server.session.intake("Customer: The agent must reach 95% exact tool selection.")
+        server.session.reset_to_synthetic_sample()
+        assert server.session.state_payload()["transcript"]["id"] == (
+            "support-discovery-v1"
+        )
+        assert server.session.fixture_path.is_file()
+        assert lifecycle == {"open": True, "closed": False}
+    finally:
+        server.server_close()
+
+    assert lifecycle == {"open": False, "closed": True}

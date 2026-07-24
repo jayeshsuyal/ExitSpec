@@ -27,8 +27,10 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
         "Proposed acceptance rule",
         "PASS is not authorization",
         "Capture notes",
+        "Define acceptance rule",
         "Create customer review",
         "Freeze confirmed contract",
+        "Run another reference set",
         "POC Acceptance Evidence Pack",
         "Not proven",
         "Next human action",
@@ -58,6 +60,7 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     for endpoint in (
         "/api/state",
         "/api/intake",
+        "/api/draft/define",
         "/api/review",
         "/api/customer-draft",
         "/api/revision/start",
@@ -118,7 +121,9 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     assert 'item.setAttribute("aria-current", "step")' in javascript
     assert 'item.removeAttribute("aria-current")' in javascript
     assert "Matches intent" in javascript
-    assert "Needs correction" in javascript
+    assert "Needs correction" not in javascript
+    assert "Edit rule" in javascript
+    assert "Define acceptance rule" in javascript
     assert "Keep as context" in javascript
     assert "NOT A TEST" in javascript
     assert "CALL 02:14 · CUSTOMER" in javascript
@@ -128,6 +133,7 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     assert ".verdict-hero .evidence-equation" in css
     assert "Approve rule" not in javascript
     assert "Reject request" not in javascript
+    assert "normalized_claim:" not in javascript
 
 
 def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
@@ -136,6 +142,7 @@ def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
     javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
 
     assert "75-second walkthrough" in html
+    assert 'id="recording-restart"' in html
     assert 'new URLSearchParams(window.location.search).get("mode")' in javascript
     assert '=== "recording"' in javascript
     assert 'document.body.dataset.mode = recordingMode ? "recording" : "standard"' in javascript
@@ -143,6 +150,8 @@ def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
     assert '$("#decide").scrollIntoView' in javascript
     assert "body.recording-mode .source-details" in styles
     assert "body.recording-mode .proof-workspace" in styles
+    assert "body.recording-mode .custody-rail {\n  display: block;" in styles
+    assert '$("#recording-restart").addEventListener("click", resetDemo)' in javascript
 
 
 def test_desktop_workbench_prevents_workflow_length_body_scroll():
@@ -169,7 +178,7 @@ def test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette():
     assert 'class="proof-sheet"' in html
     assert 'class="custody-ledger"' in html
     assert 'class="context-rail"' not in html
-    assert '<details class="source-details">' in html
+    assert '<details class="source-details" id="source-details">' in html
     assert '<details class="evidence-details">' in html
     assert 'class="sheet-ledger"' in html
     assert 'class="source-drawer"' in html
@@ -192,3 +201,59 @@ def test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette():
     assert "--strong-rule: #4a5248" in styles
     assert "--signal: #ff6b3d" in styles
     assert "--success: #78d6a3" in styles
+
+
+def test_workbench_continuity_contracts_are_explicit_in_the_browser_surface():
+    html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+
+    for control in (
+        'id="poc-label"',
+        'id="open-source-controls"',
+        'id="rerun-proof"',
+        'id="recording-restart"',
+    ):
+        assert control in html
+
+    for polling_contract in (
+        "CUSTOMER_POLL_INTERVAL_MS = 1800",
+        "stateRefreshPromise",
+        "reconcileCustomerPolling",
+        "isAwaitingCustomerDecision",
+        'document.addEventListener("visibilitychange"',
+        'window.addEventListener("pagehide"',
+        "stopCustomerPolling();",
+    ):
+        assert polling_contract in javascript
+
+    for reset_contract in (
+        "function resetLocalWorkbench()",
+        "editingDraftId = null",
+        "rerunMode = false",
+        'selectScenario("pass")',
+        "closeSourceDrawer();",
+    ):
+        assert reset_contract in javascript
+
+    for rerun_contract in (
+        "function beginRerun()",
+        "Run another reference set",
+        "Run selected reference set",
+        "criterion_reason",
+        "await refreshState();",
+    ):
+        assert rerun_contract in javascript
+
+    for authoring_contract in (
+        "supported_rule_template",
+        "Exact expected support-tool selection",
+        "Human-defined rule",
+        "The customer-facing sentence is generated from these fields",
+        "This demo already has its one executable rule",
+    ):
+        assert authoring_contract in javascript
+
+    assert ".rule-editor__fields" in styles
+    assert ".supported-rule-ledger" in styles
+    assert ".recording-restart" in styles

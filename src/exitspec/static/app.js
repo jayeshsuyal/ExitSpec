@@ -4,6 +4,7 @@
   const API = {
     state: "/api/state",
     intake: "/api/intake",
+    draftDefine: "/api/draft/define",
     review: "/api/review",
     customerDraft: "/api/customer-draft",
     revisionStart: "/api/revision/start",
@@ -14,10 +15,17 @@
   };
 
   const DEFAULT_DEMO_NOTES = "Customer: Our support agent must select the correct tool at least 95% of the time. We want to inspect any mistakes before we scale traffic.";
+  const CUSTOMER_POLL_INTERVAL_MS = 1800;
   const recordingMode = new URLSearchParams(window.location.search).get("mode") === "recording";
 
   let state = null;
   let selectedScenario = "pass";
+  let editingDraftId = null;
+  let rerunMode = false;
+  let customerPollTimer = null;
+  let stateRefreshPromise = null;
+  let stateRefreshVersion = 0;
+  let pageActive = true;
 
   const $ = (selector) => document.querySelector(selector);
   const modeChip = $("#mode-chip");
@@ -57,10 +65,26 @@
       throw new Error("The local demo returned an invalid state.");
     }
     state = incoming;
+    if (state.confirmation) {
+      stopCustomerPolling();
+    }
   }
 
   function drafts() {
     return state && Array.isArray(state.drafts) ? state.drafts : [];
+  }
+
+  function approvedDrafts() {
+    return drafts().filter((draft) => draft.status === "APPROVED");
+  }
+
+  function isAwaitingCustomerDecision() {
+    return Boolean(
+      pageActive
+      && state?.customer_review_url
+      && !state?.confirmation
+      && !drafts().some((draft) => draft.status === "NEEDS_REVIEW")
+    );
   }
 
   function transcriptLines() {
@@ -129,20 +153,7 @@
   }
 
   function compactProofReason(proof) {
-    const verdict = proof?.overall_verdict;
-    if (verdict === "PASS") {
-      return "All must-have criteria passed.";
-    }
-    if (verdict === "FAIL") {
-      return "At least one must-have criterion failed.";
-    }
-    if (verdict === "BLOCKED") {
-      return "The run could not produce trustworthy evidence.";
-    }
-    if (verdict === "NOT_PROVEN") {
-      return "The evidence did not prove the agreed claim.";
-    }
-    return "No evidence yet.";
+    return proof?.criterion_reason || proof?.overall_reason || "No evidence yet.";
   }
 
   function compactScopeLimit() {
@@ -181,18 +192,50 @@
         currentDraft?.proposed_criterion
         && (!currentDraft.open_questions || currentDraft.open_questions.length === 0)
       );
+      const anotherRuleIsActive = currentDrafts.some(
+        (draft) => draft.id !== currentDraft?.id
+          && draft.status !== "REJECTED"
+          && draft.proposed_criterion
+      );
       return {
         stage: "define",
         eyebrow: `Define · Requirement ${reviewed + 1} of ${currentDrafts.length}`,
-        title: hasMeasurableRule
+        title: !hasMeasurableRule && anotherRuleIsActive
+          ? "Keep this request as context?"
+          : editingDraftId === currentDraft?.id || (!hasMeasurableRule && state?.revision_request)
+          ? "Define the exact acceptance rule"
+          : hasMeasurableRule
           ? "Does this rule match the customer’s intent?"
-          : "Is this request measurable enough?",
-        copy: hasMeasurableRule
+          : "Can this request use the supported measurement?",
+        copy: !hasMeasurableRule && anotherRuleIsActive
+          ? "This demo already has one executable rule. A different task stays outside the agreement until its adapter exists."
+          : editingDraftId === currentDraft?.id || !hasMeasurableRule
+          ? "Enter structured fields. ExitSpec generates the customer-facing sentence so the rule cannot contradict itself."
+          : hasMeasurableRule
           ? "Compare the customer’s words with the measurable rule below."
           : "Useful context stays out of the agreement until it has a pass/fail rule.",
-        nextTitle: "Review this requirement",
-        nextCopy: "Approve the rule or reject the request.",
+        nextTitle: !hasMeasurableRule && anotherRuleIsActive
+          ? "Keep as context"
+          : hasMeasurableRule
+            ? "Review this requirement"
+            : "Define acceptance rule",
+        nextCopy: !hasMeasurableRule && anotherRuleIsActive
+          ? "Preserve the source without adding an unsupported claim."
+          : hasMeasurableRule
+          ? "Approve, edit, or keep it as context."
+          : "The current engine supports exact support-tool selection only.",
         blockers: [`${pending} ${pending === 1 ? "item needs" : "items need"} a decision.`],
+      };
+    }
+    if (approvedDrafts().length === 0) {
+      return {
+        stage: "define",
+        eyebrow: "Define · No acceptance rule",
+        title: "No measurable rule is included yet",
+        copy: "Context was preserved, but ExitSpec will not create an empty customer agreement.",
+        nextTitle: "Capture another requirement",
+        nextCopy: "Open the meeting source and add a measurable requirement.",
+        blockers: ["At least one supported rule must be defined and approved."],
       };
     }
     if (!hasReviewLink) {
@@ -239,26 +282,36 @@
         blockers: ["Contract freeze."],
       };
     }
-    if (state?.ready_to_prove && !hasProof) {
+    if (state?.ready_to_prove && (!hasProof || rerunMode)) {
       return {
         stage: "prove",
-        eyebrow: "Prove · Frozen agreement",
-        title: "Which dataset should test this agreement?",
-        copy: "The frozen rule—not the dataset label—decides what passes.",
-        nextTitle: "Run this POC",
-        nextCopy: "Measure the selected fixture.",
+        eyebrow: rerunMode ? "Prove · Run another set" : "Prove · Frozen agreement",
+        title: rerunMode
+          ? "Which reference set should run next?"
+          : "Which dataset should test this agreement?",
+        copy: "Every run uses the same frozen contract. Only the reference evidence changes.",
+        nextTitle: rerunMode ? "Run selected reference set" : "Run this POC",
+        nextCopy: "Measure the selected fixture against the frozen rule.",
         blockers: ["Evidence run."],
       };
     }
     if (hasProof) {
+      const verdict = state.proof_pack.overall_verdict;
+      const isPass = verdict === "PASS";
       return {
         stage: "decide",
         eyebrow: "Decide · Evidence recorded",
-        title: "Did the POC prove the agreement?",
-        copy: "Review the verdict, its reason, and the next human action.",
-        nextTitle: "Open evidence pack",
-        nextCopy: "Inspect the complete artifact.",
-        blockers: ["Human authorization."],
+        title: isPass
+          ? "The agreement was proved. What does the evidence say?"
+          : `${verdict.replace("_", " ")} — what should happen next?`,
+        copy: compactProofReason(state.proof_pack),
+        nextTitle: isPass ? "Open evidence pack" : "Run another reference set",
+        nextCopy: isPass
+          ? "Inspect the complete artifact. PASS is not authorization."
+          : "Resolve or change the evidence condition, then rerun the same frozen contract.",
+        blockers: isPass
+          ? ["No automatic deployment authorization is created."]
+          : [compactProofReason(state.proof_pack)],
       };
     }
     return {
@@ -324,7 +377,7 @@
       {
         id: "decision",
         className: proof && model.stage === "decide" ? "is-current" : "is-pending",
-        text: proof ? "HUMAN REVIEW" : "PENDING",
+        text: proof ? "READY" : "PENDING",
       },
     ];
     const stateClasses = ["is-pending", "is-current", "is-recorded", "is-warning"];
@@ -347,6 +400,8 @@
     const stageOrder = ["define", "prove", "decide"];
     const currentIndex = stageOrder.indexOf(model.stage);
 
+    $("#poc-label").textContent = state?.poc_label || state?.transcript?.title || "Current POC";
+    $("#proof-pack-title").textContent = state?.contract?.use_case || state?.poc_label || "Current POC";
     $("#workspace-eyebrow").textContent = model.eyebrow;
     $("#current-task-title").textContent = model.title;
     $("#current-task-copy").textContent = model.copy;
@@ -427,52 +482,96 @@
       .join("");
   }
 
+  function structuredRuleEditor(draft) {
+    const criterion = draft.proposed_criterion;
+    const template = state?.supported_rule_template || {};
+    const threshold = Number(criterion?.rule?.threshold ?? 0.95) * 100;
+    const title = criterion?.title || "Exact tool selection";
+    const samples = criterion?.rule?.minimum_samples || 200;
+    const workload = criterion?.workload_slice || "support-tool-selection-v1";
+    const isRevision = Boolean(state?.revision_request);
+    return `
+      <div class="rule-editor" data-rule-editor="${escapeHtml(draft.id)}">
+        <div class="rule-editor__heading">
+          <div>
+            <p class="section-label">${isRevision ? "Structured revision" : "Human-defined rule"}</p>
+            <h3>${isRevision ? "Update the measurable agreement" : "Define acceptance rule"}</h3>
+          </div>
+          <span>Human input required</span>
+        </div>
+        <p class="rule-boundary">${escapeHtml(template.limitation || "This demo currently supports exact support-tool selection only.")}</p>
+        <div class="rule-editor__fields">
+          <label class="rule-title-field">
+            <span>Rule title</span>
+            <input type="text" value="${escapeHtml(title)}" data-rule-field="title" />
+          </label>
+          <label>
+            <span>Threshold (%)</span>
+            <input type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(threshold.toFixed(2))}" data-rule-field="threshold" />
+          </label>
+          <label>
+            <span>Minimum samples</span>
+            <input type="number" min="1" step="1" value="${escapeHtml(samples)}" data-rule-field="samples" />
+          </label>
+          <label class="rule-workload-field">
+            <span>Workload slice</span>
+            <input type="text" value="${escapeHtml(workload)}" data-rule-field="workload" />
+          </label>
+        </div>
+        <dl class="supported-rule-ledger" aria-label="Fixed deterministic measurement fields">
+          <div><dt>Metric</dt><dd>${escapeHtml(template.metric_label || "Exact expected support-tool selection")}</dd></div>
+          <div><dt>Adapter</dt><dd>${escapeHtml(`${template.adapter || "deterministic_tool_selection"}@${template.adapter_version || "1.0.0"}`)}</dd></div>
+          <div><dt>Calculation</dt><dd>${escapeHtml(template.confidence_method || "95% Wilson lower bound")}</dd></div>
+          <div><dt>Evidence</dt><dd>${escapeHtml(template.evidence_policy || "Case-level records and SHA-256 digests.")}</dd></div>
+        </dl>
+        <p class="generated-claim-note">The customer-facing sentence is generated from these fields; free-text claims are not accepted.</p>
+        <div class="candidate-actions">
+          <button class="button primary" type="button" data-save-rule="${escapeHtml(draft.id)}">${isRevision ? "Apply revision" : "Save rule"}</button>
+          ${isRevision ? "" : `<button class="button secondary" type="button" data-cancel-rule="${escapeHtml(draft.id)}">Cancel</button>`}
+          <button class="text-action" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
+        </div>
+      </div>`;
+  }
+
   function candidateActions(draft) {
     if (draft.status !== "NEEDS_REVIEW") {
       return "";
     }
-    const complete = draft.proposed_criterion && (!draft.open_questions || draft.open_questions.length === 0);
+    const complete = Boolean(
+      draft.proposed_criterion
+      && (!draft.open_questions || draft.open_questions.length === 0)
+    );
     const revisionApplied = Array.isArray(state?.revision_edit_applied_ids)
       && state.revision_edit_applied_ids.includes(draft.id);
-    if (state?.revision_request && draft.proposed_criterion && !revisionApplied) {
-      const criterion = draft.proposed_criterion;
-      const threshold = Number(criterion.rule?.threshold || 0) * 100;
+    const editorOpen = editingDraftId === draft.id
+      || (Boolean(state?.revision_request) && !revisionApplied);
+    if (editorOpen) {
+      return structuredRuleEditor(draft);
+    }
+    if (!complete) {
+      const anotherRuleIsActive = drafts().some(
+        (candidate) => candidate.id !== draft.id
+          && candidate.status !== "REJECTED"
+          && candidate.proposed_criterion
+      );
+      if (anotherRuleIsActive) {
+        return `
+          <div class="candidate-actions contextual-only">
+            <span>This demo already has its one executable rule.</span>
+            <button class="button primary" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
+          </div>`;
+      }
       return `
-        <div class="revision-editor" data-revision-editor="${escapeHtml(draft.id)}">
-          <p class="revision-editor__title">Update the exact structured rule</p>
-          <label>
-            <span>Requirement</span>
-            <textarea rows="2" data-revision-field="claim">${escapeHtml(draft.normalized_claim)}</textarea>
-          </label>
-          <div class="revision-fields">
-            <label>
-              <span>Threshold (%)</span>
-              <input type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(threshold.toFixed(2))}" data-revision-field="threshold" />
-            </label>
-            <label>
-              <span>Minimum samples</span>
-              <input type="number" min="1" step="1" value="${escapeHtml(criterion.rule?.minimum_samples || 1)}" data-revision-field="samples" />
-            </label>
-            <label>
-              <span>Workload</span>
-              <input type="text" value="${escapeHtml(criterion.workload_slice || "")}" data-revision-field="workload" />
-            </label>
-          </div>
-          <div class="candidate-actions">
-            <button class="button primary" type="button" data-apply-revision="${escapeHtml(draft.id)}">Apply revision</button>
-            <button class="button secondary" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Needs correction</button>
-          </div>
+        <div class="candidate-actions">
+          <button class="button primary" type="button" data-edit-rule="${escapeHtml(draft.id)}">Define acceptance rule</button>
+          <button class="button secondary" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
         </div>`;
     }
-    const approve = complete
-      ? `<button class="button primary" type="button" data-decision="APPROVE" data-id="${escapeHtml(draft.id)}">Matches intent</button>`
-      : "";
-    const rejectLabel = complete ? "Needs correction" : "Keep as context";
-    const rejectClass = complete ? "secondary" : "primary";
     return `
       <div class="candidate-actions">
-        ${approve}
-        <button class="button ${rejectClass}" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">${rejectLabel}</button>
+        <button class="button primary" type="button" data-decision="APPROVE" data-id="${escapeHtml(draft.id)}">Matches intent</button>
+        <button class="button secondary" type="button" data-edit-rule="${escapeHtml(draft.id)}">Edit rule</button>
+        <button class="text-action" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
       </div>`;
   }
 
@@ -486,6 +585,10 @@
       const draft = pendingDrafts[0];
       const criterion = draft.proposed_criterion;
       const source = sourceQuote(draft);
+      const revisionApplied = Array.isArray(state?.revision_edit_applied_ids)
+        && state.revision_edit_applied_ids.includes(draft.id);
+      const editorVisible = editingDraftId === draft.id
+        || (Boolean(state?.revision_request) && !revisionApplied);
       $("#candidate-list").innerHTML = `
         <article class="candidate decision-card">
           <div class="customer-ask">
@@ -493,20 +596,23 @@
             <blockquote>${escapeHtml(source)}</blockquote>
           </div>
 
-          <div class="rule-review">
-            <p class="section-label">${criterion ? "Proposed acceptance rule" : "NOT A TEST"}</p>
-            <h2>${escapeHtml(criterion?.title || "No pass/fail rule")}</h2>
-            ${criterion
-              ? criterionRows(criterion)
-              : `
-                <p class="rule-explanation">
-                  This is useful context, but it does not define measurable success.
-                </p>
-                <div class="missing-callout">
-                  <strong>Missing</strong>
-                  <span>A metric, threshold, and evidence rule.</span>
-                </div>`}
-          </div>
+          ${editorVisible
+            ? ""
+            : `
+              <div class="rule-review">
+                <p class="section-label">${criterion ? "Proposed acceptance rule" : "NOT A TEST"}</p>
+                <h2>${escapeHtml(criterion?.title || "No pass/fail rule")}</h2>
+                ${criterion
+                  ? `<p class="rule-explanation">${escapeHtml(criterion.normalized_claim)}</p>${criterionRows(criterion)}`
+                  : `
+                    <p class="rule-explanation">
+                      This is useful context, but it does not define measurable success.
+                    </p>
+                    <div class="missing-callout">
+                      <strong>Missing</strong>
+                      <span>A metric, threshold, and evidence rule.</span>
+                    </div>`}
+              </div>`}
 
           ${candidateActions(draft)}
         </article>`;
@@ -519,7 +625,9 @@
         ? "Frozen contract"
         : state?.confirmation?.decision === "CONFIRM"
           ? "Customer-confirmed contract"
-          : "Customer review draft";
+          : approved.length > 0
+            ? "Customer review draft"
+            : "No agreement created";
       const criterionLabel = `${approved.length} ${approved.length === 1 ? "criterion" : "criteria"} included`;
       const noteLabel = `${rejected.length} ${rejected.length === 1 ? "note" : "notes"} excluded`;
       $("#candidate-list").innerHTML = `
@@ -531,15 +639,29 @@
             </div>
             <strong>${escapeHtml(criterionLabel)} · ${escapeHtml(noteLabel)}</strong>
           </div>
-          ${approvedCriterion ? criterionRows(approvedCriterion) : ""}
+          ${approvedCriterion
+            ? `<p class="rule-explanation">${escapeHtml(approvedCriterion.normalized_claim)}</p>${criterionRows(approvedCriterion)}`
+            : `<p class="rule-explanation">No supported acceptance rule is included. Capture another requirement or restore the sample.</p>`}
         </article>`;
     }
 
     $("#candidate-list").querySelectorAll("[data-decision]").forEach((button) => {
       button.addEventListener("click", () => reviewDraft(button.dataset.id, button.dataset.decision));
     });
-    $("#candidate-list").querySelectorAll("[data-apply-revision]").forEach((button) => {
-      button.addEventListener("click", () => applyRevision(button));
+    $("#candidate-list").querySelectorAll("[data-edit-rule]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingDraftId = button.dataset.editRule;
+        render();
+      });
+    });
+    $("#candidate-list").querySelectorAll("[data-cancel-rule]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingDraftId = null;
+        render();
+      });
+    });
+    $("#candidate-list").querySelectorAll("[data-save-rule]").forEach((button) => {
+      button.addEventListener("click", () => saveStructuredRule(button));
     });
   }
 
@@ -566,15 +688,29 @@
     const confirmationDecision = state?.confirmation?.decision;
     const hasCustomerReview = Boolean(state?.customer_review_url);
     const hasProof = Boolean(state?.proof_pack);
+    const proofVerdict = state?.proof_pack?.overall_verdict;
+    const noApprovedRule = drafts().length > 0
+      && !drafts().some((draft) => draft.status === "NEEDS_REVIEW")
+      && approvedDrafts().length === 0;
     const customerDraftButton = $("#create-customer-draft");
     customerDraftButton.disabled = !readyToPrepareReview;
     customerDraftButton.hidden = !readyToPrepareReview || hasCustomerReview;
     customerDraftButton.title = readyToPrepareReview ? "" : "Resolve each candidate before preparing a customer review.";
 
+    const sourceButton = $("#open-source-controls");
+    sourceButton.hidden = !noApprovedRule;
+
     const runButton = $("#run-proof");
     runButton.disabled = !readyToProve;
-    runButton.hidden = !readyToProve || hasProof;
+    runButton.hidden = !readyToProve || (hasProof && !rerunMode);
+    runButton.textContent = rerunMode ? "Run selected reference set" : "Run this POC";
     runButton.title = readyToProve ? "" : "Customer confirmation and an explicit freeze are required before running proof.";
+
+    const rerunButton = $("#rerun-proof");
+    rerunButton.hidden = !hasProof || rerunMode;
+    rerunButton.className = proofVerdict === "PASS"
+      ? "button secondary"
+      : "button primary";
 
     const freezeButton = $("#freeze-contract");
     if (freezeButton) {
@@ -606,6 +742,9 @@
     if (state?.proof_pack?.report_url) {
       proofLink.href = state.proof_pack.report_url;
       proofLink.hidden = false;
+      proofLink.className = proofVerdict === "PASS" && !rerunMode
+        ? "button primary button-link"
+        : "button secondary button-link";
     } else {
       proofLink.hidden = true;
     }
@@ -705,7 +844,9 @@
     $("#pack-source").textContent = source;
     $("#pack-criterion").textContent = criterion ? criterionSummary(criterion) : "Frozen criterion is available in the full POC Acceptance Evidence Pack.";
     $("#pack-contract").textContent = proof.contract_hash || contractLabel();
-    $("#pack-result").textContent = `${proof.overall_verdict} — ${percentage(proof.observed_rate)} observed; lower bound ${percentage(proof.confidence_lower_bound)}.`;
+    $("#pack-result").textContent = typeof proof.observed_rate === "number"
+      ? `${proof.overall_verdict} — ${percentage(proof.observed_rate)} observed; lower bound ${percentage(proof.confidence_lower_bound)}.`
+      : `${proof.overall_verdict} — ${compactProofReason(proof)}`;
     $("#pack-result").style.color = verdictColor(proof.overall_verdict);
     const sampleCount = proof.sample_count || 0;
     const observedCases = typeof proof.observed_rate === "number"
@@ -714,8 +855,12 @@
     const requiredThreshold = criterion?.rule
       ? percentage(criterion.rule.threshold)
       : "—";
-    $("#pack-why").className = "evidence-equation";
-    $("#pack-why").textContent = `Required ≥ ${requiredThreshold} · Observed ${observedCases}/${sampleCount} (${percentage(proof.observed_rate)}) · Wilson lower bound ${percentage(proof.confidence_lower_bound)} · ${proof.overall_verdict}`;
+    $("#pack-why").className = proof.overall_verdict === "PASS"
+      ? "evidence-equation"
+      : "evidence-reason";
+    $("#pack-why").textContent = proof.overall_verdict === "PASS"
+      ? `Required ≥ ${requiredThreshold} · Observed ${observedCases}/${sampleCount} (${percentage(proof.observed_rate)}) · Wilson lower bound ${percentage(proof.confidence_lower_bound)} · ${proof.overall_verdict}`
+      : compactProofReason(proof);
     $("#pack-limits").textContent = compactScopeLimit();
     $("#pack-next-step").textContent = compactNextAction(proof);
     $("#pack-id").textContent = "EVIDENCE / RECORDED";
@@ -737,6 +882,7 @@
     renderProof();
     renderCustody(model);
     renderWorkflow(model);
+    reconcileCustomerPolling();
   }
 
   async function reviewDraft(draftId, decision) {
@@ -751,15 +897,39 @@
           reviewer: "field_engineer",
           rationale: isApprove
             ? "Field engineer confirmed the complete measurement rule during this local demo."
-            : "Field engineer rejected the request because its acceptance rule remains incomplete.",
+            : "Field engineer kept this source as context and excluded it from the current POC agreement.",
         }),
       });
       applyState(response);
+      editingDraftId = null;
       setStatus(intakeStatus, "");
       render();
     } catch (error) {
       setStatus(intakeStatus, error.message);
     }
+  }
+
+  function selectScenario(scenario = "pass") {
+    selectedScenario = scenario;
+    document.querySelectorAll('input[name="scenario"]').forEach((input) => {
+      input.checked = input.value === scenario;
+    });
+  }
+
+  function closeSourceDrawer() {
+    const sourceDetails = $("#source-details");
+    if (sourceDetails) {
+      sourceDetails.open = false;
+    }
+  }
+
+  function resetLocalWorkbench() {
+    stateRefreshVersion += 1;
+    stopCustomerPolling();
+    editingDraftId = null;
+    rerunMode = false;
+    selectScenario("pass");
+    closeSourceDrawer();
   }
 
   async function loadIntake() {
@@ -770,6 +940,7 @@
     }
     setStatus(intakeStatus, "Capturing notes…");
     try {
+      resetLocalWorkbench();
       const response = await request(API.intake, {
         method: "POST",
         body: JSON.stringify({ transcript, title: "Pasted synthetic discovery notes" }),
@@ -783,12 +954,14 @@
   }
 
   async function resetDemo() {
+    resetLocalWorkbench();
     try {
       applyState(await request(API.reset, { method: "POST", body: "{}" }));
       $("#meeting-notes").value = DEFAULT_DEMO_NOTES;
       setStatus(intakeStatus, "");
       setStatus(proveStatus, "");
       render();
+      $("#current-task").scrollIntoView({ block: "start", behavior: "auto" });
     } catch (error) {
       setStatus(intakeStatus, error.message);
     }
@@ -808,6 +981,8 @@
     setStatus(intakeStatus, "Starting revision…");
     try {
       applyState(await request(API.revisionStart, { method: "POST", body: "{}" }));
+      editingDraftId = null;
+      rerunMode = false;
       setStatus(intakeStatus, "");
       render();
     } catch (error) {
@@ -815,32 +990,34 @@
     }
   }
 
-  async function applyRevision(button) {
-    const editor = button.closest("[data-revision-editor]");
+  async function saveStructuredRule(button) {
+    const editor = button.closest("[data-rule-editor]");
     if (!editor) {
-      setStatus(intakeStatus, "The revision editor is unavailable.");
+      setStatus(intakeStatus, "The structured rule editor is unavailable.");
       return;
     }
-    const claim = editor.querySelector('[data-revision-field="claim"]').value.trim();
-    const threshold = Number(editor.querySelector('[data-revision-field="threshold"]').value);
-    const samples = Number(editor.querySelector('[data-revision-field="samples"]').value);
-    const workload = editor.querySelector('[data-revision-field="workload"]').value.trim();
-    if (!claim || !workload || !Number.isFinite(threshold) || !Number.isInteger(samples)) {
-      setStatus(intakeStatus, "Complete the requirement, threshold, sample count, and workload before applying the revision.");
+    const title = editor.querySelector('[data-rule-field="title"]').value.trim();
+    const threshold = Number(editor.querySelector('[data-rule-field="threshold"]').value);
+    const samples = Number(editor.querySelector('[data-rule-field="samples"]').value);
+    const workload = editor.querySelector('[data-rule-field="workload"]').value.trim();
+    if (!title || !workload || !Number.isFinite(threshold) || !Number.isInteger(samples)) {
+      setStatus(intakeStatus, "Complete the title, threshold, sample count, and workload before saving the rule.");
       return;
     }
-    setStatus(intakeStatus, "Saving revision…");
+    const isRevision = Boolean(state?.revision_request);
+    setStatus(intakeStatus, isRevision ? "Saving revision…" : "Defining rule…");
     try {
-      applyState(await request(API.revisionEdit, {
+      applyState(await request(isRevision ? API.revisionEdit : API.draftDefine, {
         method: "POST",
         body: JSON.stringify({
-          draft_id: button.dataset.applyRevision,
-          normalized_claim: claim,
+          draft_id: button.dataset.saveRule,
+          title,
           threshold_percent: threshold,
           minimum_samples: samples,
           workload_slice: workload,
         }),
       }));
+      editingDraftId = null;
       setStatus(intakeStatus, "");
       render();
     } catch (error) {
@@ -859,12 +1036,69 @@
     }
   }
 
+  function openSourceControls() {
+    const sourceDetails = $("#source-details");
+    if (!sourceDetails) {
+      return;
+    }
+    sourceDetails.open = true;
+    window.requestAnimationFrame(() => $("#meeting-notes").focus());
+  }
+
+  function beginRerun() {
+    rerunMode = true;
+    setStatus(proveStatus, "");
+    render();
+    window.requestAnimationFrame(() => {
+      $("#prove").scrollIntoView({ block: "start", behavior: "auto" });
+    });
+  }
+
+  function stopCustomerPolling() {
+    if (customerPollTimer !== null) {
+      window.clearTimeout(customerPollTimer);
+      customerPollTimer = null;
+    }
+  }
+
+  function reconcileCustomerPolling() {
+    if (!isAwaitingCustomerDecision()) {
+      stopCustomerPolling();
+      return;
+    }
+    if (customerPollTimer === null && stateRefreshPromise === null) {
+      customerPollTimer = window.setTimeout(() => {
+        customerPollTimer = null;
+        refreshState();
+      }, CUSTOMER_POLL_INTERVAL_MS);
+    }
+  }
+
   async function refreshState() {
+    if (!pageActive) {
+      return;
+    }
+    if (stateRefreshPromise !== null) {
+      return stateRefreshPromise;
+    }
+    const requestedVersion = stateRefreshVersion;
+    stateRefreshPromise = (async () => {
+      try {
+        const incoming = await request(API.state);
+        if (!pageActive || requestedVersion !== stateRefreshVersion) {
+          return;
+        }
+        applyState(incoming);
+        render();
+      } catch (_error) {
+        // Keep the last valid local state visible; explicit actions surface errors.
+      }
+    })();
     try {
-      applyState(await request(API.state));
-      render();
-    } catch (_error) {
-      // Keep the last valid local state visible; explicit actions surface errors.
+      await stateRefreshPromise;
+    } finally {
+      stateRefreshPromise = null;
+      reconcileCustomerPolling();
     }
   }
 
@@ -874,13 +1108,17 @@
     setStatus(proveStatus, "Running POC…");
     try {
       applyState(await request(API.prove, { method: "POST", body: JSON.stringify({ scenario: selectedScenario }) }));
+      rerunMode = false;
       setStatus(proveStatus, "");
       render();
       if (recordingMode) {
         $("#decide").scrollIntoView({ block: "start", behavior: "auto" });
       }
     } catch (error) {
+      rerunMode = false;
+      await refreshState();
       setStatus(proveStatus, error.message);
+      render();
     }
   }
 
@@ -905,16 +1143,33 @@
 
   $("#load-transcript").addEventListener("click", loadIntake);
   $("#reset-demo").addEventListener("click", resetDemo);
+  $("#recording-restart").addEventListener("click", resetDemo);
+  $("#open-source-controls").addEventListener("click", openSourceControls);
   $("#create-customer-draft").addEventListener("click", createCustomerDraft);
   $("#start-revision").addEventListener("click", startRevision);
   if ($("#freeze-contract")) {
     $("#freeze-contract").addEventListener("click", freezeContract);
   }
   $("#run-proof").addEventListener("click", runProof);
+  $("#rerun-proof").addEventListener("click", beginRerun);
   document.querySelectorAll('input[name="scenario"]').forEach((input) => {
     input.addEventListener("change", () => { selectedScenario = input.value; });
   });
   window.addEventListener("focus", refreshState);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      refreshState();
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    pageActive = false;
+    stateRefreshVersion += 1;
+    stopCustomerPolling();
+  });
+  window.addEventListener("pageshow", () => {
+    pageActive = true;
+    refreshState();
+  });
 
   initialise();
 })();

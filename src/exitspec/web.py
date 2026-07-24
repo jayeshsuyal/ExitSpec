@@ -14,6 +14,7 @@ import tempfile
 import threading
 import uuid
 import webbrowser
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from functools import wraps
 from http import HTTPStatus
@@ -43,6 +44,7 @@ from .confirmations import (
     record_confirmation,
 )
 from .contracts import freeze_confirmed_contract, utc_now as contract_utc_now
+from .demo_data import support_agent_demo_paths
 from .intake import (
     TranscriptIntakeError,
     TranscriptRedactionSummary,
@@ -50,11 +52,14 @@ from .intake import (
 )
 from .models import (
     ContractSeed,
+    Criterion,
     CriterionDraft,
     DiscoveryPack,
     DiscoveryTranscript,
     DraftStatus,
+    Metric,
     POCContract,
+    ProportionRule,
     ReviewDecision,
     TranscriptSpan,
     VerdictStatus,
@@ -80,6 +85,24 @@ JSON_MEDIA_TYPE = "application/json"
 LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
 UNSUPPORTED_MEDIA_TYPE_ERROR = "Content-Type must be application/json."
 FORBIDDEN_ORIGIN_ERROR = "Origin is not allowed."
+SUPPORTED_RULE_TEMPLATE = {
+    "metric": Metric.EXACT_TOOL_SELECTION_RATE.value,
+    "metric_label": "Exact expected support-tool selection",
+    "unit": "proportion",
+    "aggregation": "exact-match proportion",
+    "adapter": DeterministicToolSelectionAdapter.name,
+    "adapter_version": DeterministicToolSelectionAdapter.version,
+    "confidence_method": "95% Wilson lower bound",
+    "evidence_policy": (
+        "Persist synthetic case IDs, expected/actual tool names, calculation "
+        "inputs, and SHA-256 digests."
+    ),
+    "limitation": (
+        "This deterministic demo can execute one exact support-tool selection "
+        "criterion over the bundled fixed fixture. Other tasks must remain context "
+        "until a compatible measurement adapter exists."
+    ),
+}
 
 
 class DemoStateError(ValueError):
@@ -121,6 +144,21 @@ class DemoSession:
     customer_draft_path: Optional[Path] = None
     transcript_notice: str = "Built-in synthetic discovery transcript"
     transcript_redaction: Optional[TranscriptRedactionSummary] = None
+    _sample_discovery_pack: Optional[DiscoveryPack] = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _sample_contract_seed: Optional[ContractSeed] = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _sample_fixture_path: Optional[Path] = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     _lock: Any = field(
         default_factory=threading.RLock,
         init=False,
@@ -128,18 +166,36 @@ class DemoSession:
         compare=False,
     )
 
+    def __post_init__(self) -> None:
+        """Keep a reset snapshot without assuming resources live in the checkout."""
+
+        if self._sample_discovery_pack is None:
+            self._sample_discovery_pack = self.discovery_pack.model_copy(deep=True)
+        if self._sample_contract_seed is None:
+            self._sample_contract_seed = self.contract_seed.model_copy(deep=True)
+        if self._sample_fixture_path is None:
+            self._sample_fixture_path = self.fixture_path
+
     @classmethod
     def synthetic_support_agent(
         cls,
         output_root: Path = DEFAULT_RUNS_ROOT,
+        *,
+        discovery_path: Path = DEFAULT_DISCOVERY_PATH,
+        contract_seed_path: Path = DEFAULT_CONTRACT_SEED_PATH,
+        fixture_path: Path = DEFAULT_FIXTURE_PATH,
     ) -> "DemoSession":
-        discovery_pack = load_discovery_pack(DEFAULT_DISCOVERY_PATH)
+        discovery_pack = load_discovery_pack(discovery_path)
+        contract_seed = load_contract_seed(contract_seed_path)
         return cls(
             discovery_pack=discovery_pack,
-            contract_seed=load_contract_seed(DEFAULT_CONTRACT_SEED_PATH),
-            fixture_path=DEFAULT_FIXTURE_PATH,
+            contract_seed=contract_seed,
+            fixture_path=fixture_path,
             output_root=output_root,
             reviewed_drafts=list(discovery_pack.drafts),
+            _sample_discovery_pack=discovery_pack.model_copy(deep=True),
+            _sample_contract_seed=contract_seed.model_copy(deep=True),
+            _sample_fixture_path=fixture_path,
         )
 
     @property
@@ -218,6 +274,124 @@ class DemoSession:
             return reviewed
         raise DemoStateError("Unknown draft {0}.".format(draft_id))
 
+    def _apply_structured_rule(
+        self,
+        *,
+        draft_id: str,
+        title: str,
+        threshold_percent: float,
+        minimum_samples: int,
+        workload_slice: str,
+        require_revision: bool,
+    ) -> CriterionDraft:
+        """Create one supported criterion from human-entered structured fields."""
+
+        if require_revision and self.revision_request is None:
+            raise DemoStateError("No customer-requested revision is active.")
+        normalized_title = " ".join(title.split())
+        normalized_workload = " ".join(workload_slice.split())
+        if not normalized_title or not normalized_workload:
+            raise DemoStateError("Rule title and workload slice must be non-empty.")
+        if not 0 < threshold_percent <= 100:
+            raise DemoStateError("Threshold must be greater than 0 and at most 100.")
+        if minimum_samples <= 0:
+            raise DemoStateError("Minimum samples must be greater than zero.")
+
+        for index, draft in enumerate(self.reviewed_drafts):
+            if draft.id != draft_id:
+                continue
+            if draft.status != DraftStatus.NEEDS_REVIEW:
+                raise DemoStateError("Only a draft needing review can be edited.")
+
+            existing = draft.proposed_criterion
+            other_executable_drafts = [
+                candidate
+                for candidate in self.reviewed_drafts
+                if candidate.id != draft_id
+                and candidate.status != DraftStatus.REJECTED
+                and candidate.proposed_criterion is not None
+            ]
+            if existing is None and other_executable_drafts:
+                raise DemoStateError(
+                    "This deterministic demo supports exactly one executable "
+                    "acceptance rule. Keep this request as context until a compatible "
+                    "measurement adapter exists."
+                )
+            normalized_claim = _generated_tool_selection_claim(
+                title=normalized_title,
+                threshold_percent=threshold_percent,
+                minimum_samples=minimum_samples,
+                workload_slice=normalized_workload,
+            )
+            criterion = Criterion(
+                id=(
+                    existing.id
+                    if existing is not None
+                    else _criterion_id_for_draft(draft.id)
+                ),
+                title=normalized_title,
+                must_have=True if existing is None else existing.must_have,
+                source=(
+                    None
+                    if draft.source_span is None
+                    else draft.source_span.to_source_reference()
+                ),
+                human_added=draft.human_added,
+                normalized_claim=normalized_claim,
+                metric=Metric.EXACT_TOOL_SELECTION_RATE,
+                unit=SUPPORTED_RULE_TEMPLATE["unit"],
+                aggregation=SUPPORTED_RULE_TEMPLATE["aggregation"],
+                rule=ProportionRule(
+                    threshold=threshold_percent / 100,
+                    minimum_samples=minimum_samples,
+                ),
+                workload_slice=normalized_workload,
+                adapter=SUPPORTED_RULE_TEMPLATE["adapter"],
+                adapter_version=SUPPORTED_RULE_TEMPLATE["adapter_version"],
+                owner=(
+                    existing.owner
+                    if existing is not None
+                    else "vendor_solutions_engineer"
+                ),
+                evidence_policy=SUPPORTED_RULE_TEMPLATE["evidence_policy"],
+                approved=False,
+            )
+            revised = edit_draft(
+                draft,
+                {
+                    "normalized_claim": normalized_claim,
+                    "proposed_criterion": criterion,
+                    "open_questions": [],
+                },
+            )
+            self.reviewed_drafts[index] = revised
+            if self.revision_request is not None:
+                self.revision_edit_applied_ids.add(draft_id)
+            self._invalidate_customer_agreement()
+            return revised
+        raise DemoStateError("Unknown draft {0}.".format(draft_id))
+
+    @_serialized_session
+    def define_draft_rule(
+        self,
+        *,
+        draft_id: str,
+        title: str,
+        threshold_percent: float,
+        minimum_samples: int,
+        workload_slice: str,
+    ) -> CriterionDraft:
+        """Define or correct the currently supported deterministic rule."""
+
+        return self._apply_structured_rule(
+            draft_id=draft_id,
+            title=title,
+            threshold_percent=threshold_percent,
+            minimum_samples=minimum_samples,
+            workload_slice=workload_slice,
+            require_revision=False,
+        )
+
     @_serialized_session
     def intake(
         self,
@@ -267,16 +441,21 @@ class DemoSession:
     def reset_to_synthetic_sample(self) -> None:
         """Restore the deterministic support-agent demonstration without disk writes."""
 
-        fresh = self.synthetic_support_agent(output_root=self.output_root)
-        self.discovery_pack = fresh.discovery_pack
-        self.contract_seed = fresh.contract_seed
-        self.fixture_path = fresh.fixture_path
-        self.reviewed_drafts = fresh.reviewed_drafts
+        if (
+            self._sample_discovery_pack is None
+            or self._sample_contract_seed is None
+            or self._sample_fixture_path is None
+        ):
+            raise DemoStateError("The bundled sample is unavailable for reset.")
+        self.discovery_pack = self._sample_discovery_pack.model_copy(deep=True)
+        self.contract_seed = self._sample_contract_seed.model_copy(deep=True)
+        self.fixture_path = self._sample_fixture_path
+        self.reviewed_drafts = list(self.discovery_pack.drafts)
         self.revision_request = None
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
-        self.transcript_notice = fresh.transcript_notice
+        self.transcript_notice = "Built-in synthetic discovery transcript"
         self.transcript_redaction = None
 
     @_serialized_session
@@ -304,6 +483,7 @@ class DemoSession:
 
         self.output_root.mkdir(parents=True, exist_ok=True)
         run_id = "web-{0}-{1}".format(scenario, uuid.uuid4().hex[:12])
+        self.last_run = None
         with tempfile.TemporaryDirectory(prefix="exitspec-contract-") as temporary_dir:
             contract_path = Path(temporary_dir) / "frozen-contract.yaml"
             contract_path.write_text(
@@ -314,13 +494,21 @@ class DemoSession:
                 ),
                 encoding="utf-8",
             )
-            self.last_run = run_demo(
-                contract_path=contract_path,
-                fixture_path=self.fixture_path,
-                scenario=scenario,
-                output_root=self.output_root,
-                run_id=run_id,
-            )
+            try:
+                current_run = run_demo(
+                    contract_path=contract_path,
+                    fixture_path=self.fixture_path,
+                    scenario=scenario,
+                    output_root=self.output_root,
+                    run_id=run_id,
+                )
+            except Exception as error:
+                self.last_run = None
+                raise DemoStateError(
+                    "The evidence run failed before a current proof was recorded: "
+                    "{0}".format(error)
+                ) from error
+            self.last_run = current_run
         return self.last_run
 
     @_serialized_session
@@ -663,63 +851,21 @@ class DemoSession:
         self,
         *,
         draft_id: str,
-        normalized_claim: str,
+        title: str,
         threshold_percent: float,
         minimum_samples: int,
         workload_slice: str,
     ) -> CriterionDraft:
         """Apply an explicit structured edit before the revised draft is reviewed."""
 
-        if self.revision_request is None:
-            raise DemoStateError("No customer-requested revision is active.")
-        if not normalized_claim.strip() or not workload_slice.strip():
-            raise DemoStateError("Revision fields must be non-empty.")
-        if not 0 < threshold_percent <= 100:
-            raise DemoStateError("Threshold must be greater than 0 and at most 100.")
-        if minimum_samples <= 0:
-            raise DemoStateError("Minimum samples must be greater than zero.")
-
-        for index, draft in enumerate(self.reviewed_drafts):
-            if draft.id != draft_id:
-                continue
-            if draft.status != DraftStatus.NEEDS_REVIEW:
-                raise DemoStateError("Only a draft needing review can be revised.")
-            criterion = draft.proposed_criterion
-            if criterion is None:
-                raise DemoStateError(
-                    "This request has no structured criterion to revise."
-                )
-            rule_payload = criterion.rule.model_dump(mode="python")
-            rule_payload.update(
-                {
-                    "threshold": threshold_percent / 100,
-                    "minimum_samples": minimum_samples,
-                }
-            )
-            criterion_payload = criterion.model_dump(mode="python")
-            criterion_payload.update(
-                {
-                    "approved": False,
-                    "normalized_claim": normalized_claim.strip(),
-                    "rule": type(criterion.rule).model_validate(rule_payload),
-                    "workload_slice": workload_slice.strip(),
-                }
-            )
-            revised = edit_draft(
-                draft,
-                {
-                    "normalized_claim": normalized_claim.strip(),
-                    "proposed_criterion": type(criterion).model_validate(
-                        criterion_payload
-                    ),
-                    "open_questions": [],
-                },
-            )
-            self.reviewed_drafts[index] = revised
-            self.revision_edit_applied_ids.add(draft_id)
-            self._invalidate_customer_agreement()
-            return revised
-        raise DemoStateError("Unknown draft {0}.".format(draft_id))
+        return self._apply_structured_rule(
+            draft_id=draft_id,
+            title=title,
+            threshold_percent=threshold_percent,
+            minimum_samples=minimum_samples,
+            workload_slice=workload_slice,
+            require_revision=True,
+        )
 
     @_serialized_session
     def freeze(self) -> POCContract:
@@ -750,6 +896,8 @@ class DemoSession:
     def state_payload(self) -> Dict[str, Any]:
         reviewed_contract = self.approved_contract()
         contract = self.frozen_contract or reviewed_contract
+        approved_count = len(self.approved_drafts)
+        pending_count = len(self.pending_drafts)
         ready_to_freeze = bool(
             reviewed_contract is not None
             and self.frozen_contract is None
@@ -775,9 +923,17 @@ class DemoSession:
             "transcript": self.discovery_pack.transcript.model_dump(mode="json"),
             "drafts": [draft.model_dump(mode="json") for draft in self.reviewed_drafts],
             "contract": None if contract is None else contract.model_dump(mode="json"),
+            "poc_label": (
+                contract.use_case
+                if contract is not None
+                else self.discovery_pack.transcript.title
+            ),
             "confirmation": self._confirmation_payload(),
             "revision_request": self.revision_request,
             "revision_edit_applied_ids": sorted(self.revision_edit_applied_ids),
+            "approved_criterion_count": approved_count,
+            "pending_draft_count": pending_count,
+            "supported_rule_template": dict(SUPPORTED_RULE_TEMPLATE),
             "ready_to_prepare_customer_review": reviewed_contract is not None,
             "ready_to_freeze": ready_to_freeze,
             "ready_to_prove": self.frozen_contract is not None,
@@ -865,6 +1021,34 @@ def _next_contract_version(version: str) -> str:
     return "{0}-revision-1".format(version)
 
 
+def _criterion_id_for_draft(draft_id: str) -> str:
+    """Derive a stable criterion ID without obscuring its source draft."""
+
+    return "RULE-{0}".format(draft_id)[:64].rstrip("-")
+
+
+def _generated_tool_selection_claim(
+    *,
+    title: str,
+    threshold_percent: float,
+    minimum_samples: int,
+    workload_slice: str,
+) -> str:
+    """Generate the only customer claim accepted by the structured rule editor."""
+
+    rendered_threshold = "{0:.2f}".format(threshold_percent).rstrip("0").rstrip(".")
+    return (
+        "{0} passes when exact expected support-tool selection reaches at least "
+        "{1}% across at least {2} fixed cases in the {3} workload, and the 95% "
+        "Wilson lower bound meets the same threshold."
+    ).format(
+        title.rstrip("."),
+        rendered_threshold,
+        minimum_samples,
+        workload_slice,
+    )
+
+
 def _capture_source_candidates(transcript: DiscoveryTranscript) -> List[CriterionDraft]:
     """Make source-visible *unresolved* candidates from structured pasted notes.
 
@@ -909,10 +1093,28 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: Tuple[str, int], session: DemoSession) -> None:
+    def __init__(
+        self,
+        address: Tuple[str, int],
+        session: DemoSession,
+        *,
+        resource_stack: Optional[ExitStack] = None,
+    ) -> None:
+        self._resource_stack = resource_stack
         super().__init__(address, ExitSpecDemoRequestHandler)
         self.session = session
         self.static_root = STATIC_ROOT
+
+    def server_close(self) -> None:
+        """Release materialized package resources only after the server is closed."""
+
+        try:
+            super().server_close()
+        finally:
+            resource_stack = getattr(self, "_resource_stack", None)
+            if resource_stack is not None:
+                resource_stack.close()
+                self._resource_stack = None
 
 
 class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
@@ -1059,13 +1261,45 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 self.server.session.start_revision()
                 self._send_json(HTTPStatus.OK, self.server.session.state_payload())
                 return
+            if parsed.path == "/api/draft/define":
+                if "normalized_claim" in payload:
+                    raise ValueError(
+                        "normalized_claim is generated from the structured rule "
+                        "fields and cannot be supplied."
+                    )
+                defined = self.server.session.define_draft_rule(
+                    draft_id=_required_string(payload, "draft_id"),
+                    title=_required_string(payload, "title"),
+                    threshold_percent=_required_number(
+                        payload,
+                        "threshold_percent",
+                    ),
+                    minimum_samples=_required_integer(
+                        payload,
+                        "minimum_samples",
+                    ),
+                    workload_slice=_required_string(
+                        payload,
+                        "workload_slice",
+                    ),
+                )
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "defined_draft": defined.model_dump(mode="json"),
+                        "state": self.server.session.state_payload(),
+                    },
+                )
+                return
             if parsed.path == "/api/revision/edit":
+                if "normalized_claim" in payload:
+                    raise ValueError(
+                        "normalized_claim is generated from the structured rule "
+                        "fields and cannot be supplied."
+                    )
                 revised = self.server.session.edit_revision(
                     draft_id=_required_string(payload, "draft_id"),
-                    normalized_claim=_required_string(
-                        payload,
-                        "normalized_claim",
-                    ),
+                    title=_required_string(payload, "title"),
                     threshold_percent=_required_number(
                         payload,
                         "threshold_percent",
@@ -1401,7 +1635,23 @@ def serve_demo(
         raise ValueError("ExitSpec demo only binds to a loopback address.")
     if not STATIC_ROOT.is_dir():
         raise RuntimeError("ExitSpec static demo assets are unavailable.")
-    server = ExitSpecDemoServer((host, port), DemoSession.synthetic_support_agent(output_root))
+    resource_stack = ExitStack()
+    try:
+        demo_paths = resource_stack.enter_context(support_agent_demo_paths())
+        session = DemoSession.synthetic_support_agent(
+            output_root,
+            discovery_path=demo_paths.discovery_pack,
+            contract_seed_path=demo_paths.contract_seed,
+            fixture_path=demo_paths.fixture,
+        )
+        server = ExitSpecDemoServer(
+            (host, port),
+            session,
+            resource_stack=resource_stack,
+        )
+    except Exception:
+        resource_stack.close()
+        raise
     if open_browser:
         threading.Timer(
             0.15,

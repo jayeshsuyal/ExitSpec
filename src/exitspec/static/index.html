@@ -21,7 +21,7 @@
 
         <div class="poc-identity">
           <span>POC</span>
-          <strong>Support-agent tool selection</strong>
+          <strong id="poc-label">Loading current POC…</strong>
         </div>
 
         <ol class="journey-steps sr-only" aria-label="POC journey">
@@ -42,8 +42,11 @@
       </header>
 
       <aside class="recording-cue" id="recording-cue" aria-label="Recording walkthrough" hidden>
-        <strong>75-second walkthrough</strong>
-        <span>Define → Prove → Decide</span>
+        <div>
+          <strong>75-second walkthrough</strong>
+          <span>Define → Prove → Decide</span>
+        </div>
+        <button class="recording-restart" id="recording-restart" type="button">Restart</button>
       </aside>
 
       <main class="workspace" id="app-main">
@@ -77,7 +80,7 @@
               </li>
               <li id="custody-decision">
                 <span class="custody-number" aria-hidden="true">06</span>
-                <span class="custody-label">Decision</span>
+                <span class="custody-label">Handoff</span>
                 <span class="custody-state" id="custody-decision-state">Pending</span>
               </li>
             </ol>
@@ -228,7 +231,7 @@
               </section>
 
               <footer class="task-footer decision-dock">
-                <details class="source-details">
+                <details class="source-details" id="source-details">
                   <summary>Meeting source</summary>
                   <div class="source-drawer">
                     <p class="eyebrow">Source and demo controls</p>
@@ -258,6 +261,9 @@
                   <button class="button primary" id="create-customer-draft" type="button" hidden>
                     Create customer review
                   </button>
+                  <button class="button primary" id="open-source-controls" type="button" hidden>
+                    Capture another requirement
+                  </button>
                   <a class="button primary button-link" id="customer-draft-link" href="#" target="_blank" rel="noopener" hidden>
                     Open customer review
                   </a>
@@ -269,6 +275,9 @@
                   </button>
                   <button class="button primary" id="run-proof" type="button" hidden>
                     Run this POC
+                  </button>
+                  <button class="button secondary" id="rerun-proof" type="button" hidden>
+                    Run another reference set
                   </button>
                   <a class="button primary button-link" id="proof-pack-link" href="#" target="_blank" rel="noopener" hidden>
                     Open evidence pack
