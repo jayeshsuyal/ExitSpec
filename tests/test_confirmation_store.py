@@ -162,6 +162,76 @@ def test_digest_value_objects_reject_raw_or_malformed_values():
             digest_type("raw-secret")
 
 
+@pytest.mark.parametrize(
+    "constructor",
+    (
+        lambda: replace(BINDING, contract_id="contract\x00hidden"),
+        lambda: replace(BINDING, contract_version="v1\x00hidden"),
+        lambda: replace(
+            make_invitation(),
+            token_digest_version="sha256-v1\x00hidden",
+        ),
+        lambda: replace(
+            make_invitation(),
+            intended_organization_id="customer-org\x00hidden",
+        ),
+        lambda: replace(
+            make_invitation(),
+            issued_by_subject="seller-subject\x00hidden",
+        ),
+        lambda: make_revocation(
+            revoked_by_subject="seller-subject\x00hidden",
+        ),
+        lambda: make_command(
+            rationale="Customer response\x00hidden",
+        ),
+        lambda: replace(
+            make_command(),
+            reviewer_issuer="https://identity.example\x00hidden",
+        ),
+        lambda: replace(
+            make_command(),
+            reviewer_subject="customer-subject\x00hidden",
+        ),
+        lambda: replace(
+            make_command(),
+            reviewer_organization_id="customer-org\x00hidden",
+        ),
+        lambda: replace(
+            make_command(),
+            reviewer_display_name_snapshot="Customer\x00hidden",
+        ),
+        lambda: IdempotencyOperationRecord(
+            operation_digest=OperationDigest("1" * 64),
+            contract_id="contract\x00hidden",
+            contract_version="v1",
+            idempotency_key_digest=IdempotencyKeyDigest("2" * 64),
+            request_digest=RequestDigest("3" * 64),
+            confirmation_id=CONFIRMATION_ID,
+            created_at=FIXED_TIME,
+        ),
+        lambda: make_audit_event(
+            actor_issuer="https://identity.example\x00hidden",
+        ),
+        lambda: make_audit_event(
+            actor_subject="seller-subject\x00hidden",
+        ),
+        lambda: make_audit_event(
+            actor_organization_id="seller-org\x00hidden",
+        ),
+        lambda: make_audit_event(
+            safe_metadata=(
+                ("schema_version", "1"),
+                ("adapter_version", "1.0\x00hidden"),
+            ),
+        ),
+    ),
+)
+def test_domain_text_records_reject_embedded_nul(constructor):
+    with pytest.raises(ValueError, match="NUL|unsupported value"):
+        constructor()
+
+
 def test_store_lookup_rejects_a_raw_review_token():
     store = ready_store()
 
