@@ -546,6 +546,7 @@ CREATE TABLE confirmation_audit_events (
             AND outcome = 'SUCCEEDED'
             AND invitation_id IS NOT NULL
             AND confirmation_id IS NULL
+            AND reason_code IS NOT NULL
             AND reason_code IN (
                 'MANUAL',
                 'REISSUED',
@@ -558,6 +559,7 @@ CREATE TABLE confirmation_audit_events (
             AND outcome = 'SUCCEEDED'
             AND invitation_id IS NOT NULL
             AND confirmation_id IS NULL
+            AND reason_code IS NOT NULL
             AND reason_code = 'REISSUED'
         )
         OR (
@@ -593,6 +595,7 @@ CREATE TABLE confirmation_audit_events (
             AND outcome = 'SUCCEEDED'
             AND invitation_id IS NULL
             AND confirmation_id IS NULL
+            AND reason_code IS NOT NULL
             AND reason_code = 'CONTRACT_SUPERSEDED'
         )
     )
@@ -963,7 +966,7 @@ def validate_confirmation_schema(connection: object) -> None:
         rows = connection.execute(  # type: ignore[attr-defined]
             """
             SELECT type, name, tbl_name, sql
-            FROM sqlite_master
+            FROM main.sqlite_master
             WHERE sql IS NOT NULL
             """
         ).fetchall()
@@ -1003,7 +1006,7 @@ def validate_confirmation_schema(connection: object) -> None:
             raise ValueError
         for table_name, expected_columns in _EXPECTED_COLUMNS.items():
             columns = connection.execute(  # type: ignore[attr-defined]
-                "PRAGMA table_xinfo({0})".format(table_name)
+                "PRAGMA main.table_xinfo({0})".format(table_name)
             ).fetchall()
             actual_columns = tuple(
                 (

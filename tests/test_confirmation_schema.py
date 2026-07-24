@@ -1,6 +1,7 @@
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 import hashlib
+from itertools import product
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import pytest
 
 import exitspec.confirmation_schema as confirmation_schema_module
+import exitspec.confirmation_sqlite as confirmation_sqlite_module
 from exitspec.confirmation_schema import (
     CONFIRMATION_LEDGER_INDEX_NAMES,
     CONFIRMATION_LEDGER_MIGRATION,
@@ -1190,6 +1192,143 @@ def test_audit_rejects_invalid_event_actor_id_and_binding_combinations(
 
 
 @pytest.mark.parametrize(
+    ("event_type", "invitation_id"),
+    (
+        ("INVITATION_REVOKED", "review-first"),
+        ("INVITATION_REISSUED", "review-first"),
+        ("CONTRACT_SUPERSEDED", None),
+    ),
+)
+def test_audit_events_with_required_reason_reject_null(
+    ledger: Any,
+    event_type: str,
+    invitation_id: str | None,
+) -> None:
+    with pytest.raises(sqlite3.IntegrityError):
+        _insert_audit_event(
+            ledger,
+            event_type=event_type,
+            invitation_id=invitation_id,
+            outcome="SUCCEEDED",
+            reason_code=None,
+        )
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM confirmation_audit_events"
+    ).fetchone()[0] == 0
+
+
+def test_audit_event_matrix_rejects_every_unlisted_cross_product(
+    ledger: Any,
+) -> None:
+    event_types = (
+        "INVITATION_ISSUED",
+        "INVITATION_REVOKED",
+        "INVITATION_REISSUED",
+        "INVITATION_REJECTED",
+        "DECISION_RECORDED",
+        "DECISION_REPLAYED",
+        "DECISION_REJECTED",
+        "CONTRACT_SUPERSEDED",
+    )
+    outcomes = ("SUCCEEDED", "REPLAYED", "REJECTED")
+    reference_shapes = {
+        "invitation": ("review-first", None),
+        "decision": ("review-first", CONFIRMATION_ID),
+        "none": (None, None),
+        "confirmation_only": (None, CONFIRMATION_ID),
+    }
+    reasons = (
+        None,
+        "MANUAL",
+        "REISSUED",
+        "CONTRACT_SUPERSEDED",
+        "SECURITY_RESPONSE",
+        "OTHER_REASON",
+    )
+    non_null_reasons = reasons[1:]
+    revocation_reasons = reasons[1:5]
+    allowed = {
+        ("INVITATION_ISSUED", "SUCCEEDED", "invitation", None),
+        ("INVITATION_REISSUED", "SUCCEEDED", "invitation", "REISSUED"),
+        ("DECISION_RECORDED", "SUCCEEDED", "decision", None),
+        ("DECISION_REPLAYED", "REPLAYED", "decision", None),
+        (
+            "CONTRACT_SUPERSEDED",
+            "SUCCEEDED",
+            "none",
+            "CONTRACT_SUPERSEDED",
+        ),
+    }
+    allowed.update(
+        (
+            "INVITATION_REVOKED",
+            "SUCCEEDED",
+            "invitation",
+            reason,
+        )
+        for reason in revocation_reasons
+    )
+    allowed.update(
+        (
+            "INVITATION_REJECTED",
+            "REJECTED",
+            "invitation",
+            reason,
+        )
+        for reason in non_null_reasons
+    )
+    allowed.update(
+        (
+            "DECISION_REJECTED",
+            "REJECTED",
+            "invitation",
+            reason,
+        )
+        for reason in non_null_reasons
+    )
+
+    accepted = 0
+    combinations = product(
+        event_types,
+        outcomes,
+        reference_shapes,
+        reasons,
+    )
+    for sequence, (
+        event_type,
+        outcome,
+        reference_shape,
+        reason,
+    ) in enumerate(combinations, start=1):
+        invitation_id, confirmation_id = reference_shapes[reference_shape]
+        changes = {
+            "event_id": "audit-cross-{0}".format(sequence),
+            "event_sequence": sequence,
+            "event_type": event_type,
+            "outcome": outcome,
+            "invitation_id": invitation_id,
+            "confirmation_id": confirmation_id,
+            "reason_code": reason,
+        }
+        if (
+            event_type,
+            outcome,
+            reference_shape,
+            reason,
+        ) in allowed:
+            _insert_audit_event(ledger, **changes)
+            accepted += 1
+        else:
+            with pytest.raises(sqlite3.IntegrityError):
+                _insert_audit_event(ledger, **changes)
+
+    assert accepted == len(allowed)
+    assert ledger.execute(
+        "SELECT COUNT(*) FROM confirmation_audit_events"
+    ).fetchone()[0] == len(allowed)
+
+
+@pytest.mark.parametrize(
     ("adapter_name", "adapter_version"),
     (
         (None, None),
@@ -1674,6 +1813,200 @@ def test_normal_facade_cannot_change_domain_schema_or_triggers(
         object_type: _object_names(ledger, object_type)
         for object_type in ("table", "index", "trigger")
     } == original_objects
+
+
+def test_temp_scratch_cannot_be_renamed_to_protected_tables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    prepared = open_confirmation_database(database_path)
+    apply_migrations(
+        prepared,
+        CONFIRMATION_LEDGER_MIGRATIONS,
+        now=MIGRATED_AT,
+    )
+    _insert_invitation(prepared)
+    prepared.close()
+
+    original_connect = confirmation_sqlite_module.sqlite3.connect
+
+    def connect_with_temp_scratch(
+        *args: object,
+        **kwargs: object,
+    ) -> sqlite3.Connection:
+        raw_connection = original_connect(*args, **kwargs)
+        raw_connection.execute(
+            """
+            CREATE TEMP TABLE domain_scratch AS
+            SELECT * FROM main.review_invitations
+            """
+        )
+        raw_connection.execute(
+            """
+            CREATE TEMP TABLE history_scratch AS
+            SELECT * FROM main.schema_migrations
+            """
+        )
+        return raw_connection
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.sqlite3,
+        "connect",
+        connect_with_temp_scratch,
+    )
+    connection = open_confirmation_database(database_path)
+    try:
+        validate_confirmation_schema(connection)
+        assert read_applied_migrations(connection)[0].name == (
+            "confirmation_ledger"
+        )
+
+        connection.execute("DELETE FROM temp.domain_scratch")
+        connection.execute(
+            """
+            INSERT INTO temp.domain_scratch
+            SELECT * FROM main.review_invitations
+            """
+        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM temp.domain_scratch"
+        ).fetchone()[0] == 1
+        connection.execute(
+            """
+            UPDATE temp.history_scratch
+            SET name = 'scratch_only'
+            """
+        )
+        assert connection.execute(
+            "SELECT name FROM temp.history_scratch"
+        ).fetchone()[0] == "scratch_only"
+
+        for scratch_name, protected_name in (
+            ("domain_scratch", "review_invitations"),
+            ("history_scratch", "schema_migrations"),
+        ):
+            with pytest.raises(
+                sqlite3.DatabaseError,
+                match="not authorized",
+            ):
+                connection.execute(
+                    "ALTER TABLE temp.{0} RENAME TO {1}".format(
+                        scratch_name,
+                        protected_name,
+                    )
+                )
+            with pytest.raises(
+                sqlite3.DatabaseError,
+                match="not authorized",
+            ):
+                connection.execute(
+                    "DROP TABLE temp.{0}".format(scratch_name)
+                )
+
+        for statement in (
+            """
+            CREATE TEMP TABLE review_invitations AS
+            SELECT * FROM main.review_invitations
+            """,
+            """
+            CREATE TEMP TABLE schema_migrations AS
+            SELECT * FROM main.schema_migrations
+            """,
+        ):
+            with pytest.raises(
+                sqlite3.DatabaseError,
+                match="not authorized",
+            ):
+                connection.execute(statement)
+
+        assert connection.execute(
+            "SELECT contract_id FROM review_invitations"
+        ).fetchone()[0] == connection.execute(
+            "SELECT contract_id FROM main.review_invitations"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT name FROM schema_migrations"
+        ).fetchone()[0] == connection.execute(
+            "SELECT name FROM main.schema_migrations"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+
+def test_preexisting_temp_shadows_cannot_redirect_authority_or_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    prepared = open_confirmation_database(database_path)
+    apply_migrations(
+        prepared,
+        CONFIRMATION_LEDGER_MIGRATIONS,
+        now=MIGRATED_AT,
+    )
+    _insert_invitation(prepared)
+    prepared.close()
+
+    original_connect = confirmation_sqlite_module.sqlite3.connect
+
+    def connect_with_temp_shadows(
+        *args: object,
+        **kwargs: object,
+    ) -> sqlite3.Connection:
+        raw_connection = original_connect(*args, **kwargs)
+        raw_connection.execute(
+            """
+            CREATE TEMP TABLE review_invitations (
+                contract_id TEXT
+            )
+            """
+        )
+        raw_connection.execute(
+            """
+            INSERT INTO temp.review_invitations (contract_id)
+            VALUES ('forged-contract')
+            """
+        )
+        raw_connection.execute(
+            "CREATE TEMP TABLE schema_migrations (name TEXT)"
+        )
+        raw_connection.execute(
+            """
+            INSERT INTO temp.schema_migrations (name)
+            VALUES ('forged_history')
+            """
+        )
+        return raw_connection
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.sqlite3,
+        "connect",
+        connect_with_temp_shadows,
+    )
+    connection = open_confirmation_database(database_path)
+    try:
+        validate_confirmation_schema(connection)
+        assert read_applied_migrations(connection)[0].name == (
+            "confirmation_ledger"
+        )
+        assert connection.execute(
+            "SELECT contract_id FROM main.review_invitations"
+        ).fetchone()[0] == "contract-1"
+        assert connection.execute(
+            "SELECT name FROM main.schema_migrations"
+        ).fetchone()[0] == "confirmation_ledger"
+
+        for statement in (
+            "SELECT contract_id FROM review_invitations",
+            "SELECT contract_id FROM temp.review_invitations",
+            "SELECT name FROM schema_migrations",
+            "SELECT name FROM temp.schema_migrations",
+        ):
+            with pytest.raises(sqlite3.DatabaseError):
+                connection.execute(statement)
+    finally:
+        connection.close()
 
 
 def test_normal_facade_denies_virtual_tables_using_any_protected_name(

@@ -348,6 +348,15 @@ class _ConfirmationConnection(sqlite3.Connection):
             )
         ):
             return sqlite3.SQLITE_DENY
+        if self.__mode == "normal" and (
+            action == sqlite3.SQLITE_ALTER_TABLE
+            or action in _TEMP_SCHEMA_ACTIONS
+            or (
+                action in _VIRTUAL_TABLE_ACTIONS
+                and (database or "").lower() == "temp"
+            )
+        ):
+            return sqlite3.SQLITE_DENY
 
         if (
             action in _CREATE_TRIGGER_ACTIONS
@@ -367,6 +376,17 @@ class _ConfirmationConnection(sqlite3.Connection):
         domain_object_targeted = bool(
             targets.intersection(_DOMAIN_LEDGER_OBJECTS)
         )
+
+        if (
+            self.__mode == "normal"
+            and (database or "").lower() == "temp"
+            and (
+                history_targeted
+                or required_trigger_targeted
+                or domain_object_targeted
+            )
+        ):
+            return sqlite3.SQLITE_DENY
 
         if self.__mode == "migration" and history_targeted:
             return sqlite3.SQLITE_DENY
@@ -726,7 +746,7 @@ def apply_migrations(
                 try:
                     guarded_connection.execute(
                         """
-                        INSERT INTO schema_migrations (
+                        INSERT INTO main.schema_migrations (
                             version,
                             name,
                             checksum,
@@ -944,7 +964,7 @@ def _bootstrap_schema_migrations(
         object_row = connection.execute(
             """
             SELECT type, name, tbl_name, sql
-            FROM sqlite_master
+            FROM main.sqlite_master
             WHERE name = ?
             """,
             (_HISTORY_TABLE,),
@@ -968,7 +988,7 @@ def _validate_bootstrap_shape(
     primary_objects = connection.execute(
         """
         SELECT type, name, tbl_name, sql
-        FROM sqlite_master
+        FROM main.sqlite_master
         WHERE name = ?
         """,
         (_HISTORY_TABLE,),
@@ -983,7 +1003,7 @@ def _validate_bootstrap_shape(
         raise ValueError
 
     columns = connection.execute(
-        "PRAGMA table_xinfo(schema_migrations)"
+        "PRAGMA main.table_xinfo(schema_migrations)"
     ).fetchall()
     actual_columns = tuple(
         (
@@ -1002,7 +1022,7 @@ def _validate_bootstrap_shape(
     related_objects = connection.execute(
         """
         SELECT type, name, tbl_name, sql
-        FROM sqlite_master
+        FROM main.sqlite_master
         WHERE tbl_name = ?
           AND type IN ('index', 'trigger')
         ORDER BY type, name
@@ -1023,7 +1043,7 @@ def _validate_bootstrap_shape(
     all_trigger_rows = connection.execute(
         """
         SELECT name, sql
-        FROM sqlite_master
+        FROM main.sqlite_master
         WHERE type = 'trigger'
         """
     ).fetchall()
@@ -1105,7 +1125,7 @@ def _read_history(
     rows = connection.execute(
         """
         SELECT version, name, checksum, applied_at_us
-        FROM schema_migrations
+        FROM main.schema_migrations
         ORDER BY version ASC
         """
     ).fetchall()
