@@ -70,6 +70,37 @@ def test_open_configures_hardened_connection_pragmas(tmp_path: Path) -> None:
         assert connection.execute(
             "PRAGMA busy_timeout"
         ).fetchone()[0] == 1_234
+
+        for assignment in (
+            "PRAGMA foreign_keys = OFF",
+            "PRAGMA synchronous = OFF",
+            "PRAGMA journal_mode = DELETE",
+            "PRAGMA busy_timeout = 1",
+        ):
+            with pytest.raises(sqlite3.DatabaseError):
+                connection.execute(assignment)
+
+        assert connection.execute(
+            "PRAGMA foreign_keys"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "PRAGMA synchronous"
+        ).fetchone()[0] == 2
+        assert connection.execute(
+            "PRAGMA journal_mode"
+        ).fetchone()[0].lower() == "wal"
+        assert connection.execute(
+            "PRAGMA busy_timeout"
+        ).fetchone()[0] == 1_234
+        assert connection.execute(
+            "PRAGMA table_info(schema_migrations)"
+        ).fetchall()
+        assert connection.execute(
+            "PRAGMA index_info(missing_index)"
+        ).fetchall() == []
+        assert connection.execute(
+            "PRAGMA foreign_key_check(schema_migrations)"
+        ).fetchall() == []
     finally:
         connection.close()
 
@@ -791,6 +822,34 @@ def test_failed_sql_rolls_back_partial_objects_and_history(
     )
     assert apply_migrations(connection, (repaired,), now=NOW) == 1
     connection.close()
+
+
+def test_temp_schema_migration_rolls_back_without_history(
+    tmp_path: Path,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    transient = migration(
+        name="create_transient_state",
+        sql="CREATE TEMP TABLE transient_state (id INTEGER)",
+    )
+
+    try:
+        with pytest.raises(
+            MigrationFailed,
+            match="^Database migration failed\\.$",
+        ):
+            apply_migrations(connection, (transient,), now=NOW)
+
+        assert connection.execute(
+            """
+            SELECT name
+            FROM sqlite_temp_master
+            WHERE name = 'transient_state'
+            """
+        ).fetchone() is None
+        assert read_applied_migrations(connection) == ()
+    finally:
+        connection.close()
 
 
 def test_trigger_body_semicolons_are_split_as_one_migration_statement(

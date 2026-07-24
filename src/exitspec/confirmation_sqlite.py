@@ -76,17 +76,19 @@ _EXPECTED_HISTORY_COLUMNS = (
     ("checksum", "TEXT", 1, None, 0, 0),
     ("applied_at_us", "INTEGER", 1, None, 0, 0),
 )
-_READ_ONLY_PRAGMAS = {
+_NO_ARGUMENT_READ_PRAGMAS = {
     "busy_timeout",
+    "foreign_keys",
+    "journal_mode",
+    "synchronous",
+}
+_READ_ONLY_ARGUMENT_PRAGMAS = {
     "foreign_key_check",
     "foreign_key_list",
-    "foreign_keys",
     "index_info",
     "index_list",
     "index_xinfo",
-    "journal_mode",
     "quick_check",
-    "synchronous",
     "table_info",
     "table_list",
     "table_xinfo",
@@ -97,6 +99,23 @@ _INTERNAL_AUTHORITY = object()
 _CREATE_TRIGGER_ACTIONS = {
     sqlite3.SQLITE_CREATE_TRIGGER,
     getattr(sqlite3, "SQLITE_CREATE_TEMP_TRIGGER", -1),
+}
+_TEMP_SCHEMA_ACTIONS = {
+    getattr(sqlite3, name, -1)
+    for name in (
+        "SQLITE_CREATE_TEMP_INDEX",
+        "SQLITE_CREATE_TEMP_TABLE",
+        "SQLITE_CREATE_TEMP_TRIGGER",
+        "SQLITE_CREATE_TEMP_VIEW",
+        "SQLITE_DROP_TEMP_INDEX",
+        "SQLITE_DROP_TEMP_TABLE",
+        "SQLITE_DROP_TEMP_TRIGGER",
+        "SQLITE_DROP_TEMP_VIEW",
+    )
+}
+_VIRTUAL_TABLE_ACTIONS = {
+    sqlite3.SQLITE_CREATE_VTABLE,
+    sqlite3.SQLITE_DROP_VTABLE,
 }
 _PROTECTED_HISTORY_ACTIONS = {
     sqlite3.SQLITE_ALTER_TABLE,
@@ -234,7 +253,7 @@ class _ConfirmationConnection(sqlite3.Connection):
         action: int,
         first: str | None,
         second: str | None,
-        _database: str | None,
+        database: str | None,
         _trigger: str | None,
     ) -> int:
         if self.__mode == "bootstrap":
@@ -246,7 +265,13 @@ class _ConfirmationConnection(sqlite3.Connection):
                 return sqlite3.SQLITE_OK
             if (
                 self.__mode == "normal"
-                and pragma_name in _READ_ONLY_PRAGMAS
+                and (
+                    (
+                        pragma_name in _NO_ARGUMENT_READ_PRAGMAS
+                        and second is None
+                    )
+                    or pragma_name in _READ_ONLY_ARGUMENT_PRAGMAS
+                )
             ):
                 return sqlite3.SQLITE_OK
             return sqlite3.SQLITE_DENY
@@ -261,6 +286,14 @@ class _ConfirmationConnection(sqlite3.Connection):
             sqlite3.SQLITE_TRANSACTION,
             getattr(sqlite3, "SQLITE_SAVEPOINT", -1),
         }:
+            return sqlite3.SQLITE_DENY
+        if self.__mode == "migration" and (
+            action in _TEMP_SCHEMA_ACTIONS
+            or (
+                action in _VIRTUAL_TABLE_ACTIONS
+                and (database or "").lower() == "temp"
+            )
+        ):
             return sqlite3.SQLITE_DENY
 
         if (
