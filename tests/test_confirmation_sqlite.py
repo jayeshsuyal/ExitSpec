@@ -602,18 +602,66 @@ def test_returned_connection_cannot_mutate_migration_history(
             "schema_migrations_block_update",
             "schema_migrations_block_delete",
         }
-        with pytest.raises(AttributeError):
-            connection.set_authorizer(None)
-        with pytest.raises(AttributeError):
-            connection.create_function(
-                "exitspec_migration_insert_allowed",
-                0,
-                lambda: 1,
-            )
         cursor = connection.execute("SELECT 1")
         assert cursor.fetchone()[0] == 1
         with pytest.raises(AttributeError):
             _ = cursor.connection
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "capability",
+    (
+        "backup",
+        "commit",
+        "create_aggregate",
+        "create_collation",
+        "create_function",
+        "create_window_function",
+        "cursor",
+        "deserialize",
+        "enable_load_extension",
+        "executescript",
+        "getconfig",
+        "load_extension",
+        "serialize",
+        "set_authorizer",
+        "setconfig",
+    ),
+)
+def test_guarded_facade_omits_raw_sqlite_capabilities(
+    tmp_path: Path,
+    capability: str,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    try:
+        assert not hasattr(connection, capability)
+        with pytest.raises(AttributeError):
+            getattr(connection, capability)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    ("attribute", "replacement"),
+    (
+        ("in_transaction", True),
+        ("isolation_level", "DEFERRED"),
+        ("row_factory", None),
+    ),
+)
+def test_guarded_facade_state_properties_are_read_only(
+    tmp_path: Path,
+    attribute: str,
+    replacement: object,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    original = getattr(connection, attribute)
+    try:
+        with pytest.raises(AttributeError):
+            setattr(connection, attribute, replacement)
+        assert getattr(connection, attribute) is original
     finally:
         connection.close()
 
