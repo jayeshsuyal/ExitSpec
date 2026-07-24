@@ -153,7 +153,20 @@ def test_active_invitation_resolution_uses_constant_time_digest_comparison(
     monkeypatch,
 ):
     store = ready_store()
-    digest = TokenDigest("b" * 64)
+    store.issue_invitation(
+        make_invitation(
+            invitation_id="review-secondary",
+            token_digest=TokenDigest("8" * 64),
+        )
+    )
+    store.issue_invitation(
+        make_invitation(
+            invitation_id="review-tertiary",
+            token_digest=TokenDigest("7" * 64),
+        )
+    )
+    matching_digest = TokenDigest("b" * 64)
+    unknown_digest = TokenDigest("9" * 64)
     comparisons = []
     compare_digest = confirmation_store_module.hmac.compare_digest
 
@@ -167,10 +180,26 @@ def test_active_invitation_resolution_uses_constant_time_digest_comparison(
         checked_compare,
     )
 
-    invitation = store.resolve_invitation(digest, FIXED_TIME)
+    invitation = store.resolve_invitation(matching_digest, FIXED_TIME)
+    matching_comparisons = list(comparisons)
+    comparisons.clear()
+    missing = store.resolve_invitation(unknown_digest, FIXED_TIME)
+    unknown_comparisons = list(comparisons)
 
     assert invitation.invitation_id == "review-primary"
-    assert comparisons == [(digest.value, digest.value)]
+    assert missing is None
+    assert len(matching_comparisons) == 3
+    assert len(unknown_comparisons) == 3
+    assert {left for left, _ in matching_comparisons} == {
+        "b" * 64,
+        "8" * 64,
+        "7" * 64,
+    }
+    assert all(
+        right == matching_digest.value
+        for _, right in matching_comparisons
+    )
+    assert all(right == unknown_digest.value for _, right in unknown_comparisons)
 
 
 def test_invitation_expires_at_the_exact_boundary_without_leaking_digest():
@@ -449,13 +478,19 @@ def test_decision_requires_the_stored_invitation_binding():
         store.record_decision(make_command(binding=changed_binding))
 
 
-def test_resolve_invitation_does_not_return_a_consumed_invitation():
+def test_terminal_decision_consumes_every_invitation_on_the_exact_binding():
     store = ready_store()
+    sibling = make_invitation(
+        invitation_id="review-secondary",
+        token_digest=TokenDigest("8" * 64),
+    )
+    store.issue_invitation(sibling)
     command = make_command()
     store.record_decision(command)
 
-    with pytest.raises(InvitationConsumed):
-        store.resolve_invitation(command.token_digest, FIXED_TIME)
+    for digest in (command.token_digest, sibling.token_digest):
+        with pytest.raises(InvitationConsumed):
+            store.resolve_invitation(digest, FIXED_TIME)
 
 
 def test_persisted_decision_record_validates_runtime_invariants():

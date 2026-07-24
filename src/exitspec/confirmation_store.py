@@ -155,7 +155,11 @@ class ReviewInvitationRecord:
 
 @dataclass(frozen=True, slots=True)
 class RecordDecision:
-    """Digest-only command for one terminal customer decision attempt."""
+    """Digest-only command for one terminal customer decision attempt.
+
+    ``decided_at`` is transaction time supplied by the trusted injected clock,
+    not reviewer-controlled request data.
+    """
 
     operation_digest: OperationDigest
     idempotency_key_digest: IdempotencyKeyDigest
@@ -372,7 +376,6 @@ class InMemoryConfirmationStore:
             ConfirmationDecisionRecord,
         ] = {}
         self._decisions_by_id: dict[str, ConfirmationDecisionRecord] = {}
-        self._decision_ids_by_invitation: dict[str, str] = {}
         self._operations_by_digest: dict[
             OperationDigest,
             IdempotencyOperationRecord,
@@ -432,7 +435,7 @@ class InMemoryConfirmationStore:
             invitation = self._invitation_for_digest(token_digest)
             if invitation is None:
                 return None
-            if invitation.invitation_id in self._decision_ids_by_invitation:
+            if invitation.binding in self._decisions_by_binding:
                 raise InvitationConsumed("Review capability is no longer active.")
             self._require_not_expired(invitation, now)
             return invitation
@@ -497,9 +500,6 @@ class InMemoryConfirmationStore:
             )
             self._decisions_by_binding[command.binding] = decision
             self._decisions_by_id[decision.confirmation_id] = decision
-            self._decision_ids_by_invitation[decision.invitation_id] = (
-                decision.confirmation_id
-            )
             self._operations_by_digest[command.operation_digest] = operation
             self._operation_digests_by_key[operation_key] = (
                 command.operation_digest
@@ -544,13 +544,11 @@ class InMemoryConfirmationStore:
         self,
         token_digest: TokenDigest,
     ) -> ReviewInvitationRecord | None:
-        invitation_id = self._invitation_ids_by_token_digest.get(token_digest)
-        if invitation_id is None:
-            return None
-        invitation = self._invitations[invitation_id]
-        if not _digests_equal(invitation.token_digest, token_digest):
-            return None
-        return invitation
+        matched = None
+        for invitation in self._invitations.values():
+            if _digests_equal(invitation.token_digest, token_digest):
+                matched = invitation
+        return matched
 
     @staticmethod
     def _require_not_expired(
