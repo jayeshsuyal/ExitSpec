@@ -19,7 +19,9 @@ ExitSpec is neither a generic eval platform nor a presales management system.
 - Presales products may own discovery documents, tasks, and CRM visibility.
 - Eval products may own datasets, traces, graders, and experiment comparison.
 - Benchmark products may own request generation and performance measurements.
-- ExitSpec owns source-linked criteria, approval and freeze, contract versioning, evidence sufficiency, typed verdicts, and the final decision packet.
+- ExitSpec owns source-linked criteria, internal review, exact-version customer
+  confirmation, explicit freeze, contract versioning, evidence sufficiency, typed
+  verdicts, and the final decision packet.
 
 The project does not claim that no adjacent product can add this workflow. Its value depends on implementing the complete evidence chain credibly and making it easy enough to use.
 
@@ -54,6 +56,8 @@ An LLM may draft criteria, identify ambiguity, or explain a verified result. It 
 ### Humans approve the contract
 
 The normalized claim, metric, threshold, workload, sample requirement, measurement method, failure semantics, and retention policy require explicit approval.
+The customer confirmation is recorded separately against the exact proposed
+version and content fingerprint before freeze.
 
 ### Frozen contracts are append-only
 
@@ -85,6 +89,8 @@ This precedence is provisional and must be explicitly approved before the public
 - Source-linked or explicitly human-added criteria.
 - Strict schema validation.
 - Explicit human approval.
+- Separate affirmative customer confirmation bound to the exact version and
+  confirmation fingerprint.
 - Application-enforced immutable frozen versions.
 - Canonical JSON serialization and SHA-256 digest.
 
