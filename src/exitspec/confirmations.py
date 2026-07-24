@@ -51,6 +51,7 @@ class ContractConfirmation(FrozenExitSpecModel):
     contract_fingerprint: str = Field(pattern=SHA256_PATTERN)
     confirmer_identity: str = Field(min_length=1)
     decision: ConfirmationDecision
+    agreement_acknowledged: bool
     decided_at: datetime
     rationale: str = Field(min_length=1)
 
@@ -60,7 +61,12 @@ def utc_now() -> datetime:
 
 
 def canonical_confirmation_payload(contract: POCContract) -> Dict[str, object]:
-    """Return only the agreement content a customer confirmation binds."""
+    """Return the exact customer-visible agreement a confirmation binds.
+
+    This projection is the single source for both the confirmation fingerprint
+    and the customer review payload. Lifecycle state, internal review rationale,
+    and raw discovery transcripts are deliberately excluded.
+    """
 
     contract_payload = contract.model_dump(mode="json")
     return {
@@ -99,6 +105,7 @@ def record_confirmation(
     *,
     confirmer_identity: str,
     decision: ConfirmationDecision,
+    agreement_acknowledged: bool,
     rationale: str,
     idempotency_key: str,
     decided_at: Optional[datetime] = None,
@@ -115,6 +122,15 @@ def record_confirmation(
         raise ValueError("Only an approved contract can receive customer confirmation.")
 
     normalized_decision = ConfirmationDecision(decision)
+    if not isinstance(agreement_acknowledged, bool):
+        raise ValueError("agreement_acknowledged must be a boolean.")
+    if (
+        normalized_decision == ConfirmationDecision.CONFIRM
+        and not agreement_acknowledged
+    ):
+        raise ValueError(
+            "Customer confirmation requires explicit agreement acknowledgement."
+        )
     operation_id = confirmation_operation_id(
         contract.id,
         contract.version,
@@ -128,6 +144,7 @@ def record_confirmation(
         "contract_fingerprint": contract_confirmation_fingerprint(contract),
         "confirmer_identity": confirmer_identity,
         "decision": normalized_decision,
+        "agreement_acknowledged": agreement_acknowledged,
         "rationale": rationale,
     }
 
@@ -156,6 +173,7 @@ def confirmation_matches_contract(
 
     return (
         confirmation.decision == ConfirmationDecision.CONFIRM
+        and confirmation.agreement_acknowledged
         and confirmation.contract_id == contract.id
         and confirmation.contract_version == contract.version
         and confirmation.contract_fingerprint
@@ -171,6 +189,10 @@ def require_affirmative_confirmation(
 
     if confirmation.decision != ConfirmationDecision.CONFIRM:
         raise ValueError("Customer requested changes; the contract cannot be frozen.")
+    if not confirmation.agreement_acknowledged:
+        raise ValueError(
+            "Customer confirmation is missing explicit agreement acknowledgement."
+        )
     if (
         confirmation.contract_id != contract.id
         or confirmation.contract_version != contract.version

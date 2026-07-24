@@ -23,6 +23,7 @@ def _confirm_and_freeze(session: DemoSession):
         session.customer_review_token,
         decision="CONFIRM",
         confirmer="customer_approver",
+        agreement_acknowledged=True,
         rationale="These requirements match the agreed POC.",
         idempotency_key="confirm-support-agent-v1",
     )

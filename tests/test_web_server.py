@@ -130,6 +130,7 @@ def test_local_api_runs_define_to_prove_to_proof_pack(tmp_path):
             base_url + "/api/review/{0}/decision".format(review_token),
             {
                 "decision": "CONFIRM",
+                "agreement_acknowledged": True,
                 "confirmer": "customer_approver",
                 "rationale": "The exact POC requirements are confirmed.",
                 "idempotency_key": "confirm-support-agent-web-v1",

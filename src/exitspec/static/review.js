@@ -26,14 +26,26 @@
     threshold: $("#criterion-threshold"),
     sample: $("#criterion-sample"),
     workload: $("#criterion-workload"),
+    rule: $("#criterion-rule"),
+    adapter: $("#criterion-adapter"),
+    criterionOwner: $("#criterion-owner"),
+    sourceLocation: $("#criterion-source-location"),
+    evidencePolicy: $("#criterion-evidence-policy"),
     previous: $("#previous-criterion"),
     next: $("#next-criterion"),
     progress: $("#criterion-progress"),
     progressBar: $("#criterion-progress span"),
+    targetModel: $("#target-model"),
+    targetRuntime: $("#target-runtime"),
+    workloadFixture: $("#workload-fixture"),
+    workloadSha256: $("#workload-sha256"),
+    agreementOwners: $("#agreement-owners"),
+    evidenceRetention: $("#evidence-retention"),
     exclusions: $("#excluded-list"),
     identity: $("#reviewer-identity"),
     expiry: $("#review-expiry"),
     identityNotice: $("#identity-notice"),
+    agreementManifest: $("#agreement-manifest"),
     form: $("#decision-form"),
     ackGroup: $("#acknowledgement-group"),
     ack: $("#agreement-checkbox"),
@@ -51,6 +63,9 @@
     terminalDecision: $("#terminal-decision"),
     terminalRecordedAt: $("#terminal-recorded-at"),
     terminalReviewer: $("#terminal-reviewer"),
+    localDemoReturn: $("#local-demo-return"),
+    returnToApp: $("#return-to-app"),
+    localDemoNotice: $("#local-demo-notice"),
   };
 
   const params = new URLSearchParams(window.location.search);
@@ -149,6 +164,7 @@
 
   function normalize(payload) {
     const value = payload?.review || payload;
+    const agreement = value?.agreement;
     const requiredStrings = [
       value?.review_id,
       value?.status,
@@ -159,6 +175,18 @@
       value?.identity?.display_name,
       value?.identity?.notice,
       value?.expires_at,
+    ];
+    const agreementStrings = [
+      agreement?.id,
+      agreement?.version,
+      agreement?.customer,
+      agreement?.use_case,
+      agreement?.target_system?.provider,
+      agreement?.target_system?.endpoint_class,
+      agreement?.target_system?.model,
+      agreement?.workload?.fixture_path,
+      agreement?.workload?.sha256,
+      agreement?.evidence_retention_policy,
     ];
     const criterionFields = [
       "id",
@@ -186,11 +214,33 @@
       value?.contract?.excluded === undefined ||
       (Array.isArray(value.contract.excluded) &&
         value.contract.excluded.every((item) => typeof item === "string"));
+    const canonicalAgreementIsComplete =
+      agreement &&
+      agreementStrings.every(
+        (item) => typeof item === "string" && item.trim()
+      ) &&
+      Array.isArray(agreement.criteria) &&
+      agreement.criteria.length > 0 &&
+      agreement.criteria.every(
+        (criterion) => criterion && typeof criterion === "object"
+      ) &&
+      Array.isArray(agreement.owners) &&
+      agreement.owners.length > 0 &&
+      agreement.owners.every(
+        (owner) => typeof owner === "string" && owner.trim()
+      ) &&
+      Array.isArray(agreement.non_goals) &&
+      agreement.non_goals.every((item) => typeof item === "string") &&
+      agreement.id === value?.contract?.id &&
+      agreement.version === value?.contract?.version &&
+      agreement.customer === value?.poc?.customer_name &&
+      agreement.use_case === value?.poc?.title;
     if (
       !value ||
       requiredStrings.some((item) => typeof item !== "string" || !item.trim()) ||
       !criteriaAreComplete ||
       !contractExclusionsAreValid ||
+      !canonicalAgreementIsComplete ||
       typeof value.acknowledgement_required !== "boolean"
     ) {
       throw new Error("Incomplete review response");
@@ -278,11 +328,21 @@
     }
 
     criterionIndex = 0;
+    const agreement = record.agreement;
     elements.mockBanner.hidden = !localSynthetic;
-    elements.pocTitle.textContent = record.poc.title;
-    elements.customerName.textContent = record.poc.customer_name;
-    elements.contractId.textContent = record.contract.id;
-    elements.contractVersion.textContent = record.contract.version;
+    elements.pocTitle.textContent = agreement.use_case;
+    elements.customerName.textContent = agreement.customer;
+    elements.contractId.textContent = agreement.id;
+    elements.contractVersion.textContent = agreement.version;
+    elements.targetModel.textContent = agreement.target_system.model;
+    elements.targetRuntime.textContent =
+      `${agreement.target_system.provider} · ${agreement.target_system.endpoint_class}`;
+    elements.workloadFixture.textContent = agreement.workload.fixture_path;
+    elements.workloadSha256.textContent = agreement.workload.sha256;
+    elements.agreementOwners.textContent = agreement.owners.join(" · ");
+    elements.evidenceRetention.textContent =
+      agreement.evidence_retention_policy;
+    elements.agreementManifest.textContent = JSON.stringify(agreement, null, 2);
     elements.identity.textContent = record.identity.display_name;
     elements.identityNotice.textContent = record.identity.notice;
     elements.expiry.textContent = formatDate(record.expires_at, "Not provided");
@@ -291,7 +351,8 @@
     elements.ackLabel.textContent =
       `I reviewed all ${record.contract.criteria.length} ` +
       `${record.contract.criteria.length === 1 ? "requirement" : "requirements"} ` +
-      "and confirm that this draft matches the intended POC agreement.";
+      "plus the target system, workload, owners, exclusions, and evidence " +
+      "retention policy, and confirm this exact draft matches the intended POC.";
     renderCriterion();
     showOnly(elements.review);
   }
@@ -299,6 +360,7 @@
   function renderCriterion() {
     const criteria = review.contract.criteria;
     const criterion = criteria[criterionIndex];
+    const boundCriterion = review.agreement.criteria[criterionIndex];
     const position = criterionIndex + 1;
 
     elements.position.textContent = `Requirement ${position} of ${criteria.length}`;
@@ -311,6 +373,20 @@
     elements.threshold.textContent = criterion.threshold;
     elements.sample.textContent = criterion.sample;
     elements.workload.textContent = criterion.workload;
+    elements.rule.textContent =
+      `${boundCriterion.rule.operator} ${boundCriterion.rule.threshold} · ` +
+      `${boundCriterion.rule.minimum_samples} samples · ` +
+      `${Math.round(boundCriterion.rule.confidence_level * 100)}% ` +
+      `${boundCriterion.rule.confidence_method} · ` +
+      `${boundCriterion.aggregation} (${boundCriterion.unit})`;
+    elements.adapter.textContent =
+      `${boundCriterion.adapter}@${boundCriterion.adapter_version} · ` +
+      boundCriterion.workload_slice;
+    elements.criterionOwner.textContent = boundCriterion.owner;
+    elements.sourceLocation.textContent = boundCriterion.source
+      ? `${boundCriterion.source.speaker} · ${boundCriterion.source.location}`
+      : "Explicitly human-added requirement";
+    elements.evidencePolicy.textContent = boundCriterion.evidence_policy;
     elements.previous.disabled = criterionIndex === 0;
     elements.next.disabled = criterionIndex === criteria.length - 1;
     elements.progress.setAttribute("aria-valuemax", String(criteria.length));
@@ -322,7 +398,7 @@
     elements.progressBar.style.width = `${(position / criteria.length) * 100}%`;
 
     const exclusions = [
-      ...(review.contract.excluded || []),
+      ...(review.agreement.non_goals || []),
       ...(criterion.excluded || []),
     ];
     elements.exclusions.replaceChildren();
@@ -466,6 +542,7 @@
       contract_id: review.contract.id,
       contract_version: review.contract.version,
       decision,
+      agreement_acknowledged: Boolean(elements.ack.checked),
       rationale: decision === "REQUEST_CHANGES" ? rationale : null,
     };
 
@@ -553,6 +630,15 @@
     );
     elements.terminalReviewer.textContent =
       decision.reviewer_display_name || review.identity.display_name;
+    const localReturn = review?.local_demo;
+    const canReturnToLocalApp = localReturn?.return_url === "/app";
+    elements.localDemoReturn.hidden = !canReturnToLocalApp;
+    if (canReturnToLocalApp) {
+      elements.returnToApp.href = "/app";
+      elements.localDemoNotice.textContent =
+        localReturn.notice ||
+        "Local demo only. Hosted customer reviews do not expose an internal workspace shortcut.";
+    }
     showOnly(elements.terminal);
     focusHeading(elements.terminal);
   }
@@ -566,6 +652,93 @@
       submitDecision(event.submitter.value);
     }
   });
+
+  const MOCK_AGREEMENT = {
+    id: "support-agent-poc",
+    version: "3",
+    customer: "Northstar Support (synthetic)",
+    use_case: "Support-agent tool selection POC",
+    target_system: {
+      provider: "deterministic-local",
+      endpoint_class: "mock",
+      model: "deterministic-tool-selector-v1",
+    },
+    workload: {
+      fixture_path: "synthetic/support-tool-selection-200.json",
+      sha256: "a".repeat(64),
+    },
+    criteria: [
+      {
+        id: "TOOL-SELECT-01",
+        title: "Correct tool selection",
+        must_have: true,
+        source: {
+          speaker: "customer_vp_engineering",
+          quote:
+            "Our support agent must select the correct tool at least 95% of the time.",
+          location: "synthetic-discovery:12",
+        },
+        human_added: false,
+        normalized_claim:
+          "The support agent must select the expected tool for at least 95% of the fixed, labeled support requests.",
+        metric: "exact_tool_selection_rate",
+        unit: "proportion",
+        aggregation: "exact-match proportion",
+        rule: {
+          operator: "gte",
+          threshold: 0.95,
+          minimum_samples: 200,
+          confidence_level: 0.95,
+          confidence_method: "wilson_two_sided_lower_bound",
+        },
+        workload_slice: "synthetic-support-requests",
+        adapter: "deterministic_tool_selection",
+        adapter_version: "1.0.0",
+        owner: "vendor_solutions_engineer",
+        evidence_policy:
+          "Persist synthetic case IDs, expected and selected tools, calculation inputs, and hashes.",
+        approved: true,
+      },
+      {
+        id: "FAILURE-REVIEW-01",
+        title: "Inspectable mistakes",
+        must_have: true,
+        source: {
+          speaker: "customer_vp_engineering",
+          quote: "We want to inspect any mistakes before we scale traffic.",
+          location: "synthetic-discovery:14",
+        },
+        human_added: false,
+        normalized_claim:
+          "Every incorrect selection must retain a case identifier, expected tool, selected tool, and safe error detail for human review.",
+        metric: "exact_tool_selection_rate",
+        unit: "proportion",
+        aggregation: "reviewable failure proportion",
+        rule: {
+          operator: "gte",
+          threshold: 1,
+          minimum_samples: 1,
+          confidence_level: 0.95,
+          confidence_method: "wilson_two_sided_lower_bound",
+        },
+        workload_slice: "synthetic-support-errors",
+        adapter: "deterministic_tool_selection",
+        adapter_version: "1.0.0",
+        owner: "vendor_solutions_engineer",
+        evidence_policy:
+          "Persist safe failure details for every incorrect selection.",
+        approved: true,
+      },
+    ],
+    owners: ["customer_vp_engineering", "vendor_solutions_engineer"],
+    non_goals: [
+      "Production rollout or traffic expansion",
+      "Security, legal, and procurement approval",
+      "Performance outside the fixed support workload",
+    ],
+    evidence_retention_policy:
+      "Synthetic fixture only; no secrets or raw PII; local artifacts retained for demo review.",
+  };
 
   const MOCK_REVIEW = {
     review_id: "local-synthetic-review",
@@ -612,12 +785,18 @@
         },
       ],
     },
+    agreement: MOCK_AGREEMENT,
     expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
     acknowledgement_required: true,
     identity: {
       display_name: "Local synthetic reviewer",
       notice:
         "Synthetic preview only. A production link must bind a verified identity to this exact contract version.",
+    },
+    local_demo: {
+      return_url: "/app",
+      notice:
+        "Local synthetic preview only. A hosted customer review would not expose an internal workspace shortcut.",
     },
   };
 

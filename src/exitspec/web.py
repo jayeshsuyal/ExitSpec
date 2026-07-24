@@ -36,6 +36,7 @@ from .authoring import (
 from .confirmations import (
     ConfirmationDecision,
     ContractConfirmation,
+    canonical_confirmation_payload,
     confirmation_matches_contract,
     confirmation_operation_id,
     contract_confirmation_fingerprint,
@@ -339,6 +340,12 @@ class DemoSession:
             and self.customer_review_invitation.contract_version == contract.version
             and self.customer_review_invitation.confirmation_fingerprint == fingerprint
             and self.customer_draft_path is not None
+            and (
+                self.customer_confirmation is not None
+                or self.customer_review_invitation.accepts(
+                    self.customer_review_token
+                )
+            )
         ):
             return self.customer_draft_path
 
@@ -375,10 +382,11 @@ class DemoSession:
         if invitation is None or contract is None:
             raise ReviewInvitationError("Customer review link is invalid.")
         invitation.require_valid(token)
+        agreement = canonical_confirmation_payload(contract)
         fingerprint = contract_confirmation_fingerprint(contract)
         if (
-            invitation.contract_id != contract.id
-            or invitation.contract_version != contract.version
+            invitation.contract_id != agreement["id"]
+            or invitation.contract_version != agreement["version"]
             or invitation.confirmation_fingerprint != fingerprint
         ):
             raise ReviewInvitationError(
@@ -394,7 +402,7 @@ class DemoSession:
             status = "CHANGES_REQUESTED"
         customer_criteria = [
             self._customer_criterion_payload(criterion)
-            for criterion in contract.criteria
+            for criterion in agreement["criteria"]
         ]
         decision_payload = self._customer_decision_payload(
             confirmation,
@@ -414,26 +422,37 @@ class DemoSession:
             "review": {
                 "review_id": invitation.invitation_id,
                 "status": status,
-                "contract_id": contract.id,
-                "contract_version": contract.version,
+                "contract_id": agreement["id"],
+                "contract_version": agreement["version"],
                 "confirmation_fingerprint": fingerprint,
-                "customer": contract.customer,
-                "use_case": contract.use_case,
+                "customer": agreement["customer"],
+                "use_case": agreement["use_case"],
                 "poc": {
-                    "title": contract.use_case,
-                    "customer_name": contract.customer,
+                    "title": agreement["use_case"],
+                    "customer_name": agreement["customer"],
                 },
+                "agreement": agreement,
                 "contract": {
-                    "id": contract.id,
-                    "version": contract.version,
+                    "id": agreement["id"],
+                    "version": agreement["version"],
                     "confirmation_fingerprint": fingerprint,
-                    "excluded": list(contract.non_goals),
+                    "excluded": agreement["non_goals"],
                     "criteria": customer_criteria,
+                    "target_system": agreement["target_system"],
+                    "workload": agreement["workload"],
+                    "owners": agreement["owners"],
+                    "evidence_retention_policy": agreement[
+                        "evidence_retention_policy"
+                    ],
                 },
-                "target_system": contract.target_system.model_dump(mode="json"),
+                "target_system": agreement["target_system"],
+                "workload": agreement["workload"],
                 "criteria": customer_criteria,
-                "non_goals": list(contract.non_goals),
-                "evidence_retention_policy": contract.evidence_retention_policy,
+                "owners": agreement["owners"],
+                "non_goals": agreement["non_goals"],
+                "evidence_retention_policy": agreement[
+                    "evidence_retention_policy"
+                ],
                 "expires_at": invitation.expires_at.isoformat(),
                 "acknowledgement_required": True,
                 "identity": {
@@ -444,61 +463,69 @@ class DemoSession:
                         "to this exact contract version."
                     ),
                 },
+                "local_demo": {
+                    "return_url": "/app",
+                    "notice": (
+                        "Local loopback demo only. A hosted customer review would "
+                        "not expose an internal workspace shortcut."
+                    ),
+                },
                 "decision": decision_payload,
             },
             "confirmation": self._confirmation_payload(),
         }
 
     @staticmethod
-    def _customer_criterion_payload(criterion: Any) -> Dict[str, Any]:
-        source = (
-            None
-            if criterion.source is None
-            else criterion.source.model_dump(mode="json")
-        )
-        metric_name = criterion.metric.value
+    def _customer_criterion_payload(criterion: Dict[str, Any]) -> Dict[str, Any]:
+        source = criterion.get("source")
+        metric_name = criterion["metric"]
         metric_label = {
             "exact_tool_selection_rate": "Exact tool-selection rate",
         }.get(metric_name, metric_name.replace("_", " ").capitalize())
         workload_label = (
-            criterion.workload_slice.replace("-", " ").replace("_", " ").capitalize()
+            criterion["workload_slice"]
+            .replace("-", " ")
+            .replace("_", " ")
+            .capitalize()
         )
+        rule = criterion["rule"]
         operator = {
             "gte": "at least",
             "gt": "more than",
             "lte": "at most",
             "lt": "less than",
             "eq": "exactly",
-        }.get(criterion.rule.operator.value, criterion.rule.operator.value)
+        }.get(rule["operator"], rule["operator"])
         threshold = "{0} {1:.2f}%".format(
             operator,
-            criterion.rule.threshold * 100,
+            rule["threshold"] * 100,
         )
         sample = "{0} or more fixed cases".format(
-            criterion.rule.minimum_samples
+            rule["minimum_samples"]
         )
         return {
-            "id": criterion.id,
-            "title": criterion.title,
-            "normalized_claim": criterion.normalized_claim,
-            "plain_language": criterion.normalized_claim,
+            "id": criterion["id"],
+            "title": criterion["title"],
+            "normalized_claim": criterion["normalized_claim"],
+            "plain_language": criterion["normalized_claim"],
             "source": source,
             "source_quote": (
                 "Human-added requirement"
-                if criterion.source is None
-                else criterion.source.quote
+                if source is None
+                else source["quote"]
             ),
             "metric": metric_label,
-            "unit": criterion.unit,
-            "aggregation": criterion.aggregation,
-            "rule": criterion.rule.model_dump(mode="json"),
+            "unit": criterion["unit"],
+            "aggregation": criterion["aggregation"],
+            "rule": rule,
             "threshold": threshold,
             "sample": sample,
             "workload": workload_label,
-            "workload_slice": criterion.workload_slice,
-            "evidence_policy": criterion.evidence_policy,
-            "must_have": criterion.must_have,
-            "required": criterion.must_have,
+            "workload_slice": criterion["workload_slice"],
+            "evidence_policy": criterion["evidence_policy"],
+            "must_have": criterion["must_have"],
+            "required": criterion["must_have"],
+            "agreement": criterion,
             "excluded": [],
         }
 
@@ -515,6 +542,7 @@ class DemoSession:
             "reviewer_display_name": confirmation.confirmer_identity,
             "recorded_at": confirmation.decided_at.isoformat(),
             "rationale": confirmation.rationale,
+            "agreement_acknowledged": confirmation.agreement_acknowledged,
             "idempotent_replay": idempotent_replay,
             "synthetic": False,
         }
@@ -526,6 +554,7 @@ class DemoSession:
         *,
         decision: str,
         confirmer: str,
+        agreement_acknowledged: bool,
         rationale: str,
         idempotency_key: str,
     ) -> Tuple[ContractConfirmation, bool]:
@@ -558,6 +587,7 @@ class DemoSession:
                 contract,
                 confirmer_identity=confirmer,
                 decision=requested_decision,
+                agreement_acknowledged=agreement_acknowledged,
                 rationale=rationale,
                 idempotency_key=idempotency_key,
                 existing=existing_operation,
@@ -770,6 +800,7 @@ class DemoSession:
             "contract_fingerprint": confirmation.contract_fingerprint,
             "confirmer_identity": confirmation.confirmer_identity,
             "decision": confirmation.decision.value,
+            "agreement_acknowledged": confirmation.agreement_acknowledged,
             "decided_at": confirmation.decided_at.isoformat(),
             "rationale": confirmation.rationale,
         }
@@ -971,6 +1002,18 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     review_payload["contract_version"],
                 )
                 decision = _required_string(payload, "decision")
+                agreement_acknowledged = _optional_boolean(
+                    payload,
+                    "agreement_acknowledged",
+                )
+                if (
+                    decision.upper() == "CONFIRM"
+                    and not agreement_acknowledged
+                ):
+                    raise ValueError(
+                        "agreement_acknowledged must be true when confirming "
+                        "the agreement."
+                    )
                 rationale = _optional_string(payload, "rationale")
                 if decision.upper() == "REQUEST_CHANGES" and rationale is None:
                     raise DemoStateError(
@@ -988,6 +1031,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                         _optional_string(payload, "confirmer")
                         or "Customer approver · local synthetic demo"
                     ),
+                    agreement_acknowledged=agreement_acknowledged,
                     rationale=rationale,
                     idempotency_key=self._idempotency_key(payload),
                 )
@@ -1264,6 +1308,20 @@ def _required_integer(payload: Dict[str, Any], key: str) -> int:
     value = payload.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("{0} must be an integer.".format(key))
+    return value
+
+
+def _optional_boolean(
+    payload: Dict[str, Any],
+    key: str,
+    *,
+    default: bool = False,
+) -> bool:
+    if key not in payload:
+        return default
+    value = payload[key]
+    if not isinstance(value, bool):
+        raise ValueError("{0} must be a boolean.".format(key))
     return value
 
 

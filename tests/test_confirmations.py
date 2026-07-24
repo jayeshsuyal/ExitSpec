@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from exitspec.confirmations import (
     ConfirmationDecision,
     ContractConfirmation,
+    canonical_confirmation_payload,
     confirmation_matches_contract,
     contract_confirmation_fingerprint,
     record_confirmation,
@@ -31,6 +32,7 @@ def make_confirmation(
         contract,
         confirmer_identity="customer@example.com",
         decision=decision,
+        agreement_acknowledged=decision == ConfirmationDecision.CONFIRM,
         rationale="These requirements match the customer agreement.",
         idempotency_key=idempotency_key,
         decided_at=FIXED_TIME,
@@ -53,6 +55,64 @@ def test_affirmative_confirmation_allows_exact_contract_to_freeze(
     assert frozen.canonical_hash
     assert verify_contract_digest(frozen)
     assert confirmation_matches_contract(approved_contract, confirmation)
+    assert confirmation.agreement_acknowledged is True
+
+
+def test_canonical_confirmation_projection_contains_every_bound_agreement_field(
+    approved_contract,
+):
+    projection = canonical_confirmation_payload(approved_contract)
+
+    assert set(projection) == {
+        "id",
+        "version",
+        "customer",
+        "use_case",
+        "target_system",
+        "workload",
+        "criteria",
+        "owners",
+        "non_goals",
+        "evidence_retention_policy",
+    }
+    assert projection == {
+        field_name: approved_contract.model_dump(mode="json")[field_name]
+        for field_name in projection
+    }
+
+
+def test_confirm_requires_explicit_agreement_acknowledgement(approved_contract):
+    with pytest.raises(ValueError, match="explicit agreement acknowledgement"):
+        record_confirmation(
+            approved_contract,
+            confirmer_identity="customer@example.com",
+            decision=ConfirmationDecision.CONFIRM,
+            agreement_acknowledged=False,
+            rationale="Attempted confirmation without acknowledgement.",
+            idempotency_key="missing-acknowledgement",
+            decided_at=FIXED_TIME,
+        )
+
+
+def test_record_confirmation_requires_acknowledgement_keyword(approved_contract):
+    with pytest.raises(TypeError, match="agreement_acknowledged"):
+        record_confirmation(
+            approved_contract,
+            confirmer_identity="customer@example.com",
+            decision=ConfirmationDecision.CONFIRM,
+            rationale="No implicit acknowledgement is permitted.",
+            idempotency_key="omitted-acknowledgement",
+            decided_at=FIXED_TIME,
+        )
+
+
+def test_request_changes_records_false_agreement_acknowledgement(approved_contract):
+    confirmation = make_confirmation(
+        approved_contract,
+        decision=ConfirmationDecision.REQUEST_CHANGES,
+    )
+
+    assert confirmation.agreement_acknowledged is False
 
 
 def test_unconfirmed_contract_cannot_freeze(approved_contract):
@@ -145,6 +205,7 @@ def test_identical_retry_returns_original_confirmation(approved_contract):
         approved_contract,
         confirmer_identity=original.confirmer_identity,
         decision=original.decision,
+        agreement_acknowledged=original.agreement_acknowledged,
         rationale=original.rationale,
         idempotency_key=original.idempotency_key,
         decided_at=FIXED_TIME + timedelta(minutes=5),
@@ -163,6 +224,26 @@ def test_conflicting_idempotency_key_reuse_is_rejected(approved_contract):
             approved_contract,
             confirmer_identity=original.confirmer_identity,
             decision=ConfirmationDecision.REQUEST_CHANGES,
+            agreement_acknowledged=False,
+            rationale=original.rationale,
+            idempotency_key=original.idempotency_key,
+            existing=original,
+        )
+
+
+def test_idempotency_key_is_bound_to_acknowledgement_value(approved_contract):
+    original = make_confirmation(
+        approved_contract,
+        decision=ConfirmationDecision.REQUEST_CHANGES,
+        idempotency_key="request-changes-with-ack-state",
+    )
+
+    with pytest.raises(ValueError, match="different confirmation"):
+        record_confirmation(
+            approved_contract,
+            confirmer_identity=original.confirmer_identity,
+            decision=original.decision,
+            agreement_acknowledged=True,
             rationale=original.rationale,
             idempotency_key=original.idempotency_key,
             existing=original,

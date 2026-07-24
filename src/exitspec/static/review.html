@@ -125,6 +125,32 @@
               </div>
             </dl>
 
+            <details class="criterion-details">
+              <summary>Bound execution details</summary>
+              <dl aria-label="Exact execution details for this requirement">
+                <div>
+                  <dt>Rule</dt>
+                  <dd id="criterion-rule">—</dd>
+                </div>
+                <div>
+                  <dt>Adapter</dt>
+                  <dd id="criterion-adapter">—</dd>
+                </div>
+                <div>
+                  <dt>Requirement owner</dt>
+                  <dd id="criterion-owner">—</dd>
+                </div>
+                <div>
+                  <dt>Source</dt>
+                  <dd id="criterion-source-location">—</dd>
+                </div>
+                <div class="criterion-details__wide">
+                  <dt>Evidence policy</dt>
+                  <dd id="criterion-evidence-policy">—</dd>
+                </div>
+              </dl>
+            </details>
+
             <nav class="criterion-navigation" aria-label="Requirements">
               <button id="previous-criterion" class="text-button" type="button">
                 <span aria-hidden="true">←</span> Previous
@@ -147,6 +173,36 @@
           </article>
 
           <aside class="review-context" aria-label="Review details">
+            <section aria-labelledby="scope-title">
+              <p class="context-label" id="scope-title">Bound scope</p>
+              <dl class="scope-details">
+                <div>
+                  <dt>Target model</dt>
+                  <dd id="target-model">—</dd>
+                </div>
+                <div>
+                  <dt>Provider · endpoint</dt>
+                  <dd id="target-runtime">—</dd>
+                </div>
+                <div>
+                  <dt>Fixed workload</dt>
+                  <dd id="workload-fixture">—</dd>
+                </div>
+                <div>
+                  <dt>Workload SHA-256</dt>
+                  <dd id="workload-sha256" class="digest">—</dd>
+                </div>
+                <div>
+                  <dt>Agreement owners</dt>
+                  <dd id="agreement-owners">—</dd>
+                </div>
+                <div>
+                  <dt>Evidence retention</dt>
+                  <dd id="evidence-retention">—</dd>
+                </div>
+              </dl>
+            </section>
+
             <section aria-labelledby="excluded-title">
               <p class="context-label" id="excluded-title">Not included</p>
               <ul id="excluded-list" class="excluded-list"></ul>
@@ -166,6 +222,15 @@
               </dl>
               <p id="identity-notice" class="identity-notice"></p>
             </section>
+
+            <details class="exact-agreement">
+              <summary>View exact fingerprinted agreement</summary>
+              <p>
+                Every field below is included in the confirmation fingerprint.
+                Internal review notes and raw transcripts are not.
+              </p>
+              <pre id="agreement-manifest" tabindex="0"></pre>
+            </details>
           </aside>
         </div>
 
@@ -257,6 +322,16 @@
             human decision.
           </p>
         </aside>
+
+        <div id="local-demo-return" class="local-demo-return" hidden>
+          <a id="return-to-app" class="button button--primary" href="/app">
+            Return to the local POC owner
+          </a>
+          <p id="local-demo-notice">
+            Local demo only. Hosted customer reviews do not expose an internal
+            workspace shortcut.
+          </p>
+        </div>
       </section>
 
       <noscript>

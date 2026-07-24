@@ -348,6 +348,7 @@ def test_assisted_authoring_to_pass_evidence_pack_is_human_gated(tmp_path):
         approved_contract,
         confirmer_identity="synthetic_customer_approver",
         decision=ConfirmationDecision.CONFIRM,
+        agreement_acknowledged=True,
         rationale="The synthetic customer confirmed this exact assisted-authoring contract.",
         idempotency_key="assisted-authoring-e2e-confirmation",
         decided_at=RUN_AT,

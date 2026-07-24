@@ -1,5 +1,6 @@
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
 from pathlib import Path
 from urllib.error import HTTPError
@@ -9,6 +10,11 @@ from urllib.request import Request, urlopen
 import pytest
 
 import exitspec.web as web_module
+from exitspec.confirmations import canonical_confirmation_payload
+from exitspec.review_links import (
+    ReviewInvitationError,
+    issue_customer_review_invitation,
+)
 from exitspec.web import DemoSession, ExitSpecDemoServer
 
 
@@ -94,6 +100,7 @@ def _confirmed_session(tmp_path: Path) -> DemoSession:
         session.customer_review_token,
         decision="CONFIRM",
         confirmer="customer_approver",
+        agreement_acknowledged=True,
         rationale="The exact agreement is confirmed.",
         idempotency_key="serialize-confirmed-session",
     )
@@ -128,6 +135,7 @@ def test_customer_confirmation_is_required_before_freeze_and_prove(tmp_path):
             review_api + "/decision",
             {
                 "decision": "CONFIRM",
+                "agreement_acknowledged": True,
                 "confirmer": "customer_approver",
                 "rationale": "These are the requirements we agreed to evaluate.",
                 "idempotency_key": "confirm-support-agent-v1",
@@ -135,11 +143,13 @@ def test_customer_confirmation_is_required_before_freeze_and_prove(tmp_path):
         )
         confirmation_id = confirmed["confirmation"]["confirmation_id"]
         assert confirmed["confirmation"]["decision"] == "CONFIRM"
+        assert confirmed["confirmation"]["agreement_acknowledged"] is True
 
         duplicate = _post_json(
             review_api + "/decision",
             {
                 "decision": "CONFIRM",
+                "agreement_acknowledged": True,
                 "confirmer": "customer_approver",
                 "rationale": "These are the requirements we agreed to evaluate.",
                 "idempotency_key": "confirm-support-agent-v1",
@@ -169,6 +179,44 @@ def test_customer_confirmation_is_required_before_freeze_and_prove(tmp_path):
         server.server_close()
 
 
+@pytest.mark.parametrize(
+    "acknowledgement_payload",
+    (
+        {},
+        {"agreement_acknowledged": False},
+    ),
+)
+def test_confirmation_api_rejects_missing_or_false_acknowledgement(
+    tmp_path,
+    acknowledgement_payload,
+):
+    server, worker, base_url = _running_server(tmp_path)
+    try:
+        _close_internal_review(base_url)
+        prepared = _post_json(base_url + "/api/customer-draft", {})
+        review_api = _review_api_url(base_url, prepared["customer_review_url"])
+        decision_payload = {
+            "decision": "CONFIRM",
+            "confirmer": "customer_approver",
+            "rationale": "Attempted confirmation without explicit acknowledgement.",
+            "idempotency_key": "confirmation-without-acknowledgement",
+        }
+        decision_payload.update(acknowledgement_payload)
+
+        status, error = _post_json_error(
+            review_api + "/decision",
+            decision_payload,
+        )
+
+        assert status == 400
+        assert "acknowledge" in error["error"].lower()
+        assert _get_json(base_url + "/api/state")["confirmation"] is None
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+
+
 def test_request_changes_cannot_freeze_and_reusing_key_for_new_decision_conflicts(
     tmp_path,
 ):
@@ -188,11 +236,13 @@ def test_request_changes_cannot_freeze_and_reusing_key_for_new_decision_conflict
             },
         )
         assert changed["confirmation"]["decision"] == "REQUEST_CHANGES"
+        assert changed["confirmation"]["agreement_acknowledged"] is False
 
         status, error = _post_json_error(
             review_api + "/decision",
             {
                 "decision": "CONFIRM",
+                "agreement_acknowledged": True,
                 "confirmer": "customer_approver",
                 "rationale": "Attempt to reuse the same operation key.",
                 "idempotency_key": "customer-decision-v1",
@@ -223,6 +273,7 @@ def test_request_changes_can_start_a_structured_new_contract_version(tmp_path):
             old_review_api + "/decision",
             {
                 "decision": "REQUEST_CHANGES",
+                "agreement_acknowledged": False,
                 "confirmer": "customer_approver",
                 "rationale": "Use at least 250 multilingual support cases.",
                 "idempotency_key": "customer-revision-v1",
@@ -312,6 +363,7 @@ def test_reset_invalidates_customer_review_link_and_confirmation_state(tmp_path)
             review_api + "/decision",
             {
                 "decision": "CONFIRM",
+                "agreement_acknowledged": True,
                 "confirmer": "customer_approver",
                 "rationale": "Confirmed before the internal workflow changed.",
                 "idempotency_key": "confirmation-before-reset",
@@ -344,6 +396,9 @@ def test_customer_review_payload_excludes_internal_review_and_raw_source(tmp_pat
         review_api = _review_api_url(base_url, prepared["customer_review_url"])
         customer_payload = _get_json(review_api)
         serialized = json.dumps(customer_payload)
+        contract = server.session.approved_contract()
+        assert contract is not None
+        agreement = canonical_confirmation_payload(contract)
 
         assert "drafts" not in customer_payload
         assert "transcript" not in customer_payload
@@ -352,6 +407,19 @@ def test_customer_review_payload_excludes_internal_review_and_raw_source(tmp_pat
             review = draft.get("review")
             if review:
                 assert review["rationale"] not in serialized
+        assert customer_payload["review"]["agreement"] == agreement
+        assert customer_payload["review"]["contract_id"] == agreement["id"]
+        assert customer_payload["review"]["contract_version"] == agreement["version"]
+        assert customer_payload["review"]["customer"] == agreement["customer"]
+        assert customer_payload["review"]["use_case"] == agreement["use_case"]
+        assert customer_payload["review"]["target_system"] == agreement["target_system"]
+        assert customer_payload["review"]["workload"] == agreement["workload"]
+        assert customer_payload["review"]["owners"] == agreement["owners"]
+        assert customer_payload["review"]["non_goals"] == agreement["non_goals"]
+        assert (
+            customer_payload["review"]["evidence_retention_policy"]
+            == agreement["evidence_retention_policy"]
+        )
         assert customer_payload["review"]["criteria"]
         assert customer_payload["review"]["non_goals"] is not None
     finally:
@@ -373,11 +441,63 @@ def test_customer_review_page_is_served_without_echoing_token_in_markup(tmp_path
 
         assert "Confirm requirements" in html
         assert "Request changes" in html
+        assert "View exact fingerprinted agreement" in html
+        assert 'id="target-model"' in html
+        assert 'id="workload-fixture"' in html
+        assert 'id="workload-sha256"' in html
+        assert 'id="agreement-owners"' in html
+        assert 'id="evidence-retention"' in html
+        assert 'id="agreement-manifest"' in html
+        assert 'id="return-to-app"' in html
         assert token not in html
     finally:
         server.shutdown()
         worker.join(timeout=5)
         server.server_close()
+
+
+def test_expired_pending_customer_review_is_reissued_and_old_token_is_invalid(
+    tmp_path,
+):
+    session = DemoSession.synthetic_support_agent(output_root=tmp_path / "runs")
+    first, second = session.reviewed_drafts
+    session.review(
+        first.id,
+        "APPROVE",
+        "field_engineer",
+        "The measurable rule is complete.",
+    )
+    session.review(
+        second.id,
+        "REJECT",
+        "field_engineer",
+        "The request remains vague.",
+    )
+    first_draft_path = session.create_customer_draft()
+    assert session.customer_review_invitation is not None
+    assert session.customer_review_token is not None
+    old_token = session.customer_review_token
+    old_invitation = session.customer_review_invitation
+    expired_invitation, _ = issue_customer_review_invitation(
+        contract_id=old_invitation.contract_id,
+        contract_version=old_invitation.contract_version,
+        confirmation_fingerprint=old_invitation.confirmation_fingerprint,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=3),
+        ttl=timedelta(hours=1),
+        token=old_token,
+    )
+    session.customer_review_invitation = expired_invitation
+
+    reissued_draft_path = session.create_customer_draft()
+
+    assert reissued_draft_path != first_draft_path
+    assert session.customer_review_token != old_token
+    assert session.customer_review_invitation is not expired_invitation
+    with pytest.raises(ReviewInvitationError, match="invalid"):
+        session.customer_review_payload(old_token)
+    assert session.customer_review_payload(session.customer_review_token)["review"][
+        "status"
+    ] == "PENDING"
 
 
 def test_reset_cannot_race_a_freeze_and_leave_stale_proof_authority(
