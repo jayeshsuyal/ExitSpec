@@ -1,27 +1,59 @@
-"""Bounded, provider-free transcript intake for the local synthetic demo.
+"""Bounded, redaction-first transcript intake.
 
-This module only structures pasted source text.  It never calls a model,
-generates a criterion, or records an approval.  Those remain separate human
-authoring and review steps.
+Raw transcript text is redacted before it is parsed or allowed into returned
+state. This module never calls a model, generates a criterion, or records an
+approval. Those remain separate authoring and human-review steps.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Sequence
 
-from pydantic import ValidationError
+from pydantic import ConfigDict, Field, ValidationError
 
-from .models import DiscoveryTranscript, TranscriptLine
+from .models import DiscoveryTranscript, ExitSpecModel, TranscriptLine
+from .redaction import (
+    RedactionBoundaryError,
+    RedactionDecision,
+    RedactionResult,
+    assert_redaction_egress,
+    redact_transcript,
+)
 
 
 DEFAULT_TRANSCRIPT_ID = "pasted-transcript"
 DEFAULT_TRANSCRIPT_TITLE = "Pasted discovery transcript"
 MAX_INPUT_CHARACTERS = 50_000
 MAX_TRANSCRIPT_LINES = 500
+_SPEAKER_LINE = re.compile(
+    r"^(?P<speaker>\[REDACTED:[A-Z_]+\]|(?!\[REDACTED:)[^:]+)"
+    r":(?P<message>.*)$"
+)
 
 
 class TranscriptIntakeError(ValueError):
     """A clear, safe-to-display error for invalid pasted transcript text."""
+
+
+class TranscriptRedactionSummary(ExitSpecModel):
+    """Non-secret metadata retained after raw transcript disposal."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy_version: str = Field(min_length=1)
+    decision: RedactionDecision
+    counts: Dict[str, int]
+    line_numbers: Dict[str, List[int]]
+
+
+class RedactedTranscriptIntake(ExitSpecModel):
+    """The redacted transcript and metadata allowed beyond intake."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    transcript: DiscoveryTranscript
+    redaction: TranscriptRedactionSummary
 
 
 def _line_error(source_line_number: int, message: str) -> TranscriptIntakeError:
@@ -79,12 +111,14 @@ def parse_pasted_transcript(
         stripped_line = raw_line.strip()
         if not stripped_line:
             continue
-        if ":" not in stripped_line:
+        if stripped_line.startswith(":"):
+            raise _line_error(source_line_number, "needs a speaker before ':'.")
+        matched_line = _SPEAKER_LINE.fullmatch(stripped_line)
+        if matched_line is None:
             raise _line_error(source_line_number, "must use 'Speaker: message'.")
 
-        raw_speaker, raw_message = stripped_line.split(":", 1)
-        speaker = raw_speaker.strip()
-        message = raw_message.strip()
+        speaker = matched_line.group("speaker").strip()
+        message = matched_line.group("message").strip()
         if not speaker:
             raise _line_error(source_line_number, "needs a speaker before ':'.")
         if not message:
@@ -119,22 +153,78 @@ def parse_pasted_transcript(
         raise TranscriptIntakeError(_format_validation_error(error)) from error
 
 
+def _redaction_summary(result: RedactionResult) -> TranscriptRedactionSummary:
+    return TranscriptRedactionSummary(
+        policy_version=result.policy_version,
+        decision=result.decision,
+        counts=dict(result.counts),
+        line_numbers={
+            finding.kind.value: list(finding.line_numbers)
+            for finding in result.findings
+        },
+    )
+
+
+def redact_and_parse_pasted_transcript(
+    pasted_text: str,
+    *,
+    transcript_id: str = DEFAULT_TRANSCRIPT_ID,
+    title: str = DEFAULT_TRANSCRIPT_TITLE,
+    customer_terms: Sequence[str] = (),
+) -> RedactedTranscriptIntake:
+    """Redact raw notes, fail closed at egress, then parse only redacted text."""
+
+    if not isinstance(pasted_text, str):
+        raise TranscriptIntakeError("Transcript text must be a string.")
+    if len(pasted_text) > MAX_INPUT_CHARACTERS:
+        raise TranscriptIntakeError(
+            "Transcript text exceeds the {0} character demo limit.".format(
+                MAX_INPUT_CHARACTERS
+            )
+        )
+
+    try:
+        redaction = redact_transcript(pasted_text, customer_terms=customer_terms)
+    finally:
+        del pasted_text
+    try:
+        redacted_text = assert_redaction_egress(
+            redaction, customer_terms=customer_terms
+        )
+    except RedactionBoundaryError as error:
+        raise TranscriptIntakeError(
+            "Transcript intake was blocked by the current redaction policy."
+        ) from error
+
+    transcript = parse_pasted_transcript(
+        redacted_text,
+        transcript_id=transcript_id,
+        title=title,
+    )
+    return RedactedTranscriptIntake(
+        transcript=transcript,
+        redaction=_redaction_summary(redaction),
+    )
+
+
 def intake_pasted_transcript_payload(
     pasted_text: str,
     *,
     transcript_id: str = DEFAULT_TRANSCRIPT_ID,
     title: str = DEFAULT_TRANSCRIPT_TITLE,
+    customer_terms: Sequence[str] = (),
 ) -> Dict[str, Any]:
-    """Return a JSON-ready transcript payload for a future local web route.
+    """Return a JSON-ready redacted transcript payload.
 
-    The payload contains only transcript source material and its synthetic-demo
-    marker. It does not contain AI-generated criteria, review decisions, or
-    approval claims.
+    Compatibility is preserved by returning the transcript shape rather than
+    the wrapper metadata. The transcript content has still crossed the
+    redaction-first intake boundary.
     """
 
-    transcript = parse_pasted_transcript(
+    intake = redact_and_parse_pasted_transcript(
         pasted_text,
         transcript_id=transcript_id,
         title=title,
+        customer_terms=customer_terms,
     )
-    return transcript.model_dump(mode="json")
+    return intake.transcript.model_dump(mode="json")
