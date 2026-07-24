@@ -1092,19 +1092,27 @@ def _validated_plan(
     return plan
 
 
-def _utc_microseconds(value: datetime) -> int:
+def _validated_utc_datetime(value: object) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError("now must be timezone-aware UTC.")
     try:
         offset = value.utcoffset()
-    except Exception:
+    except (OverflowError, TypeError, ValueError):
         raise ValueError("now must be timezone-aware UTC.") from None
     if offset is None or offset != timedelta(0):
         raise ValueError("now must be timezone-aware UTC.")
-    normalized = value.astimezone(timezone.utc)
-    delta = normalized - _EPOCH
-    if delta.days < 0:
+    try:
+        normalized = value.astimezone(timezone.utc)
+    except (OverflowError, TypeError, ValueError):
+        raise ValueError("now must be timezone-aware UTC.") from None
+    if normalized < _EPOCH:
         raise ValueError("now must not precede the Unix epoch.")
+    return normalized
+
+
+def _utc_microseconds(value: datetime) -> int:
+    normalized = _validated_utc_datetime(value)
+    delta = normalized - _EPOCH
     return (
         delta.days * 86_400_000_000
         + delta.seconds * 1_000_000
