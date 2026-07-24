@@ -852,6 +852,33 @@ def test_temp_schema_migration_rolls_back_without_history(
         connection.close()
 
 
+def test_migration_cannot_write_preexisting_temp_object(
+    tmp_path: Path,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    connection.execute(
+        "CREATE TEMP TABLE transient_state (id INTEGER)"
+    )
+    write_transient = migration(
+        name="write_transient_state",
+        sql="INSERT INTO temp.transient_state (id) VALUES (1)",
+    )
+
+    try:
+        with pytest.raises(
+            MigrationFailed,
+            match="^Database migration failed\\.$",
+        ):
+            apply_migrations(connection, (write_transient,), now=NOW)
+
+        assert connection.execute(
+            "SELECT COUNT(*) FROM temp.transient_state"
+        ).fetchone()[0] == 0
+        assert read_applied_migrations(connection) == ()
+    finally:
+        connection.close()
+
+
 def test_trigger_body_semicolons_are_split_as_one_migration_statement(
     tmp_path: Path,
 ) -> None:

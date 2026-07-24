@@ -259,6 +259,12 @@ class _ConfirmationConnection(sqlite3.Connection):
         if self.__mode == "bootstrap":
             return sqlite3.SQLITE_OK
 
+        if (
+            self.__mode == "migration"
+            and (database or "").lower() == "temp"
+        ):
+            return sqlite3.SQLITE_DENY
+
         if action == sqlite3.SQLITE_PRAGMA:
             pragma_name = (first or "").lower()
             if self.__mode == "configuration":
