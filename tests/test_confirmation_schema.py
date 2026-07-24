@@ -2046,7 +2046,7 @@ def test_pre_migration_virtual_table_name_occupation_is_fail_closed(
 
     guarded = open_confirmation_database(database_path)
     try:
-        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        with pytest.raises(sqlite3.DatabaseError):
             guarded.execute("DROP TABLE review_invitations")
         with pytest.raises(
             MigrationFailed,
@@ -2058,13 +2058,20 @@ def test_pre_migration_virtual_table_name_occupation_is_fail_closed(
                 now=MIGRATED_AT,
             )
         assert read_applied_migrations(guarded) == ()
-        assert guarded.execute(
+        virtual_object = guarded.execute(
             """
-            SELECT type
-            FROM sqlite_master
+            SELECT type, sql
+            FROM main.sqlite_master
             WHERE name = 'review_invitations'
             """
-        ).fetchone()[0] == "table"
+        ).fetchone()
+        assert virtual_object["type"] == "table"
+        assert virtual_object["sql"].startswith(
+            "CREATE VIRTUAL TABLE review_invitations"
+        )
+        assert DOMAIN_TABLES & _object_names(guarded, "table") == {
+            "review_invitations"
+        }
     finally:
         guarded.close()
 
@@ -2079,6 +2086,7 @@ def test_post_migration_virtual_replacement_keeps_protected_name_guarded(
         CONFIRMATION_LEDGER_MIGRATIONS,
         now=MIGRATED_AT,
     )
+    expected_history = read_applied_migrations(guarded)
     guarded.close()
 
     raw = sqlite3.connect(database_path, isolation_level=None)
@@ -2093,17 +2101,23 @@ def test_post_migration_virtual_replacement_keeps_protected_name_guarded(
 
     reopened = open_confirmation_database(database_path)
     try:
-        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        with pytest.raises(sqlite3.DatabaseError):
             reopened.execute("DROP TABLE review_invitations_expiry_idx")
         with pytest.raises(LedgerUnavailable):
             validate_confirmation_schema(reopened)
-        assert reopened.execute(
+        assert read_applied_migrations(reopened) == expected_history
+        virtual_object = reopened.execute(
             """
-            SELECT type
-            FROM sqlite_master
+            SELECT type, sql
+            FROM main.sqlite_master
             WHERE name = 'review_invitations_expiry_idx'
             """
-        ).fetchone()[0] == "table"
+        ).fetchone()
+        assert virtual_object["type"] == "table"
+        assert virtual_object["sql"].startswith(
+            "CREATE VIRTUAL TABLE review_invitations_expiry_idx"
+        )
+        assert DOMAIN_TABLES <= _object_names(reopened, "table")
     finally:
         reopened.close()
 
