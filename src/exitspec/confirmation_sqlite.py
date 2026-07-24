@@ -1,7 +1,8 @@
 """Hardened SQLite connection and forward-only migration primitives.
 
-This module intentionally owns only database infrastructure. Domain ledger
-tables and the ``ConfirmationStore`` adapter belong to later slices.
+This module intentionally owns only database infrastructure. The frozen domain
+schema lives separately; the ``ConfirmationStore`` adapter belongs to a later
+slice.
 """
 
 from __future__ import annotations
@@ -143,6 +144,51 @@ _PROTECTED_HISTORY_ACTIONS = {
         )
     ),
 }
+_DOMAIN_LEDGER_TABLES = frozenset(
+    {
+        "review_invitations",
+        "invitation_revocations",
+        "confirmation_decisions",
+        "idempotency_operations",
+        "confirmation_audit_events",
+    }
+)
+_DOMAIN_LEDGER_INDEXES = frozenset(
+    {
+        "review_invitations_binding_idx",
+        "review_invitations_expiry_idx",
+        "confirmation_audit_events_binding_sequence_idx",
+        "confirmation_audit_events_invitation_sequence_idx",
+        "confirmation_audit_events_confirmation_sequence_idx",
+    }
+)
+_DOMAIN_LEDGER_TRIGGERS = frozenset(
+    {
+        "review_invitations_consistent_fingerprint",
+        "confirmation_audit_events_consistent_fingerprint",
+        "confirmation_decisions_active_invitation",
+        "review_invitations_block_replace",
+        "invitation_revocations_block_replace",
+        "confirmation_decisions_block_replace",
+        "idempotency_operations_block_replace",
+        "confirmation_audit_events_block_replace",
+        "review_invitations_block_update",
+        "review_invitations_block_delete",
+        "invitation_revocations_block_update",
+        "invitation_revocations_block_delete",
+        "confirmation_decisions_block_update",
+        "confirmation_decisions_block_delete",
+        "idempotency_operations_block_update",
+        "idempotency_operations_block_delete",
+        "confirmation_audit_events_block_update",
+        "confirmation_audit_events_block_delete",
+    }
+)
+_DOMAIN_LEDGER_OBJECTS = (
+    _DOMAIN_LEDGER_TABLES
+    | _DOMAIN_LEDGER_INDEXES
+    | _DOMAIN_LEDGER_TRIGGERS
+)
 
 
 class ConfirmationSQLiteError(RuntimeError):
@@ -308,10 +354,17 @@ class _ConfirmationConnection(sqlite3.Connection):
         ):
             return sqlite3.SQLITE_DENY
 
-        targets = {first, second}
+        targets = {
+            value.lower()
+            for value in (first, second)
+            if isinstance(value, str)
+        }
         history_targeted = _HISTORY_TABLE in targets
         required_trigger_targeted = bool(
             targets.intersection(_SCHEMA_MIGRATIONS_TRIGGER_SQL)
+        )
+        domain_object_targeted = bool(
+            targets.intersection(_DOMAIN_LEDGER_OBJECTS)
         )
 
         if self.__mode == "migration" and history_targeted:
@@ -327,6 +380,12 @@ class _ConfirmationConnection(sqlite3.Connection):
 
         if action in _PROTECTED_HISTORY_ACTIONS and (
             history_targeted or required_trigger_targeted
+        ):
+            return sqlite3.SQLITE_DENY
+        if (
+            self.__mode == "normal"
+            and action in _PROTECTED_HISTORY_ACTIONS
+            and domain_object_targeted
         ):
             return sqlite3.SQLITE_DENY
         return sqlite3.SQLITE_OK
