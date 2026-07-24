@@ -7,22 +7,36 @@ name = "exitspec"
 version = "0.1.0"
 description = "Executable acceptance criteria and evidence packs for AI infrastructure POCs."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 authors = [{name = "Jayesh Suyal"}]
 dependencies = [
+  "jsonschema>=4.26,<5",
   "pydantic>=2.12,<3",
   "PyYAML>=6,<7",
+  "rfc8785>=0.1.4,<0.2",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = [
+  "pytest>=8,<9",
+  "setuptools>=68",
+  "wheel>=0.44",
+]
 
 [project.scripts]
 exitspec = "exitspec.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+exitspec = ["static/*.html", "static/*.css", "static/*.js"]
+"exitspec.demo_data" = [
+  "support_agent/authoring/*.json",
+  "support_agent/contracts/*.yaml",
+  "support_agent/fixtures/*.json",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

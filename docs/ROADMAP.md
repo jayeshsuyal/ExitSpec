@@ -1,54 +1,175 @@
 # Roadmap
 
-## Seven-day implementation plan
+## Completed local product
 
-| Day | Focus | Exit condition |
-| --- | --- | --- |
-| 1 | Contract schemas, state machines, deterministic verdict kernel | A reviewed contract freezes and produces `PASS`, `FAIL`, and `NOT_PROVEN` in local tests. |
-| 2 | Transcript draft flow and approval UX/API | Every extracted criterion is source-linked or explicitly human-added. |
-| 3 | Endpoint runner, schema/tool checks, errors, cost primitives | A fixed fixture creates a manifest and redacted evidence directory. |
-| 4 | GuideLLM performance adapter and latency statistics | Changing duration or threshold changes verdict for the correct reason. |
-| 5 | Evidence ledger, reports, and evidence drill-down | Every displayed number reaches its calculation and raw artifact. |
-| 6 | One live provider plus adversarial failure paths | 401, 429, timeout, malformed response, partial run, and PII tests are typed correctly. |
-| 7 | UI polish, CI, recording, public evidence pack | A fresh developer runs the sample in about five minutes and understands the demo in 90 seconds. |
+The current `codex/demo-loop` product closes one deterministic agreement-to-proof
+loop.
 
-The schedule is a build sprint, not a claim of complete subject-matter mastery. Learning gates apply at each milestone.
+### Truth kernel
 
-## Current implementation
+- Immutable typed contracts and nested contract data.
+- RFC 8785 JCS canonicalization and SHA-256 digests.
+- Exact fixture identity and artifact-integrity checks.
+- Deterministic Wilson calculation.
+- Tested `PASS`, `FAIL`, `BLOCKED`, and `NOT_PROVEN` semantics.
 
-- **Brick 1 — truth kernel:** complete locally. A frozen contract, deterministic measurement, evidence artifacts, confidence calculation, and four terminal verdict paths are tested.
-- **Brick 2 — Define:** complete locally. A synthetic transcript produces source-linked drafts, explicit approval/rejection records, an approved contract, and a static review artifact. It intentionally rejects an ambiguous request.
-- **Next — Prove against a real endpoint:** add redaction primitives before any non-synthetic text is persisted, then add an OpenAI-compatible endpoint client with typed failure handling. Fireworks is the leading first provider candidate once Jayesh approves credentials and a spend ceiling.
+### Human-defined browser authoring
 
-## First 20 issues in dependency order
+- Redaction-first capture of pasted synthetic notes.
+- Unresolved source candidates rather than invented executable claims.
+- Human definition and correction of the one supported exact tool-selection
+  proportion rule.
+- Server-generated normalized claim from title, threshold, sample count, and
+  workload label.
+- Named internal approval or rejection; unrelated asks remain context.
 
-1. Define strict domain enums and Pydantic schemas.
-2. Define contract state transitions and invalid-transition tests.
-3. Define canonical JSON serialization and SHA-256 contract digest.
-4. Implement contract freeze and revision behavior.
-5. Create synthetic discovery transcript and 200-case tool fixture.
-6. Define versioned measurement-adapter protocol.
-7. Implement deterministic exact-tool-selection adapter.
-8. Implement Wilson lower-bound calculation and unit tests.
-9. Implement criterion verdict engine and terminal-state tests.
-10. Implement overall must-have verdict aggregation and precedence tests.
-11. Create run manifest and artifact metadata schemas.
-12. Implement run-scoped evidence writer and artifact hashing.
-13. Generate JSON verdicts and static HTML decision packet.
-14. Add deterministic `NOT_PROVEN`, `PASS`, `FAIL`, and `BLOCKED` demo scenarios.
-15. Add secret/PII redaction primitives and positive-control tests.
-16. Add OpenAI-compatible endpoint client and typed 401/429/timeout handling.
-17. Add JSON-schema-validity and token/cost adapters.
-18. Wrap GuideLLM and parse structured benchmark output.
-19. Add FastAPI contract/run endpoints and event stream.
-20. Add React `Define -> Prove -> Decide` sample workflow, CI, recording, and external feedback plan.
+### Customer agreement boundary
 
-## Decisions requiring Jayesh’s approval before public implementation claims
+- One canonical customer-visible projection for both rendering and
+  fingerprinting.
+- Every bound term visible in the customer review.
+- Expiring ID/version/fingerprint-scoped review capabilities.
+- Server-enforced explicit acknowledgement for `CONFIRM`.
+- Immutable idempotent `CONFIRM` and `REQUEST_CHANGES` decisions.
+- Expired pending-link reissue with old-link invalidation.
+- Honest local limitation: typed synthetic identity and in-memory, non-durable
+  links and decisions.
 
-1. The final public name and any trademark/name availability check for “ExitSpec.”
-2. Whether proportion rules use a two-sided 95% Wilson interval, a one-sided bound, or a different approved procedure.
-3. The exact overall-verdict precedence when `BLOCKED` and `NOT_PROVEN` coexist.
-4. The first hosted provider and the spend ceiling for live testing.
-5. The exact PII detector and wording of public privacy claims.
-6. Whether the first public UI remains a compact three-screen demo or expands beyond it.
-7. Whether and when to create a GitHub repository, deploy, or collect external practitioner feedback.
+### Workbench continuity
+
+- Pending-only customer decision polling with safe focus reconciliation.
+- Versioned change requests with a parent reference and fresh confirmation.
+- Explicit freeze of only the currently confirmed version.
+- Exact non-`PASS` reasons and next actions.
+- Rerun of another reference set against the same frozen contract.
+- Deterministic recording mode and `Restart`.
+- One-task desktop workbench without workflow-length body scroll.
+
+### Evidence handoff
+
+- Compact graphite/orange POC Acceptance Evidence Pack.
+- Verdict, reason, exact equation, canonical hash, limitation, next action, and
+  six artifact links in the first viewport.
+- Seven collapsed audit records for source, contract, test, sufficiency,
+  observation, limits, and follow-up.
+- Distinct honest rendering for every verdict.
+- Explicit statement that `PASS` is not authorization.
+
+### Distribution and CI
+
+- Deterministic discovery, review, contract, fixture, and browser data bundled in
+  the wheel.
+- `define`, `demo`, and `serve` resource loading independent of repository paths.
+- Python 3.12 and 3.13 CI.
+- Python tests, browser JavaScript syntax checks, and installed-wheel gates.
+
+### Provider boundary
+
+- Provider-neutral structured request, result, receipt, retry, schema, and budget
+  types.
+- `FireworksProvider` and assisted-authoring composition tested through fake
+  injected transports.
+- No live provider transport, no Fireworks UI integration, and no
+  speech-to-text.
+
+## Next sequence
+
+### 1. Production-grade customer confirmation
+
+Preserve the canonical projection and exact-version gate while adding:
+
+- authenticated reviewer identity;
+- contract-scoped authorization;
+- durable append-only decision and invitation storage;
+- capability revocation and expiry operations;
+- auditable delivery; and
+- retention and deletion policy.
+
+Exit gate: a hosted test proves authorized access, durable idempotent replay,
+revocation, expiry, version invalidation, and complete audit history without
+weakening the current acknowledgement or fingerprint checks.
+
+### 2. Explicit assisted-authoring workflow
+
+Expose the already tested redaction-first assisted-authoring service through an
+opt-in workflow. Keep the deterministic provider-free path as the default and
+make provider use visible before any egress.
+
+```text
+explicit user action
+    -> redaction + fresh egress check
+    -> structured provider candidate
+    -> local schema and source validation
+    -> NEEDS_REVIEW
+    -> named human decision
+```
+
+Exit gate: raw secrets and customer terms never enter provider requests,
+browser state, receipts, errors, or persistence; every provider result stays
+`NEEDS_REVIEW`; provider failure creates no agreement or verdict.
+
+### 3. Prove one live Fireworks boundary
+
+Only after model, credential, synthetic payload, privacy policy, and spend ceiling
+are explicitly approved, add a real replaceable transport for one synthetic
+structured request.
+
+Exit gate: success, authentication failure, rate limit, timeout, malformed
+response, schema failure, retry exhaustion, and budget behavior produce typed,
+sanitized outcomes and content-free receipts. Fireworks still cannot approve,
+freeze, choose policy, or assign a verdict.
+
+### 4. Add one hosted measurement adapter
+
+Run the fixed customer-shaped synthetic fixture against one hosted endpoint while
+keeping the contract and verdict engine unchanged. Record endpoint identity,
+model, environment, fixture hash, adapter version, retries, token usage, latency,
+cost estimate, and evidence hashes.
+
+Exit gate: changing the execution adapter changes measurement facts only. It does
+not change agreement, freeze, or verdict authority.
+
+### 5. Expand the evidence model deliberately
+
+Add, in order:
+
+1. multi-criterion contracts and report aggregation;
+2. schema-validity criteria;
+3. latency and throughput criteria through a mature load tool;
+4. estimated cost criteria with explicit accounting boundaries;
+5. durable metadata and object storage; and
+6. multi-user hosted workflow.
+
+Each new criterion type requires its own schema, adapter contract, evidence
+sufficiency rules, failure semantics, report rendering, and adversarial tests.
+Free-text metric execution is not a shortcut.
+
+### 6. Consider speech-to-text last
+
+Speech-to-text begins only after explicit consent, raw-audio lifecycle, data
+residency, provider disclosure, speaker identity, redaction, retention, deletion,
+and incident-response boundaries are designed and tested.
+
+No current product or roadmap statement should imply that STT already exists.
+
+## Public demo gate
+
+A release candidate is demo-ready when a fresh operator can:
+
+1. start the product in five minutes;
+2. run the exact 75-second primary script from `Restart`;
+3. complete the optional versioned revision script without changing 95%/200;
+4. explain why 197/200 passes the approved Wilson rule;
+5. show all six evidence artifacts;
+6. demonstrate one precise non-`PASS` reason and rerun; and
+7. state the remaining human decision and product limits without notes.
+
+## Decisions requiring explicit approval
+
+1. Public name and trademark availability for “ExitSpec.”
+2. Final statistical policy for each future criterion type.
+3. Multi-criterion overall-verdict precedence.
+4. First live provider, model, synthetic payload, and spend ceiling.
+5. Hosted identity, signature, authorization, retention, and deletion policy.
+6. First hosted measurement target and approved evidence-retention boundary.
+7. Consent and raw-audio policy before any speech-to-text implementation.

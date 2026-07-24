@@ -1,0 +1,17 @@
+{
+  "id": "support-review-v1",
+  "actions": [
+    {
+      "draft_id": "DRAFT-TOOL-SELECT-01",
+      "decision": "APPROVE",
+      "reviewer": "customer_vp_engineering",
+      "rationale": "The customer confirms the 95% threshold, 200-case fixture, and exact-match definition for the first proof point."
+    },
+    {
+      "draft_id": "DRAFT-INSPECTION-01",
+      "decision": "REJECT",
+      "reviewer": "vendor_solutions_engineer",
+      "rationale": "The intent is valuable, but the workflow and measurable acceptance rule remain undefined. Keep it out of this contract until clarified."
+    }
+  ]
+}

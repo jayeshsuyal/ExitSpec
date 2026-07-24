@@ -7,12 +7,12 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import yaml
 
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
-from .contracts import freeze_contract, utc_now, verify_contract_digest
+from .contracts import utc_now, verify_contract_digest
 from .fixtures import fixture_sha256, load_tool_selection_fixture
 from .models import (
     ContractStatus,
@@ -86,15 +86,15 @@ def run_demo(
     loaded_contract = load_contract(contract_path)
     _require_brick_one_contract(loaded_contract)
 
-    if loaded_contract.status == ContractStatus.APPROVED:
-        contract = freeze_contract(loaded_contract, frozen_at=started_at)
-    elif loaded_contract.status == ContractStatus.FROZEN and verify_contract_digest(
-        loaded_contract
+    if (
+        loaded_contract.status == ContractStatus.FROZEN
+        and loaded_contract.confirmation_id is not None
+        and verify_contract_digest(loaded_contract)
     ):
         contract = loaded_contract
     else:
         raise ValueError(
-            "The demo requires an approved contract or a frozen contract with a valid digest."
+            "The demo requires a customer-confirmed frozen contract with a valid digest."
         )
 
     fixture_hash = fixture_sha256(fixture_path)

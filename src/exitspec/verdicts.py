@@ -51,6 +51,14 @@ def evaluate_proportion_criterion(
             ],
         )
 
+    if measurement.sample_count > 0 and not measurement.evidence_refs:
+        return CriterionVerdict(
+            **common,
+            verdict=VerdictStatus.NOT_PROVEN,
+            reason="Measured samples have no evidence references; the claim is not proven.",
+            limitations=["Missing evidence never passes."],
+        )
+
     invalid_reasons: List[str] = []
     if not measurement.metadata_complete:
         invalid_reasons.append("required run metadata is missing")

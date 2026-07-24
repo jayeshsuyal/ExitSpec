@@ -8,7 +8,9 @@ from typing import Optional, Sequence
 
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import run_define_demo
+from .demo_data import support_agent_demo_paths
 from .runner import run_demo
+from .web import serve_demo
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,12 +28,16 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument(
         "--contract",
         type=Path,
-        default=Path("examples/support-agent/contracts/tool-selection-v1.yaml"),
+        default=None,
+        metavar="PATH",
+        help="Frozen contract path (default: bundled support-agent contract).",
     )
     demo.add_argument(
         "--fixture",
         type=Path,
-        default=Path("examples/support-agent/fixtures/tool-selection-200.json"),
+        default=None,
+        metavar="PATH",
+        help="Fixture path (default: bundled 200-case support-agent fixture).",
     )
     demo.add_argument("--output-dir", type=Path, default=Path("runs"))
     demo.add_argument("--run-id", type=str, default=None)
@@ -43,51 +49,87 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument(
         "--discovery",
         type=Path,
-        default=Path("examples/support-agent/authoring/discovery-pack-v1.json"),
+        default=None,
+        metavar="PATH",
+        help="Discovery pack path (default: bundled synthetic discovery pack).",
     )
     define.add_argument(
         "--review-plan",
         type=Path,
-        default=Path("examples/support-agent/authoring/review-plan-v1.json"),
+        default=None,
+        metavar="PATH",
+        help="Review plan path (default: bundled deterministic review plan).",
     )
     define.add_argument(
         "--contract-seed",
         type=Path,
-        default=Path("examples/support-agent/authoring/contract-seed-v1.json"),
+        default=None,
+        metavar="PATH",
+        help="Contract seed path (default: bundled support-agent contract seed).",
     )
     define.add_argument("--output-dir", type=Path, default=Path("runs"))
     define.add_argument("--session-id", type=str, default=None)
+
+    serve = subparsers.add_parser(
+        "serve", help="Run the local synthetic Define → Prove → Decide browser demo."
+    )
+    serve.add_argument("--host", type=str, default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--output-dir", type=Path, default=Path("runs"))
+    serve.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Open the loopback demo URL after the server starts.",
+    )
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "demo":
-        result = run_demo(
-            contract_path=args.contract,
-            fixture_path=args.fixture,
-            scenario=args.scenario,
-            output_root=args.output_dir,
-            run_id=args.run_id,
-        )
+        with support_agent_demo_paths() as demo_paths:
+            result = run_demo(
+                contract_path=args.contract or demo_paths.frozen_contract,
+                fixture_path=args.fixture or demo_paths.fixture,
+                scenario=args.scenario,
+                output_root=args.output_dir,
+                run_id=args.run_id,
+            )
         print("Run: {0}".format(result.output_dir))
         print("Criterion verdict: {0}".format(result.criterion_verdict.verdict.value))
         print("Overall verdict: {0}".format(result.overall_verdict.verdict.value))
         return 0
     if args.command == "define":
-        result = run_define_demo(
-            discovery_path=args.discovery,
-            review_plan_path=args.review_plan,
-            contract_seed_path=args.contract_seed,
-            output_root=args.output_dir,
-            session_id=args.session_id,
-        )
+        with support_agent_demo_paths() as demo_paths:
+            result = run_define_demo(
+                discovery_path=args.discovery or demo_paths.discovery_pack,
+                review_plan_path=args.review_plan or demo_paths.review_plan,
+                contract_seed_path=args.contract_seed or demo_paths.contract_seed,
+                output_root=args.output_dir,
+                session_id=args.session_id,
+            )
         print("Define packet: {0}".format(result.output_dir))
         print(
             "Approved contract: {0} v{1}".format(
                 result.contract.id, result.contract.version
             )
         )
+        return 0
+    if args.command == "serve":
+        server = serve_demo(
+            host=args.host,
+            port=args.port,
+            output_root=args.output_dir,
+            open_browser=args.open_browser,
+        )
+        print("ExitSpec local demo: http://{0}:{1}".format(args.host, server.server_port))
+        print("Synthetic-only. No provider calls. Press Ctrl+C to stop.")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
         return 0
     return 1
 

@@ -1,0 +1,259 @@
+from pathlib import Path
+
+
+STATIC_ROOT = Path(__file__).resolve().parents[1] / "src" / "exitspec" / "static"
+
+
+def test_static_demo_assets_exist_and_describe_the_proof_boundary():
+    index = STATIC_ROOT / "index.html"
+    styles = STATIC_ROOT / "styles.css"
+    script = STATIC_ROOT / "app.js"
+
+    assert index.exists()
+    assert styles.exists()
+    assert script.exists()
+
+    html = index.read_text(encoding="utf-8")
+    css = styles.read_text(encoding="utf-8")
+    javascript = script.read_text(encoding="utf-8")
+    surface_text = f"{html}\n{javascript}"
+
+    for phrase in (
+        "Define",
+        "Prove",
+        "Decide",
+        "Does this rule match the customer’s intent?",
+        "Customer asked",
+        "Proposed acceptance rule",
+        "PASS is not authorization",
+        "Capture notes",
+        "Define acceptance rule",
+        "Create customer review",
+        "Freeze confirmed contract",
+        "Run another reference set",
+        "POC Acceptance Evidence Pack",
+        "Not proven",
+        "Next human action",
+    ):
+        assert phrase in surface_text
+
+    for retired_visible_phrase in (
+        "Customer-ready Proof Pack",
+        "Open full Proof Pack",
+        "Give the customer a proof pack",
+        "Relevant source",
+        "Live state",
+        "AI may draft. Humans approve",
+        "Customer handoff",
+        "Blocked by",
+    ):
+        assert retired_visible_phrase not in html
+
+    for summary_field in (
+        'id="pack-verdict"',
+        'id="pack-why"',
+        'id="pack-limits"',
+        'id="pack-next-step"',
+    ):
+        assert summary_field in html
+
+    for endpoint in (
+        "/api/state",
+        "/api/intake",
+        "/api/draft/define",
+        "/api/review",
+        "/api/customer-draft",
+        "/api/revision/start",
+        "/api/revision/edit",
+        "/api/freeze",
+        "/api/prove",
+        "/api/reset",
+    ):
+        assert endpoint in javascript
+
+    for workflow_element in (
+        'id="current-task-title"',
+        'id="agreement-status"',
+        'id="blocker-list"',
+        'id="next-action-title"',
+        'id="start-revision"',
+        'id="freeze-contract"',
+    ):
+        assert workflow_element in html
+
+    assert 'data-stage="define"' in html
+    assert 'data-stage="prove"' in html
+    assert 'data-stage="decide"' in html
+    assert "class=\"hero\"" not in html
+    assert "Which dataset should test this agreement?" in javascript
+    assert "Choose the evidence outcome" not in html
+    assert "Passing fixture" not in surface_text
+    assert "Borderline fixture" not in surface_text
+    assert "Unavailable fixture" not in surface_text
+    assert "Reference set A" in html
+    assert "Reference set B" in html
+    assert "Reference set C" in html
+    assert "never fabricates a proof result" in javascript
+    assert "state?.proof_pack" in javascript
+    assert '"EVIDENCE / RECORDED"' in javascript
+    assert '"EVIDENCE / VERIFIED"' not in javascript
+    assert 'verdict === "FAIL" || verdict === "BLOCKED"' in javascript
+    assert "function renderCustody(model)" in javascript
+    assert "renderCustody(model)" in javascript
+    for custody_item in (
+        "source",
+        "agreement",
+        "customer",
+        "freeze",
+        "evidence",
+        "decision",
+    ):
+        assert f'id="custody-{custody_item}"' in html
+        assert f'id="custody-{custody_item}-state"' in html
+        assert f'custody-${{entry.id}}' in javascript
+    for custody_class in (
+        "is-pending",
+        "is-current",
+        "is-recorded",
+        "is-warning",
+    ):
+        assert custody_class in javascript
+    assert 'item.setAttribute("aria-current", "step")' in javascript
+    assert 'item.removeAttribute("aria-current")' in javascript
+    assert "Matches intent" in javascript
+    assert "Needs correction" not in javascript
+    assert "Edit rule" in javascript
+    assert "Define acceptance rule" in javascript
+    assert "Keep as context" in javascript
+    assert "NOT A TEST" in javascript
+    assert "CALL 02:14 · CUSTOMER" in javascript
+    assert "Required ≥ ${requiredThreshold}" in javascript
+    assert "Observed ${observedCases}/${sampleCount}" in javascript
+    assert "Wilson lower bound ${percentage(proof.confidence_lower_bound)}" in javascript
+    assert ".verdict-hero .evidence-equation" in css
+    assert "Approve rule" not in javascript
+    assert "Reject request" not in javascript
+    assert "normalized_claim:" not in javascript
+
+
+def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
+    html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+
+    assert "75-second walkthrough" in html
+    assert 'id="recording-restart"' in html
+    assert 'new URLSearchParams(window.location.search).get("mode")' in javascript
+    assert '=== "recording"' in javascript
+    assert 'document.body.dataset.mode = recordingMode ? "recording" : "standard"' in javascript
+    assert '$("#define").scrollIntoView' in javascript
+    assert '$("#decide").scrollIntoView' in javascript
+    assert "body.recording-mode .source-details" in styles
+    assert "body.recording-mode .proof-workspace" in styles
+    assert "body.recording-mode .custody-rail {\n  display: block;" in styles
+    assert '$("#recording-restart").addEventListener("click", resetDemo)' in javascript
+
+
+def test_desktop_workbench_prevents_workflow_length_body_scroll():
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+
+    assert "height: 100dvh" in styles
+    assert "overflow: hidden" in styles
+    assert "grid-template-rows: 54px minmax(0, 1fr)" in styles
+    assert ".proof-workspace" in styles
+    assert ".proof-sheet" in styles
+    assert ".task-main" in styles
+    assert ".task-view" in styles
+    assert "overflow: auto" in styles
+    assert ".source-drawer" in styles
+    assert "position: fixed" in styles
+    assert "@media (max-width: 760px)" in styles
+
+
+def test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette():
+    html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+
+    assert 'class="proof-sheet"' in html
+    assert 'class="custody-ledger"' in html
+    assert 'class="context-rail"' not in html
+    assert '<details class="source-details" id="source-details">' in html
+    assert '<details class="evidence-details">' in html
+    assert 'class="sheet-ledger"' in html
+    assert 'class="source-drawer"' in html
+    assert "product-nav" not in html
+    assert "workspace-label" not in html
+    assert "pendingDrafts[0]" in javascript
+    assert "Requirement ${reviewed + 1}" in javascript
+    assert 'class="candidate decision-card"' in javascript
+    assert "Customer review draft" in javascript
+    assert '"criterion" : "criteria"' in javascript
+    assert '"note" : "notes"' in javascript
+    assert "--canvas: #0b0d0c" in styles
+    assert "--mast: #101310" in styles
+    assert "--sheet: #151815" in styles
+    assert "--raised: #1b1f1b" in styles
+    assert "--primary: #f2f0e8" in styles
+    assert "--secondary: #bec4ba" in styles
+    assert "--muted: #858d84" in styles
+    assert "--rule: #30362f" in styles
+    assert "--strong-rule: #4a5248" in styles
+    assert "--signal: #ff6b3d" in styles
+    assert "--success: #78d6a3" in styles
+
+
+def test_workbench_continuity_contracts_are_explicit_in_the_browser_surface():
+    html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+
+    for control in (
+        'id="poc-label"',
+        'id="open-source-controls"',
+        'id="rerun-proof"',
+        'id="recording-restart"',
+    ):
+        assert control in html
+
+    for polling_contract in (
+        "CUSTOMER_POLL_INTERVAL_MS = 1800",
+        "stateRefreshPromise",
+        "reconcileCustomerPolling",
+        "isAwaitingCustomerDecision",
+        'document.addEventListener("visibilitychange"',
+        'window.addEventListener("pagehide"',
+        "stopCustomerPolling();",
+    ):
+        assert polling_contract in javascript
+
+    for reset_contract in (
+        "function resetLocalWorkbench()",
+        "editingDraftId = null",
+        "rerunMode = false",
+        'selectScenario("pass")',
+        "closeSourceDrawer();",
+    ):
+        assert reset_contract in javascript
+
+    for rerun_contract in (
+        "function beginRerun()",
+        "Run another reference set",
+        "Run selected reference set",
+        "criterion_reason",
+        "await refreshState();",
+    ):
+        assert rerun_contract in javascript
+
+    for authoring_contract in (
+        "supported_rule_template",
+        "Exact expected support-tool selection",
+        "Human-defined rule",
+        "The customer-facing sentence is generated from these fields",
+        "This demo already has its one executable rule",
+    ):
+        assert authoring_contract in javascript
+
+    assert ".rule-editor__fields" in styles
+    assert ".supported-rule-ledger" in styles
+    assert ".recording-restart" in styles

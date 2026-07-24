@@ -9,11 +9,12 @@ from exitspec.verdicts import aggregate_overall_verdict, evaluate_proportion_cri
 
 
 def measurement(criterion_id, samples, successes, **kwargs):
+    evidence_refs = kwargs.pop("evidence_refs", ["evidence-" + criterion_id])
     return ProportionMeasurement(
         criterion_id=criterion_id,
         sample_count=samples,
         success_count=successes,
-        evidence_refs=["evidence-" + criterion_id],
+        evidence_refs=evidence_refs,
         **kwargs,
     )
 
@@ -36,6 +37,22 @@ def test_197_of_200_passes_wilson_rule(approved_contract):
 
     assert result.verdict == VerdictStatus.PASS
     assert result.confidence_lower_bound == pytest.approx(0.9568342712)
+
+
+def test_197_of_200_without_evidence_is_not_proven(approved_contract):
+    criterion = approved_contract.criteria[0]
+    result = evaluate_proportion_criterion(
+        criterion,
+        measurement(criterion.id, 200, 197, evidence_refs=[]),
+    )
+    overall = aggregate_overall_verdict([criterion], [result])
+
+    assert result.verdict == VerdictStatus.NOT_PROVEN
+    assert result.reason == (
+        "Measured samples have no evidence references; the claim is not proven."
+    )
+    assert result.limitations == ["Missing evidence never passes."]
+    assert overall.verdict == VerdictStatus.NOT_PROVEN
 
 
 def test_196_of_200_is_statistically_not_proven(approved_contract):
@@ -65,6 +82,7 @@ def test_external_block_is_not_a_customer_failure(approved_contract):
             criterion.id,
             0,
             0,
+            evidence_refs=[],
             external_blocked_reason="Credentials unavailable.",
         ),
     )
@@ -76,7 +94,13 @@ def test_internal_adapter_error_is_not_proven(approved_contract):
     criterion = approved_contract.criteria[0]
     result = evaluate_proportion_criterion(
         criterion,
-        measurement(criterion.id, 0, 0, internal_error="Parser crashed."),
+        measurement(
+            criterion.id,
+            0,
+            0,
+            evidence_refs=[],
+            internal_error="Parser crashed.",
+        ),
     )
 
     assert result.verdict == VerdictStatus.NOT_PROVEN

@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="ExitSpec turns customer POC requirements into a confirmed contract and inspectable acceptance evidence."
+    />
+    <title>ExitSpec — POC workbench</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-mode="standard">
+    <a class="skip-link" href="#current-task">Skip to the current task</a>
+
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="/app" aria-label="ExitSpec workbench">
+          <span class="brand-name">ExitSpec</span>
+        </a>
+
+        <div class="poc-identity">
+          <span>POC</span>
+          <strong id="poc-label">Loading current POC…</strong>
+        </div>
+
+        <ol class="journey-steps sr-only" aria-label="POC journey">
+          <li class="journey-step is-current" id="step-define">
+            <span>1</span><strong>Define</strong>
+          </li>
+          <li class="journey-step" id="step-prove">
+            <span>2</span><strong>Prove</strong>
+          </li>
+          <li class="journey-step" id="step-decide">
+            <span>3</span><strong>Decide</strong>
+          </li>
+        </ol>
+
+        <div class="header-meta">
+          <span class="mode-chip" id="mode-chip" aria-live="polite">Loading demo…</span>
+        </div>
+      </header>
+
+      <aside class="recording-cue" id="recording-cue" aria-label="Recording walkthrough" hidden>
+        <div>
+          <strong>75-second walkthrough</strong>
+          <span>Define → Prove → Decide</span>
+        </div>
+        <button class="recording-restart" id="recording-restart" type="button">Restart</button>
+      </aside>
+
+      <main class="workspace" id="app-main">
+        <div class="proof-workspace">
+          <nav class="custody-rail" aria-label="POC chain of custody">
+            <ol class="custody-ledger">
+              <li id="custody-source">
+                <span class="custody-number" aria-hidden="true">01</span>
+                <span class="custody-label">Source</span>
+                <span class="custody-state" id="custody-source-state">Captured</span>
+              </li>
+              <li id="custody-agreement">
+                <span class="custody-number" aria-hidden="true">02</span>
+                <span class="custody-label">Agreement</span>
+                <span class="custody-state" id="custody-agreement-state">In review</span>
+              </li>
+              <li id="custody-customer">
+                <span class="custody-number" aria-hidden="true">03</span>
+                <span class="custody-label">Customer</span>
+                <span class="custody-state" id="custody-customer-state">Pending</span>
+              </li>
+              <li id="custody-freeze">
+                <span class="custody-number" aria-hidden="true">04</span>
+                <span class="custody-label">Freeze</span>
+                <span class="custody-state" id="custody-freeze-state">Pending</span>
+              </li>
+              <li id="custody-evidence">
+                <span class="custody-number" aria-hidden="true">05</span>
+                <span class="custody-label">Evidence</span>
+                <span class="custody-state" id="custody-evidence-state">Not run</span>
+              </li>
+              <li id="custody-decision">
+                <span class="custody-number" aria-hidden="true">06</span>
+                <span class="custody-label">Handoff</span>
+                <span class="custody-state" id="custody-decision-state">Pending</span>
+              </li>
+            </ol>
+          </nav>
+
+          <section class="proof-sheet" id="current-task" aria-labelledby="current-task-title">
+            <header class="task-heading">
+              <div>
+                <p class="eyebrow" id="workspace-eyebrow">Define · Requirement 1 of 2</p>
+                <h1 id="current-task-title">Does this rule match the customer’s intent?</h1>
+                <p id="current-task-copy">Compare the customer’s words with the measurable rule below.</p>
+              </div>
+              <div class="sheet-state">
+                <span class="sr-only" id="review-count" aria-live="polite">0 of 2 reviewed</span>
+                <dl class="sheet-ledger" aria-label="POC status">
+                  <div>
+                    <dt>Agreement</dt>
+                    <dd id="agreement-status">Draft</dd>
+                  </div>
+                  <div>
+                    <dt>Evidence</dt>
+                    <dd id="evidence-status">Not run</dd>
+                  </div>
+                  <div class="boundary-state">
+                    <dt>Boundary</dt>
+                    <dd>PASS is not authorization</dd>
+                  </div>
+                </dl>
+                <aside class="sr-only" aria-labelledby="blocker-title">
+                  <h2 id="blocker-title">Current blocker</h2>
+                  <ul id="blocker-list">
+                    <li>Two requirements need review.</li>
+                  </ul>
+                </aside>
+              </div>
+            </header>
+
+            <div class="task-main">
+              <section class="task-view is-current" id="define" data-stage="define" aria-label="Define the POC agreement">
+                <aside class="revision-request" id="revision-request-card" hidden>
+                  <span>Customer requested a change</span>
+                  <blockquote id="revision-request-text"></blockquote>
+                </aside>
+                <div class="candidate-list" id="candidate-list" aria-live="polite"></div>
+                <p class="inline-status" id="intake-status" aria-live="polite"></p>
+              </section>
+
+              <section class="task-view" id="prove" data-stage="prove" aria-label="Prove the frozen agreement" hidden>
+                <article class="run-card">
+                  <header class="card-heading">
+                    <div>
+                      <p class="eyebrow">Frozen agreement</p>
+                      <h2>Exact support-tool selection</h2>
+                    </div>
+                    <span class="contract-chip" id="contract-chip">Awaiting agreement</span>
+                  </header>
+
+                  <fieldset class="scenario-options" aria-label="Demo proof dataset">
+                    <legend class="sr-only">Choose a fixed evaluation dataset</legend>
+                    <label class="scenario-option">
+                      <input type="radio" name="scenario" value="pass" checked />
+                      <span><strong>Reference set A</strong><small>Approved fixed support cases</small></span>
+                    </label>
+                    <label class="scenario-option">
+                      <input type="radio" name="scenario" value="inconclusive" />
+                      <span><strong>Reference set B</strong><small>Approved fixed support cases</small></span>
+                    </label>
+                    <label class="scenario-option">
+                      <input type="radio" name="scenario" value="blocked" />
+                      <span><strong>Reference set C</strong><small>Approved fixed support cases</small></span>
+                    </label>
+                  </fieldset>
+                </article>
+
+                <article class="evidence-card" aria-labelledby="evidence-title" hidden>
+                  <header class="card-heading">
+                    <div>
+                      <p class="eyebrow">Result</p>
+                      <h2 id="evidence-title">Acceptance evidence</h2>
+                    </div>
+                    <span class="verdict-badge" id="proof-verdict">AWAITING</span>
+                  </header>
+                  <div class="metric-row" id="metric-row"></div>
+                  <p class="evidence-explanation" id="evidence-explanation"></p>
+                  <div class="next-human-action">
+                    <span>Next human action</span>
+                    <p id="evidence-footnote"></p>
+                  </div>
+                </article>
+              </section>
+
+              <section class="task-view" id="decide" data-stage="decide" aria-label="Decide from the evidence" hidden>
+                <article
+                  class="proof-pack"
+                  aria-labelledby="acceptance-pack-title"
+                  aria-label="Customer-facing acceptance artifact"
+                  data-legacy-artifact-name="Proof Pack"
+                >
+                  <header class="proof-pack-header">
+                    <div>
+                      <span class="sr-only">Turn POC claims into proof.</span>
+                      <p class="eyebrow">Recorded result</p>
+                      <h2 id="acceptance-pack-title">Acceptance evidence</h2>
+                      <p id="proof-pack-title">Support-agent tool-selection POC</p>
+                    </div>
+                    <span class="pack-id" id="pack-id">LOCAL / SYNTHETIC</span>
+                  </header>
+
+                  <div class="verdict-hero">
+                    <span>Verdict</span>
+                    <strong class="pack-verdict" id="pack-verdict">AWAITING</strong>
+                    <p id="pack-why">No evidence run exists yet.</p>
+                  </div>
+
+                  <dl class="decision-list" aria-label="POC acceptance decision summary">
+                    <div>
+                      <dt>Not proven</dt>
+                      <dd id="pack-limits">No broader production claim is made.</dd>
+                    </div>
+                    <div>
+                      <dt>Next human action</dt>
+                      <dd id="pack-next-step"></dd>
+                    </div>
+                  </dl>
+
+                  <details class="evidence-details">
+                    <summary>Inspect evidence details</summary>
+                    <div class="evidence-detail-grid">
+                      <div>
+                        <span>Customer source</span>
+                        <blockquote id="pack-source"></blockquote>
+                      </div>
+                      <div>
+                        <span>Approved criterion</span>
+                        <p id="pack-criterion"></p>
+                      </div>
+                      <div>
+                        <span>Frozen contract</span>
+                        <code id="pack-contract"></code>
+                      </div>
+                      <div>
+                        <span>Evidence readout</span>
+                        <p id="pack-result"></p>
+                      </div>
+                    </div>
+                  </details>
+                </article>
+              </section>
+
+              <footer class="task-footer decision-dock">
+                <details class="source-details" id="source-details">
+                  <summary>Meeting source</summary>
+                  <div class="source-drawer">
+                    <p class="eyebrow">Source and demo controls</p>
+                    <blockquote class="source-quote" id="source-title">
+                      “At least 95% of 200 cases must choose the exact tool.”
+                    </blockquote>
+                    <div class="source-card">
+                      <strong id="transcript-title">Synthetic discovery call</strong>
+                      <ol class="transcript" id="transcript-lines" aria-label="Synthetic transcript lines"></ol>
+                    </div>
+                    <div class="intake-drawer">
+                      <label for="meeting-notes">Replace with meeting notes</label>
+                      <textarea id="meeting-notes" rows="4" spellcheck="false">Customer: Our support agent must select the correct tool at least 95% of the time. We want to inspect any mistakes before we scale traffic.</textarea>
+                      <div class="button-row">
+                        <button class="button secondary" id="load-transcript" type="button">Capture notes</button>
+                        <button class="text-action" id="reset-demo" type="button">Restore sample</button>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="primary-actions" aria-label="Current action">
+                  <div class="sr-only">
+                    <h2 id="next-action-title">Review requirement</h2>
+                    <p id="next-action-label">Take the visible action.</p>
+                  </div>
+                  <button class="button primary" id="create-customer-draft" type="button" hidden>
+                    Create customer review
+                  </button>
+                  <button class="button primary" id="open-source-controls" type="button" hidden>
+                    Capture another requirement
+                  </button>
+                  <a class="button primary button-link" id="customer-draft-link" href="#" target="_blank" rel="noopener" hidden>
+                    Open customer review
+                  </a>
+                  <button class="button primary" id="start-revision" type="button" hidden>
+                    Start revision
+                  </button>
+                  <button class="button primary" id="freeze-contract" type="button" hidden>
+                    Freeze confirmed contract
+                  </button>
+                  <button class="button primary" id="run-proof" type="button" hidden>
+                    Run this POC
+                  </button>
+                  <button class="button secondary" id="rerun-proof" type="button" hidden>
+                    Run another reference set
+                  </button>
+                  <a class="button primary button-link" id="proof-pack-link" href="#" target="_blank" rel="noopener" hidden>
+                    Open evidence pack
+                  </a>
+                  <p class="inline-status" id="prove-status" aria-live="polite"></p>
+                </div>
+              </footer>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
