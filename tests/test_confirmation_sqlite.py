@@ -602,16 +602,115 @@ def test_returned_connection_cannot_mutate_migration_history(
             "schema_migrations_block_update",
             "schema_migrations_block_delete",
         }
-        with pytest.raises(sqlite3.OperationalError):
+        with pytest.raises(AttributeError):
             connection.set_authorizer(None)
-        with pytest.raises(sqlite3.OperationalError):
+        with pytest.raises(AttributeError):
             connection.create_function(
                 "exitspec_migration_insert_allowed",
                 0,
                 lambda: 1,
             )
+        cursor = connection.execute("SELECT 1")
+        assert cursor.fetchone()[0] == 1
+        with pytest.raises(AttributeError):
+            _ = cursor.connection
     finally:
         connection.close()
+
+
+def test_guarded_blob_access_is_read_only(
+    tmp_path: Path,
+) -> None:
+    connection = open_confirmation_database(tmp_path / "confirmation.db")
+    item = migration()
+    apply_migrations(connection, (item,), now=NOW)
+    original_history = read_applied_migrations(connection)
+
+    try:
+        with connection.blobopen(
+            "schema_migrations",
+            "checksum",
+            1,
+            readonly=True,
+        ) as history_blob:
+            assert history_blob.read() == item.checksum.encode("utf-8")
+            history_blob.seek(0)
+            with pytest.raises(sqlite3.OperationalError):
+                history_blob.write(b"0")
+        with pytest.raises(sqlite3.OperationalError):
+            connection.blobopen(
+                "schema_migrations",
+                "checksum",
+                1,
+            )
+
+        connection.execute(
+            """
+            CREATE TABLE blob_fixture (
+                id INTEGER PRIMARY KEY,
+                payload BLOB NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO blob_fixture (payload) VALUES (?)",
+            (b"read-only",),
+        )
+        with connection.blobopen(
+            "blob_fixture",
+            "payload",
+            1,
+            readonly=True,
+        ) as payload_blob:
+            assert payload_blob.read() == b"read-only"
+        with pytest.raises(sqlite3.OperationalError):
+            connection.blobopen(
+                "blob_fixture",
+                "payload",
+                1,
+                readonly=False,
+            )
+
+        assert read_applied_migrations(connection) == original_history
+        assert connection.execute(
+            "SELECT payload FROM blob_fixture"
+        ).fetchone()[0] == b"read-only"
+    finally:
+        connection.close()
+
+
+def test_guarded_connection_cannot_be_a_backup_endpoint(
+    tmp_path: Path,
+) -> None:
+    guarded = open_confirmation_database(tmp_path / "guarded.db")
+    item = migration()
+    apply_migrations(guarded, (item,), now=NOW)
+    original_history = read_applied_migrations(guarded)
+
+    raw_source = sqlite3.connect(tmp_path / "raw-source.db")
+    raw_target = sqlite3.connect(tmp_path / "raw-target.db")
+    raw_source.execute("CREATE TABLE forged_state (value TEXT)")
+    raw_source.execute(
+        "INSERT INTO forged_state (value) VALUES ('forged')"
+    )
+    raw_source.commit()
+
+    try:
+        assert not isinstance(guarded, sqlite3.Connection)
+        with pytest.raises(AttributeError):
+            guarded.backup(raw_target)
+        with pytest.raises(TypeError):
+            raw_source.backup(guarded)
+
+        assert read_applied_migrations(guarded) == original_history
+        assert table_names(guarded) == {
+            "schema_migrations",
+            "proof_runs",
+        }
+    finally:
+        raw_source.close()
+        raw_target.close()
+        guarded.close()
 
 
 def test_on_disk_triggers_reject_raw_insert_update_and_delete(

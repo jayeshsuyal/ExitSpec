@@ -353,6 +353,118 @@ class _ConfirmationConnection(sqlite3.Connection):
         )
 
 
+class _GuardedCursor:
+    """Cursor facade that never exposes its owning SQLite connection."""
+
+    __slots__ = ("__cursor",)
+
+    def __init__(
+        self,
+        cursor: sqlite3.Cursor,
+        authority: object,
+    ) -> None:
+        if authority is not _INTERNAL_AUTHORITY:
+            raise sqlite3.OperationalError("not authorized")
+        self.__cursor = cursor
+
+    def fetchone(self) -> sqlite3.Row | None:
+        return self.__cursor.fetchone()
+
+    def fetchall(self) -> list[sqlite3.Row]:
+        return self.__cursor.fetchall()
+
+    def fetchmany(self, size: int | None = None) -> list[sqlite3.Row]:
+        if size is None:
+            return self.__cursor.fetchmany()
+        return self.__cursor.fetchmany(size)
+
+    def close(self) -> None:
+        self.__cursor.close()
+
+    def __iter__(self) -> _GuardedCursor:
+        return self
+
+    def __next__(self) -> sqlite3.Row:
+        return next(self.__cursor)
+
+
+class _GuardedConnection:
+    """Narrow facade that cannot serve as a SQLite backup destination."""
+
+    __slots__ = ("__connection", "__guard_token")
+
+    def __init__(
+        self,
+        connection: _ConfirmationConnection,
+        authority: object,
+    ) -> None:
+        if (
+            authority is not _INTERNAL_AUTHORITY
+            or type(connection) is not _ConfirmationConnection
+            or not connection._is_guarded()
+        ):
+            raise sqlite3.OperationalError("not authorized")
+        self.__connection = connection
+        self.__guard_token = _CONNECTION_GUARD
+
+    def _unwrap(self, authority: object) -> _ConfirmationConnection:
+        if (
+            authority is not _INTERNAL_AUTHORITY
+            or self.__guard_token is not _CONNECTION_GUARD
+        ):
+            raise sqlite3.OperationalError("not authorized")
+        return self.__connection
+
+    def _is_guarded(self) -> bool:
+        return self.__guard_token is _CONNECTION_GUARD
+
+    def execute(
+        self,
+        sql: str,
+        parameters: object = (),
+    ) -> _GuardedCursor:
+        cursor = self.__connection.execute(sql, parameters)
+        return _GuardedCursor(cursor, _INTERNAL_AUTHORITY)
+
+    def blobopen(
+        self,
+        table: str,
+        column: str,
+        row: int,
+        /,
+        *,
+        readonly: bool = False,
+        name: str = "main",
+    ) -> sqlite3.Blob:
+        if readonly is not True:
+            raise sqlite3.OperationalError("not authorized")
+        return self.__connection.blobopen(
+            table,
+            column,
+            row,
+            readonly=True,
+            name=name,
+        )
+
+    def rollback(self) -> None:
+        self.__connection.rollback()
+
+    def close(self) -> None:
+        self.__connection.close()
+
+    @property
+    def in_transaction(self) -> bool:
+        return self.__connection.in_transaction
+
+    @property
+    def isolation_level(self) -> str | None:
+        return self.__connection.isolation_level
+
+    @property
+    def row_factory(self) -> object:
+        return self.__connection.row_factory
+
+
 @dataclass(frozen=True, slots=True)
 class Migration:
     """One immutable forward migration with a derived SQL checksum."""
@@ -425,7 +537,7 @@ def open_confirmation_database(
     path: str | os.PathLike[str],
     *,
     busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS,
-) -> sqlite3.Connection:
+) -> _GuardedConnection:
     """Open and harden one file-backed confirmation database.
 
     The parent directory must already exist and is a trusted custody boundary.
@@ -488,7 +600,10 @@ def open_confirmation_database(
         _secure_existing_sidecars(database_path)
         if not _database_identity_matches(database_path, opened_file):
             raise OSError
-        return connection
+        return _GuardedConnection(
+            connection,
+            _INTERNAL_AUTHORITY,
+        )
     except LedgerUnavailable:
         if connection is not None:
             try:
@@ -511,7 +626,7 @@ def open_confirmation_database(
 
 
 def apply_migrations(
-    connection: sqlite3.Connection,
+    connection: object,
     migrations: Iterable[Migration],
     *,
     now: datetime,
@@ -583,7 +698,7 @@ def apply_migrations(
 
 
 def read_applied_migrations(
-    connection: sqlite3.Connection,
+    connection: object,
 ) -> tuple[AppliedMigration, ...]:
     """Return the ordered infrastructure migration history."""
 
@@ -867,14 +982,17 @@ def _validate_bootstrap_shape(
 
 
 def _require_guarded_connection(
-    connection: sqlite3.Connection,
+    connection: object,
 ) -> _ConfirmationConnection:
     if (
-        type(connection) is not _ConfirmationConnection
+        type(connection) is not _GuardedConnection
         or not connection._is_guarded()
     ):
         raise LedgerUnavailable()
-    return connection
+    try:
+        return connection._unwrap(_INTERNAL_AUTHORITY)
+    except sqlite3.Error:
+        raise LedgerUnavailable() from None
 
 
 def _validated_plan(
