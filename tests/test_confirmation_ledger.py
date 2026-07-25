@@ -12,6 +12,7 @@ from exitspec.confirmation_ledger import (
     GuardedConnection,
     LedgerUnavailable,
     bootstrap_confirmation_ledger,
+    open_existing_confirmation_ledger,
 )
 from exitspec.confirmation_schema import (
     CONFIRMATION_LEDGER_MIGRATION,
@@ -20,6 +21,7 @@ from exitspec.confirmation_schema import (
 from exitspec.confirmation_sqlite import (
     AppliedMigration,
     MigrationFailed,
+    open_confirmation_database,
     read_applied_migrations,
 )
 
@@ -97,6 +99,59 @@ def test_bootstrap_reopen_is_idempotent_and_preserves_original_history(
         validate_confirmation_schema(reopened)
     finally:
         reopened.close()
+
+
+def test_existing_only_open_accepts_exact_current_ledger(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    initialized = bootstrap_confirmation_ledger(
+        database_path,
+        migration_time=MIGRATION_TIME,
+    )
+    expected_history = read_applied_migrations(initialized)
+    initialized.close()
+
+    reopened = open_existing_confirmation_ledger(database_path)
+    try:
+        assert reopened.in_transaction is False
+        assert read_applied_migrations(reopened) == expected_history
+        validate_confirmation_schema(reopened)
+    finally:
+        reopened.close()
+
+
+def test_existing_only_open_rejects_unmigrated_database_without_migrating(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    infrastructure_only = open_confirmation_database(database_path)
+    assert read_applied_migrations(infrastructure_only) == ()
+    infrastructure_only.close()
+
+    with pytest.raises(
+        LedgerUnavailable,
+        match="^Confirmation ledger is unavailable\\.$",
+    ) as error:
+        open_existing_confirmation_ledger(database_path)
+
+    assert type(error.value) is LedgerUnavailable
+    assert error.value.__cause__ is None
+    raw = sqlite3.connect(database_path)
+    try:
+        assert raw.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            ORDER BY name
+            """
+        ).fetchall() == [("schema_migrations",)]
+        assert raw.execute(
+            "SELECT version FROM schema_migrations"
+        ).fetchall() == []
+    finally:
+        raw.close()
 
 
 @pytest.mark.parametrize(
@@ -314,6 +369,60 @@ def test_unexpected_programming_error_propagates_after_connection_closes(
             tmp_path / "confirmation.db",
             migration_time=MIGRATION_TIME,
         )
+
+    assert len(opened) == 1
+    _assert_connection_closed(opened[0])
+
+
+def test_existing_open_disposes_connection_when_cleanup_rollback_defects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    initialized = bootstrap_confirmation_ledger(
+        database_path,
+        migration_time=MIGRATION_TIME,
+    )
+    guarded_type = type(initialized)
+    initialized.close()
+
+    opened: list[Any] = []
+    original_open = (
+        confirmation_ledger_module._open_existing_confirmation_database
+    )
+
+    def tracking_open(*args: object, **kwargs: object) -> Any:
+        connection = original_open(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    def fail_validation(_connection: object) -> None:
+        raise LedgerUnavailable()
+
+    def fail_rollback(_connection: object) -> None:
+        raise RuntimeError("cleanup rollback programming defect")
+
+    monkeypatch.setattr(
+        confirmation_ledger_module,
+        "_open_existing_confirmation_database",
+        tracking_open,
+    )
+    monkeypatch.setattr(
+        confirmation_ledger_module,
+        "_validate_confirmation_schema",
+        fail_validation,
+    )
+    monkeypatch.setattr(
+        guarded_type,
+        "rollback",
+        fail_rollback,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="^cleanup rollback programming defect$",
+    ):
+        open_existing_confirmation_ledger(database_path)
 
     assert len(opened) == 1
     _assert_connection_closed(opened[0])
