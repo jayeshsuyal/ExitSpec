@@ -240,6 +240,10 @@ class LedgerUnavailable(ConfirmationSQLiteError):
         super().__init__("Confirmation ledger is unavailable.")
 
 
+class _BootstrapShapeCorruption(RuntimeError):
+    """The persisted migration-bootstrap schema is not exact."""
+
+
 @dataclass(frozen=True, slots=True)
 class _OpenedDatabaseFile:
     descriptor: int
@@ -496,7 +500,17 @@ class _GuardedConnection:
         return self.__connection
 
     def _is_guarded(self) -> bool:
-        return self.__guard_token is _CONNECTION_GUARD
+        try:
+            return self.__guard_token is _CONNECTION_GUARD
+        except AttributeError:
+            return False
+
+    def _dispose(self, authority: object) -> None:
+        """Close the private connection even if the facade guard was damaged."""
+
+        if authority is not _INTERNAL_AUTHORITY:
+            raise sqlite3.OperationalError("not authorized")
+        self.__connection.close()
 
     def execute(
         self,
@@ -630,6 +644,7 @@ def open_confirmation_database(
     opened_file = _open_database_file(database_path)
 
     connection: _ConfirmationConnection | None = None
+    ready = False
     try:
         _secure_existing_sidecars(database_path)
         connection = sqlite3.connect(
@@ -680,29 +695,113 @@ def open_confirmation_database(
         _secure_existing_sidecars(database_path)
         if not _database_identity_matches(database_path, opened_file):
             raise OSError
-        return _GuardedConnection(
+        guarded_connection = _GuardedConnection(
             connection,
             _INTERNAL_AUTHORITY,
         )
+        ready = True
+        return guarded_connection
     except LedgerUnavailable:
-        if connection is not None:
-            try:
-                connection.close()
-            except sqlite3.Error:
-                pass
         raise
-    except (OSError, sqlite3.Error, TypeError, ValueError):
-        if connection is not None:
-            try:
-                connection.close()
-            except sqlite3.Error:
-                pass
+    except (_BootstrapShapeCorruption, OSError, sqlite3.Error):
         raise LedgerUnavailable() from None
     finally:
+        if connection is not None and not ready:
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
+        _close_descriptor_quietly(opened_file.descriptor)
+
+
+def open_existing_confirmation_database(
+    path: str | os.PathLike[str],
+    *,
+    busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS,
+) -> _GuardedConnection:
+    """Open and harden an existing initialized database without replacing it.
+
+    This path never creates the primary database, bootstraps migration
+    history, or applies migrations. It verifies that the existing database is
+    the file opened by the custody check, is already in WAL mode, and has the
+    exact protected migration-history shape before returning.
+    """
+
+    _validate_busy_timeout(busy_timeout_ms)
+    database_path = _validate_database_path(path)
+    opened_file = _open_existing_database_file(database_path)
+
+    connection: _ConfirmationConnection | None = None
+    ready = False
+    try:
+        _secure_existing_sidecars(database_path)
+        connection = sqlite3.connect(
+            database_path.absolute().as_uri() + "?mode=rw",
+            timeout=busy_timeout_ms / 1_000,
+            isolation_level=None,
+            uri=True,
+            factory=_ConfirmationConnection,
+            cached_statements=0,
+        )
+        if not isinstance(connection, _ConfirmationConnection):
+            raise sqlite3.OperationalError
+        if not _database_identity_matches(database_path, opened_file):
+            raise OSError
+        connection.row_factory = sqlite3.Row
+        connection._initialize_security(_INTERNAL_AUTHORITY)
+        connection._set_mode("configuration", _INTERNAL_AUTHORITY)
         try:
-            os.close(opened_file.descriptor)
-        except OSError:
-            pass
+            connection.execute(
+                "PRAGMA busy_timeout = {0}".format(busy_timeout_ms)
+            )
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA synchronous = FULL")
+        finally:
+            connection._set_mode("normal", _INTERNAL_AUTHORITY)
+
+        if (
+            str(
+                connection.execute(
+                    "PRAGMA journal_mode"
+                ).fetchone()[0]
+            ).lower()
+            != "wal"
+            or connection.execute(
+                "PRAGMA foreign_keys"
+            ).fetchone()[0]
+            != 1
+            or connection.execute(
+                "PRAGMA synchronous"
+            ).fetchone()[0]
+            != 2
+            or connection.execute(
+                "PRAGMA busy_timeout"
+            ).fetchone()[0]
+            != busy_timeout_ms
+        ):
+            raise sqlite3.OperationalError
+
+        _validate_bootstrap_shape(connection)
+        _secure_existing_sidecars(database_path)
+        if not _database_identity_matches(database_path, opened_file):
+            raise OSError
+        guarded_connection = _GuardedConnection(
+            connection,
+            _INTERNAL_AUTHORITY,
+        )
+        ready = True
+        return guarded_connection
+    except LedgerUnavailable:
+        raise
+    except (_BootstrapShapeCorruption, OSError, sqlite3.Error):
+        raise LedgerUnavailable() from None
+    finally:
+        if connection is not None and not ready:
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
+        _close_descriptor_quietly(opened_file.descriptor)
 
 
 def apply_migrations(
@@ -843,6 +942,7 @@ def _open_database_file(database_path: Path) -> _OpenedDatabaseFile:
     except OSError:
         raise LedgerUnavailable() from None
 
+    transferred = False
     try:
         opened_status = os.fstat(descriptor)
         if not stat.S_ISREG(opened_status.st_mode):
@@ -857,17 +957,68 @@ def _open_database_file(database_path: Path) -> _OpenedDatabaseFile:
             )
         ):
             raise OSError
-        return _OpenedDatabaseFile(
+        opened_file = _OpenedDatabaseFile(
             descriptor=descriptor,
             device=secured_status.st_dev,
             inode=secured_status.st_ino,
         )
+        transferred = True
+        return opened_file
     except OSError:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
         raise LedgerUnavailable() from None
+    finally:
+        if not transferred:
+            _close_descriptor_quietly(descriptor)
+
+
+def _open_existing_database_file(
+    database_path: Path,
+) -> _OpenedDatabaseFile:
+    flags = os.O_RDWR
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    try:
+        descriptor = os.open(database_path, flags)
+    except OSError:
+        raise LedgerUnavailable() from None
+
+    transferred = False
+    try:
+        opened_status = os.fstat(descriptor)
+        if not stat.S_ISREG(opened_status.st_mode):
+            raise OSError
+        _enforce_owner_only(descriptor)
+        secured_status = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(secured_status.st_mode)
+            or (
+                os.name == "posix"
+                and stat.S_IMODE(secured_status.st_mode) != 0o600
+            )
+        ):
+            raise OSError
+        opened_file = _OpenedDatabaseFile(
+            descriptor=descriptor,
+            device=secured_status.st_dev,
+            inode=secured_status.st_ino,
+        )
+        transferred = True
+        return opened_file
+    except OSError:
+        raise LedgerUnavailable() from None
+    finally:
+        if not transferred:
+            _close_descriptor_quietly(descriptor)
+
+
+def _close_descriptor_quietly(descriptor: int) -> None:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
 
 
 def _enforce_owner_only(descriptor: int) -> None:
@@ -949,10 +1100,7 @@ def _secure_existing_sidecar(sidecar_path: Path) -> None:
     except OSError:
         raise LedgerUnavailable() from None
     finally:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
+        _close_descriptor_quietly(descriptor)
 
 
 def _bootstrap_schema_migrations(
@@ -975,9 +1123,12 @@ def _bootstrap_schema_migrations(
                 connection.execute(trigger_sql)
         _validate_bootstrap_shape(connection)
         connection.execute("COMMIT")
-    except (sqlite3.Error, TypeError, ValueError):
+    except (_BootstrapShapeCorruption, sqlite3.Error):
         _rollback_quietly(connection)
         raise LedgerUnavailable() from None
+    except Exception:
+        _rollback_quietly(connection)
+        raise
     finally:
         connection._set_mode("normal", _INTERNAL_AUTHORITY)
 
@@ -1000,7 +1151,7 @@ def _validate_bootstrap_shape(
         or primary_objects[0]["tbl_name"] != _HISTORY_TABLE
         or primary_objects[0]["sql"] != _SCHEMA_MIGRATIONS_SQL
     ):
-        raise ValueError
+        raise _BootstrapShapeCorruption
 
     columns = connection.execute(
         "PRAGMA main.table_xinfo(schema_migrations)"
@@ -1017,7 +1168,7 @@ def _validate_bootstrap_shape(
         for row in columns
     )
     if actual_columns != _EXPECTED_HISTORY_COLUMNS:
-        raise ValueError
+        raise _BootstrapShapeCorruption
 
     related_objects = connection.execute(
         """
@@ -1038,7 +1189,7 @@ def _validate_bootstrap_shape(
         if row["type"] == "trigger"
     }
     if indexes or triggers != _SCHEMA_MIGRATIONS_TRIGGER_SQL:
-        raise ValueError
+        raise _BootstrapShapeCorruption
 
     all_trigger_rows = connection.execute(
         """
@@ -1058,17 +1209,40 @@ def _validate_bootstrap_shape(
                 flags=re.IGNORECASE,
             )
         ):
-            raise ValueError
+            raise _BootstrapShapeCorruption
 
 
-def _require_guarded_connection(
-    connection: object,
-) -> _ConfirmationConnection:
+def validate_guarded_connection(connection: object) -> None:
+    """Accept only the module's nominal guarded facade without unwrapping it."""
+
     if (
         type(connection) is not _GuardedConnection
         or not connection._is_guarded()
     ):
         raise LedgerUnavailable()
+
+
+def _dispose_guarded_connection(connection: object) -> bool:
+    """Dispose only this module's exact nominal facade.
+
+    The private authority path intentionally bypasses the public guard check so
+    a real facade whose token was damaged can still release its underlying
+    SQLite connection. Structural candidates and proxies are never invoked.
+    """
+
+    if type(connection) is not _GuardedConnection:
+        return False
+    try:
+        connection._dispose(_INTERNAL_AUTHORITY)
+    except sqlite3.Error:
+        raise LedgerUnavailable() from None
+    return True
+
+
+def _require_guarded_connection(
+    connection: object,
+) -> _ConfirmationConnection:
+    validate_guarded_connection(connection)
     try:
         return connection._unwrap(_INTERNAL_AUTHORITY)
     except sqlite3.Error:

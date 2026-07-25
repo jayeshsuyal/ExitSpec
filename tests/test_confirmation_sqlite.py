@@ -22,6 +22,7 @@ from exitspec.confirmation_sqlite import (
     MigrationHistoryMismatch,
     apply_migrations,
     open_confirmation_database,
+    open_existing_confirmation_database,
     read_applied_migrations,
 )
 
@@ -103,6 +104,235 @@ def test_open_configures_hardened_connection_pragmas(tmp_path: Path) -> None:
         ).fetchall() == []
     finally:
         connection.close()
+
+
+@pytest.mark.parametrize(
+    "existing_only",
+    (False, True),
+    ids=("create-or-open", "existing-only"),
+)
+@pytest.mark.parametrize(
+    "fault_site",
+    ("fstat", "owner-validation", "custody-construction"),
+)
+def test_database_custody_fd_closes_once_on_programming_fault(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing_only: bool,
+    fault_site: str,
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    if existing_only:
+        database_path.touch(mode=0o600)
+
+    custody_descriptors: list[int] = []
+    close_calls: list[int] = []
+    fault = RuntimeError("custody validation programming defect")
+    original_fstat = confirmation_sqlite_module.os.fstat
+    original_enforce_owner_only = (
+        confirmation_sqlite_module._enforce_owner_only
+    )
+    original_opened_database_file = (
+        confirmation_sqlite_module._OpenedDatabaseFile
+    )
+    original_close = (
+        confirmation_sqlite_module._close_descriptor_quietly
+    )
+
+    def faulting_fstat(descriptor: int) -> os.stat_result:
+        if descriptor not in custody_descriptors:
+            custody_descriptors.append(descriptor)
+        if fault_site == "fstat":
+            raise fault
+        return original_fstat(descriptor)
+
+    def faulting_owner_validation(descriptor: int) -> None:
+        if fault_site == "owner-validation":
+            raise fault
+        original_enforce_owner_only(descriptor)
+
+    def faulting_custody_construction(
+        *,
+        descriptor: int,
+        device: int,
+        inode: int,
+    ) -> object:
+        if fault_site == "custody-construction":
+            raise fault
+        return original_opened_database_file(
+            descriptor=descriptor,
+            device=device,
+            inode=inode,
+        )
+
+    def tracking_close(descriptor: int) -> None:
+        close_calls.append(descriptor)
+        original_close(descriptor)
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.os,
+        "fstat",
+        faulting_fstat,
+    )
+    monkeypatch.setattr(
+        confirmation_sqlite_module,
+        "_enforce_owner_only",
+        faulting_owner_validation,
+    )
+    monkeypatch.setattr(
+        confirmation_sqlite_module,
+        "_OpenedDatabaseFile",
+        faulting_custody_construction,
+    )
+    monkeypatch.setattr(
+        confirmation_sqlite_module,
+        "_close_descriptor_quietly",
+        tracking_close,
+    )
+    opener = (
+        open_existing_confirmation_database
+        if existing_only
+        else open_confirmation_database
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        opener(database_path)
+
+    assert error.value is fault
+    assert len(custody_descriptors) == 1
+    assert close_calls == custody_descriptors
+    with pytest.raises(OSError):
+        original_fstat(custody_descriptors[0])
+
+
+@pytest.mark.parametrize(
+    "programming_error_type",
+    (RuntimeError, TypeError, ValueError),
+)
+def test_existing_open_propagates_validator_fault_and_closes_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    programming_error_type: type[Exception],
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    initialized = open_confirmation_database(database_path)
+    initialized.close()
+
+    opened: list[sqlite3.Connection] = []
+    original_connect = confirmation_sqlite_module.sqlite3.connect
+
+    def tracking_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        connection = original_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    def fail_validation(_connection: object) -> None:
+        raise programming_error_type(
+            "existing validator programming defect"
+        )
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.sqlite3,
+        "connect",
+        tracking_connect,
+    )
+    monkeypatch.setattr(
+        confirmation_sqlite_module,
+        "_validate_bootstrap_shape",
+        fail_validation,
+    )
+
+    with pytest.raises(programming_error_type) as error:
+        open_existing_confirmation_database(database_path)
+
+    assert str(error.value) == "existing validator programming defect"
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
+@pytest.mark.parametrize(
+    "programming_error_type",
+    (TypeError, ValueError),
+)
+def test_startup_open_propagates_validator_fault_and_closes_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    programming_error_type: type[Exception],
+) -> None:
+    database_path = tmp_path / "confirmation.db"
+    opened: list[sqlite3.Connection] = []
+    original_connect = confirmation_sqlite_module.sqlite3.connect
+
+    def tracking_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        connection = original_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    def fail_validation(_connection: object) -> None:
+        raise programming_error_type(
+            "startup validator programming defect"
+        )
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.sqlite3,
+        "connect",
+        tracking_connect,
+    )
+    monkeypatch.setattr(
+        confirmation_sqlite_module,
+        "_validate_bootstrap_shape",
+        fail_validation,
+    )
+
+    with pytest.raises(programming_error_type) as error:
+        open_confirmation_database(database_path)
+
+    assert str(error.value) == "startup validator programming defect"
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
+def test_existing_open_maps_actual_shape_corruption_to_safe_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "sensitive-customer-ledger.db"
+    initialized = open_confirmation_database(database_path)
+    initialized.close()
+
+    raw = sqlite3.connect(database_path)
+    try:
+        raw.execute("DROP TRIGGER schema_migrations_block_update")
+        raw.commit()
+    finally:
+        raw.close()
+
+    opened: list[sqlite3.Connection] = []
+    original_connect = confirmation_sqlite_module.sqlite3.connect
+
+    def tracking_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        connection = original_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(
+        confirmation_sqlite_module.sqlite3,
+        "connect",
+        tracking_connect,
+    )
+    with pytest.raises(
+        LedgerUnavailable,
+        match="^Confirmation ledger is unavailable\\.$",
+    ) as error:
+        open_existing_confirmation_database(database_path)
+
+    assert error.value.__cause__ is None
+    assert os.fspath(database_path) not in repr(error.value)
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
 
 
 @pytest.mark.parametrize(
