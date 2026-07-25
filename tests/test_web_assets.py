@@ -4,6 +4,12 @@ from pathlib import Path
 STATIC_ROOT = Path(__file__).resolve().parents[1] / "src" / "exitspec" / "static"
 
 
+def _css_rule(css: str, selector: str) -> str:
+    marker = selector + " {"
+    start = css.index(marker) + len(marker)
+    return css[start : css.index("}", start)]
+
+
 def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     index = STATIC_ROOT / "index.html"
     styles = STATIC_ROOT / "styles.css"
@@ -152,6 +158,75 @@ def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
     assert "body.recording-mode .proof-workspace" in styles
     assert "body.recording-mode .custody-rail {\n  display: block;" in styles
     assert '$("#recording-restart").addEventListener("click", resetDemo)' in javascript
+
+
+def test_rule_editor_places_progressive_details_before_state_changing_actions():
+    """Source contracts supplement, but do not prove, viewport geometry."""
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    editor = javascript.split("function structuredRuleEditor(draft) {", 1)[1].split(
+        "function candidateActions(draft) {", 1
+    )[0]
+
+    fields_at = editor.index('<div class="rule-editor__fields">')
+    actions_at = editor.index('<div class="candidate-actions">')
+    details_at = editor.index('<details class="rule-technical-details">')
+    details_end_at = editor.index("</details>", details_at)
+    panel_at = editor.index('<div class="rule-technical-panel">')
+    ledger_at = editor.index(
+        '<dl class="supported-rule-ledger" '
+        'aria-label="Fixed deterministic measurement fields">'
+    )
+    note_at = editor.index('<p class="generated-claim-note">')
+
+    assert fields_at < details_at < actions_at
+    assert details_at < panel_at < ledger_at < note_at < details_end_at < actions_at
+    assert "<summary>Measurement details</summary>" in editor
+    assert '<details class="rule-technical-details" open>' not in editor
+
+    detail_rule = _css_rule(styles, ".rule-technical-details")
+    summary_rule = _css_rule(styles, ".rule-technical-details > summary")
+    panel_rule = _css_rule(styles, ".rule-technical-panel")
+    nested_ledger_rule = _css_rule(styles, ".rule-technical-panel .supported-rule-ledger")
+    mobile = styles.split("@media (max-width: 760px)", 1)[1].split(
+        "@media (max-width: 560px)", 1
+    )[0]
+    mobile_panel_rule = _css_rule(mobile, ".rule-technical-panel")
+
+    assert "position: relative" in detail_rule
+    assert "margin-top: 9px" in detail_rule
+    assert "border-top: 1px solid var(--rule)" in detail_rule
+    assert "cursor: pointer" in summary_rule
+    assert "color: var(--muted)" in summary_rule
+    assert "position: absolute" in panel_rule
+    assert "bottom: calc(100% + 8px)" in panel_rule
+    assert "max-height: 180px" in panel_rule
+    assert "overflow: auto" in panel_rule
+    assert "background: var(--raised)" in panel_rule
+    assert "margin: 0" in nested_ledger_rule
+    assert "position: static" in mobile_panel_rule
+    assert "max-height: none" in mobile_panel_rule
+    assert "overflow: visible" in mobile_panel_rule
+
+
+def test_rule_details_close_synchronously_when_focus_leaves_the_disclosure():
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    focus_contract = javascript.split(
+        "function bindTechnicalDetailsFocus(details) {", 1
+    )[1].split("function candidateActions(draft) {", 1)[0]
+    render_contract = javascript.split("function renderCandidates() {", 1)[1].split(
+        "function renderRevisionRequest() {", 1
+    )[0]
+
+    assert 'details.addEventListener("focusout", (event) =>' in focus_contract
+    assert "!event.relatedTarget" in focus_contract
+    assert "!details.contains(event.relatedTarget)" in focus_contract
+    assert "details.open = false;" in focus_contract
+    assert "setTimeout" not in focus_contract
+    assert (
+        '.querySelectorAll(".rule-technical-details")\n'
+        "      .forEach(bindTechnicalDetailsFocus);"
+    ) in render_contract
 
 
 def test_desktop_workbench_prevents_workflow_length_body_scroll():
