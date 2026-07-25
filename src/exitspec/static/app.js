@@ -518,19 +518,32 @@
             <input type="text" value="${escapeHtml(workload)}" data-rule-field="workload" />
           </label>
         </div>
-        <dl class="supported-rule-ledger" aria-label="Fixed deterministic measurement fields">
-          <div><dt>Metric</dt><dd>${escapeHtml(template.metric_label || "Exact expected support-tool selection")}</dd></div>
-          <div><dt>Adapter</dt><dd>${escapeHtml(`${template.adapter || "deterministic_tool_selection"}@${template.adapter_version || "1.0.0"}`)}</dd></div>
-          <div><dt>Calculation</dt><dd>${escapeHtml(template.confidence_method || "95% Wilson lower bound")}</dd></div>
-          <div><dt>Evidence</dt><dd>${escapeHtml(template.evidence_policy || "Case-level records and SHA-256 digests.")}</dd></div>
-        </dl>
-        <p class="generated-claim-note">The customer-facing sentence is generated from these fields; free-text claims are not accepted.</p>
+        <details class="rule-technical-details">
+          <summary>Measurement details</summary>
+          <div class="rule-technical-panel">
+            <dl class="supported-rule-ledger" aria-label="Fixed deterministic measurement fields">
+              <div><dt>Metric</dt><dd>${escapeHtml(template.metric_label || "Exact expected support-tool selection")}</dd></div>
+              <div><dt>Adapter</dt><dd>${escapeHtml(`${template.adapter || "deterministic_tool_selection"}@${template.adapter_version || "1.0.0"}`)}</dd></div>
+              <div><dt>Calculation</dt><dd>${escapeHtml(template.confidence_method || "95% Wilson lower bound")}</dd></div>
+              <div><dt>Evidence</dt><dd>${escapeHtml(template.evidence_policy || "Case-level records and SHA-256 digests.")}</dd></div>
+            </dl>
+            <p class="generated-claim-note">The customer-facing sentence is generated from these fields; free-text claims are not accepted.</p>
+          </div>
+        </details>
         <div class="candidate-actions">
           <button class="button primary" type="button" data-save-rule="${escapeHtml(draft.id)}">${isRevision ? "Apply revision" : "Save rule"}</button>
           ${isRevision ? "" : `<button class="button secondary" type="button" data-cancel-rule="${escapeHtml(draft.id)}">Cancel</button>`}
           <button class="text-action" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
         </div>
       </div>`;
+  }
+
+  function bindTechnicalDetailsFocus(details) {
+    details.addEventListener("focusout", (event) => {
+      if (!event.relatedTarget || !details.contains(event.relatedTarget)) {
+        details.open = false;
+      }
+    });
   }
 
   function candidateActions(draft) {
@@ -663,6 +676,9 @@
     $("#candidate-list").querySelectorAll("[data-save-rule]").forEach((button) => {
       button.addEventListener("click", () => saveStructuredRule(button));
     });
+    $("#candidate-list")
+      .querySelectorAll(".rule-technical-details")
+      .forEach(bindTechnicalDetailsFocus);
   }
 
   function renderRevisionRequest() {

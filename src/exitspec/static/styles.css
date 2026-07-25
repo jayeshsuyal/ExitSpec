@@ -796,6 +796,44 @@ textarea {
   gap: 10px;
 }
 
+.rule-technical-details {
+  position: relative;
+  margin-top: 9px;
+  border-top: 1px solid var(--rule);
+}
+
+.rule-technical-details > summary {
+  cursor: pointer;
+  padding-top: 9px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rule-technical-details > summary:hover,
+.rule-technical-details[open] > summary {
+  color: var(--secondary);
+}
+
+.rule-technical-panel {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(100%, 920px);
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--strong-rule);
+  padding: 12px;
+  background: var(--raised);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.38);
+  scrollbar-color: var(--strong-rule) transparent;
+  scrollbar-width: thin;
+}
+
 .supported-rule-ledger {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -803,6 +841,11 @@ textarea {
   border-top: 1px solid var(--strong-rule);
   border-bottom: 1px solid var(--rule);
   background: var(--raised);
+}
+
+.rule-technical-panel .supported-rule-ledger {
+  margin: 0;
+  background: var(--sheet);
 }
 
 .supported-rule-ledger > div {
@@ -1449,6 +1492,15 @@ body.recording-mode .header-meta {
   .task-view {
     overflow: visible;
     padding: 20px 21px;
+  }
+
+  .rule-technical-panel {
+    position: static;
+    width: 100%;
+    max-height: none;
+    margin-top: 10px;
+    overflow: visible;
+    box-shadow: none;
   }
 
   .decision-dock {

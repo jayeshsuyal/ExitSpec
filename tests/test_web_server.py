@@ -153,6 +153,25 @@ def test_local_api_runs_define_to_prove_to_proof_pack(tmp_path):
         server.server_close()
 
 
+def test_recording_mode_query_serves_workbench_and_its_static_contract(tmp_path):
+    server, worker, base_url = _running_server(tmp_path)
+    try:
+        recording_html = _get_bytes(base_url + "/app?mode=recording")
+        standard_html = _get_bytes(base_url + "/app")
+        javascript = _get_bytes(base_url + "/app.js").decode("utf-8")
+        styles = _get_bytes(base_url + "/styles.css").decode("utf-8")
+
+        assert recording_html == standard_html
+        assert b'id="recording-restart"' in recording_html
+        assert b'class="proof-workspace"' in recording_html
+        assert '<details class="rule-technical-details">' in javascript
+        assert "body.recording-mode .source-details" in styles
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+
+
 def test_local_api_captures_pasted_source_without_claiming_approval(tmp_path):
     server, worker, base_url = _running_server(tmp_path)
     try:
