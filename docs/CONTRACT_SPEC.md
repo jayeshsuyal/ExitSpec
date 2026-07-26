@@ -96,12 +96,15 @@ built-in live network transport, and returns only redacted source, review-only
 drafts, safe redaction metadata, and a content-free receipt.
 
 The local `exitspec define` and browser paths remain synthetic and provider-free.
-Browser pasted-note intake now redacts before parsing and retains only redacted
-source plus safe summary metadata. The browser does not invoke the assisted
-service. The local command writes the synthetic transcript, review decisions,
-approved contract, static review page, and artifact hashes. None of these paths
-claims live model extraction, live Fireworks execution, STT, customer
-confirmation, or production authorization.
+Browser pasted-note intake redacts before parsing and retains only redacted
+source plus safe summary metadata. An explicit optional browser action invokes
+the assisted service with `SyntheticAssistedAuthoringExecutor`, a deterministic
+local implementation of the provider-neutral interface. It performs no external
+call, supports only the exact-tool-selection rule, and leaves every result
+`NEEDS_REVIEW`. The local command writes the synthetic transcript, review
+decisions, approved contract, static review page, and artifact hashes. None of
+these paths claims live model extraction, live Fireworks execution, STT,
+authenticated customer identity, or production authorization.
 
 ## Customer confirmation boundary
 

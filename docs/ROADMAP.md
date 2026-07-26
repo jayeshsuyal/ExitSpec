@@ -89,16 +89,22 @@ Exit gate: a hosted test proves authorized access, durable idempotent replay,
 revocation, expiry, version invalidation, and complete audit history without
 weakening the current acknowledgement or fingerprint checks.
 
-### 2. Explicit assisted-authoring workflow
+### 2. Explicit assisted-authoring workflow — local precursor complete
 
-Expose the already tested redaction-first assisted-authoring service through an
-opt-in workflow. Keep the deterministic provider-free path as the default and
-make provider use visible before any egress.
+The browser now exposes the redaction-first assisted-authoring service through an
+explicit opt-in action backed by a deterministic local executor. It makes no
+external call, keeps unsupported and conflicting requests unresolved, and leaves
+every proposal `NEEDS_REVIEW`. The ordinary deterministic capture path remains
+the default.
+
+The remaining step in this sequence is to place real provider use behind the
+frozen Wave 1 acknowledgement, destination, policy, budget, and failure gates
+while keeping that local path available.
 
 ```text
 explicit user action
     -> redaction + fresh egress check
-    -> structured provider candidate
+    -> local or explicitly authorized provider candidate
     -> local schema and source validation
     -> NEEDS_REVIEW
     -> named human decision

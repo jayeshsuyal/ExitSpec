@@ -45,6 +45,7 @@ raw input in request memory
     -> redact_transcript
     -> immutable redacted result
     -> assert_redaction_egress
+    -> direct candidate capture or local deterministic assisted authoring
     -> redacted browser/session state
 ```
 
@@ -61,6 +62,10 @@ and human review remain mandatory before any real-customer use.
 Pasted source becomes an unresolved candidate. A prompt, source sentence, or
 provider response cannot set approval, confirmation, adapter policy, freeze, or
 verdict fields.
+
+The optional local assisted-authoring action runs after the same redaction gate.
+It uses no credential or network transport, keeps unsupported and conflicting
+requests unresolved, and marks every generated proposal `NEEDS_REVIEW`.
 
 ## Customer confirmation boundary
 
@@ -115,7 +120,8 @@ authority.
 
 Tests run `FireworksProvider` and the assisted-authoring composition with fake
 injected transports. There is no built-in live network transport, no live
-Fireworks evidence, and no provider path in the browser.
+Fireworks evidence, and no external provider path in the browser. The browser's
+assisted action is a deterministic local executor and is labeled as such.
 
 Any future live provider use requires an explicit model, credential source,
 synthetic payload, disclosure, data policy, region, retention policy, and spend

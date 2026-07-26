@@ -1343,6 +1343,45 @@ textarea {
   margin-top: 10px;
 }
 
+.assisted-intake {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 14px;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.assisted-intake .eyebrow {
+  margin: 0 0 4px;
+}
+
+.assisted-intake-copy {
+  max-width: 38rem;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.assisted-intake .helper-text {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+}
+
+.button.tertiary {
+  border-color: #5265a5;
+  background: transparent;
+  color: #c9d4ff;
+}
+
+.button.tertiary:hover {
+  border-color: var(--accent);
+  background: #202c49;
+}
+
 .inline-status {
   margin: 10px 0 0;
   color: var(--muted);
@@ -1596,5 +1635,9 @@ body.recording-mode .header-meta {
     width: calc(100vw - 20px);
     max-height: calc(100dvh - 164px);
     padding: 16px;
+  }
+
+  .assisted-intake {
+    grid-template-columns: 1fr;
   }
 }

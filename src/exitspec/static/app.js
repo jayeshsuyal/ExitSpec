@@ -4,6 +4,7 @@
   const API = {
     state: "/api/state",
     intake: "/api/intake",
+    assistedIntake: "/api/assisted-intake",
     draftDefine: "/api/draft/define",
     review: "/api/review",
     customerDraft: "/api/customer-draft",
@@ -208,12 +209,12 @@
           ? "Does this rule match the customer’s intent?"
           : "Can this request use the supported measurement?",
         copy: !hasMeasurableRule && anotherRuleIsActive
-          ? "This demo already has one executable rule. A different task stays outside the agreement until its adapter exists."
+          ? "One rule is already executable. Keep this request outside the agreement."
           : editingDraftId === currentDraft?.id || !hasMeasurableRule
-          ? "Enter structured fields. ExitSpec generates the customer-facing sentence so the rule cannot contradict itself."
+          ? "Add the metric, threshold, and evidence rule."
           : hasMeasurableRule
-          ? "Compare the customer’s words with the measurable rule below."
-          : "Useful context stays out of the agreement until it has a pass/fail rule.",
+          ? "Check the rule against the request."
+          : "Context stays out until it has a pass/fail rule.",
         nextTitle: !hasMeasurableRule && anotherRuleIsActive
           ? "Keep as context"
           : hasMeasurableRule
@@ -232,7 +233,7 @@
         stage: "define",
         eyebrow: "Define · No acceptance rule",
         title: "No measurable rule is included yet",
-        copy: "Context was preserved, but ExitSpec will not create an empty customer agreement.",
+        copy: "No agreement is created without a measurable rule.",
         nextTitle: "Capture another requirement",
         nextCopy: "Open the meeting source and add a measurable requirement.",
         blockers: ["At least one supported rule must be defined and approved."],
@@ -243,7 +244,7 @@
         stage: "define",
         eyebrow: "Define · Draft ready",
         title: "Ready to create the customer review?",
-        copy: "Only the included criterion will appear in the customer-facing draft.",
+        copy: "Send only the approved rule for customer confirmation.",
         nextTitle: "Create customer review",
         nextCopy: "Create a link for this exact version.",
         blockers: ["Customer confirmation."],
@@ -254,7 +255,7 @@
         stage: "define",
         eyebrow: "Define · Changes requested",
         title: "What needs to change before approval?",
-        copy: "Start a new version while preserving the reviewed history.",
+        copy: "Start a new version and keep the review history.",
         nextTitle: "Start a new version",
         nextCopy: "Edit, review, and resend.",
         blockers: ["Requested change."],
@@ -265,7 +266,7 @@
         stage: "define",
         eyebrow: "Define · Awaiting customer",
         title: "Ready for the customer’s decision?",
-        copy: "Open the exact draft to confirm it or request a change.",
+        copy: "Open the draft to confirm it or request changes.",
         nextTitle: "Open customer review",
         nextCopy: "Confirm or request changes.",
         blockers: ["Customer decision."],
@@ -276,7 +277,7 @@
         stage: "define",
         eyebrow: "Define · Customer confirmed",
         title: "Freeze the customer-confirmed version?",
-        copy: "Freezing locks the exact agreement used by every evidence run.",
+        copy: "Lock the agreement used by every evidence run.",
         nextTitle: "Freeze confirmed contract",
         nextCopy: "Lock the version used by every evidence run.",
         blockers: ["Contract freeze."],
@@ -570,7 +571,7 @@
       if (anotherRuleIsActive) {
         return `
           <div class="candidate-actions contextual-only">
-            <span>This demo already has its one executable rule.</span>
+            <span>One executable rule is already included.</span>
             <button class="button primary" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
           </div>`;
       }
@@ -619,11 +620,11 @@
                   ? `<p class="rule-explanation">${escapeHtml(criterion.normalized_claim)}</p>${criterionRows(criterion)}`
                   : `
                     <p class="rule-explanation">
-                      This is useful context, but it does not define measurable success.
+                      Context only. It does not define measurable success.
                     </p>
                     <div class="missing-callout">
                       <strong>Missing</strong>
-                      <span>A metric, threshold, and evidence rule.</span>
+                      <span>Metric, threshold, evidence rule.</span>
                     </div>`}
               </div>`}
 
@@ -969,6 +970,31 @@
     }
   }
 
+  async function runAssistedAuthoring() {
+    const transcript = $("#meeting-notes").value.trim();
+    if (!transcript) {
+      setStatus(intakeStatus, "Paste meeting notes before drafting with assisted authoring.");
+      return;
+    }
+    setStatus(intakeStatus, "Redacting notes and drafting locally…");
+    try {
+      resetLocalWorkbench();
+      const response = await request(API.assistedIntake, {
+        method: "POST",
+        body: JSON.stringify({
+          transcript,
+          title: "Assisted discovery notes",
+          customer_terms: [],
+        }),
+      });
+      applyState(response);
+      setStatus(intakeStatus, response.notice || "Assisted draft ready for human review.");
+      render();
+    } catch (error) {
+      setStatus(intakeStatus, error.message);
+    }
+  }
+
   async function resetDemo() {
     resetLocalWorkbench();
     try {
@@ -1158,6 +1184,9 @@
   applyPresentationMode();
 
   $("#load-transcript").addEventListener("click", loadIntake);
+  if ($("#assisted-authoring")) {
+    $("#assisted-authoring").addEventListener("click", runAssistedAuthoring);
+  }
   $("#reset-demo").addEventListener("click", resetDemo);
   $("#recording-restart").addEventListener("click", resetDemo);
   $("#open-source-controls").addEventListener("click", openSourceControls);
