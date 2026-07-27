@@ -1,10 +1,11 @@
 """Permit-only composition for the frozen Wave-1 Fireworks request.
 
 The generic ``FireworksProvider`` remains independently testable with injected
-transports.  This composition is the only boundary intended for future live
-server wiring: it accepts an ``AuthorizedProviderRequest`` rather than a raw
-structured request, takes the detached request once, revalidates it against the
-code-pinned Wave-1 policy, and applies the manifest's retry and pricing limits.
+transports.  This composition is the only boundary used by the optional
+live-capable server action: it accepts an ``AuthorizedProviderRequest`` rather
+than a raw structured request, takes the detached request once, revalidates it
+against the code-pinned Wave-1 policy, and applies the manifest's retry and
+pricing limits.
 """
 
 from __future__ import annotations

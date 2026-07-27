@@ -4,8 +4,8 @@ This module deliberately stops before network transport.  It turns the frozen
 acceptance manifest into an immutable policy, binds one exact redacted
 ``StructuredJSONRequest`` to that policy, and issues a short-lived capability.
 Successful authorization returns a one-use permit that privately carries a
-detached copy of the exact request.  A future transport must take its request
-from that permit instead of accepting caller-supplied request bytes.
+detached copy of the exact request.  An authorized transport must take its
+request from that permit instead of accepting caller-supplied request bytes.
 """
 
 from __future__ import annotations
@@ -861,7 +861,7 @@ def _clone_structured_request(
 
 
 class AuthorizedProviderRequest(Generic[OutputT]):
-    """One-use permit carrying the only request a future transport may send."""
+    """One-use permit carrying the only request an authorized transport may send."""
 
     __slots__ = (
         "_acknowledgement",

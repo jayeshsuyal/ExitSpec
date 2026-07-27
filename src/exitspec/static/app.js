@@ -5,6 +5,9 @@
     state: "/api/state",
     intake: "/api/intake",
     assistedIntake: "/api/assisted-intake",
+    fireworksDisclosure: "/api/provider/fireworks/disclosure",
+    fireworksAuthorization: "/api/provider/fireworks/authorization",
+    fireworksExecution: "/api/provider/fireworks/execution",
     draftDefine: "/api/draft/define",
     review: "/api/review",
     customerDraft: "/api/customer-draft",
@@ -27,6 +30,12 @@
   let stateRefreshPromise = null;
   let stateRefreshVersion = 0;
   let pageActive = true;
+  let fireworksDisclosure = null;
+  let fireworksRunning = false;
+  let fireworksAttempt = null;
+  let fireworksAcknowledgedDisclosureId = null;
+  let fireworksStatusMessage = "";
+  let fireworksStatusTone = "";
 
   const $ = (selector) => document.querySelector(selector);
   const modeChip = $("#mode-chip");
@@ -50,12 +59,15 @@
 
   async function request(path, options = {}) {
     const response = await fetch(path, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
       ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(body.error || `Request failed with ${response.status}.`);
+      const error = new Error(body.error || `Request failed with ${response.status}.`);
+      error.payload = body;
+      error.status = response.status;
+      throw error;
     }
     return body;
   }
@@ -68,6 +80,309 @@
     state = incoming;
     if (state.confirmation) {
       stopCustomerPolling();
+    }
+  }
+
+  function newProviderOperationId(prefix) {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    const suffix = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+    return `${prefix}-${suffix}`;
+  }
+
+  function providerActionLabel(nextAction) {
+    const labels = {
+      check_provider_credential: "Check the server credential, then authorize a new attempt.",
+      check_provider_connectivity: "Check connectivity, then authorize a new attempt.",
+      configure_provider: "Restart with Fireworks enabled and a server-owned key.",
+      contact_provider: "Review the provider incident before authorizing another attempt.",
+      reduce_request: "The frozen request exceeded its cost boundary; do not retry unchanged.",
+      restore_provider_account: "Restore provider balance or access, then authorize a new attempt.",
+      retry_later: "Wait, then authorize a new bounded attempt.",
+      review_current_workflow: "Review the current workflow, then authorize again.",
+      review_provider_destination: "Review the pinned destination before another attempt.",
+      review_provider_output: "No proposal was accepted; inspect the local validation boundary.",
+      review_provider_precondition: "Resolve the provider precondition before another attempt.",
+      review_request: "Review the frozen request before another attempt.",
+      review_source_link: "No proposal was accepted; review its source link.",
+      restart_after_budget_review: "Review the spend ceiling before restarting the local server.",
+      restart_with_provider_configuration: "Restart with one stable provider configuration.",
+    };
+    return labels[nextAction] || "";
+  }
+
+  function providerDataPolicy(disclosure) {
+    const policy = disclosure?.data_policy_snapshot;
+    if (!policy) {
+      return "Provider policy details are unavailable.";
+    }
+    if (
+      policy.prompt_and_generation_persistent_retention
+      === "none_by_default_for_open_models_without_explicit_opt_in"
+    ) {
+      return "No persistent prompt or generation retention by default for open models without opt-in.";
+    }
+    return "Review the pinned provider data-policy snapshot before authorizing.";
+  }
+
+  function renderFireworksAssist() {
+    const panel = $("#fireworks-assist");
+    if (!panel) {
+      return;
+    }
+    const checkbox = $("#fireworks-acknowledgement");
+    const button = $("#fireworks-assist-button");
+    const runtime = state?.provider_execution || fireworksDisclosure?.runtime;
+    const enabled = Boolean(runtime?.enabled);
+    const configured = Boolean(runtime?.configured);
+    const disclosureReady = Boolean(fireworksDisclosure?.disclosure_id);
+    const perRequestAmount = Number(
+      fireworksDisclosure?.limits?.max_request_cost_usd
+    );
+    const remainingAmount = Number(runtime?.remaining_spend_usd);
+    const budgetAvailable = (
+      !Number.isFinite(perRequestAmount)
+      || !Number.isFinite(remainingAmount)
+      || remainingAmount >= perRequestAmount
+    );
+
+    document.body.classList.toggle("provider-enabled", enabled);
+    $("#fireworks-provider").textContent = fireworksDisclosure?.provider
+      ? fireworksDisclosure.provider[0].toUpperCase() + fireworksDisclosure.provider.slice(1)
+      : "Fireworks";
+    $("#fireworks-model").textContent = fireworksDisclosure?.model || "Unavailable";
+    try {
+      $("#fireworks-destination").textContent = fireworksDisclosure?.endpoint
+        ? new URL(fireworksDisclosure.endpoint).host
+        : "Unavailable";
+    } catch (_error) {
+      $("#fireworks-destination").textContent = "Unavailable";
+    }
+    const perRequest = fireworksDisclosure?.limits?.max_request_cost_usd;
+    const remaining = runtime?.remaining_spend_usd;
+    $("#fireworks-max-cost").textContent = perRequest
+      ? `$${perRequest} max/action${remaining ? ` · $${remaining} process guardrail left` : ""}`
+      : "Unavailable";
+    $("#fireworks-data-policy").textContent = providerDataPolicy(fireworksDisclosure);
+    const policy = fireworksDisclosure?.data_policy_snapshot;
+    const limits = fireworksDisclosure?.limits;
+    $("#fireworks-acknowledgement-copy").textContent = limits?.max_attempts
+      ? `I authorize one bounded synthetic action (up to ${limits.max_attempts} provider attempts).`
+      : "I authorize one bounded synthetic action under this disclosure.";
+    $("#fireworks-policy-detail-copy").textContent = fireworksDisclosure
+      ? [
+          `Exact endpoint: ${fireworksDisclosure.endpoint}.`,
+          policy?.prompt_cache === "volatile_memory_for_several_minutes_when_active"
+            ? "Prompt cache may remain in volatile memory for several minutes while active."
+            : "",
+          policy?.metadata_logging === "service_metadata_including_token_counts"
+            ? "Service metadata, including token counts, may be logged."
+            : "",
+          `Timeout ${limits?.timeout_seconds || "—"}s · up to ${limits?.max_attempts || "—"} attempts.`,
+          policy?.region === "not_asserted_by_the_cited_provider_documentation"
+            ? "Region is not asserted by the cited policy snapshot."
+            : "",
+        ].filter(Boolean).join(" ")
+      : "";
+
+    const consentMatchesDisclosure = Boolean(
+      checkbox.checked
+      && fireworksAcknowledgedDisclosureId === fireworksDisclosure?.disclosure_id
+    );
+    checkbox.disabled = (
+      fireworksRunning
+      || !configured
+      || !budgetAvailable
+      || !disclosureReady
+    );
+    button.disabled = (
+      fireworksRunning
+      || !configured
+      || !budgetAvailable
+      || !disclosureReady
+      || !consentMatchesDisclosure
+    );
+    button.textContent = fireworksRunning ? "Calling Fireworks…" : "Draft with Fireworks";
+
+    let runtimeLabel = "Checking…";
+    let panelStatus = "loading";
+    if (runtime) {
+      if (!enabled) {
+        runtimeLabel = "Disabled";
+        panelStatus = "disabled";
+      } else if (!configured) {
+        runtimeLabel = "Key missing";
+        panelStatus = "disabled";
+      } else if (!budgetAvailable) {
+        runtimeLabel = "Budget limit";
+        panelStatus = "disabled";
+      } else if (fireworksRunning) {
+        runtimeLabel = "Running";
+        panelStatus = "running";
+      } else {
+        runtimeLabel = "Ready";
+        panelStatus = "ready";
+      }
+    }
+    if (fireworksStatusMessage && !fireworksRunning) {
+      panelStatus = fireworksStatusTone || panelStatus;
+    }
+    panel.dataset.status = panelStatus;
+    $("#fireworks-runtime-status").textContent = runtimeLabel;
+    $("#fireworks-assist-status").textContent = fireworksStatusMessage;
+  }
+
+  async function loadFireworksDisclosure() {
+    try {
+      const disclosure = await request(API.fireworksDisclosure);
+      if (
+        fireworksDisclosure
+        && fireworksDisclosure.disclosure_id !== disclosure.disclosure_id
+      ) {
+        fireworksAttempt = null;
+        fireworksAcknowledgedDisclosureId = null;
+        $("#fireworks-acknowledgement").checked = false;
+        fireworksStatusMessage = "Disclosure changed. Review it before authorizing.";
+        fireworksStatusTone = "error";
+      }
+      fireworksDisclosure = disclosure;
+    } catch (_error) {
+      fireworksDisclosure = null;
+      fireworksStatusMessage = "Provider disclosure is unavailable. The local fallback still works.";
+      fireworksStatusTone = "error";
+    }
+    renderFireworksAssist();
+  }
+
+  function recordFireworksAcknowledgement() {
+    const checkbox = $("#fireworks-acknowledgement");
+    if (checkbox.checked && fireworksDisclosure?.disclosure_id) {
+      fireworksAcknowledgedDisclosureId = fireworksDisclosure.disclosure_id;
+      fireworksStatusMessage = "";
+      fireworksStatusTone = "";
+    } else {
+      checkbox.checked = false;
+      fireworksAcknowledgedDisclosureId = null;
+    }
+    renderFireworksAssist();
+  }
+
+  async function runFireworksAssist() {
+    if (fireworksRunning) {
+      return;
+    }
+    const checkbox = $("#fireworks-acknowledgement");
+    if (
+      !checkbox.checked
+      || !fireworksAcknowledgedDisclosureId
+      || fireworksAcknowledgedDisclosureId !== fireworksDisclosure?.disclosure_id
+    ) {
+      checkbox.checked = false;
+      fireworksAcknowledgedDisclosureId = null;
+      fireworksStatusMessage = "Review the disclosure and authorize one request first.";
+      fireworksStatusTone = "error";
+      renderFireworksAssist();
+      return;
+    }
+
+    fireworksRunning = true;
+    fireworksStatusMessage = "Checking the current disclosure…";
+    fireworksStatusTone = "";
+    renderFireworksAssist();
+    try {
+      const currentDisclosure = await request(API.fireworksDisclosure);
+      fireworksDisclosure = currentDisclosure;
+      if (
+        fireworksAcknowledgedDisclosureId
+        !== currentDisclosure.disclosure_id
+      ) {
+        fireworksAttempt = null;
+        checkbox.checked = false;
+        fireworksAcknowledgedDisclosureId = null;
+        fireworksStatusMessage = "Disclosure changed. Review it before authorizing.";
+        fireworksStatusTone = "error";
+        return;
+      }
+      const runtime = currentDisclosure.runtime || {};
+      if (!runtime.enabled || !runtime.configured) {
+        fireworksAttempt = null;
+        checkbox.checked = false;
+        fireworksAcknowledgedDisclosureId = null;
+        fireworksStatusMessage = "Fireworks is disabled or its server credential is missing. Use the local fallback.";
+        fireworksStatusTone = "error";
+        return;
+      }
+      if (
+        !fireworksAttempt
+        || fireworksAttempt.disclosureId !== currentDisclosure.disclosure_id
+      ) {
+        fireworksAttempt = {
+          disclosureId: currentDisclosure.disclosure_id,
+          authorizationKey: newProviderOperationId("provider-authorization"),
+          executionKey: newProviderOperationId("provider-execution"),
+        };
+      }
+
+      fireworksStatusMessage = "Authorizing this exact synthetic request…";
+      renderFireworksAssist();
+      const authorization = await request(API.fireworksAuthorization, {
+        method: "POST",
+        headers: { "Idempotency-Key": fireworksAttempt.authorizationKey },
+        body: JSON.stringify({
+          disclosure_id: fireworksAttempt.disclosureId,
+          acknowledged: true,
+        }),
+      });
+      fireworksDisclosure = authorization.disclosure || fireworksDisclosure;
+
+      fireworksStatusMessage = "Calling Fireworks within the local cap and retry limits…";
+      renderFireworksAssist();
+      const response = await request(API.fireworksExecution, {
+        method: "POST",
+        headers: { "Idempotency-Key": fireworksAttempt.executionKey },
+        body: "{}",
+      });
+      applyState(response);
+      const execution = response.execution || {};
+      const nextAction = providerActionLabel(execution.next_action);
+      fireworksStatusMessage = [execution.safe_message, nextAction]
+        .filter(Boolean)
+        .join(" ");
+      fireworksStatusTone = execution.status === "succeeded_needs_review"
+        ? "success"
+        : "error";
+      fireworksAttempt = null;
+      checkbox.checked = false;
+      fireworksAcknowledgedDisclosureId = null;
+      if (execution.status === "succeeded_needs_review") {
+        closeSourceDrawer();
+        window.requestAnimationFrame(() => {
+          $("#candidate-list [data-decision], #candidate-list [data-edit-rule]")?.focus();
+        });
+      }
+    } catch (error) {
+      const executionPending = (
+        error.status === 409
+        && error.payload?.code === "provider_execution_in_progress"
+      );
+      if (error.status && !executionPending) {
+        fireworksAttempt = null;
+        checkbox.checked = false;
+        fireworksAcknowledgedDisclosureId = null;
+      }
+      fireworksStatusMessage = executionPending
+        ? "Fireworks is still working. Retry to check the same bounded action."
+        : error.status
+        ? error.message
+        : "Connection interrupted. Retry to replay the same bounded action safely.";
+      fireworksStatusTone = "error";
+    } finally {
+      fireworksRunning = false;
+      render();
+      renderFireworksAssist();
     }
   }
 
@@ -899,6 +1214,7 @@
     renderProof();
     renderCustody(model);
     renderWorkflow(model);
+    renderFireworksAssist();
     reconcileCustomerPolling();
   }
 
@@ -945,6 +1261,14 @@
     stopCustomerPolling();
     editingDraftId = null;
     rerunMode = false;
+    fireworksAttempt = null;
+    fireworksAcknowledgedDisclosureId = null;
+    fireworksStatusMessage = "";
+    fireworksStatusTone = "";
+    fireworksRunning = false;
+    if ($("#fireworks-acknowledgement")) {
+      $("#fireworks-acknowledgement").checked = false;
+    }
     selectScenario("pass");
     closeSourceDrawer();
   }
@@ -999,6 +1323,7 @@
     resetLocalWorkbench();
     try {
       applyState(await request(API.reset, { method: "POST", body: "{}" }));
+      await loadFireworksDisclosure();
       $("#meeting-notes").value = DEFAULT_DEMO_NOTES;
       setStatus(intakeStatus, "");
       setStatus(proveStatus, "");
@@ -1167,6 +1492,7 @@
   async function initialise() {
     try {
       applyState(await request(API.state));
+      await loadFireworksDisclosure();
       setMode("live", recordingMode ? "Recording · synthetic" : "Local demo");
       render();
       if (recordingMode) {
@@ -1187,6 +1513,8 @@
   if ($("#assisted-authoring")) {
     $("#assisted-authoring").addEventListener("click", runAssistedAuthoring);
   }
+  $("#fireworks-acknowledgement").addEventListener("change", recordFireworksAcknowledgement);
+  $("#fireworks-assist-button").addEventListener("click", runFireworksAssist);
   $("#reset-demo").addEventListener("click", resetDemo);
   $("#recording-restart").addEventListener("click", resetDemo);
   $("#open-source-controls").addEventListener("click", openSourceControls);

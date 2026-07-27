@@ -2,7 +2,7 @@
 
 This module deliberately contains no file loading, environment lookup, provider
 executor, or transport.  It reconstructs one code-pinned synthetic request and
-returns a content-free disclosure for a future server-owned action.
+returns a content-free disclosure for the optional server-owned action.
 """
 
 from __future__ import annotations
@@ -202,6 +202,17 @@ def build_frozen_wave1_request() -> StructuredJSONRequest[ProposalBatch]:
     return request
 
 
+def frozen_wave1_source() -> Dict[str, Any]:
+    """Return a fresh copy of the one approved synthetic authoring source."""
+
+    return {
+        "transcript_id": _SOURCE_CASE_ID,
+        "title": _SOURCE_CASE_TITLE,
+        "transcript": _SOURCE_CASE_TRANSCRIPT,
+        "customer_terms": [],
+    }
+
+
 def _detached_json_object(value: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(
         json.dumps(
@@ -215,7 +226,7 @@ def _detached_json_object(value: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def wave1_provider_disclosure() -> Dict[str, Any]:
-    """Return a detached, content-free disclosure; execution stays disabled."""
+    """Return a detached disclosure without exposing execution authority."""
 
     policy = frozen_wave1_policy()
     limits = policy.request_limits()
@@ -262,10 +273,15 @@ def wave1_provider_disclosure() -> Dict[str, Any]:
             "ttl_seconds": policy.acknowledgement_ttl_seconds,
             "payload_binding": "exact_frozen_request_digest",
         },
-        "execution_available": False,
+        "execution_policy": {
+            "server_owned_action": True,
+            "disabled_by_default": True,
+            "requires_active_authorization": True,
+            "browser_supplied_request_fields": [],
+        },
         "next_action": (
-            "Review this disclosure and explicitly authorize one exact "
-            "synthetic request. Provider execution remains unavailable."
+            "Review this disclosure, acknowledge the exact synthetic request, "
+            "then run the server-owned action once."
         ),
     }
     disclosure_digest = hashlib.sha256(

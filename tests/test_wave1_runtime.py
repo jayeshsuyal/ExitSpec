@@ -150,7 +150,26 @@ def test_frozen_request_returns_fresh_detached_mutable_snapshots():
     )
 
 
-def test_disclosure_is_exact_content_free_json_and_execution_is_disabled():
+def test_frozen_source_matches_request_fixture_and_returns_a_fresh_copy():
+    manifest, fixture = _load_manifest_and_fixture()
+    case = _approved_fixture_case(manifest, fixture)
+
+    first = wave1_runtime.frozen_wave1_source()
+    second = wave1_runtime.frozen_wave1_source()
+
+    assert first == {
+        "transcript_id": case["id"],
+        "title": case["title"],
+        "transcript": case["transcript"],
+        "customer_terms": case["customer_terms"],
+    }
+    assert first is not second
+    assert first["customer_terms"] is not second["customer_terms"]
+    first["customer_terms"].append("runtime-mutation")
+    assert wave1_runtime.frozen_wave1_source() == second
+
+
+def test_disclosure_is_exact_content_free_json_and_execution_is_bounded():
     manifest, fixture = _load_manifest_and_fixture()
     case = _approved_fixture_case(manifest, fixture)
     disclosure = wave1_runtime.wave1_provider_disclosure()
@@ -166,7 +185,7 @@ def test_disclosure_is_exact_content_free_json_and_execution_is_disabled():
         "data_policy_snapshot",
         "limits",
         "acknowledgement_policy",
-        "execution_available",
+        "execution_policy",
         "next_action",
     }
     assert set(disclosure["manifest"]) == {
@@ -191,6 +210,12 @@ def test_disclosure_is_exact_content_free_json_and_execution_is_disabled():
         "one_time_use",
         "ttl_seconds",
         "payload_binding",
+    }
+    assert disclosure["execution_policy"] == {
+        "server_owned_action": True,
+        "disabled_by_default": True,
+        "requires_active_authorization": True,
+        "browser_supplied_request_fields": [],
     }
 
     assert disclosure["provider"] == manifest["provider_boundary"]["provider"]
@@ -226,10 +251,9 @@ def test_disclosure_is_exact_content_free_json_and_execution_is_disabled():
         "ttl_seconds": 300,
         "payload_binding": "exact_frozen_request_digest",
     }
-    assert disclosure["execution_available"] is False
     assert disclosure["next_action"] == (
-        "Review this disclosure and explicitly authorize one exact "
-        "synthetic request. Provider execution remains unavailable."
+        "Review this disclosure, acknowledge the exact synthetic request, "
+        "then run the server-owned action once."
     )
     json.dumps(disclosure, allow_nan=False)
 
@@ -241,7 +265,7 @@ def test_disclosure_is_exact_content_free_json_and_execution_is_disabled():
     assert "FIREWORKS_API_KEY" not in serialized
     assert "Bearer " not in serialized
     assert "api_key" not in serialized.lower()
-    assert "authorization" not in serialized.lower()
+    assert '"authorization":' not in serialized.lower()
 
     forbidden_authority_fragments = {
         "authority",

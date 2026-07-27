@@ -90,23 +90,28 @@ controlled criterion policy. Complete measurable proposals and vague proposals
 both remain `NEEDS_REVIEW`; vague or incomplete proposals have no executable
 criterion.
 
-Tests run the service through the real `FireworksProvider` with a fake injected
-transport. A separate permit-only executor and pinned HTTPS transport seam are
-also tested with fake connections. The service performs no persistence or
-browser/session mutation, loads no credential, makes no live provider call, and
-returns only redacted source, review-only drafts, safe redaction metadata, and a
-content-free receipt.
+Tests run the side-effect-free service through the real `FireworksProvider` with
+a fake injected transport. The service itself performs no persistence or
+browser/session mutation and returns only redacted source, review-only drafts,
+safe redaction metadata, and a content-free receipt.
 
-The local `exitspec define` and browser paths remain synthetic and provider-free.
-Browser pasted-note intake redacts before parsing and retains only redacted
-source plus safe summary metadata. An explicit optional browser action invokes
-the assisted service with `SyntheticAssistedAuthoringExecutor`, a deterministic
-local implementation of the provider-neutral interface. It performs no external
-call, supports only the exact-tool-selection rule, and leaves every result
-`NEEDS_REVIEW`. The local command writes the synthetic transcript, review
-decisions, approved contract, static review page, and artifact hashes. None of
-these paths claims live model extraction, live Fireworks execution, STT,
-authenticated customer identity, or production authorization.
+The local `exitspec define`, pasted-note capture, and **Draft locally** browser
+paths remain synthetic and provider-free. The local browser fallback uses
+`SyntheticAssistedAuthoringExecutor`, performs no external call, supports only
+the exact-tool-selection rule, and leaves every result `NEEDS_REVIEW`.
+
+A separate optional Wave-1 browser action is live-capable but disabled by
+default. With explicit server enablement and a server-owned credential, it may
+execute only the frozen synthetic request after disclosure acknowledgement. It
+cannot send editable notes or browser-selected provider fields. Every terminal
+outcome receives a typed result and content-free receipt; accepted proposals
+remain `NEEDS_REVIEW`. Automated evidence uses fake HTTPS connections, and no
+successful real-account Fireworks smoke is claimed.
+
+The local command writes the synthetic transcript, review decisions, approved
+contract, static review page, and artifact hashes. No current path claims STT,
+authenticated customer identity, arbitrary provider authoring, or production
+authorization.
 
 ## Customer confirmation boundary
 

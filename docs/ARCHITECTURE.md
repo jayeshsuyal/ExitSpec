@@ -252,20 +252,19 @@ external schema references are rejected.
 `FireworksProvider` is a replaceable adapter with an injected transport,
 content-free receipt, bounded retries, and sanitized typed errors. Tests execute
 the real adapter and assisted-authoring composition with fake transports. The
-`AuthorizedFireworksExecutor` is the only composition intended for future live
-server wiring: it accepts a sealed permit, not a raw request, and applies the
+`AuthorizedFireworksExecutor` is the only composition used by the optional
+server action: it accepts a sealed permit, not a raw request, and applies the
 frozen pricing and retry limits. It constructs the pinned HTTPS transport
 itself rather than accepting an arbitrary provider transport.
 
 `PinnedFireworksHTTPSTransport` is a narrow standard-library HTTPS seam for the
 exact Fireworks host and path. It performs one first-hop request, rejects every
 redirect without following `Location`, bounds and strictly decodes the response,
-and closes on every path. Its tests inject fake connections. No credential is
-loaded, no live Fireworks evidence exists, and no provider execution or external
-network path is wired into the server or browser. The server exposes only the
-local disclosure and authorization control-plane routes described below. The
-browser's optional assisted action remains the local deterministic executor
-described above, not Fireworks.
+and closes on every path. Its tests inject fake connections. The deterministic
+local action remains available without a credential. A separate experimental
+browser action can reach this seam only when the server is explicitly enabled
+with a server-owned credential. No successful real-provider smoke evidence
+exists yet.
 
 The provider-egress contract starts from a frozen Wave-1 manifest. That
 trusted policy fixes the provider, model, exact HTTPS endpoint, approved
@@ -284,9 +283,9 @@ records never serialize the token verifier, nonce, or raw request. Malformed,
 mismatched, expired, and replayed paths fail closed as the typed, sanitized
 `egress_not_authorized` error.
 
-### Loopback provider authorization
+### Loopback provider authorization and execution
 
-The loopback server exposes two control-plane routes:
+The loopback server exposes three narrow routes:
 
 - `GET /api/provider/fireworks/disclosure` derives the public disclosure and its
   identity from the code-pinned frozen Wave-1 policy and rejects URL
@@ -294,22 +293,40 @@ The loopback server exposes two control-plane routes:
 - `POST /api/provider/fireworks/authorization` rejects URL parameters and
   requires that byte-exact disclosure identity, an explicit `true`
   acknowledgement, JSON whose `Origin` authority exactly matches the request
-  `Host`, and an idempotency key.
+  `Host`, and an idempotency key; and
+- `POST /api/provider/fireworks/execution` requires that same exact-origin
+  boundary, one header-only `Idempotency-Key`, and an empty JSON object. It
+  accepts no provider, model, endpoint, prompt, source, request, capability,
+  retry, or budget field.
 
 An identical replay returns the same public authorization result. Conflicting
 reuse of an idempotency key is rejected. A new valid authorization replaces the
 previous active private authorization, while an old replay cannot reactivate
-it. A bounded, content-free operation history fails closed at 64 entries until
-reset; reset clears both authorization and history. The capability token and
-exact `StructuredJSONRequest` remain server-private and are never returned by
-either route. `/api/state` continues to report `provider_calls: false` because
-authorization is not execution.
+it. Active authority is cleared by reset or any relevant workflow change, but
+the content-free authorization and execution tombstones survive reset so a
+delayed retry cannot gain fresh authority. Each history is capped at 64
+operations and fails closed until process restart. The capability token and
+exact `StructuredJSONRequest` remain server-private and are never returned.
 
-This boundary has no credential loader, execution route, browser action, live
-Fireworks request, DNS/TLS activity, or provider spend. The HTTPS seam is still
-exercised only with fake connections. PR24 is planned to consume the private
-authorization for one bounded action; until that action and the separately
-approved live smoke exist, Wave 1 remains blocked.
+Execution uses a claim → external call → guarded publish state machine. The
+session lock atomically claims an operation, reserves the manifest's `$0.01`
+maximum, detaches the one-use authorization, and fingerprints the current
+workflow. The network call happens outside the lock. Publication occurs only if
+the workflow fingerprint is unchanged; otherwise the result is discarded as
+`stale_workflow`. Identical concurrent execution keys wait for and replay one
+terminal record; a different key cannot start while an operation is pending.
+
+The `$0.10` reservation ceiling, provider-call history, and idempotency
+tombstones survive browser reset and clear only on process restart. This is a
+conservative local ceiling, not provider billing reconciliation. Process crash
+after a send can leave the provider outcome unknown, so exactly-once behavior is
+claimed only within one running process.
+
+The credential is read from `FIREWORKS_API_KEY` only when the operator supplies
+`--enable-fireworks`. Disabled or missing configuration preserves the local
+deterministic path and performs no provider call. Automated proof uses fake HTTPS
+connections; one separately approved, funded real-account smoke is still
+required before Wave 1 can claim live evidence.
 
 Provider output can propose facts; it cannot set review status, confirmation,
 contract state, adapter selection, canonical hashes, or verdicts.

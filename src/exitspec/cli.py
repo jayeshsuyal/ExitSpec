@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -81,6 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Open the loopback demo URL after the server starts.",
     )
+    serve.add_argument(
+        "--enable-fireworks",
+        action="store_true",
+        help=(
+            "Enable the optional frozen synthetic Fireworks action. "
+            "Requires FIREWORKS_API_KEY in the server environment."
+        ),
+    )
     return parser
 
 
@@ -116,14 +125,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         return 0
     if args.command == "serve":
+        fireworks_api_key = (
+            os.environ.get("FIREWORKS_API_KEY")
+            if args.enable_fireworks
+            else None
+        )
         server = serve_demo(
             host=args.host,
             port=args.port,
             output_root=args.output_dir,
             open_browser=args.open_browser,
+            enable_fireworks=args.enable_fireworks,
+            fireworks_api_key=fireworks_api_key,
         )
+        del fireworks_api_key
         print("ExitSpec local demo: http://{0}:{1}".format(args.host, server.server_port))
-        print("Synthetic-only. No provider calls. Press Ctrl+C to stop.")
+        provider_status = server.wave1_provider_execution.public_status()
+        if provider_status["enabled"] and provider_status["configured"]:
+            print(
+                "Synthetic-only Fireworks assist enabled. "
+                "Every send still requires explicit disclosure acknowledgement."
+            )
+        elif provider_status["enabled"]:
+            print(
+                "Fireworks requested but not configured. "
+                "The deterministic local path remains available."
+            )
+        else:
+            print(
+                "Fireworks disabled. The deterministic local path remains available."
+            )
+        print("Press Ctrl+C to stop.")
         try:
             server.serve_forever()
         except KeyboardInterrupt:

@@ -207,12 +207,17 @@ The product is accepted when:
 - all six pack links resolve and every artifact listed in the hash manifest
   verifies;
 - a built wheel runs outside the repository; and
-- public copy never implies live Fireworks, speech-to-text, authenticated
-  customer identity, arbitrary metric execution, or production authorization.
+- public copy distinguishes the disabled-by-default, synthetic-only Fireworks
+  action from successful live-provider evidence and never implies
+  speech-to-text, authenticated customer identity, arbitrary metric execution,
+  or production authorization.
 
 ## Non-goals for the current product
 
-- Live Fireworks or any other provider execution.
+- Arbitrary customer-controlled provider requests or production-grade provider
+  execution.
+- Successful real-account Fireworks evidence until the separately approved,
+  funded smoke gate passes.
 - Speech-to-text or real customer call ingestion.
 - Generic metrics, multi-criterion contracts, latency or cost execution.
 - Hosted endpoint measurement or load testing.

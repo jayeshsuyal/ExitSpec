@@ -75,9 +75,10 @@ loop.
   retries, terminal exhaustion, and typed exact-source-link rejection. Generic
   `412` handling stays neutral; the exact frozen non-LoRA Wave-1 boundary
   safely narrows it to account unavailability.
-- Loopback disclosure and authorization routes derived from the frozen policy;
-  no credential loading, provider execution route, browser action, live
-  Fireworks call/evidence, DNS/TLS activity, provider spend, or speech-to-text.
+- Loopback disclosure, authorization, and bounded execution routes derived from
+  the frozen policy; the browser action is disabled by default, accepts no
+  request-policy fields, and has complete fake-HTTPS proof. No successful
+  real-account Fireworks smoke evidence or speech-to-text exists.
 
 ## Next sequence
 
@@ -96,7 +97,7 @@ Exit gate: a hosted test proves authorized access, durable idempotent replay,
 revocation, expiry, version invalidation, and complete audit history without
 weakening the current acknowledgement or fingerprint checks.
 
-### 2. Explicit assisted-authoring workflow — local precursor complete
+### 2. Explicit assisted-authoring workflow — bounded action complete
 
 The browser now exposes the redaction-first assisted-authoring service through an
 explicit opt-in action backed by a deterministic local executor. It makes no
@@ -104,17 +105,17 @@ external call, keeps unsupported and conflicting requests unresolved, and leaves
 every proposal `NEEDS_REVIEW`. The ordinary deterministic capture path remains
 the default.
 
-The remaining step in this sequence is to place real provider use behind the
-frozen Wave-1 manifest, acknowledgement, permit, and failure gates while keeping
-the local path available. The manifest fixes the provider, model, endpoint,
-approved synthetic payload digest, fixture/case provenance, redaction
-configuration, data/pricing snapshots, request ceilings, and spend cap.
+The optional server-owned Wave-1 action now places provider use behind the
+frozen manifest, acknowledgement, permit, and failure gates while keeping the
+local path available. The manifest fixes the provider, model, endpoint, approved
+synthetic payload digest, fixture/case provenance, redaction configuration,
+data/pricing snapshots, request ceilings, and spend cap.
 
 The provider-egress contract uses server-owned clock and randomness for a
 five-minute, single-use acknowledgement. Authorization recomputes the binding
 from the exact `StructuredJSONRequest` and trusted policy, then returns a
-one-use permit that privately carries that request. A future transport must
-accept and take only that permit. Public records do not serialize the token
+one-use permit that privately carries that request. The authorized transport
+accepts and takes only that permit. Public records do not serialize the token
 verifier, nonce, or raw request; malformed, mismatched, expired, and replayed
 paths fail closed as typed, sanitized `egress_not_authorized`.
 
@@ -123,7 +124,7 @@ and retry ceilings, and passes it to an exact-origin HTTPS seam. The seam issues
 one first-hop request and rejects redirects without following `Location`; all
 connections are fake.
 
-The loopback server now exposes
+The loopback server exposes
 `GET /api/provider/fireworks/disclosure` and
 `POST /api/provider/fireworks/authorization`. Disclosure is derived from the
 code-pinned frozen policy. Both authority routes reject URL parameters.
@@ -132,10 +133,23 @@ acknowledgement, JSON whose `Origin` authority exactly matches the request
 `Host`, and an idempotency key. Identical replay returns the same public result;
 conflicting key reuse is rejected. A new authorization replaces the previous
 active private state without allowing an old replay to reactivate it. A bounded,
-content-free operation history fails closed at 64 entries until reset. The
-capability token and exact request never leave the server. Because this is
-authorization rather than execution, `/api/state` continues to report
-`provider_calls: false`.
+content-free operation history survives reset, fails closed at 64 entries, and
+clears only on process restart. Active authority clears on reset or relevant
+workflow change. The capability token and exact request never leave the server.
+Authorization alone is never counted as a provider call.
+
+`POST /api/provider/fireworks/execution` now provides the one bounded action.
+It accepts only exact same-origin JSON, a header-only idempotency key, and an
+empty object. The browser cannot replace any request or policy field. The server
+claims and reserves the action under lock, executes outside the lock, and
+publishes only if its workflow guard is unchanged. Identical concurrent retries
+share one terminal record; reset during the call makes the result stale instead
+of overwriting new work.
+
+The action is disabled by default and reads `FIREWORKS_API_KEY` only with
+`--enable-fireworks`. Each claim conservatively reserves `$0.01` against a
+`$0.10` process-local ceiling. Spend state, provider-call history, and
+idempotency tombstones survive reset but not process restart.
 
 The complete frozen fake failure matrix now covers missing configuration,
 authentication, billing/usage unavailability, neutral precondition failures,
@@ -147,9 +161,9 @@ Only timeout, `429`, and `503` receive bounded internal retries, following Firew
 [serverless guidance](https://docs.fireworks.ai/serverless/rate-limits);
 terminal exhaustion does not authorize another automatic retry.
 
-No credential loader, provider execution route, browser action, live Fireworks
-call, DNS/TLS activity, provider spend, or live evidence exists. Wave 1 remains
-blocked on PR24's one bounded action and one explicitly approved live smoke.
+The complete action is proven with fake HTTPS connections. No successful
+real-account Fireworks call or live evidence is claimed. Wave 1 remains blocked
+on one explicitly approved, funded live smoke.
 
 ```text
 explicit user action
@@ -166,17 +180,22 @@ browser state, receipts, errors, or persistence; every provider result stays
 
 ### 3. Consume one authorization, then prove one live Fireworks boundary
 
-PR24 will add one bounded server action for the approved synthetic structured
-request. That action must consume the exact private authorization already held
-by the server; it must not accept a capability token or replacement provider
-request from the browser. Only after the credential source and this complete
-permit-only path are approved may a separate, explicitly approved bounded live
-smoke run.
+PR24 adds one bounded server action for the approved synthetic structured
+request. It consumes the exact private authorization already held by the server
+and accepts neither a capability token nor replacement provider request from the
+browser. It is disabled by default, guarded by exact-origin and idempotency
+contracts, bounded by manifest cost/retry ceilings, and publishes only
+locally-validated review-only proposals.
 
-Exit gate: success, authentication failure, rate limit, timeout, malformed
+Implementation gate: success, authentication failure, rate limit, timeout, malformed
 response, schema failure, retry exhaustion, and budget behavior produce typed,
 sanitized outcomes and content-free receipts. Fireworks still cannot approve,
 freeze, choose policy, or assign a verdict.
+
+Remaining Wave-1 gate: run one separately approved, funded request against the
+real pinned endpoint and retain only the sanitized receipt and typed outcome.
+Until that smoke passes, the repository claims live-capable code and fake
+transport evidence—not successful live-provider evidence.
 
 ### 4. Add one hosted measurement adapter
 

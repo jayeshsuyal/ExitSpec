@@ -98,7 +98,10 @@ def test_disclosure_is_content_free_and_cannot_enable_execution(
     disclosure = session.wave1_provider_disclosure_payload()
     rendered = json.dumps(disclosure, sort_keys=True)
 
-    assert disclosure["execution_available"] is False
+    assert disclosure["execution_policy"]["server_owned_action"] is True
+    assert disclosure["execution_policy"]["disabled_by_default"] is True
+    assert disclosure["runtime"]["execution_available"] is False
+    assert disclosure["runtime"]["configured"] is False
     assert disclosure["authorization"] is None
     assert disclosure["synthetic_case"]["synthetic_only"] is True
     assert disclosure["acknowledgement_policy"]["required"] is True
@@ -125,10 +128,7 @@ def test_authorization_keeps_capability_and_request_server_private(tmp_path):
     )
 
     authorization = response["authorization"]
-    assert authorization["status"] == (
-        "authorization_recorded_not_executed"
-    )
-    assert authorization["execution_available"] is False
+    assert authorization["status"] == "authorization_recorded"
     assert authorization["idempotent_replay"] is False
     assert authorization["replaced_previous"] is False
     state = session._wave1_provider_authorization
@@ -261,7 +261,7 @@ def test_new_intake_and_reset_clear_unused_provider_authorization(tmp_path):
         "Customer: The POC must reach 95% exact tool-selection accuracy."
     )
     assert session._wave1_provider_authorization is None
-    assert session._wave1_provider_authorization_operations == {}
+    assert len(session._wave1_provider_authorization_operations) == 1
 
     session.authorize_wave1_provider_egress(
         disclosure_id=disclosure_id,
@@ -270,7 +270,45 @@ def test_new_intake_and_reset_clear_unused_provider_authorization(tmp_path):
     )
     session.reset_to_synthetic_sample()
     assert session._wave1_provider_authorization is None
-    assert session._wave1_provider_authorization_operations == {}
+    assert len(session._wave1_provider_authorization_operations) == 2
+
+    delayed_retry = session.authorize_wave1_provider_egress(
+        disclosure_id=disclosure_id,
+        acknowledged=True,
+        idempotency_key="provider-auth-before-intake",
+    )
+    assert delayed_retry["authorization"]["idempotent_replay"] is True
+    assert session._wave1_provider_authorization is None
+
+
+def test_workflow_mutation_clears_authority_without_erasing_replay_tombstone(
+    tmp_path,
+):
+    session = _session(tmp_path)
+    disclosure_id = session.wave1_provider_disclosure_payload()["disclosure_id"]
+    authorization_key = "provider-auth-before-human-review"
+    session.authorize_wave1_provider_egress(
+        disclosure_id=disclosure_id,
+        acknowledged=True,
+        idempotency_key=authorization_key,
+    )
+
+    session.review(
+        draft_id=session.reviewed_drafts[0].id,
+        decision="APPROVE",
+        reviewer="field_engineer",
+        rationale="Human review changed the current workflow.",
+    )
+
+    assert session._wave1_provider_authorization is None
+    assert len(session._wave1_provider_authorization_operations) == 1
+    delayed_retry = session.authorize_wave1_provider_egress(
+        disclosure_id=disclosure_id,
+        acknowledged=True,
+        idempotency_key=authorization_key,
+    )
+    assert delayed_retry["authorization"]["idempotent_replay"] is True
+    assert session._wave1_provider_authorization is None
 
 
 def test_authorization_operation_history_is_bounded_fail_closed(
@@ -318,9 +356,8 @@ def test_http_disclosure_and_authorization_never_expose_a_capability(tmp_path):
 
         serialized = json.dumps(authorized, sort_keys=True)
         assert authorized["authorization"]["status"] == (
-            "authorization_recorded_not_executed"
+            "authorization_recorded"
         )
-        assert authorized["authorization"]["execution_available"] is False
         assert "capability_token" not in serialized
         assert "Authorization" not in serialized
         assert "messages" not in serialized
@@ -452,7 +489,7 @@ def test_provider_authority_routes_reject_url_parameters_without_state_change(
         assert session._wave1_provider_authorization_operations == {}
 
 
-def test_provider_execution_route_does_not_exist(tmp_path):
+def test_provider_execution_route_requires_private_authorization(tmp_path):
     with _running_server(tmp_path) as (_session_value, base_url):
         status, error = _post_json_error(
             base_url + "/api/provider/fireworks/execution",
@@ -461,5 +498,5 @@ def test_provider_execution_route_does_not_exist(tmp_path):
             origin=base_url,
         )
 
-        assert status == 404
-        assert error == {"error": "Unknown API route."}
+        assert status == 409
+        assert "authorize" in error["error"].lower()
