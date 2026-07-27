@@ -5,7 +5,16 @@
 This document freezes the provider-neutral source boundary for Wave 2. The
 authoritative executable contract is
 [`wave-2-acceptance-v1.json`](../examples/support-agent/email/wave-2-acceptance-v1.json).
-That manifest is `FROZEN` at version `1.0.0`.
+That manifest is `FROZEN` at version `1.0.1`.
+
+Version `1.0.1` supersedes frozen version `1.0.0` at the same V1 path. The
+history remains in git. Implementation review found six transaction-boundary
+details underdefined before any product implementation consumed the contract:
+the prepared-to-final lifecycle, the exact `content_sha256` projection, the
+thread-root input, the private replay fingerprint, receipt candidate-count
+semantics, and browser timing ownership. Version `1.0.1` freezes those details.
+It changes no fixture bytes, fixture-set digest, behavioral outcome, fault
+count, or timing threshold.
 
 Freezing the contract authorizes implementation against its fixtures and gates.
 It does not claim that the parser, workflow, browser flow, or Wave 2 exit gate
@@ -18,10 +27,12 @@ access, OAuth, webhooks, or sending.
 ## Decision
 
 Email enters ExitSpec as untrusted source. It is normalized, redacted, and
-wrapped in a provider-neutral `SourceEnvelope` before any durable write or
-assisted-authoring request. It can propose facts for employee review; it cannot
-approve an agreement, represent customer confirmation, freeze a contract,
-measure a POC, or assign a verdict.
+wrapped in a provider-neutral immutable `PreparedSourceEnvelope` before any
+durable write or assisted-authoring request. The source store finalizes that
+prepared value into a `SourceEnvelope` inside the same transaction that assigns
+its version and publishes its candidates. Email can propose facts for employee
+review; it cannot approve an agreement, represent customer confirmation, freeze
+a contract, measure a POC, or assign a verdict.
 
 The required flow is:
 
@@ -31,12 +42,14 @@ explicit employee fixture selection
   -> parse in request-local memory
   -> validate identity, MIME, body, and attachments
   -> normalize and redact headers and textual parts
-  -> build SourceEnvelope with exact redacted provenance
-  -> atomically persist one source version and NEEDS_REVIEW candidates
+  -> build PreparedSourceEnvelope with current-message redacted provenance
+  -> transactionally check replay and parent state
+  -> allocate the version and finalize cumulative SourceEnvelope digests
+  -> atomically publish one source version and current-version NEEDS_REVIEW candidates
   -> release raw RFC822 bytes
 ```
 
-Any validation or redaction failure before envelope construction persists
+Any validation or redaction failure before prepared-envelope construction persists
 nothing. Assisted-authoring failure after a valid envelope may retain only that
 redacted envelope; it cannot fabricate candidates or change agreement state.
 Missing or invalid synthetic approval markers fail as `source_not_approved`;
@@ -48,9 +61,47 @@ fixture bytes that do not match the frozen manifest digest fail as
 `MUST`, `MUST NOT`, `SHOULD`, and `MAY` are normative. The frozen manifest wins
 if this explanatory document and the machine-readable contract ever disagree.
 
-## `SourceEnvelope` V1
+## Prepared and final envelopes
 
-The implementation contract is intentionally provider-neutral:
+The adapter creates an immutable `PreparedSourceEnvelope` containing only:
+
+```text
+PreparedSourceEnvelope
+  schema_version = "exitspec-source-envelope/1.0"
+  source_type = "rfc822"
+  synthetic = true
+  authority = "untrusted_source_only"
+  source_id
+  observed_at
+  redaction                     # current message only
+  message                       # exactly one redacted current message
+  candidate_drafts[]            # current message only
+```
+
+A `PreparedCandidateDraft` contains exactly `candidate_type`, `state`,
+`projection`, `message_key`, `part_path`, `start_byte`, `end_byte`, and
+`quote_sha256`. It is always `NEEDS_REVIEW`. Neither prepared type contains a
+transaction-owned `source_version`, `version_id`, `ingested_at`, or
+`content_sha256`, and a draft does not contain final `source_id`,
+`source_version`, or `version_id` binding.
+
+Prepared redaction, redacted-header, message, and part shapes use the exact
+field lists frozen below for `content_sha256`; only their scope differs:
+prepared counts and content cover the current message, while final counts and
+messages are cumulative.
+
+The request-local `PreparedSourceImport` wrapper carries the approved synthetic
+fixture marker, normalized thread-root `Message-ID`,
+`thread_root_message_key`, and prepared envelope into the store. The entire
+wrapper and its approved-fixture marker have representation-hidden semantics;
+the fixture marker, normalized root identifier, and parent key MUST NOT appear
+in `repr`, logs, errors, or public serialization.
+
+Inside one source-store transaction, the finalizer first validates private
+provenance and the source/thread binding, then checks private replay and parent
+state, allocates `source_version`, records `ingested_at`, builds cumulative
+messages and cumulative redaction counts, computes the fixed digests, binds
+only the current message's candidates, and atomically publishes:
 
 ```text
 SourceEnvelope
@@ -61,25 +112,34 @@ SourceEnvelope
   version_id
   observed_at
   ingested_at
-  authored_at?                 # source-asserted, never trusted for ordering
   synthetic = true
   authority = "untrusted_source_only"
   redaction
     policy_version
-    counts
-  messages[]
+    counts                       # cumulative
+  messages[]                     # cumulative accepted-ingestion order
     message_key
-    redacted header projection
-    parts[]
+    redacted_headers
+      authored_at?               # source asserted; never ordering authority
+      from
+      subject
+      to
+    redacted_header_sha256
+    parts[]                      # accepted MIME order
       part_path
-      kind                     # body | attachment
+      kind                       # body | attachment
       media_type
       redacted_text
       redacted_text_sha256
-      redacted_filename_sha256? # attachments only
-  content_sha256               # canonical redacted envelope only
-  candidates[]                 # exact manifest projection, always NEEDS_REVIEW
+      redacted_filename_sha256?  # null for bodies
+  content_sha256
+  candidates[]                   # current-version-only, always NEEDS_REVIEW
 ```
+
+Messages are cumulative; candidates are never cumulative. Therefore the
+follow-up envelope contains two messages and exactly its one new candidate.
+Any failure before the single atomic publication writes nothing, creates no
+candidate, and consumes no version.
 
 The envelope MUST contain no raw RFC822, raw address, raw `Message-ID`, raw
 attachment filename, unredacted customer term, or secret. A real-source raw
@@ -110,11 +170,42 @@ The thread root is resolved in this order:
 2. the single valid `Message-ID` in `In-Reply-To`;
 3. the message's own `Message-ID`.
 
+The request-local parent key uses the same message-key domain over the
+normalized resolved root:
+
+```text
+thread_root_message_key =
+  msg:<sha256("exitspec-rfc822-message-id-v1" || NUL || normalized_root_id)>
+```
+
+For a root, it equals the current `message_key`. For a follow-up, it MUST match
+an already stored root message key. An unknown root fails as
+`thread_parent_not_found` with zero writes and no consumed version. This key is
+forbidden from the envelope, terminal receipt, errors, logs, provider payloads,
+and browser output.
+
 The thread-level source identity is:
 
 ```text
 rfc822:<sha256("exitspec-rfc822-thread-id-v1" || NUL || normalized_root_id)>
 ```
+
+`PreparedSourceImport` carries `normalized_thread_root_message_id` only as a
+private transient validation input. Before replay lookup, parent lookup,
+version allocation, or any write, the finalizer MUST:
+
+1. reject if applying the normalization algorithm changes that value;
+2. recompute `thread_root_message_key` and require it to equal the request
+   field;
+3. recompute `source_id` and require it to equal the prepared envelope field;
+4. for a root, require the parent key to equal the current `message_key`; and
+5. for a follow-up, require the stored root-key index to resolve to that same
+   `source_id`.
+
+Any mismatch fails as `source_thread_binding_mismatch` with zero writes, zero
+candidates, and no consumed version. This precedence also applies to replay and
+same-message identity-conflict requests, so malformed internal bindings cannot
+select a different source transaction.
 
 Raw identifiers MUST NOT be persisted or returned. A missing or ambiguous
 identity fails before persistence.
@@ -135,6 +226,15 @@ order. The untrusted `Date` header never controls order.
 - An unknown parent fails as `thread_parent_not_found`; the adapter does not
   silently fork a new thread.
 
+For synthetic V1 only, the transaction may persist one private immutable,
+representation-hidden idempotency record containing exactly `message_key`,
+`synthetic_fixture_sha256`, `source_id`, `source_version`, and `version_id`.
+The same key and digest replay; the same key and a different digest conflict.
+The synthetic fixture digest is permitted only in the frozen acceptance
+manifest, request-local approved-fixture marker, and private record. It MUST NOT
+enter an envelope, terminal receipt, error, log, provider payload, browser
+output, or public serialization.
+
 `version_id` is a domain-separated digest of canonical JSON. The exact top-level
 projection is `messages`, `source_id`, and `source_version`. Each message
 contains exactly `message_key`, `parts`, and `redacted_header_sha256`; each part
@@ -150,9 +250,61 @@ Unicode, JSON numbers for integers, and JSON `null` for absent optional values.
 The manifest freezes the expected version ID for every accepted case. No raw
 content enters either identity.
 
-Identity lookup, version allocation, envelope persistence, and candidate
-persistence MUST be one transaction. The transaction is acquired before identity
-lookup and held through idempotency-record persistence.
+## `content_sha256`
+
+`content_sha256` uses the domain `exitspec-source-envelope-content-v1`:
+
+```text
+sha256(domain || NUL || canonical_json(exact_projection))
+```
+
+Canonical JSON is UTF-8 with unescaped Unicode, lexically sorted keys, no
+insignificant whitespace, integers as JSON numbers, and absent optional values
+as JSON `null`. The projection contains exactly:
+
+```text
+schema_version
+source_type
+source_id
+source_version
+version_id
+synthetic
+authority
+redaction
+messages
+```
+
+It excludes `observed_at`, `ingested_at`, `candidates`, and
+`content_sha256` itself. `redaction` contains exactly `policy_version` and
+cumulative `counts`; counts contain exactly `customer_term`, `email`, `phone`,
+and `secret`.
+
+Each cumulative message contains exactly `message_key`, `redacted_headers`,
+`redacted_header_sha256`, and `parts`. `redacted_headers` contains exactly
+`authored_at`, `from`, `subject`, and `to`. Each part contains exactly
+`part_path`, `kind`, `media_type`, `redacted_text`,
+`redacted_text_sha256`, and `redacted_filename_sha256`. Messages use accepted
+ingestion order and parts use accepted MIME order.
+
+Computation order is fixed: redacted header and part digests, then `version_id`,
+then `content_sha256`, then current-version candidate binding. The exact
+accepted-case vectors are:
+
+| Fixture | `expected_content_sha256` |
+|---|---|
+| `thread-root` | `43de7333648b0ed24bfd4c95e935b32d01d631cd1b685c340330b629b0df5028` |
+| `thread-follow-up` | `729e7c5057b1ef971a384f53233f8789b6485d3de9e624c24d76a96deb85b898` |
+| `allowed-text-attachment` | `61cdb5ab7ec4f1b927df50b021db6aa4fad9617cafe5b0da3262c30fde14902c` |
+| `authority-attack` | `efa8e893c1689b7a470a52318e6d09be320978145dee01c88388b73b24d64b10` |
+
+## Atomic finalization
+
+Replay lookup, parent lookup, version allocation, `ingested_at` recording,
+cumulative envelope construction, all digest calculations, candidate binding,
+envelope persistence, candidate persistence, and private idempotency-record
+persistence MUST be one transaction. The transaction is acquired before replay
+or identity lookup and held through one atomic publication. Any error before
+publication leaves state unchanged and does not consume a version.
 
 The manifest freezes both possible commit orders for two concurrent imports of
 `thread-root`. Both requests may finish request-local validation before either
@@ -274,6 +426,11 @@ the exact selected redacted bytes. The fixture manifest freezes concrete spans,
 candidate projections, candidate counts, and version IDs for every accepted
 case.
 
+Candidate lists on a finalized envelope are current-version-only. A follow-up
+envelope retains cumulative messages but carries only the follow-up's one new
+candidate; historical candidates remain bound to their historical version and
+are not copied into the new envelope.
+
 If the range is invalid, the digest differs, or the cited source version is no
 longer current, candidate creation fails as `source_link_violation`. The system
 must never repair provenance by searching for similar text.
@@ -334,7 +491,30 @@ store, clears browser source state, discards the timing recorder, and asserts
 that no source task remains pending. Setup and teardown never enter latency
 samples.
 
+`elapsed_ms` is browser evidence, not a server receipt field. After the matching
+first rendered animation frame, the browser acceptance harness produces a
+timing-evidence record containing exactly `fixture_case_id`, `outcome_code`,
+and `elapsed_ms`. `SourceStore` neither emits nor persists that record.
+
 The source adapter itself performs zero external egress.
+
+## Terminal receipts
+
+Every terminal server receipt contains only `source_type`, `manifest_id`,
+`manifest_version`, `fixture_case_id`, `outcome_code`, `source_version`, and
+`candidate_count`. `candidate_count` means candidates newly created by this
+operation:
+
+- `accepted` and `accepted_new_version` use the selected fixture's exact
+  `expected_candidate_count`;
+- `duplicate_replay` is `0`, even when the result returns the existing
+  envelope and candidates; and
+- every typed refusal and assisted-authoring provider failure is `0`.
+
+Receipts never contain `elapsed_ms`, `normalized_thread_root_message_id`,
+`thread_root_message_key`, `synthetic_fixture_sha256`, source content,
+identifiers, addresses, attachment details, customer terms, secrets, candidate
+text, or provider payloads.
 
 ## Required outcome matrix
 
@@ -368,7 +548,7 @@ operation, verifies the exact code, and enforces zero new persistence and zero
 new candidates. Large attachment limits use exact virtual decoded-size vectors
 instead of committing giant binary fixtures.
 
-Failure before a redacted envelope persists nothing. The one exception is an
+Failure before atomic final-envelope publication persists nothing. The one exception is an
 assisted-authoring failure after successful source persistence: the safe
 redacted envelope remains available for local/manual authoring, with no provider
 candidates.
@@ -383,7 +563,10 @@ provider payloads.
 Wave 2 passes only when every manifest rule passes:
 
 - all fixture hashes match;
-- source identities, versions, and version IDs are exact;
+- source identities, versions, version IDs, and all four `content_sha256`
+  vectors are exact;
+- prepared values contain no transaction-owned fields and finalization is one
+  atomic publication;
 - every accepted fixture emits its exact non-zero candidate count and typed
   projection;
 - redaction and provenance oracles match byte-for-byte;
@@ -395,6 +578,8 @@ Wave 2 passes only when every manifest rule passes:
 - a valid follow-up creates exactly one version;
 - every declared failure has an executable fixture or deterministic fault and
   returns its typed safe outcome;
+- server receipt candidate counts mean newly created candidates and browser
+  timing evidence remains separate;
 - timing thresholds pass;
 - raw persistence, leaks, loss, duplication, implicit import, external source
   egress, and authority violations are all zero; and
