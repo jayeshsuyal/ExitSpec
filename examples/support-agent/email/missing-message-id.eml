@@ -1,0 +1,9 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 11:30:00 -0700
+Subject: Synthetic message missing stable identity
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Tool-selection accuracy must be at least 95%.

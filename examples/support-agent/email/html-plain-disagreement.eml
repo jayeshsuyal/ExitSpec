@@ -1,0 +1,19 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 11:00:00 -0700
+Message-ID: <alternative-conflict-001@customer.example>
+Subject: Synthetic alternative disagreement
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="exitspec-alternative-boundary"
+
+--exitspec-alternative-boundary
+Content-Type: text/plain; charset=UTF-8
+
+Tool-selection accuracy must be at least 95%.
+
+--exitspec-alternative-boundary
+Content-Type: text/html; charset=UTF-8
+
+<html><body><p>Tool-selection accuracy must be at least 90%.</p></body></html>
+--exitspec-alternative-boundary--
