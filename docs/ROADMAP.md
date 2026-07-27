@@ -98,8 +98,20 @@ every proposal `NEEDS_REVIEW`. The ordinary deterministic capture path remains
 the default.
 
 The remaining step in this sequence is to place real provider use behind the
-frozen Wave 1 acknowledgement, destination, policy, budget, and failure gates
-while keeping that local path available.
+frozen Wave-1 manifest, acknowledgement, permit, and failure gates while keeping
+the local path available. The manifest fixes the provider, model, endpoint,
+approved synthetic payload digest, fixture/case provenance, redaction
+configuration, data/pricing snapshots, request ceilings, and spend cap.
+
+The provider-egress contract uses server-owned clock and randomness for a
+five-minute, single-use acknowledgement. Authorization recomputes the binding
+from the exact `StructuredJSONRequest` and trusted policy, then returns a
+one-use permit that privately carries that request. A future transport must
+accept and take only that permit. Public records do not serialize the token
+verifier, nonce, or raw request; malformed, mismatched, expired, and replayed
+paths fail closed as typed, sanitized `egress_not_authorized`.
+
+No live provider transport or server route is wired yet. Wave 1 remains blocked.
 
 ```text
 explicit user action
@@ -116,9 +128,9 @@ browser state, receipts, errors, or persistence; every provider result stays
 
 ### 3. Prove one live Fireworks boundary
 
-Only after model, credential, synthetic payload, privacy policy, and spend ceiling
-are explicitly approved, add a real replaceable transport for one synthetic
-structured request.
+Only after the frozen Wave-1 manifest, credential source, disclosure, and
+permit-only boundary are approved, add a real replaceable transport for the one
+approved synthetic structured request.
 
 Exit gate: success, authentication failure, rate limit, timeout, malformed
 response, schema failure, retry exhaustion, and budget behavior produce typed,

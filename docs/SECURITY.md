@@ -117,15 +117,30 @@ authority.
   content are excluded from object representations and sanitized errors.
 - Receipts are content-free execution metadata; they do not approve a rule.
 - Retry and budget controls reduce risk but do not guarantee provider billing.
+- The frozen Wave-1 manifest supplies immutable provider/model/endpoint,
+  approved synthetic payload digest, fixture/case provenance, redaction
+  configuration, data/pricing snapshots, request ceilings, and spend cap.
+- The provider-egress authorizer owns its clock and randomness and issues a
+  five-minute, single-use acknowledgement.
+- Authorization recomputes the binding from the exact `StructuredJSONRequest`
+  and trusted policy, then returns a one-use permit that privately carries that
+  exact request. A future transport must accept and take only the permit, which
+  rechecks server time and fails closed if it expired before transport.
+- Public acknowledgement and permit records never serialize the token verifier,
+  nonce, or raw request. Malformed, mismatched, expired, and replayed paths fail
+  closed as typed, sanitized `egress_not_authorized`.
 
 Tests run `FireworksProvider` and the assisted-authoring composition with fake
 injected transports. There is no built-in live network transport, no live
 Fireworks evidence, and no external provider path in the browser. The browser's
-assisted action is a deterministic local executor and is labeled as such.
+assisted action is a deterministic local executor and is labeled as such. No
+live provider transport or server route is wired to the egress primitive; its
+presence does not authorize a network call, and Wave 1 remains blocked.
 
-Any future live provider use requires an explicit model, credential source,
-synthetic payload, disclosure, data policy, region, retention policy, and spend
-ceiling.
+Any future live provider use requires a frozen manifest for the approved model,
+endpoint, synthetic payload, disclosure, data and pricing policy, request
+ceilings, and spend cap, plus an approved credential source, region, and
+retention policy.
 
 ## Contract and artifact integrity
 
@@ -181,6 +196,9 @@ real customer source, live credential, provider body, or audio.
 10. Static or artifact path traversal.
 11. Non-loopback browser origin attempting a state-changing request.
 12. Measurement failure being misreported as a customer-system `FAIL`.
+13. Provider egress using a request or trusted-policy binding different from the
+    acknowledged one.
+14. Expired, invalid, malformed, or replayed provider-egress authorization.
 
 ## Production security gates
 

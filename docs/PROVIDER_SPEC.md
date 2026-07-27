@@ -87,6 +87,44 @@ string. Supporting an enterprise proxy later requires a separate explicit
 host-allowlist design; an arbitrary endpoint override must not silently inherit
 the Fireworks API key.
 
+### Manifest-bound egress acknowledgement and permit
+
+The provider-neutral authorization contract takes policy from the frozen
+Wave-1 manifest, not from request input. That immutable policy supplies:
+
+- provider, model, and exact HTTPS endpoint;
+- the exact approved synthetic payload digest;
+- source fixture hash and case identity;
+- redaction policy and configuration identity;
+- disclosed provider data-policy and pricing snapshots;
+- timeout, token, attempt, and retry ceilings; and
+- the maximum request cost.
+
+The exact redacted `StructuredJSONRequest` includes messages, response schema,
+model, timeout, token bounds, and request budget. The authorizer verifies it
+against the trusted policy and derives a domain-separated RFC 8785/SHA-256
+binding. The authorizer—not caller input—owns the clock and random token
+material. Explicit acknowledgement creates a capability that expires after five
+minutes and can authorize at most once.
+
+Authorization does not merely consume a token beside caller-supplied bytes. It
+recomputes the binding from the exact `StructuredJSONRequest` and trusted policy
+presented for authorization, then returns a one-use permit that privately
+carries that same request. A future live transport must accept this permit and
+take the request from it exactly once; it must not accept a second, separately
+supplied request. Taking the request rechecks the server clock and permanently
+invalidates an expired permit, preventing authorization just before expiry from
+being held for a later send.
+
+Public acknowledgement and permit records never serialize the token verifier,
+nonce, or raw request. Invalid acknowledgement, malformed input, policy or
+request mismatch, expiry, and replay all fail closed with the stable, sanitized
+`egress_not_authorized` code.
+
+No live provider transport or server route is wired to this primitive. It grants
+no network behavior by itself, and Wave 1 remains blocked until permit-only
+transport wiring and the redirect/failure matrix pass.
+
 ## Error and retry contract
 
 `ProviderError.code` is stable and machine-readable. Categories distinguish
