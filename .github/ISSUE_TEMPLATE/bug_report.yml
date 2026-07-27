@@ -1,0 +1,137 @@
+name: Bug report
+description: Report a reproducible gap between ExitSpec's declared and observed behavior.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve ExitSpec. Start with what happened, what you expected, and a minimal synthetic reproduction. The invariant, severity, containment, evidence, and regression fields are optional triage context; maintainers own the final classification.
+
+        > [!CAUTION]
+        > **Keep sensitive material out of this public issue.** Never paste API keys, customer source, private transcripts, provider bodies, or raw audio. Redact secrets, identities, tokens, URLs, request IDs, and customer-specific values from screenshots and logs.
+        >
+        > If this may involve a security or privacy exposure, **stop and do not submit this form**. Use the repository's private vulnerability-reporting option under the **Security** tab if available. If it is not available, contact a maintainer through a private channel without posting the sensitive details publicly.
+
+  - type: textarea
+    id: observed-behavior
+    attributes:
+      label: Observed behavior
+      description: What happened? Include the state or verdict ExitSpec produced and when it occurred.
+      placeholder: ExitSpec displayed BLOCKED as customer FAIL after the adapter timed out.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What should the documented contract, invariant, or user-facing promise have produced instead?
+      placeholder: An execution dependency failure should remain BLOCKED and must not be presented as a customer-system failure.
+    validations:
+      required: true
+
+  - type: input
+    id: violated-contract
+    attributes:
+      label: Violated invariant or contract
+      description: Optional. If known, name the product invariant, schema/lifecycle rule, API or UI contract, accepted exit gate, security/privacy rule, accessibility requirement, or user-facing promise.
+      placeholder: "INV-09 — Product failure and software failure are not interchangeable"
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity
+      description: Optional. Choose by impact, not implementation difficulty. Maintainers will confirm the final severity.
+      options:
+        - "P0 — Critical: active exposure, unrecoverable history corruption, unauthorized production action, or materially dangerous false PASS"
+        - "P1 — High: a core trust invariant or primary workflow is broken with no safe workaround"
+        - "P2 — Medium: important behavior is substantially degraded, but trust boundaries hold and a safe workaround exists"
+        - "P3 — Low: limited polish, copy, documentation, or minor usability defect"
+
+  - type: textarea
+    id: severity-rationale
+    attributes:
+      label: Severity rationale
+      description: Optional. Explain affected users, workflow impact, whether a safe workaround exists, and why the proposed severity fits.
+      placeholder: The primary proof workflow is blocked for all local runs, and there is no safe workaround. No customer or sensitive data is involved.
+
+  - type: textarea
+    id: synthetic-reproduction
+    attributes:
+      label: Minimal synthetic reproduction
+      description: Use the smallest sequence that reproduces the defect with synthetic or redacted input. Include prerequisites and whether it reproduces consistently.
+      placeholder: |
+        1. Start ExitSpec in deterministic local mode.
+        2. Load the synthetic support-agent scenario.
+        3. Freeze the confirmed contract.
+        4. Run proof with the adapter timeout fixture.
+        5. Observe that the UI reports FAIL instead of BLOCKED.
+
+        Reproduction rate: 3/3
+    validations:
+      required: true
+
+  - type: textarea
+    id: version-environment
+    attributes:
+      label: Version and environment
+      description: Provide the ExitSpec version, commit or branch, install method, operating system, runtime/browser versions, and relevant safe configuration. Never include credentials or tokens.
+      placeholder: |
+        ExitSpec: commit abc1234 on main
+        Install: editable local install
+        OS: macOS 15.x
+        Python: 3.12.x
+        Browser: Chrome 140.x
+        Mode: deterministic local; live providers disabled
+    validations:
+      required: true
+
+  - type: dropdown
+    id: exposure-assessment
+    attributes:
+      label: Exposure assessment
+      description: If sensitive data, credentials, private source, or unauthorized action may be exposed, stop and report privately instead of submitting this form.
+      options:
+        - "No known security or privacy exposure; this report is synthetic or safely redacted"
+        - "Operational or user impact only; no sensitive material is included"
+    validations:
+      required: true
+
+  - type: textarea
+    id: safe-containment
+    attributes:
+      label: Safe containment
+      description: Optional. What can safely prevent further impact while the defect is investigated?
+      placeholder: Keep the live adapter disabled and use the deterministic path. Do not delete or alter evidence needed to understand the defect.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Optional. Add synthetic test output, sanitized logs, screenshots, artifact hashes, or links to public evidence. Explain what each item proves. Do not include sensitive payloads.
+      placeholder: |
+        - Sanitized screenshot showing the incorrect verdict
+        - Failing synthetic test name and output
+        - Expected and actual artifact hashes
+
+  - type: textarea
+    id: regression-expectation
+    attributes:
+      label: Regression-test expectation
+      description: Optional. If you have a test idea, describe the smallest check that should fail on the broken revision and pass after the fix. Maintainers own the final regression design.
+      placeholder: A browser API test should inject an adapter timeout and assert BLOCKED in both the response and rendered status. Adjacent NOT_PROVEN and internal-error cases should remain non-FAIL.
+
+  - type: checkboxes
+    id: public-report-safety
+    attributes:
+      label: Public-report safety check
+      description: All boxes are required before this report can be submitted publicly.
+      options:
+        - label: I used only synthetic or safely redacted material and included no API keys, customer source, private transcripts, provider bodies, or raw audio.
+          required: true
+        - label: I am not publicly disclosing a suspected security or privacy exposure in this issue.
+          required: true
+        - label: I searched existing issues and this is not a known duplicate.
+          required: true
