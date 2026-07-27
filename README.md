@@ -38,6 +38,9 @@ synthetic source notes
 - The prepared sample contains one measurable requirement and one vague request.
 - A human can also paste synthetic notes. ExitSpec redacts them before intake and
   creates unresolved source-linked candidates.
+- An explicit **Draft with assisted authoring** action can run the same redacted
+  notes through a local deterministic helper. It makes no external call, supports
+  only exact tool selection, and leaves every proposal `NEEDS_REVIEW`.
 - For the one supported metric—exact support-tool selection—the human can define
   or correct the title, threshold, minimum sample count, and workload label.
 - The customer-facing claim is generated from those structured fields. The
@@ -138,9 +141,10 @@ distribution, and patch hygiene.
 ## Honest scope
 
 The browser product is local, loopback-only, single-process, synthetic, and
-provider-free. The Fireworks adapter and assisted-authoring composition are tested
-through fake injected transports; no live Fireworks call exists and that path is
-not wired into the UI. There is no speech-to-text ingestion.
+provider-free. Its optional assisted-authoring action uses a deterministic local
+executor. The Fireworks adapter and provider-backed composition are tested
+through fake injected transports; no live Fireworks call exists and no external
+provider path is wired into the UI. There is no speech-to-text ingestion.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, a live endpoint measurement adapter, generic metric

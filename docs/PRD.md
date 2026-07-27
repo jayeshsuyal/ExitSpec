@@ -99,6 +99,9 @@ deployment, spend, procurement, production traffic, or policy exceptions.
 - Redact pasted notes before they enter returned browser state.
 - Create unresolved, source-linked candidates without inventing a measurement
   rule.
+- Offer an explicit provider-free assisted action that runs locally against the
+  redacted source, recognizes only the supported exact-tool-selection shape,
+  and leaves every output `NEEDS_REVIEW`.
 - Let a human define or correct title, threshold, minimum samples, and workload
   label for exact tool selection.
 - Fix metric, unit, aggregation, adapter, confidence method, and evidence policy

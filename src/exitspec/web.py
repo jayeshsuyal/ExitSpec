@@ -34,6 +34,7 @@ from .authoring import (
     load_discovery_pack,
     reject_draft,
 )
+from .assisted_authoring import AssistedAuthoringError, build_assisted_discovery_pack
 from .confirmations import (
     ConfirmationDecision,
     ContractConfirmation,
@@ -70,6 +71,14 @@ from .review_links import (
     CustomerReviewInvitation,
     ReviewInvitationError,
     issue_customer_review_invitation,
+)
+from .synthetic_assisted_authoring import (
+    SYNTHETIC_ASSISTED_ADAPTER,
+    SYNTHETIC_ASSISTED_ADAPTER_VERSION,
+    SYNTHETIC_ASSISTED_MODEL,
+    SYNTHETIC_ASSISTED_POLICY,
+    SyntheticAssistedAuthoringExecutor,
+    safe_receipt_facts,
 )
 
 
@@ -144,6 +153,10 @@ class DemoSession:
     customer_draft_path: Optional[Path] = None
     transcript_notice: str = "Built-in synthetic discovery transcript"
     transcript_redaction: Optional[TranscriptRedactionSummary] = None
+    authoring_mode: str = "deterministic"
+    authoring_adapter: str = "source_candidate_capture"
+    authoring_adapter_version: str = "1"
+    authoring_receipt: Optional[Dict[str, Any]] = None
     _sample_discovery_pack: Optional[DiscoveryPack] = field(
         default=None,
         repr=False,
@@ -436,6 +449,62 @@ class DemoSession:
         ).format(
             intake.redaction.policy_version
         )
+        self.authoring_mode = "deterministic"
+        self.authoring_adapter = "source_candidate_capture"
+        self.authoring_adapter_version = "1"
+        self.authoring_receipt = None
+
+    @_serialized_session
+    def assisted_intake(
+        self,
+        pasted_text: str,
+        title: str = "Assisted discovery transcript",
+        *,
+        customer_terms: Sequence[str] = (),
+    ) -> None:
+        """Create review-only drafts through the local synthetic adapter.
+
+        This is explicit opt-in because it invokes a different authoring path than
+        ``/api/intake``. The service redacts first and still owns schema, source
+        anchor, and review-only validation boundaries.
+        """
+
+        try:
+            authored = build_assisted_discovery_pack(
+                pasted_text,
+                executor=SyntheticAssistedAuthoringExecutor(),
+                model=SYNTHETIC_ASSISTED_MODEL,
+                policy=SYNTHETIC_ASSISTED_POLICY,
+                customer_terms=customer_terms,
+                transcript_id="assisted-transcript",
+                title=title,
+            )
+        except (TranscriptIntakeError, AssistedAuthoringError) as error:
+            raise DemoStateError(str(error)) from None
+        except Exception:
+            # Keep unexpected adapter/provider state out of the HTTP error body.
+            raise DemoStateError(
+                "Provider-assisted discovery could not be completed."
+            ) from None
+        finally:
+            del pasted_text
+
+        self.discovery_pack = authored.discovery_pack
+        self.reviewed_drafts = list(authored.discovery_pack.drafts)
+        self.revision_request = None
+        self.revision_parent_version = None
+        self.revision_edit_applied_ids.clear()
+        self._invalidate_customer_agreement()
+        self.transcript_redaction = authored.redaction
+        self.transcript_notice = (
+            "Synthetic assisted authoring redacted meeting notes under policy {0}. "
+            "Every generated proposal remains NEEDS_REVIEW; a human must approve "
+            "any contract rule before customer confirmation."
+        ).format(authored.redaction.policy_version)
+        self.authoring_mode = "synthetic_assisted"
+        self.authoring_adapter = SYNTHETIC_ASSISTED_ADAPTER
+        self.authoring_adapter_version = SYNTHETIC_ASSISTED_ADAPTER_VERSION
+        self.authoring_receipt = safe_receipt_facts(authored.receipt)
 
     @_serialized_session
     def reset_to_synthetic_sample(self) -> None:
@@ -457,6 +526,10 @@ class DemoSession:
         self._invalidate_customer_agreement()
         self.transcript_notice = "Built-in synthetic discovery transcript"
         self.transcript_redaction = None
+        self.authoring_mode = "deterministic"
+        self.authoring_adapter = "source_candidate_capture"
+        self.authoring_adapter_version = "1"
+        self.authoring_receipt = None
 
     @_serialized_session
     def prove(self, scenario: str) -> RunResult:
@@ -920,6 +993,18 @@ class DemoSession:
                 if self.transcript_redaction is None
                 else self.transcript_redaction.model_dump(mode="json")
             ),
+            "authoring": {
+                "mode": self.authoring_mode,
+                "provider_calls": False,
+                "redaction": (
+                    None
+                    if self.transcript_redaction is None
+                    else self.transcript_redaction.model_dump(mode="json")
+                ),
+                "adapter": self.authoring_adapter,
+                "adapter_version": self.authoring_adapter_version,
+                "receipt": self.authoring_receipt,
+            },
             "transcript": self.discovery_pack.transcript.model_dump(mode="json"),
             "drafts": [draft.model_dump(mode="json") for draft in self.reviewed_drafts],
             "contract": None if contract is None else contract.model_dump(mode="json"),
@@ -1344,6 +1429,25 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                             "Synthetic source notes were redacted and captured. "
                             "Candidate claims remain unresolved until a human "
                             "defines a complete measurement rule."
+                        ),
+                    },
+                )
+                return
+            if parsed.path == "/api/assisted-intake":
+                self.server.session.assisted_intake(
+                    pasted_text=_required_string(payload, "transcript"),
+                    title=_optional_string(payload, "title")
+                    or "Assisted discovery transcript",
+                    customer_terms=_optional_string_list(payload, "customer_terms"),
+                )
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "state": self.server.session.state_payload(),
+                        "notice": (
+                            "Synthetic assisted authoring created review-only drafts "
+                            "after redaction. No provider call, approval, freeze, or "
+                            "verdict was performed."
                         ),
                     },
                 )

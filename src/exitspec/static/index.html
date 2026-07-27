@@ -142,15 +142,15 @@
                     <legend class="sr-only">Choose a fixed evaluation dataset</legend>
                     <label class="scenario-option">
                       <input type="radio" name="scenario" value="pass" checked />
-                      <span><strong>Reference set A</strong><small>Approved fixed support cases</small></span>
+                          <span><strong>Reference set A</strong><small>200 fixed support cases</small></span>
                     </label>
                     <label class="scenario-option">
                       <input type="radio" name="scenario" value="inconclusive" />
-                      <span><strong>Reference set B</strong><small>Approved fixed support cases</small></span>
+                          <span><strong>Reference set B</strong><small>200 fixed support cases</small></span>
                     </label>
                     <label class="scenario-option">
                       <input type="radio" name="scenario" value="blocked" />
-                      <span><strong>Reference set C</strong><small>Approved fixed support cases</small></span>
+                          <span><strong>Reference set C</strong><small>200 fixed support cases</small></span>
                     </label>
                   </fieldset>
                 </article>
@@ -234,7 +234,7 @@
                 <details class="source-details" id="source-details">
                   <summary>Meeting source</summary>
                   <div class="source-drawer">
-                    <p class="eyebrow">Source and demo controls</p>
+                    <p class="eyebrow">Notes</p>
                     <blockquote class="source-quote" id="source-title">
                       “At least 95% of 200 cases must choose the exact tool.”
                     </blockquote>
@@ -248,6 +248,14 @@
                       <div class="button-row">
                         <button class="button secondary" id="load-transcript" type="button">Capture notes</button>
                         <button class="text-action" id="reset-demo" type="button">Restore sample</button>
+                      </div>
+                      <div class="assisted-intake">
+                        <div>
+                          <p class="eyebrow">Optional assist</p>
+                          <p class="assisted-intake-copy">Draft review-only candidates from these notes.</p>
+                        </div>
+                        <button class="button tertiary" id="assisted-authoring" type="button">Draft with assisted authoring</button>
+                        <p class="helper-text" id="assisted-authoring-status" role="status">Local synthetic assist · redacted first · no external call.</p>
                       </div>
                     </div>
                   </div>

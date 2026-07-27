@@ -325,7 +325,7 @@ def test_workbench_continuity_contracts_are_explicit_in_the_browser_surface():
         "Exact expected support-tool selection",
         "Human-defined rule",
         "The customer-facing sentence is generated from these fields",
-        "This demo already has its one executable rule",
+        "One executable rule is already included",
     ):
         assert authoring_contract in javascript
 

@@ -64,6 +64,13 @@ redacted before parsing, and replaced by redacted source plus safe summary
 metadata. Source lines become unresolved candidates; intake does not manufacture a
 metric, threshold, workload, or approval.
 
+An explicit optional action runs those already-redacted notes through
+`SyntheticAssistedAuthoringExecutor`. This deterministic local adapter implements
+the provider-neutral structured-authoring interface without network access. It
+can recognize the one supported exact-tool-selection shape, keeps unsupported or
+conflicting requests unresolved, and cannot approve a proposal. The ordinary
+capture path remains the default.
+
 The human can define or correct the one supported rule through four fields:
 
 - title;
@@ -245,8 +252,9 @@ external schema references are rejected.
 `FireworksProvider` is a replaceable adapter with an injected transport,
 content-free receipt, bounded retries, and sanitized typed errors. Tests execute
 the real adapter and assisted-authoring composition with fake transports. There
-is no built-in live transport, no live Fireworks evidence, and no provider path
-wired into the browser.
+is no built-in live transport, no live Fireworks evidence, and no external
+provider path wired into the browser. The browser's optional assisted action is
+the local deterministic executor described above, not Fireworks.
 
 Provider output can propose facts; it cannot set review status, confirmation,
 contract state, adapter selection, canonical hashes, or verdicts.
