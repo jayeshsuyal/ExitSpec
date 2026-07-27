@@ -1,0 +1,16 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 09:05:00 -0700
+Message-ID: <support-poc-001@customer.example>
+Subject: ExampleCo support-agent POC requirements
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hello Alex,
+
+The support agent must select the correct tool in at least 97% of 200 cases.
+P95 end-to-end latency must remain below 2 seconds.
+
+This mutation deliberately reuses the original Message-ID.

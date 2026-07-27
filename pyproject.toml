@@ -35,6 +35,8 @@ exitspec = ["static/*.html", "static/*.css", "static/*.js"]
 "exitspec.demo_data" = [
   "support_agent/authoring/*.json",
   "support_agent/contracts/*.yaml",
+  "support_agent/email/*.eml",
+  "support_agent/email/*.json",
   "support_agent/fixtures/*.json",
 ]
 
