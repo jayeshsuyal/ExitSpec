@@ -767,6 +767,13 @@ insufficient evidence, adapter failure, and external block semantics.
 
 ### Wave 1 — Explicit assisted authoring and live Fireworks
 
+The frozen V1 decision contract is
+[`wave-1-acceptance-v1.json`](../examples/support-agent/fireworks/wave-1-acceptance-v1.json).
+It fixes the approved synthetic cases, provider destination, pricing and data
+policy snapshots, request ceilings, payload-bound acknowledgement contract,
+failure matrix, and binary quality gates. Freezing the manifest authorizes
+implementation against those tests; it does not prove that Wave 1 has passed.
+
 Entry requirements:
 
 - approved synthetic payload;
