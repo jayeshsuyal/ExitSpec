@@ -121,9 +121,30 @@ nonce, or raw request. Invalid acknowledgement, malformed input, policy or
 request mismatch, expiry, and replay all fail closed with the stable, sanitized
 `egress_not_authorized` code.
 
-No live provider transport or server route is wired to this primitive. It grants
-no network behavior by itself, and Wave 1 remains blocked until permit-only
-transport wiring and the redirect/failure matrix pass.
+### Permit-only pinned HTTPS seam
+
+`AuthorizedFireworksExecutor` is the only composition intended for future live
+server wiring. It accepts a sealed `AuthorizedProviderRequest`, takes its
+detached request exactly once, revalidates the frozen Wave-1 policy, and injects
+the manifest's model pricing, attempt ceiling, and `Retry-After` ceiling into
+`FireworksProvider`. It constructs `PinnedFireworksHTTPSTransport` itself; an
+arbitrary `ProviderTransport` cannot be substituted at this boundary. It does
+not read the environment; a server credential must be supplied explicitly, and
+missing, whitespace-bearing, or oversized values fail before transport.
+Successful results and typed errors are copied at this boundary with
+`provider_request_id` removed, matching the frozen receipt contract.
+
+`PinnedFireworksHTTPSTransport` accepts only the exact POST endpoint and strict
+header/body contract. It connects only to `api.fireworks.ai:443`, sends one
+first-hop request, never follows redirects, bounds the response body, requires
+strict UTF-8, and closes on every outcome. Any `3xx` response becomes
+`redirect_rejected` with only the status retained; `Location`, headers, bodies,
+and credentials are excluded from errors and representations.
+
+All transport tests inject fake connections. No credential loader, server route,
+browser action, or live Fireworks evidence exists. Wave 1 remains blocked until
+the complete frozen failure matrix and one explicitly approved bounded live
+smoke pass.
 
 ## Error and retry contract
 
@@ -131,14 +152,14 @@ transport wiring and the redirect/failure matrix pass.
 authentication, ordinary client rejection, rate limiting, service
 unavailability, other service errors, timeout, transport failure, malformed
 response envelopes, invalid model output, budget refusal, and exhausted
-retries.
+retries. Redirect refusal is a distinct non-retryable category.
 
 Only transport timeouts, HTTP `429`, and HTTP `503` are retried. Attempts are
 bounded. Exponential fallback delays are capped; numeric or HTTP-date
 `Retry-After` values are also capped. Malformed output, schema-validation
 failure, ordinary `4xx`, and other errors are not retried. Error strings and
 representations never include request content, response bodies, headers, or API
-keys.
+keys. Redirects are never retried or followed.
 
 ## Budget behavior
 

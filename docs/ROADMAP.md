@@ -67,10 +67,10 @@ loop.
 
 - Provider-neutral structured request, result, receipt, retry, schema, and budget
   types.
-- `FireworksProvider` and assisted-authoring composition tested through fake
-  injected transports.
-- No live provider transport, no Fireworks UI integration, and no
-  speech-to-text.
+- `FireworksProvider`, the permit-only executor, and the pinned first-hop HTTPS
+  transport tested through fake transports and fake connections.
+- No credential loading, live Fireworks call/evidence, server or UI integration,
+  or speech-to-text.
 
 ## Next sequence
 
@@ -111,7 +111,12 @@ accept and take only that permit. Public records do not serialize the token
 verifier, nonce, or raw request; malformed, mismatched, expired, and replayed
 paths fail closed as typed, sanitized `egress_not_authorized`.
 
-No live provider transport or server route is wired yet. Wave 1 remains blocked.
+The permit-only executor now takes the request once, applies the frozen pricing
+and retry ceilings, and passes it to an exact-origin HTTPS seam. The seam issues
+one first-hop request and rejects redirects without following `Location`; all
+tests use fake connections. No credential loader, server route, browser action,
+or live Fireworks evidence exists. Wave 1 remains blocked on the rest of the
+failure matrix and one explicitly approved bounded live smoke.
 
 ```text
 explicit user action
@@ -129,8 +134,8 @@ browser state, receipts, errors, or persistence; every provider result stays
 ### 3. Prove one live Fireworks boundary
 
 Only after the frozen Wave-1 manifest, credential source, disclosure, and
-permit-only boundary are approved, add a real replaceable transport for the one
-approved synthetic structured request.
+permit-only boundary are approved, wire the pinned transport to an explicit
+server action for the one approved synthetic structured request.
 
 Exit gate: success, authentication failure, rate limit, timeout, malformed
 response, schema failure, retry exhaustion, and budget behavior produce typed,

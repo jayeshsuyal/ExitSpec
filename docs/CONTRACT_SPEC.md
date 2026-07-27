@@ -91,9 +91,11 @@ both remain `NEEDS_REVIEW`; vague or incomplete proposals have no executable
 criterion.
 
 Tests run the service through the real `FireworksProvider` with a fake injected
-transport. The service performs no persistence or browser/session mutation, has no
-built-in live network transport, and returns only redacted source, review-only
-drafts, safe redaction metadata, and a content-free receipt.
+transport. A separate permit-only executor and pinned HTTPS transport seam are
+also tested with fake connections. The service performs no persistence or
+browser/session mutation, loads no credential, makes no live provider call, and
+returns only redacted source, review-only drafts, safe redaction metadata, and a
+content-free receipt.
 
 The local `exitspec define` and browser paths remain synthetic and provider-free.
 Browser pasted-note intake redacts before parsing and retains only redacted

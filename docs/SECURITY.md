@@ -129,13 +129,20 @@ authority.
 - Public acknowledgement and permit records never serialize the token verifier,
   nonce, or raw request. Malformed, mismatched, expired, and replayed paths fail
   closed as typed, sanitized `egress_not_authorized`.
+- The live-capable composition accepts only a sealed permit and reapplies the
+  frozen model, pricing, retry, timeout, and spend policy before transport. It
+  constructs the pinned HTTPS transport rather than accepting an arbitrary
+  provider transport, and removes provider request IDs from both successful
+  results and typed errors.
+- The pinned HTTPS seam connects only to the exact Fireworks host and path,
+  performs one first-hop request, rejects every redirect without reading or
+  following `Location`, bounds/strictly decodes the body, and closes every path.
 
 Tests run `FireworksProvider` and the assisted-authoring composition with fake
-injected transports. There is no built-in live network transport, no live
-Fireworks evidence, and no external provider path in the browser. The browser's
-assisted action is a deterministic local executor and is labeled as such. No
-live provider transport or server route is wired to the egress primitive; its
-presence does not authorize a network call, and Wave 1 remains blocked.
+injected transports. The permit-only executor and HTTPS seam use fake
+connections. No credential loader, server route, browser action, live
+Fireworks call, or live evidence exists. The browser's assisted action is a
+deterministic local executor and is labeled as such. Wave 1 remains blocked.
 
 Any future live provider use requires a frozen manifest for the approved model,
 endpoint, synthetic payload, disclosure, data and pricing policy, request
