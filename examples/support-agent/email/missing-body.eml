@@ -1,0 +1,15 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 10:30:00 -0700
+Message-ID: <missing-body-001@customer.example>
+Subject: Synthetic message with no inline body
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="exitspec-empty-boundary"
+
+--exitspec-empty-boundary
+Content-Type: text/plain; charset=UTF-8
+Content-Disposition: attachment; filename="note.txt"
+
+This attachment is not an inline message body.
+--exitspec-empty-boundary--

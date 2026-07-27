@@ -1,0 +1,24 @@
+From: Sam Customer <sam@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 10:00:00 -0700
+Message-ID: <attachment-poc-001@customer.example>
+Subject: Synthetic attachment requirements
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="exitspec-safe-boundary"
+
+--exitspec-safe-boundary
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Please include the attached synthetic requirements in the review.
+
+--exitspec-safe-boundary
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-Disposition: attachment; filename="ExampleCo-(priya@customer.example)-requirements.txt"
+
+Escalation rate must remain below 3%.
+Owner: ops@customer.example
+
+--exitspec-safe-boundary--

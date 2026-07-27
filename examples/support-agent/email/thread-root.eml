@@ -1,0 +1,20 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 09:00:00 -0700
+Message-ID: <support-poc-001@customer.example>
+Subject: ExampleCo support-agent POC requirements
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hello Alex,
+
+The support agent must select the correct tool in at least 95% of 200 cases.
+P95 end-to-end latency must remain below 2 seconds.
+Please leave any unsupported requirement unresolved.
+
+Customer contact: priya@customer.example
+Phone: +1 202-555-0142
+Project codename: ExampleCo.
+Synthetic credential: api_key=demo-token-SYNTHETIC-0000
