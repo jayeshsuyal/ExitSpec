@@ -11,6 +11,11 @@ measurement; and produces an inspectable `PASS`, `FAIL`, `BLOCKED`, or
 The governing rule is simple: missing, invalid, or insufficient evidence never
 passes.
 
+Engineering changes follow the
+[ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded
+decision, one binary exit gate, adversarial verification, and inspectable
+evidence.
+
 ## What the current product does
 
 The local browser workbench implements one complete **Define → Prove → Decide**
