@@ -50,7 +50,7 @@ occurs. A later action needs a new approval.
 | Provider / API surface | `fireworks` / `chat_completions` |
 | Model | `accounts/fireworks/models/deepseek-v4-flash` |
 | Exact endpoint | `https://api.fireworks.ai/inference/v1/chat/completions` |
-| Service tier | `standard` |
+| Pricing applicability | External assumption: the account dashboard must prove the frozen standard-rate snapshot applies to this exact model and account; ExitSpec does not send or verify a service-tier field |
 | Credential source | Server environment variable `FIREWORKS_API_KEY`, read only with `--enable-fireworks` |
 | Source fixture SHA-256 | `159c7729450b1ace0646f25943850b5561a3307558eb41f9a0fd48628a436a94` |
 | Approved case | `measurable-integer-threshold` |
@@ -71,11 +71,14 @@ The payload digest binds the complete redacted structured request, including its
 messages, response schema, model, timeout, token bounds, and budget. Do not copy
 the request body into the evidence pack.
 
-The frozen 2026-07-27 standard pricing snapshot is `$0.14` input, `$0.028`
+The frozen 2026-07-27 standard-rate pricing snapshot is `$0.14` input, `$0.028`
 cached input, and `$0.28` output per million tokens. At both token ceilings, the
 snapshot calculation is `$0.0014`; ExitSpec still enforces the more conservative
-`$0.01` action ceiling. Pricing is an estimate until reconciled with provider
-billing.
+`$0.01` action ceiling. This is not a locally enforced service-tier claim.
+Before authorization, the operator must prove in the provider dashboard that
+these rates apply to the pinned model and account. If applicability cannot be
+verified, record `BLOCKED` and make no call. Pricing remains an estimate until
+reconciled with provider billing.
 
 The frozen provider-policy snapshot says:
 
@@ -101,11 +104,14 @@ the outcome table below if any condition is true:
 - The provider account is suspended, unfunded, unable to cover the `$0.10`
   process guardrail, or cannot access the pinned model.
 - The current provider pricing or data-handling terms materially differ from
-  the frozen snapshots.
+  the frozen snapshots, or the dashboard cannot prove that the frozen rates
+  apply to the pinned model and account.
 - Storage, advanced-feature opt-in, or another account setting conflicts with
   the disclosure.
 - The key is not fresh and dedicated, has previously been exposed, or cannot be
   revoked immediately after the smoke.
+- Clipboard history cannot be disabled, or a copied key cannot be cleared and
+  verified absent before the server starts.
 - The named approver, exact wording, execution window, or evidence location is
   missing.
 - The browser is not using `http://127.0.0.1:8765/app`.
@@ -164,8 +170,9 @@ In the Fireworks dashboard:
 
 1. Confirm the account is active and can cover the `$0.10` process guardrail.
 2. Confirm the pinned model is available to the account.
-3. Compare current pricing and data-handling terms with the frozen execution
-   card. Abort on a material difference.
+3. Prove that the current account/model pricing shown in the dashboard matches
+   and is covered by the frozen standard-rate snapshot. ExitSpec does not send
+   or verify a service-tier field. Abort if applicability is unclear or differs.
 4. Confirm no account setting opts this request into persistent storage or an
    undisclosed advanced feature.
 5. Choose a quiet UTC window and record aggregate request, token, and billed-cost
@@ -179,7 +186,14 @@ to send a cheaper, different-model, or different-endpoint request.
 
 Create a dedicated key immediately before the approved window. Do not paste it
 into a command, command-line argument, file, `.env`, note, screenshot, or chat.
-In a fresh `zsh` terminal, read it without echoing:
+Manually type it into the hidden prompt below whenever the dashboard permits.
+If the dashboard only permits copying, first disable clipboard history and every
+clipboard manager, paste only into the hidden `read -s` prompt, and immediately
+clear the system clipboard with `printf '' | pbcopy`. Verify the clipboard is
+empty before starting the server. If any clipboard history cannot be disabled
+or cleared, revoke the key and record `BLOCKED`.
+
+In a fresh `zsh` terminal, read the key without echoing:
 
 ```bash
 read -r -s "FIREWORKS_API_KEY?Fresh dedicated Fireworks key: "
@@ -195,8 +209,12 @@ The terminal must report:
 Synthetic-only Fireworks assist enabled. Every send still requires explicit disclosure acknowledgement.
 ```
 
-If it reports `Key missing`, stop the server, unset and revoke the key, and mark
-the attempt `FAIL` without clicking the provider action.
+If it reports the exact message below, stop the server, unset and revoke the
+key, and mark the attempt `FAIL` without clicking the provider action:
+
+```text
+Fireworks requested but not configured. The deterministic local path remains available.
+```
 
 ## Execute exactly one product action
 
@@ -322,7 +340,8 @@ Record `BLOCKED` when an external condition prevents a valid smoke, including:
 
 - verified suspended or unfunded account (`account_unavailable`);
 - approval or a fresh revocable key is unavailable;
-- current provider policy/pricing no longer matches the frozen disclosure;
+- current provider policy/pricing no longer matches the frozen disclosure, or
+  pricing applicability to the pinned model/account cannot be proved;
 - other account traffic makes dashboard reconciliation impossible; or
 - a crash after send leaves the external result unknown.
 
@@ -356,13 +375,15 @@ Immediately after receipt capture and dashboard reconciliation:
    unset FIREWORKS_API_KEY
    ```
 
-3. Revoke the dedicated key in the Fireworks dashboard, even after a failed or
+3. Clear the system clipboard again with `printf '' | pbcopy` and confirm no
+   clipboard history retained the key.
+4. Revoke the dedicated key in the Fireworks dashboard, even after a failed or
    blocked action.
-4. Close the dedicated shell and browser tab.
-5. Confirm no key, raw request/response, proposal, or provider request ID was
+5. Close the dedicated shell and browser tab.
+6. Confirm no key, raw request/response, proposal, or provider request ID was
    copied into the repository, shell history, clipboard manager, screenshots,
    evidence location, or chat.
-6. Record key revocation time and the person who verified it. Record only a
+7. Record key revocation time and the person who verified it. Record only a
    redacted key label if the dashboard requires an identifier.
 
 Do not retain the key for debugging or a second smoke.
@@ -409,13 +430,17 @@ The evidence record should contain:
 - [ ] **Receipt:** only the eleven allowed content-free fields.
 - [ ] **Dashboard reconciliation:** aggregate request count, tokens, billed cost,
       UTC window, and reconciliation conclusion—no raw content or request ID.
+- [ ] **Pricing applicability:** sanitized dashboard evidence proves the frozen
+      standard-rate snapshot applied to the pinned model/account, or the smoke
+      is `BLOCKED`; no local service-tier enforcement is claimed.
 - [ ] **Authority proof:** every accepted proposal remained `NEEDS_REVIEW`; zero
       provider-created agreements, confirmations, freezes, measurements, or
       verdicts.
 - [ ] **Privacy proof:** synthetic-only source; no credential, headers, bodies,
       transcript, proposal text, or provider request ID in retained artifacts.
-- [ ] **Cleanup:** server stopped, environment cleared, dedicated key revoked,
-      and revocation independently verified.
+- [ ] **Cleanup:** server stopped, environment and system clipboard cleared,
+      clipboard history verified absent, dedicated key revoked, and revocation
+      independently verified.
 - [ ] **Limits:** one smoke does not replace deterministic tests, prove provider
       retention behavior, authenticate a customer, authorize production, or
       establish the complete Wave 1 exit gate.
