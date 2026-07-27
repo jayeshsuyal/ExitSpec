@@ -261,9 +261,11 @@ itself rather than accepting an arbitrary provider transport.
 exact Fireworks host and path. It performs one first-hop request, rejects every
 redirect without following `Location`, bounds and strictly decodes the response,
 and closes on every path. Its tests inject fake connections. No credential is
-loaded, no live Fireworks evidence exists, and no provider path is wired into
-the server or browser. The browser's optional assisted action remains the local
-deterministic executor described above, not Fireworks.
+loaded, no live Fireworks evidence exists, and no provider execution or external
+network path is wired into the server or browser. The server exposes only the
+local disclosure and authorization control-plane routes described below. The
+browser's optional assisted action remains the local deterministic executor
+described above, not Fireworks.
 
 The provider-egress contract starts from a frozen Wave-1 manifest. That
 trusted policy fixes the provider, model, exact HTTPS endpoint, approved
@@ -282,8 +284,32 @@ records never serialize the token verifier, nonce, or raw request. Malformed,
 mismatched, expired, and replayed paths fail closed as the typed, sanitized
 `egress_not_authorized` error.
 
-No server route, browser action, or credential loader is wired to this contract.
-The HTTPS seam is exercised only with fake connections; Wave 1 remains blocked.
+### Loopback provider authorization
+
+The loopback server exposes two control-plane routes:
+
+- `GET /api/provider/fireworks/disclosure` derives the public disclosure and its
+  identity from the code-pinned frozen Wave-1 policy and rejects URL
+  parameters; and
+- `POST /api/provider/fireworks/authorization` rejects URL parameters and
+  requires that byte-exact disclosure identity, an explicit `true`
+  acknowledgement, JSON whose `Origin` authority exactly matches the request
+  `Host`, and an idempotency key.
+
+An identical replay returns the same public authorization result. Conflicting
+reuse of an idempotency key is rejected. A new valid authorization replaces the
+previous active private authorization, while an old replay cannot reactivate
+it. A bounded, content-free operation history fails closed at 64 entries until
+reset; reset clears both authorization and history. The capability token and
+exact `StructuredJSONRequest` remain server-private and are never returned by
+either route. `/api/state` continues to report `provider_calls: false` because
+authorization is not execution.
+
+This boundary has no credential loader, execution route, browser action, live
+Fireworks request, DNS/TLS activity, or provider spend. The HTTPS seam is still
+exercised only with fake connections. PR24 is planned to consume the private
+authorization for one bounded action; until that action and the separately
+approved live smoke exist, Wave 1 remains blocked.
 
 Provider output can propose facts; it cannot set review status, confirmation,
 contract state, adapter selection, canonical hashes, or verdicts.

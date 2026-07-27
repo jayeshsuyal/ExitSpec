@@ -13,7 +13,8 @@ The browser server:
 - requires JSON media type and bounds request size;
 - returns API and artifact responses with `Cache-Control: no-store`;
 - contains static and artifact paths under their approved roots; and
-- makes no provider or external network calls.
+- exposes provider integration only through disclosure and authorization
+  control-plane routes, which make no provider or external network calls.
 
 Loopback binding is a demo safety boundary, not a production authorization model.
 Requests without browser-origin context are not authenticated.
@@ -129,6 +130,19 @@ authority.
 - Public acknowledgement and permit records never serialize the token verifier,
   nonce, or raw request. Malformed, mismatched, expired, and replayed paths fail
   closed as typed, sanitized `egress_not_authorized`.
+- `GET /api/provider/fireworks/disclosure` derives its public disclosure and
+  identity from the code-pinned frozen Wave-1 policy. Request input cannot
+  select or weaken those terms, and URL parameters are rejected.
+- `POST /api/provider/fireworks/authorization` rejects URL parameters and
+  accepts only JSON whose `Origin` authority exactly matches the request
+  `Host`. It requires the byte-exact disclosure identity, explicit `true`
+  acknowledgement, and an idempotency key. Identical replay returns the
+  original public result; conflicting key reuse is rejected.
+- A new valid authorization replaces the previous active private authorization,
+  and replaying an older operation cannot reactivate it. A content-free
+  operation history is bounded at 64 entries and fails closed until reset;
+  reset clears both states. The capability token and exact request remain
+  server-private. `/api/state` continues to report `provider_calls: false`.
 - The live-capable composition accepts only a sealed permit and reapplies the
   frozen model, pricing, retry, timeout, and spend policy before transport. It
   constructs the pinned HTTPS transport rather than accepting an arbitrary
@@ -160,11 +174,12 @@ The complete frozen failure matrix runs through fake transports and fake
 connections, including configuration, account, retry, output, budget, source,
 and redirect failures. Sanitized failures are detached from their original
 exception graph before they cross the provider or assisted-authoring boundary.
-Every connection in this proof is fake. No credential loader, server route,
-browser action, live Fireworks call, or live evidence exists. The browser's
-assisted action is a deterministic local executor and is labeled as such. Wave
-1 remains blocked on a later server disclosure/action and one explicitly
-approved, bounded live smoke.
+Every connection in this proof is fake. No credential loader, provider
+execution route, browser action, live Fireworks call, DNS/TLS activity, provider
+spend, or live evidence exists. The browser's assisted action is a deterministic
+local executor and is labeled as such. PR24 is planned to consume the private
+authorization for one bounded action. Wave 1 remains blocked on that action and
+one explicitly approved, bounded live smoke.
 
 Any future live provider use requires a frozen manifest for the approved model,
 endpoint, synthetic payload, disclosure, data and pricing policy, request

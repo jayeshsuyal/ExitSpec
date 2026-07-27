@@ -141,12 +141,14 @@ distribution, and patch hygiene.
 ## Honest scope
 
 The browser product is local, loopback-only, single-process, synthetic, and
-provider-free. Its optional assisted-authoring action uses a deterministic local
-executor. The Fireworks adapter and provider-backed composition are tested
-through fake injected transports. The permit-only executor and pinned HTTPS
-transport seam are also fake-tested; no credential is loaded, no live Fireworks
-call has been made, and no external provider path is wired into the server or
-UI. There is no speech-to-text ingestion.
+makes no provider call. Its optional assisted-authoring action uses a
+deterministic local executor. The Fireworks adapter and provider-backed
+composition are tested through fake injected transports. The permit-only
+executor and pinned HTTPS transport seam are also fake-tested. The local server
+exposes disclosure and authorization control-plane routes, but no credential is
+loaded, no provider execution or external network path is wired into the server
+or UI, and no live Fireworks call has been made. There is no speech-to-text
+ingestion.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, a live endpoint measurement adapter, generic metric
