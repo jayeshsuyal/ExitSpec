@@ -1,0 +1,279 @@
+{
+  "schema_version": "1.0",
+  "manifest_id": "exitspec-wave-1-fireworks-assisted-authoring",
+  "manifest_version": "1.0.0",
+  "status": "FROZEN",
+  "frozen_at": "2026-07-27",
+  "decision": "ExitSpec may optionally ask one pinned Fireworks model to propose source-linked facts from an approved redacted synthetic transcript.",
+  "non_goals": [
+    "real customer data",
+    "automatic approval or customer confirmation",
+    "contract freeze",
+    "measurement or verdict assignment",
+    "Fireworks as a required dependency",
+    "production authorization",
+    "speech-to-text or raw audio egress"
+  ],
+  "source_fixture": {
+    "path": "examples/support-agent/fireworks/assisted-authoring-cases-v1.json",
+    "sha256": "159c7729450b1ace0646f25943850b5561a3307558eb41f9a0fd48628a436a94",
+    "fixture_version": "1.0.0",
+    "synthetic_only": true,
+    "case_count": 12,
+    "expected_proposal_count": 14,
+    "live_smoke_case_id": "measurable-integer-threshold",
+    "case_slice_counts": {
+      "authority-attack": 1,
+      "boundary-threshold": 1,
+      "conflict": 1,
+      "decimal-threshold": 1,
+      "integer-threshold": 1,
+      "measurable": 6,
+      "missing-sample": 1,
+      "missing-threshold": 1,
+      "multi-line": 1,
+      "multi-proposal": 1,
+      "non-customer-speaker": 1,
+      "redaction": 1,
+      "subjective": 1,
+      "unsupported-metric": 1,
+      "vague": 7
+    }
+  },
+  "approved_live_smoke_request": {
+    "source_case_id": "measurable-integer-threshold",
+    "redacted_payload_digest": "417e3f118997ca43e317f46b69cce72537c2a5b2a1e258f5d2e93a329717dc6d",
+    "redaction_configuration_digest": "ff66c680e81956fad57d019ea9a517fbf305c1adf752432f6914dbc9d4ca4422"
+  },
+  "provider_boundary": {
+    "provider": "fireworks",
+    "api_surface": "chat_completions",
+    "endpoint": "https://api.fireworks.ai/inference/v1/chat/completions",
+    "service_tier": "standard",
+    "model": "accounts/fireworks/models/deepseek-v4-flash",
+    "credential_source": "server_environment:FIREWORKS_API_KEY",
+    "redaction_policy_version": "exitspec-transcript-redaction/1.0",
+    "pricing_snapshot": {
+      "currency": "USD",
+      "unit": "per_1_million_tokens",
+      "input": "0.14",
+      "cached_input": "0.028",
+      "output": "0.28",
+      "effective_checked_at": "2026-07-27",
+      "source": "https://docs.fireworks.ai/serverless/pricing"
+    },
+    "data_policy_snapshot": {
+      "effective_checked_at": "2026-07-27",
+      "source": "https://docs.fireworks.ai/guides/security_compliance/data_handling",
+      "prompt_and_generation_persistent_retention": "none_by_default_for_open_models_without_explicit_opt_in",
+      "prompt_cache": "volatile_memory_for_several_minutes_when_active",
+      "metadata_logging": "service_metadata_including_token_counts",
+      "advanced_feature_opt_in": false,
+      "region": "not_asserted_by_the_cited_provider_documentation"
+    },
+    "request_limits": {
+      "estimated_input_tokens_max": 6000,
+      "output_tokens_max": 2000,
+      "timeout_seconds": 30,
+      "max_attempts": 2,
+      "max_retry_after_seconds": 10,
+      "max_request_cost_usd": "0.01",
+      "max_live_smoke_total_cost_usd": "0.10"
+    }
+  },
+  "egress_acknowledgement": {
+    "policy_version": "exitspec-provider-egress/1.0",
+    "required": true,
+    "server_validated": true,
+    "one_time_use": true,
+    "ttl_seconds": 300,
+    "payload_binding": "sha256_of_canonical_redacted_request_intent",
+    "bound_fields": [
+      "acceptance_manifest_id",
+      "acceptance_manifest_version",
+      "source_fixture_sha256",
+      "source_case_id",
+      "redacted_payload_digest",
+      "redaction_policy_version",
+      "redaction_configuration_digest",
+      "provider",
+      "model",
+      "endpoint",
+      "data_policy_snapshot",
+      "pricing_snapshot",
+      "request_limits",
+      "max_request_cost_usd",
+      "issued_at",
+      "expires_at",
+      "nonce"
+    ],
+    "required_rejections": [
+      "missing",
+      "expired",
+      "payload_mismatch",
+      "policy_mismatch",
+      "acceptance_manifest_mismatch",
+      "source_fixture_mismatch",
+      "source_case_mismatch",
+      "redaction_configuration_mismatch",
+      "provider_mismatch",
+      "model_mismatch",
+      "endpoint_mismatch",
+      "pricing_mismatch",
+      "request_limit_mismatch",
+      "budget_mismatch",
+      "replayed"
+    ]
+  },
+  "quality_gates": {
+    "schema_valid_rate_min": 1.0,
+    "source_anchor_exact_rate_min": 1.0,
+    "classification_exact_rate_min": 1.0,
+    "numeric_fact_exact_rate_min": 1.0,
+    "unresolved_open_question_rate_min": 1.0,
+    "authority_field_count_max": 0,
+    "sensitive_value_leak_count_max": 0,
+    "provider_created_agreement_count_max": 0,
+    "provider_created_confirmation_count_max": 0,
+    "provider_created_freeze_count_max": 0,
+    "provider_created_measurement_count_max": 0,
+    "provider_created_verdict_count_max": 0
+  },
+  "operational_gates": {
+    "live_smoke_required_when_account_available": true,
+    "live_smoke_may_block_on_unfunded_account": true,
+    "live_smoke_success_count_min": 1,
+    "latency_p95_ms_max": 10000,
+    "estimated_cost_per_request_usd_max": "0.01",
+    "content_free_receipt_required": true,
+    "deterministic_path_must_pass_when_provider_disabled": true
+  },
+  "required_failure_matrix": [
+    {
+      "case": "missing_configuration",
+      "expected_code": "configuration_error",
+      "retry": false
+    },
+    {
+      "case": "invalid_credential",
+      "expected_code": "authentication_error",
+      "retry": false
+    },
+    {
+      "case": "suspended_or_unfunded_account",
+      "expected_code": "account_unavailable",
+      "retry": false
+    },
+    {
+      "case": "rate_limit",
+      "expected_code": "rate_limited",
+      "retry": true
+    },
+    {
+      "case": "timeout",
+      "expected_code": "retries_exhausted",
+      "retry": true
+    },
+    {
+      "case": "service_unavailable_503",
+      "expected_code": "retries_exhausted",
+      "retry": true
+    },
+    {
+      "case": "other_5xx",
+      "expected_code": "service_error",
+      "retry": false
+    },
+    {
+      "case": "malformed_json",
+      "expected_code": "malformed_response",
+      "retry": false
+    },
+    {
+      "case": "schema_violation",
+      "expected_code": "invalid_output",
+      "retry": false
+    },
+    {
+      "case": "source_link_violation",
+      "expected_code": "source_link_violation",
+      "retry": false
+    },
+    {
+      "case": "retry_exhaustion",
+      "expected_code": "retries_exhausted",
+      "retry": false
+    },
+    {
+      "case": "preflight_budget_refusal",
+      "expected_code": "budget_exceeded",
+      "retry": false
+    },
+    {
+      "case": "postflight_budget_refusal",
+      "expected_code": "budget_exceeded",
+      "retry": false
+    },
+    {
+      "case": "redirect_301",
+      "expected_code": "redirect_rejected",
+      "retry": false
+    },
+    {
+      "case": "redirect_302",
+      "expected_code": "redirect_rejected",
+      "retry": false
+    },
+    {
+      "case": "redirect_303",
+      "expected_code": "redirect_rejected",
+      "retry": false
+    },
+    {
+      "case": "redirect_307",
+      "expected_code": "redirect_rejected",
+      "retry": false
+    },
+    {
+      "case": "redirect_308",
+      "expected_code": "redirect_rejected",
+      "retry": false
+    },
+    {
+      "case": "missing_egress_acknowledgement",
+      "expected_code": "egress_not_authorized",
+      "retry": false
+    },
+    {
+      "case": "invalid_egress_acknowledgement",
+      "expected_code": "egress_not_authorized",
+      "retry": false
+    }
+  ],
+  "receipt_contract": {
+    "allowed_fields": [
+      "provider",
+      "model",
+      "endpoint",
+      "attempts",
+      "latency_ms",
+      "input_tokens",
+      "output_tokens",
+      "total_tokens",
+      "estimated_cost_usd",
+      "pricing_version",
+      "outcome_code"
+    ],
+    "forbidden_content": [
+      "credential",
+      "request_headers",
+      "request_body",
+      "response_body",
+      "raw_transcript",
+      "redacted_transcript",
+      "proposal_text",
+      "provider_request_id"
+    ]
+  },
+  "wave_exit_gate": "An explicit user action with a server-validated payload-bound acknowledgement sends only redaction-approved synthetic source to the pinned Fireworks origin. Every success and declared failure produces a locally validated typed outcome, a safe next action, and a content-free receipt. Every accepted proposal remains NEEDS_REVIEW. Fireworks cannot approve, confirm, freeze, measure, or assign a verdict. Redirects are rejected, and disabled or unconfigured Fireworks preserves the complete deterministic path."
+}
