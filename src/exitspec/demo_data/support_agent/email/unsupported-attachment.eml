@@ -1,0 +1,21 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 10:45:00 -0700
+Message-ID: <unsupported-attachment-001@customer.example>
+Subject: Synthetic unsupported attachment
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="exitspec-unsafe-boundary"
+
+--exitspec-unsafe-boundary
+Content-Type: text/plain; charset=UTF-8
+
+The inline body is safe, but the attachment type is unsupported.
+
+--exitspec-unsafe-boundary
+Content-Type: application/x-msdownload
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="synthetic-tool.exe"
+
+TVqQAAMAAAAEAAAAU1lOVEhFVElDX09OTFk=
+--exitspec-unsafe-boundary--

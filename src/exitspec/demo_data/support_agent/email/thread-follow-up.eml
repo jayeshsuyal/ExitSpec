@@ -1,0 +1,18 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 09:30:00 -0700
+Message-ID: <support-poc-002@customer.example>
+In-Reply-To: <support-poc-001@customer.example>
+References: <support-poc-001@customer.example>
+Subject: Re: ExampleCo support-agent POC requirements
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+One follow-up:
+
+The total model-and-tool cost must stay at or below $0.04 per resolved case.
+Keep the original 95% quality target unchanged.
+
+Customer contact: priya@customer.example

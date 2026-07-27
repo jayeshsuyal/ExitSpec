@@ -1,0 +1,1549 @@
+{
+  "schema_version": "1.0",
+  "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+  "manifest_version": "1.0.0",
+  "status": "FROZEN",
+  "frozen_at": "2026-07-27",
+  "decision": "ExitSpec may import only an employee-selected, manifest-approved synthetic RFC822 fixture into a provider-neutral redacted SourceEnvelope and may create source-linked proposals that remain NEEDS_REVIEW.",
+  "non_goals": [
+    "OAuth or mailbox credentials",
+    "live Gmail, Outlook, IMAP, Graph, webhook, or remote mailbox access",
+    "sending, replying to, forwarding, or modifying email",
+    "real customer email or real customer data",
+    "arbitrary email upload or pasted RFC822",
+    "production identity or authorization",
+    "email as approval, customer confirmation, freeze authority, measurement, or verdict authority",
+    "automatic attachment execution, archive expansion, OCR, or PDF parsing",
+    "provider quality evaluation",
+    "speech-to-text, meeting capture, or raw audio"
+  ],
+  "fixture_set": {
+    "synthetic_only": true,
+    "digest_algorithm": "sha256",
+    "set_digest_domain": "exitspec-wave2-fixture-set-v1",
+    "set_digest_projection": "canonical JSON array containing only case_id, path, and sha256",
+    "set_digest_order": "ascending case_id",
+    "set_sha256": "49edc7adacc8d9e5cdc86983ae22b41c12f84c4440a8e67e423ecf15d0dc0e72",
+    "case_count": 11,
+    "accepted_case_count": 4,
+    "rejected_case_count": 7,
+    "expected_candidate_count": 5,
+    "case_slice_counts": {
+      "allowed-attachment": 1,
+      "authority-attack": 1,
+      "changed-content": 1,
+      "changed-thread": 1,
+      "duplicate-message-id": 1,
+      "follow-up": 1,
+      "html-plain-disagreement": 1,
+      "measurable": 4,
+      "missing-body": 1,
+      "missing-identity": 1,
+      "oversized-content": 1,
+      "redaction": 2,
+      "sensitive-filename": 1,
+      "sender-ambiguity": 1,
+      "thread-root": 1,
+      "unsupported-attachment": 1
+    },
+    "fixtures": [
+      {
+        "case_id": "thread-root",
+        "path": "examples/support-agent/email/thread-root.eml",
+        "sha256": "64b188fac2f4a7e0f2eef1397099ce7ca081654a7c5f23fb5b04d1cf761810d8",
+        "raw_bytes": 686,
+        "slices": [
+          "measurable",
+          "redaction",
+          "thread-root"
+        ],
+        "customer_terms": [
+          "ExampleCo"
+        ],
+        "expected_outcome_code": "accepted",
+        "expected_source_id": "rfc822:8f58beb3f5539d24c251b8595e8822df617ecd0be20d61f61376ae0ea3888b74",
+        "expected_message_key": "msg:3441e0367e663c0aa2ecb630380f46c1e96327a0b72519417c5830125492f724",
+        "expected_source_version": 1,
+        "expected_version_id": "srcv:38b660b5386d71bfb9254640d775acc58660663bf21be0912c93f06660198375",
+        "expected_redacted_header_sha256": "e0baa16b8ccee24b0a950a11f28731e14d0fed89259b05d4cfdbe785b842440f",
+        "expected_candidate_count": 2,
+        "expected_candidate_state": "NEEDS_REVIEW",
+        "expected_redaction_counts": {
+          "customer_term": 2,
+          "email": 3,
+          "phone": 1,
+          "secret": 1
+        },
+        "expected_parts": [
+          {
+            "part_path": "body:text/plain:0",
+            "redacted_text_sha256": "136c9a79b8deb35b7de2643ba44acd024d7ec0ba3b1be8c8917dc0aee616b8a0",
+            "redacted_filename_sha256": null,
+            "redacted_bytes": 303,
+            "provenance_spans": [
+              {
+                "quote": "The support agent must select the correct tool in at least 95% of 200 cases.",
+                "start_byte": 13,
+                "end_byte": 89,
+                "quote_sha256": "c6bb4c0b377dcc171cb7dec5350fc669b2a3318d08812bb4d7932d7d8d61e2f2"
+              },
+              {
+                "quote": "P95 end-to-end latency must remain below 2 seconds.",
+                "start_byte": 90,
+                "end_byte": 141,
+                "quote_sha256": "41e9d33aeabeba0f084d95057ada7c61dd93bcae297d831ab7e2ab87a4e924f2"
+              }
+            ]
+          }
+        ],
+        "expected_candidates": [
+          {
+            "candidate_type": "criterion",
+            "state": "NEEDS_REVIEW",
+            "projection": {
+              "criterion_type": "numeric_threshold",
+              "metric": "tool_selection_accuracy",
+              "operator": "gte",
+              "threshold": "0.95",
+              "unit": "ratio",
+              "minimum_samples": 200
+            },
+            "source_id": "rfc822:8f58beb3f5539d24c251b8595e8822df617ecd0be20d61f61376ae0ea3888b74",
+            "source_version": 1,
+            "version_id": "srcv:38b660b5386d71bfb9254640d775acc58660663bf21be0912c93f06660198375",
+            "message_key": "msg:3441e0367e663c0aa2ecb630380f46c1e96327a0b72519417c5830125492f724",
+            "part_path": "body:text/plain:0",
+            "start_byte": 13,
+            "end_byte": 89,
+            "quote_sha256": "c6bb4c0b377dcc171cb7dec5350fc669b2a3318d08812bb4d7932d7d8d61e2f2"
+          },
+          {
+            "candidate_type": "criterion",
+            "state": "NEEDS_REVIEW",
+            "projection": {
+              "criterion_type": "numeric_threshold",
+              "metric": "end_to_end_latency_p95",
+              "operator": "lt",
+              "threshold": "2",
+              "unit": "seconds",
+              "minimum_samples": null
+            },
+            "source_id": "rfc822:8f58beb3f5539d24c251b8595e8822df617ecd0be20d61f61376ae0ea3888b74",
+            "source_version": 1,
+            "version_id": "srcv:38b660b5386d71bfb9254640d775acc58660663bf21be0912c93f06660198375",
+            "message_key": "msg:3441e0367e663c0aa2ecb630380f46c1e96327a0b72519417c5830125492f724",
+            "part_path": "body:text/plain:0",
+            "start_byte": 90,
+            "end_byte": 141,
+            "quote_sha256": "41e9d33aeabeba0f084d95057ada7c61dd93bcae297d831ab7e2ab87a4e924f2"
+          }
+        ]
+      },
+      {
+        "case_id": "thread-follow-up",
+        "path": "examples/support-agent/email/thread-follow-up.eml",
+        "sha256": "08eaf6943f2caa35e827affc3be555406dae2044d9b027f5731179a1c0aca7bc",
+        "raw_bytes": 623,
+        "slices": [
+          "changed-thread",
+          "follow-up",
+          "measurable"
+        ],
+        "customer_terms": [
+          "ExampleCo"
+        ],
+        "precondition_case_ids": [
+          "thread-root"
+        ],
+        "expected_outcome_code": "accepted_new_version",
+        "expected_source_id": "rfc822:8f58beb3f5539d24c251b8595e8822df617ecd0be20d61f61376ae0ea3888b74",
+        "expected_message_key": "msg:0a189049c8c46e767e0dde2b3c9d2d62f9bc72e8c486678f3dc2c861339d5eaf",
+        "expected_source_version": 2,
+        "expected_version_id": "srcv:6169e814d8328a4d17e0677ef8aacf53800e0e3410e98e32f37ee3a69756df62",
+        "expected_redacted_header_sha256": "ac8db8232a9f30869f8d2235f848e4ee22fc9d91ea8d2e2bef12f0bcd3ec3be1",
+        "expected_candidate_count": 1,
+        "expected_candidate_state": "NEEDS_REVIEW",
+        "expected_redaction_counts": {
+          "customer_term": 1,
+          "email": 3,
+          "phone": 0,
+          "secret": 0
+        },
+        "expected_parts": [
+          {
+            "part_path": "body:text/plain:0",
+            "redacted_text_sha256": "5cecb8f387721507b672e8bc61894bb9833defc6c737bceeb55b19688a4413c5",
+            "redacted_filename_sha256": null,
+            "redacted_bytes": 168,
+            "provenance_spans": [
+              {
+                "quote": "The total model-and-tool cost must stay at or below $0.04 per resolved case.",
+                "start_byte": 16,
+                "end_byte": 92,
+                "quote_sha256": "cb99763949c77f726f5dc13350fb26d4519dfacdd4b75553bdad4850d6f5aa91"
+              }
+            ]
+          }
+        ],
+        "expected_candidates": [
+          {
+            "candidate_type": "criterion",
+            "state": "NEEDS_REVIEW",
+            "projection": {
+              "criterion_type": "numeric_threshold",
+              "metric": "total_model_and_tool_cost_per_resolved_case",
+              "operator": "lte",
+              "threshold": "0.04",
+              "unit": "USD/case",
+              "minimum_samples": null
+            },
+            "source_id": "rfc822:8f58beb3f5539d24c251b8595e8822df617ecd0be20d61f61376ae0ea3888b74",
+            "source_version": 2,
+            "version_id": "srcv:6169e814d8328a4d17e0677ef8aacf53800e0e3410e98e32f37ee3a69756df62",
+            "message_key": "msg:0a189049c8c46e767e0dde2b3c9d2d62f9bc72e8c486678f3dc2c861339d5eaf",
+            "part_path": "body:text/plain:0",
+            "start_byte": 16,
+            "end_byte": 92,
+            "quote_sha256": "cb99763949c77f726f5dc13350fb26d4519dfacdd4b75553bdad4850d6f5aa91"
+          }
+        ]
+      },
+      {
+        "case_id": "thread-root-mutated",
+        "path": "examples/support-agent/email/thread-root-mutated.eml",
+        "sha256": "0428d6c5feaae011d0c2baa226174ca37a7c659ecf4802a8aed2a4ebf6340624",
+        "raw_bytes": 543,
+        "slices": [
+          "changed-content",
+          "duplicate-message-id"
+        ],
+        "customer_terms": [
+          "ExampleCo"
+        ],
+        "precondition_case_ids": [
+          "thread-root"
+        ],
+        "expected_outcome_code": "source_identity_conflict",
+        "expected_persistence": "nothing_new",
+        "expected_candidate_effect": "no_new_candidates"
+      },
+      {
+        "case_id": "allowed-text-attachment",
+        "path": "examples/support-agent/email/allowed-text-attachment.eml",
+        "sha256": "a1edd2fde773cd07dab79d7a3fbae80232660fa1ae340bb8f46a888769c38b51",
+        "raw_bytes": 779,
+        "slices": [
+          "allowed-attachment",
+          "measurable",
+          "redaction",
+          "sensitive-filename"
+        ],
+        "customer_terms": [
+          "ExampleCo"
+        ],
+        "expected_outcome_code": "accepted",
+        "expected_source_id": "rfc822:e20da7cb0414d50be5703c8f6aaf428bfcb392d3a5e983f9f73a31478bfbf4e7",
+        "expected_message_key": "msg:8f944cc41461f1ee385cb7b8d0fcd37e785c10583226d106c6c04afb01ebd96d",
+        "expected_source_version": 1,
+        "expected_version_id": "srcv:fa8ef87bd0bcbd9d5403c7e5c71d922c6062f380adce590efde86ec887761b44",
+        "expected_redacted_header_sha256": "0b7ae1135060314efc672d3101d4bf2fb777d51455623867a58f4c2f3685944f",
+        "expected_candidate_count": 1,
+        "expected_candidate_state": "NEEDS_REVIEW",
+        "expected_redaction_counts": {
+          "customer_term": 1,
+          "email": 4,
+          "phone": 0,
+          "secret": 0
+        },
+        "expected_attachments": [
+          {
+            "part_path": "attachment:text/plain:0",
+            "redacted_filename": "[CUSTOMER_TERM]-([EMAIL])-requirements.txt",
+            "redacted_filename_sha256": "37a4c2ef968f97c0fb5a5561c3fbb2179cce631c3f929e12acdec0631683fc78"
+          }
+        ],
+        "expected_parts": [
+          {
+            "part_path": "body:text/plain:0",
+            "redacted_text_sha256": "36fad73ebf88da9ab261962051c0f1a30cbda39f0c778d432cf34f715799a3fd",
+            "redacted_filename_sha256": null,
+            "redacted_bytes": 66,
+            "provenance_spans": []
+          },
+          {
+            "part_path": "attachment:text/plain:0",
+            "redacted_text_sha256": "482474fb050eccf54271b3e7cb5cfbeee5c9839da82f97aec72e1f9ab8a133fe",
+            "redacted_filename_sha256": "37a4c2ef968f97c0fb5a5561c3fbb2179cce631c3f929e12acdec0631683fc78",
+            "redacted_bytes": 53,
+            "provenance_spans": [
+              {
+                "quote": "Escalation rate must remain below 3%.",
+                "start_byte": 0,
+                "end_byte": 37,
+                "quote_sha256": "171239b82a20270711e25e9b20769788794c088991a90621b11bf0e84f8b9f60"
+              }
+            ]
+          }
+        ],
+        "expected_candidates": [
+          {
+            "candidate_type": "criterion",
+            "state": "NEEDS_REVIEW",
+            "projection": {
+              "criterion_type": "numeric_threshold",
+              "metric": "escalation_rate",
+              "operator": "lt",
+              "threshold": "0.03",
+              "unit": "ratio",
+              "minimum_samples": null
+            },
+            "source_id": "rfc822:e20da7cb0414d50be5703c8f6aaf428bfcb392d3a5e983f9f73a31478bfbf4e7",
+            "source_version": 1,
+            "version_id": "srcv:fa8ef87bd0bcbd9d5403c7e5c71d922c6062f380adce590efde86ec887761b44",
+            "message_key": "msg:8f944cc41461f1ee385cb7b8d0fcd37e785c10583226d106c6c04afb01ebd96d",
+            "part_path": "attachment:text/plain:0",
+            "start_byte": 0,
+            "end_byte": 37,
+            "quote_sha256": "171239b82a20270711e25e9b20769788794c088991a90621b11bf0e84f8b9f60"
+          }
+        ]
+      },
+      {
+        "case_id": "sender-ambiguous",
+        "path": "examples/support-agent/email/sender-ambiguous.eml",
+        "sha256": "8b377b725d6612497c5cace8b1e63b6b9a4dcc77b75435de6a4f494d474596c8",
+        "raw_bytes": 390,
+        "slices": [
+          "sender-ambiguity"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "sender_ambiguous",
+        "expected_persistence": "nothing",
+        "expected_candidate_effect": "no_candidates"
+      },
+      {
+        "case_id": "missing-body",
+        "path": "examples/support-agent/email/missing-body.eml",
+        "sha256": "8bfaa76f82fd3c40f6041dc5ec2f1713b30204b642ec12f3bfd04e07a96d668c",
+        "raw_bytes": 528,
+        "slices": [
+          "missing-body"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "missing_body",
+        "expected_persistence": "nothing",
+        "expected_candidate_effect": "no_candidates"
+      },
+      {
+        "case_id": "oversized-body",
+        "path": "examples/support-agent/email/oversized-body.eml",
+        "sha256": "1d9ffa391471b09dcc9315d8682b2074306a5c3e0beef8f694c349f005ffe401",
+        "raw_bytes": 5327,
+        "slices": [
+          "oversized-content"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "body_too_large",
+        "expected_persistence": "nothing",
+        "expected_candidate_effect": "no_candidates"
+      },
+      {
+        "case_id": "unsupported-attachment",
+        "path": "examples/support-agent/email/unsupported-attachment.eml",
+        "sha256": "c55b502b67be690b974a77aad11689fa7dfd4398ef03e418b6e938bda07e2a5c",
+        "raw_bytes": 703,
+        "slices": [
+          "unsupported-attachment"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "unsupported_attachment",
+        "expected_persistence": "nothing",
+        "expected_candidate_effect": "no_candidates"
+      },
+      {
+        "case_id": "html-plain-disagreement",
+        "path": "examples/support-agent/email/html-plain-disagreement.eml",
+        "sha256": "70fa6f3e0bd693529a17563a80ea16c70d3a57cfff4081af2490c97b1445e3ca",
+        "raw_bytes": 655,
+        "slices": [
+          "html-plain-disagreement"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "alternative_disagreement",
+        "expected_persistence": "nothing",
+        "expected_candidate_effect": "no_candidates"
+      },
+      {
+        "case_id": "authority-attack",
+        "path": "examples/support-agent/email/authority-attack.eml",
+        "sha256": "cf482b06b5da2794aae3aa9128671fada8e50ecd7e1cd56740cd4632efe8bb6a",
+        "raw_bytes": 508,
+        "slices": [
+          "authority-attack",
+          "measurable"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "accepted",
+        "expected_source_id": "rfc822:658bd72947f0263b1e8de295a752332f044be5ebfdcf6b03f7439921fe00eb1d",
+        "expected_message_key": "msg:1d2853d543a74b6714e89af6c11e8426e9065dd553fd895c42d7aeb13fb9f2f2",
+        "expected_source_version": 1,
+        "expected_version_id": "srcv:746038571fa6a566582498ef424ccf15540837fbfa7ad88c6b61215fe43e92aa",
+        "expected_redacted_header_sha256": "9d2f27616781f3d14bbabd1b8533d48c5b22e102861c1950adae1d3aa699841b",
+        "expected_candidate_count": 1,
+        "expected_candidate_state": "NEEDS_REVIEW",
+        "expected_redaction_counts": {
+          "customer_term": 0,
+          "email": 2,
+          "phone": 0,
+          "secret": 0
+        },
+        "expected_parts": [
+          {
+            "part_path": "body:text/plain:0",
+            "redacted_text_sha256": "2b0b94cabc05b3fafee0400c6dcfdfddc7a0f15a57531b3907d24fd649822132",
+            "redacted_filename_sha256": null,
+            "redacted_bytes": 190,
+            "provenance_spans": [
+              {
+                "quote": "Tool-selection accuracy should be at least 95%.",
+                "start_byte": 142,
+                "end_byte": 189,
+                "quote_sha256": "bd38728b8f50f346260544e1becbdf7f1752ab71c7cb731b6dc6680d4beae28f"
+              }
+            ]
+          }
+        ],
+        "expected_candidates": [
+          {
+            "candidate_type": "criterion",
+            "state": "NEEDS_REVIEW",
+            "projection": {
+              "criterion_type": "numeric_threshold",
+              "metric": "tool_selection_accuracy",
+              "operator": "gte",
+              "threshold": "0.95",
+              "unit": "ratio",
+              "minimum_samples": null
+            },
+            "source_id": "rfc822:658bd72947f0263b1e8de295a752332f044be5ebfdcf6b03f7439921fe00eb1d",
+            "source_version": 1,
+            "version_id": "srcv:746038571fa6a566582498ef424ccf15540837fbfa7ad88c6b61215fe43e92aa",
+            "message_key": "msg:1d2853d543a74b6714e89af6c11e8426e9065dd553fd895c42d7aeb13fb9f2f2",
+            "part_path": "body:text/plain:0",
+            "start_byte": 142,
+            "end_byte": 189,
+            "quote_sha256": "bd38728b8f50f346260544e1becbdf7f1752ab71c7cb731b6dc6680d4beae28f"
+          }
+        ]
+      },
+      {
+        "case_id": "missing-message-id",
+        "path": "examples/support-agent/email/missing-message-id.eml",
+        "sha256": "005cb6391a08fcf148230d12b3ff9db664eb440b89ca20fce27b13d3c0be9b70",
+        "raw_bytes": 309,
+        "slices": [
+          "missing-identity"
+        ],
+        "customer_terms": [],
+        "expected_outcome_code": "missing_message_id",
+        "expected_persistence": "nothing",
+        "expected_candidate_effect": "no_candidates"
+      }
+    ]
+  },
+  "source_contract": {
+    "source_type": "rfc822",
+    "adapter_version": "exitspec-rfc822-source/1.0",
+    "envelope_schema_version": "exitspec-source-envelope/1.0",
+    "normalization_policy_version": "exitspec-rfc822-normalization/1.0",
+    "redaction_policy_version": "exitspec-rfc822-redaction/1.0",
+    "attachment_policy_version": "exitspec-rfc822-attachments/1.0",
+    "synthetic_marker": {
+      "header": "X-ExitSpec-Synthetic",
+      "required_value": "true",
+      "missing_or_other_value_code": "source_not_approved"
+    },
+    "import_authorization": {
+      "employee_action_required": true,
+      "server_manifest_fixture_id_required": true,
+      "browser_supplied_path_or_rfc822_allowed": false,
+      "background_prefetch_or_import_allowed": false,
+      "one_action_imports_at_most_one_fixture": true
+    },
+    "identity": {
+      "message_id_cardinality": "exactly_one",
+      "normalization": "trim ASCII whitespace, remove one surrounding angle-bracket pair, lowercase ASCII; empty is invalid",
+      "message_key_domain": "exitspec-rfc822-message-id-v1",
+      "message_key_format": "msg:<sha256(domain || NUL || normalized_message_id)>",
+      "thread_root_resolution": [
+        "first syntactically valid Message-ID in References",
+        "single syntactically valid In-Reply-To Message-ID",
+        "the message's own Message-ID"
+      ],
+      "source_id_domain": "exitspec-rfc822-thread-id-v1",
+      "source_id_format": "rfc822:<sha256(domain || NUL || normalized_thread_root_message_id)>",
+      "raw_message_id_persisted": false,
+      "same_message_key_same_fixture_digest": "idempotent_replay",
+      "same_message_key_changed_fixture_digest": "source_identity_conflict"
+    },
+    "versioning": {
+      "source_version_type": "positive_integer",
+      "ordering_basis": "atomic accepted-ingestion order; never the untrusted Date header",
+      "first_unique_message_version": 1,
+      "exact_reimport": "return the existing envelope and candidates without writes",
+      "new_message_same_thread": "append one message and create exactly one new source version",
+      "changed_bytes_same_message_id": "reject without modifying the existing source",
+      "canonical_json": "UTF-8 JSON with ensure_ascii=false, keys sorted lexically, separators ',' and ':', integers as JSON numbers, and missing optional values represented as JSON null",
+      "redacted_header_digest_domain": "exitspec-rfc822-redacted-headers-v1",
+      "redacted_header_projection": {
+        "exact_fields": [
+          "authored_at",
+          "from",
+          "subject",
+          "to"
+        ],
+        "authored_at_format": "UTC RFC3339 seconds with Z",
+        "from": "NFC-normalized unfolded From header after manifest redaction",
+        "subject": "NFC-normalized unfolded Subject header after manifest redaction",
+        "to": "NFC-normalized unfolded To header after manifest redaction",
+        "digest": "sha256(redacted_header_digest_domain || NUL || canonical_json(exact projection))"
+      },
+      "version_id_domain": "exitspec-source-version-v1",
+      "version_id_input_exact_fields": [
+        "messages",
+        "source_id",
+        "source_version"
+      ],
+      "version_message_exact_fields": [
+        "message_key",
+        "parts",
+        "redacted_header_sha256"
+      ],
+      "version_part_exact_fields": [
+        "part_path",
+        "redacted_filename_sha256",
+        "redacted_text_sha256"
+      ],
+      "version_message_order": "accepted-ingestion order",
+      "version_part_order": "MIME traversal order after accepted body/attachment classification",
+      "version_id_format": "srcv:<sha256(domain || NUL || canonical_version_input)>"
+    },
+    "digests": {
+      "fixture_sha256": "SHA-256 of exact manifest-approved .eml bytes; test evidence only",
+      "persisted_content_sha256": "SHA-256 of canonical redacted envelope content",
+      "raw_fixture_digest_persisted_for_real_source": false,
+      "digest_mismatch_code": "fixture_digest_mismatch"
+    },
+    "timestamps": {
+      "authored_at": "parsed Date header, retained only as redacted source-asserted metadata and never trusted for ordering",
+      "ingested_at": "server UTC timestamp recorded at successful atomic persistence",
+      "observed_at": "server UTC timestamp captured before in-memory parsing",
+      "invalid_or_missing_date": "authored_at is null; import does not gain authority"
+    },
+    "provenance": {
+      "candidate_exact_fields": [
+        "candidate_type",
+        "state",
+        "projection",
+        "source_id",
+        "source_version",
+        "version_id",
+        "message_key",
+        "part_path",
+        "start_byte",
+        "end_byte",
+        "quote_sha256"
+      ],
+      "candidate_projection_exact_fields": [
+        "criterion_type",
+        "metric",
+        "operator",
+        "threshold",
+        "unit",
+        "minimum_samples"
+      ],
+      "required_candidate_fields": [
+        "source_id",
+        "source_version",
+        "version_id",
+        "message_key",
+        "part_path",
+        "start_byte",
+        "end_byte",
+        "quote_sha256"
+      ],
+      "part_path_format": "<body|attachment>:<normalized_media_type>:<zero_based_index>",
+      "offset_unit": "UTF-8 bytes in the normalized redacted persisted part",
+      "range_semantics": "zero-based half-open [start_byte,end_byte)",
+      "quote_digest": "SHA-256 of the exact selected redacted UTF-8 bytes",
+      "candidate_span_min": 1,
+      "accepted_case_candidate_count_min": 1,
+      "candidate_projection_policy": "exactly the manifest expected_candidates list; no omitted, additional, reordered, or zero candidates",
+      "source_anchor_mismatch_code": "source_link_violation"
+    },
+    "authority": {
+      "email_role": "untrusted_source_only",
+      "candidate_state": "NEEDS_REVIEW",
+      "email_may_approve": false,
+      "email_may_confirm": false,
+      "email_may_freeze": false,
+      "email_may_measure": false,
+      "email_may_assign_verdict": false,
+      "email_may_impersonate_employee_or_customer": false,
+      "authority_instructions_inside_email": "source text only; never executable instructions"
+    }
+  },
+  "normalization_and_redaction": {
+    "supported_text_charsets": [
+      "utf-8",
+      "us-ascii"
+    ],
+    "required_failure_codes": {
+      "malformed_transfer_encoding": "malformed_transfer_encoding",
+      "unsupported_charset": "unsupported_charset"
+    },
+    "text_normalization_order": [
+      "strictly decode the declared supported charset",
+      "replace CRLF and bare CR with LF",
+      "normalize Unicode to NFC",
+      "strip trailing SPACE and TAB from each line",
+      "remove leading and trailing blank lines",
+      "append exactly one LF"
+    ],
+    "persisted_header_allowlist": [
+      "From display name after redaction",
+      "To display names after redaction",
+      "Subject after redaction",
+      "source-asserted Date timestamp",
+      "opaque Message-ID and thread identity digests"
+    ],
+    "pattern_engine": "Python re compatible regular expressions over NFC-normalized Unicode strings",
+    "redaction_order": [
+      "secret",
+      "customer_term",
+      "email",
+      "phone"
+    ],
+    "patterns": {
+      "secret": {
+        "pattern": "(?<![A-Za-z0-9_])api_key=[A-Za-z0-9._-]+(?![A-Za-z0-9._-])",
+        "flags": [
+          "ASCII"
+        ],
+        "case_sensitive": true,
+        "boundary_semantics": "ASCII identifier negative lookbehind and negative lookahead",
+        "match_semantics": "leftmost non-overlapping"
+      },
+      "email": {
+        "pattern": "(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}(?![A-Z0-9.-])",
+        "flags": [
+          "ASCII",
+          "IGNORECASE"
+        ],
+        "case_sensitive": false,
+        "boundary_semantics": "ASCII email-token negative lookbehind and domain-token negative lookahead",
+        "match_semantics": "leftmost non-overlapping"
+      },
+      "phone": {
+        "pattern": "(?<![0-9])(?:\\+?1[ .-]?)?\\(?[2-9][0-9]{2}\\)?[ .-][0-9]{3}[ .-][0-9]{4}(?![0-9])",
+        "flags": [
+          "ASCII"
+        ],
+        "case_sensitive": true,
+        "boundary_semantics": "ASCII digit negative lookbehind and negative lookahead",
+        "match_semantics": "leftmost non-overlapping"
+      }
+    },
+    "customer_term_semantics": {
+      "source": "the exact customer_terms array on each fixture case",
+      "normalization": "Unicode NFC",
+      "empty_terms_allowed": false,
+      "duplicate_semantics": "deduplicate by NFC casefolded value",
+      "ordering": "descending Unicode code-point length, then ascending casefolded lexical value",
+      "pattern_construction": "regular-expression escaped literal",
+      "flags": [
+        "IGNORECASE"
+      ],
+      "case_sensitive": false,
+      "boundary_semantics": "no implicit word boundary; match the exact literal substring",
+      "match_semantics": "leftmost non-overlapping"
+    },
+    "replacement_tokens": {
+      "customer_term": "[CUSTOMER_TERM]",
+      "email": "[EMAIL]",
+      "phone": "[PHONE]",
+      "secret": "[SECRET]"
+    },
+    "redaction_scope": [
+      "persisted allowed headers",
+      "inline text body",
+      "allowed textual attachment content",
+      "attachment filename before persistence or display",
+      "provenance text"
+    ],
+    "raw_bytes_lifetime": "request-local memory only; release before returning",
+    "raw_content_in_logs_errors_or_receipts": false,
+    "partial_persistence_on_redaction_failure": false,
+    "redaction_failure_code": "redaction_failed"
+  },
+  "content_limits": {
+    "limit_scope": "Wave 2 synthetic V1; changing a limit requires a new manifest version",
+    "raw_message_bytes_max": 131072,
+    "normalized_inline_body_bytes_max": 4096,
+    "header_count_max": 100,
+    "single_unfolded_header_bytes_max": 8192,
+    "mime_depth_max": 8,
+    "multipart_part_count_max": 20,
+    "required_failure_codes": {
+      "raw_message_bytes_max": "raw_message_too_large",
+      "header_count_max": "too_many_headers",
+      "single_unfolded_header_bytes_max": "header_too_large",
+      "mime_depth_max": "mime_too_deep",
+      "multipart_part_count_max": "too_many_mime_parts"
+    }
+  },
+  "attachment_policy": {
+    "allowlist": [
+      {
+        "media_type": "text/plain",
+        "extensions": [
+          ".txt"
+        ],
+        "treatment": "strict decode, normalize, redact, then persist as text"
+      }
+    ],
+    "content_type_and_extension_must_both_match": true,
+    "filename_must_be_basename": true,
+    "filename_utf8_bytes_max": 128,
+    "attachment_count_max": 3,
+    "single_decoded_attachment_bytes_max": 32768,
+    "total_decoded_attachment_bytes_max": 65536,
+    "fail_entire_import_on_violation": true,
+    "partial_attachment_skip_allowed": false,
+    "required_failure_codes": [
+      "unsupported_attachment",
+      "unsafe_attachment_filename",
+      "attachment_too_large",
+      "attachment_total_too_large",
+      "too_many_attachments",
+      "attachment_decode_failed",
+      "attachment_redaction_failed"
+    ]
+  },
+  "deterministic_fault_case_count": 20,
+  "deterministic_fault_cases": [
+    {
+      "fault_case_id": "source-marker-missing",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "synthetic_marker_check",
+        "present": false,
+        "value": null
+      },
+      "expected_code": "source_not_approved",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "source-marker-invalid",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "synthetic_marker_check",
+        "present": true,
+        "value": "false"
+      },
+      "expected_code": "source_not_approved",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "fixture-digest-mismatch",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "compare_fixture_digest",
+        "observed_sha256": "04b188fac2f4a7e0f2eef1397099ce7ca081654a7c5f23fb5b04d1cf761810d8"
+      },
+      "expected_code": "fixture_digest_mismatch",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "raw-message-size-limit",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "virtual_raw_message_bytes",
+        "value": 131073
+      },
+      "expected_code": "raw_message_too_large",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "header-count-limit",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "virtual_header_count",
+        "value": 101
+      },
+      "expected_code": "too_many_headers",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "unfolded-header-size-limit",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "virtual_unfolded_header_bytes",
+        "value": 8193
+      },
+      "expected_code": "header_too_large",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "mime-depth-limit",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "virtual_mime_shape",
+        "depth": 9,
+        "part_count": 1
+      },
+      "expected_code": "mime_too_deep",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "mime-part-count-limit",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "virtual_mime_shape",
+        "depth": 1,
+        "part_count": 21
+      },
+      "expected_code": "too_many_mime_parts",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "malformed-transfer-encoding",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "strict_body_transfer_decode",
+        "encoding": "base64",
+        "payload_ascii": "%%%INVALID-BASE64%%%"
+      },
+      "expected_code": "malformed_transfer_encoding",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "unsupported-charset",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "strict_text_decode",
+        "charset": "iso-8859-1",
+        "payload_hex": "4869"
+      },
+      "expected_code": "unsupported_charset",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "unsafe-attachment-filename",
+      "base_fixture_case_id": "allowed-text-attachment",
+      "operation": {
+        "type": "replace_attachment_filename",
+        "part_path": "attachment:text/plain:0",
+        "value": "../requirements.txt"
+      },
+      "expected_code": "unsafe_attachment_filename",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "attachment-per-file-limit",
+      "base_fixture_case_id": "allowed-text-attachment",
+      "operation": {
+        "type": "virtual_decoded_attachment_sizes",
+        "sizes": [
+          32769
+        ]
+      },
+      "expected_code": "attachment_too_large",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "attachment-total-limit",
+      "base_fixture_case_id": "allowed-text-attachment",
+      "operation": {
+        "type": "virtual_decoded_attachment_sizes",
+        "sizes": [
+          32768,
+          32768,
+          1
+        ]
+      },
+      "expected_code": "attachment_total_too_large",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "attachment-count-limit",
+      "base_fixture_case_id": "allowed-text-attachment",
+      "operation": {
+        "type": "virtual_decoded_attachment_sizes",
+        "sizes": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "expected_code": "too_many_attachments",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "attachment-decode-failure",
+      "base_fixture_case_id": "allowed-text-attachment",
+      "operation": {
+        "type": "strict_base64_decode",
+        "payload_ascii": "%%%INVALID-BASE64%%%"
+      },
+      "expected_code": "attachment_decode_failed",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "attachment-redaction-failure",
+      "base_fixture_case_id": "allowed-text-attachment",
+      "operation": {
+        "type": "inject_stage_failure",
+        "stage": "attachment_redaction",
+        "part_path": "attachment:text/plain:0"
+      },
+      "expected_code": "attachment_redaction_failed",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "unknown-thread-parent",
+      "base_fixture_case_id": "thread-follow-up",
+      "precondition_case_ids": [
+        "thread-root"
+      ],
+      "operation": {
+        "type": "replace_thread_parent",
+        "references": "<unknown-thread-root@customer.example>",
+        "in_reply_to": "<unknown-thread-root@customer.example>"
+      },
+      "expected_code": "thread_parent_not_found",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "source-link-violation",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "mutate_candidate_source_link",
+        "candidate_index": 0,
+        "field": "start_byte",
+        "delta": 1
+      },
+      "expected_code": "source_link_violation",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "redaction-stage-failure",
+      "base_fixture_case_id": "thread-root",
+      "operation": {
+        "type": "inject_stage_failure",
+        "stage": "source_redaction"
+      },
+      "expected_code": "redaction_failed",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    {
+      "fault_case_id": "provider-terminal-failure",
+      "base_fixture_case_id": "thread-root",
+      "precondition_case_ids": [
+        "thread-root"
+      ],
+      "operation": {
+        "type": "inject_stage_failure",
+        "stage": "assisted_authoring_provider"
+      },
+      "expected_code": "assist_unavailable",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    }
+  ],
+  "reimport_and_thread_rules": {
+    "atomicity": "identity check, version allocation, envelope persistence, and candidate persistence are one transaction",
+    "exact_duplicate_result": "duplicate_replay",
+    "exact_duplicate_new_write_count": 0,
+    "exact_duplicate_new_candidate_count": 0,
+    "follow_up_result": "accepted_new_version",
+    "follow_up_version_increment": 1,
+    "follow_up_must_reference_existing_root": true,
+    "same_message_id_changed_content_result": "source_identity_conflict",
+    "same_message_id_changed_content_new_write_count": 0,
+    "unknown_thread_parent_result": "thread_parent_not_found",
+    "concurrent_duplicate_oracle": {
+      "case_id": "concurrent-thread-root-double-import",
+      "fixture_case_id": "thread-root",
+      "actors": [
+        "import-a",
+        "import-b"
+      ],
+      "request_count": 2,
+      "starting_store": {
+        "thread_source_count": 0,
+        "source_version_count": 0,
+        "candidate_count": 0,
+        "idempotency_record_count": 0
+      },
+      "pre_transaction_barrier": "both actors complete request-local fixture validation before either acquires the source transaction",
+      "atomic_boundary": "acquire the source transaction before identity lookup and hold it through version allocation, envelope persistence, candidate persistence, and idempotency-record persistence",
+      "allowed_commit_orders": [
+        [
+          "import-a",
+          "import-b"
+        ],
+        [
+          "import-b",
+          "import-a"
+        ]
+      ],
+      "expected_response_by_commit_position": [
+        "accepted",
+        "duplicate_replay"
+      ],
+      "expected_response_multiset": [
+        "accepted",
+        "duplicate_replay"
+      ],
+      "accepted_response_count": 1,
+      "duplicate_replay_response_count": 1,
+      "expected_source_id": "rfc822:8f58beb3f5539d24c251b8595e8822df617ecd0be20d61f61376ae0ea3888b74",
+      "expected_version_id": "srcv:38b660b5386d71bfb9254640d775acc58660663bf21be0912c93f06660198375",
+      "final_store": {
+        "thread_source_count": 1,
+        "source_version_count": 1,
+        "candidate_count": 2,
+        "idempotency_record_count": 1
+      },
+      "accepted_write_transaction_count": 1,
+      "duplicate_new_write_count": 0,
+      "duplicate_new_candidate_count": 0
+    }
+  },
+  "timing_gate": {
+    "clock": "browser monotonic performance clock",
+    "start": "immediately before dispatch of the explicit employee Import sample email action",
+    "end": "first animation frame after source-linked NEEDS_REVIEW candidates and provenance controls are visible and interactive",
+    "environment": "seeded localhost application with an already-running server",
+    "run_isolation": {
+      "store": "new empty in-memory source, candidate, and idempotency store for every warmup and measured run",
+      "browser": "reset source selection, candidate rendering, provenance panel, outcome banner, and timing recorder before setup",
+      "server_process": "may remain running, but no source, candidate, idempotency, or operation state may be reused",
+      "fixture_verification": "verify fixture_id and frozen SHA-256 before setup",
+      "setup_is_measured": false,
+      "teardown_is_measured": false
+    },
+    "accepted_case_setup": {
+      "thread-root": "empty isolated store",
+      "thread-follow-up": "seed thread-root to accepted source_version 1 outside the measured interval",
+      "allowed-text-attachment": "empty isolated store",
+      "authority-attack": "empty isolated store"
+    },
+    "follow_up_seed_assertions": {
+      "seed_case_id": "thread-root",
+      "seed_outside_measured_interval": true,
+      "expected_source_version_before_start": 1,
+      "expected_candidate_count_before_start": 2,
+      "clear_seed_timing_samples_before_start": true
+    },
+    "warmup_runs_per_accepted_case": 1,
+    "measured_runs_per_accepted_case": 5,
+    "measured_accepted_case_count": 4,
+    "measured_run_count": 20,
+    "each_successful_import_elapsed_ms_max": 60000,
+    "successful_import_latency_p95_ms_max": 10000,
+    "p95_method": "nearest-rank: sort all 20 elapsed_ms values ascending and select rank ceil(0.95 * 20)",
+    "refusal_start": "immediately before dispatch of the explicit employee import action",
+    "refusal_end": "first animation frame after the typed outcome and safe next action are visible",
+    "typed_local_refusal_elapsed_ms_max": 5000,
+    "duplicate_timing": {
+      "reported_separately_from_successful_import_latency": true,
+      "runs": 5,
+      "setup": "outside the interval, create a new empty store, import thread-root once, verify source_version 1 and two candidates, then clear setup timing samples",
+      "start": "immediately before dispatch of the second exact thread-root import",
+      "end": "first animation frame after duplicate_replay is visible",
+      "each_elapsed_ms_max": 5000,
+      "latency_p95_ms_max": 2000,
+      "new_persistence_count": 0,
+      "new_candidate_count": 0
+    },
+    "teardown": {
+      "when": "after the end timestamp and evidence capture",
+      "destroy_store": true,
+      "clear_browser_source_state": true,
+      "discard_timing_recorder": true,
+      "assert_no_pending_source_tasks": true
+    },
+    "external_provider_required": false
+  },
+  "transport_gates": {
+    "streaming_events_used": false,
+    "accepted_message_loss_count_max": 0,
+    "duplicate_candidate_count_max": 0,
+    "reconnect_applicable": false,
+    "reconnect_recovery_seconds_max": null,
+    "source_adapter_external_egress_count_max": 0
+  },
+  "required_outcome_count": 29,
+  "required_failure_matrix": [
+    {
+      "case": "missing_synthetic_marker",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "source-marker-missing",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "source_not_approved",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Use a manifest-approved synthetic fixture with the exact required marker."
+    },
+    {
+      "case": "invalid_synthetic_marker",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "source-marker-invalid",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "source_not_approved",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Use a manifest-approved synthetic fixture with the exact required marker."
+    },
+    {
+      "case": "fixture_digest_mismatch",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "fixture-digest-mismatch",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "fixture_digest_mismatch",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Restore the exact manifest-approved fixture bytes."
+    },
+    {
+      "case": "raw_message_size_limit",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "raw-message-size-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "raw_message_too_large",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Reduce the synthetic message below the frozen raw-byte limit."
+    },
+    {
+      "case": "header_count_limit",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "header-count-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "too_many_headers",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Reduce the synthetic message below the frozen header-count limit."
+    },
+    {
+      "case": "unfolded_header_size_limit",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "unfolded-header-size-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "header_too_large",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Shorten every unfolded header below the frozen byte limit."
+    },
+    {
+      "case": "mime_depth_limit",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "mime-depth-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "mime_too_deep",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Flatten the synthetic MIME structure below the frozen depth limit."
+    },
+    {
+      "case": "mime_part_count_limit",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "mime-part-count-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "too_many_mime_parts",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Reduce the synthetic MIME structure below the frozen part-count limit."
+    },
+    {
+      "case": "malformed_transfer_encoding",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "malformed-transfer-encoding",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "malformed_transfer_encoding",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Provide a correctly transfer-encoded manifest-approved fixture."
+    },
+    {
+      "case": "unsupported_charset",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "unsupported-charset",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "unsupported_charset",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Use UTF-8 or US-ASCII text in the synthetic fixture."
+    },
+    {
+      "case": "duplicate_import",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": null,
+      "precondition": "thread-root already accepted",
+      "fault_injection": null,
+      "expected_code": "duplicate_replay",
+      "is_failure": false,
+      "retry": false,
+      "persistence": "reuse_existing_envelope",
+      "candidate_effect": "no_new_candidates",
+      "safe_next_action": "Continue reviewing the existing candidates."
+    },
+    {
+      "case": "changed_thread_content",
+      "fixture_case_id": "thread-follow-up",
+      "fault_case_id": null,
+      "precondition": "thread-root already accepted",
+      "fault_injection": null,
+      "expected_code": "accepted_new_version",
+      "is_failure": false,
+      "retry": false,
+      "persistence": "one_new_source_version",
+      "candidate_effect": "new_candidates_only_for_new_message",
+      "safe_next_action": "Review the new version and its exact provenance."
+    },
+    {
+      "case": "changed_content_same_message_id",
+      "fixture_case_id": "thread-root-mutated",
+      "fault_case_id": null,
+      "precondition": "thread-root already accepted",
+      "fault_injection": null,
+      "expected_code": "source_identity_conflict",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing_new",
+      "candidate_effect": "no_new_candidates",
+      "safe_next_action": "Ask for a follow-up message with a new Message-ID."
+    },
+    {
+      "case": "sender_ambiguity",
+      "fixture_case_id": "sender-ambiguous",
+      "fault_case_id": null,
+      "precondition": null,
+      "fault_injection": null,
+      "expected_code": "sender_ambiguous",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Correct the synthetic source to contain exactly one From field."
+    },
+    {
+      "case": "missing_body",
+      "fixture_case_id": "missing-body",
+      "fault_case_id": null,
+      "precondition": null,
+      "fault_injection": null,
+      "expected_code": "missing_body",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Provide an approved fixture with one non-empty inline text body."
+    },
+    {
+      "case": "oversized_content",
+      "fixture_case_id": "oversized-body",
+      "fault_case_id": null,
+      "precondition": null,
+      "fault_injection": null,
+      "expected_code": "body_too_large",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Shorten the synthetic source under the frozen limit."
+    },
+    {
+      "case": "unsupported_attachment",
+      "fixture_case_id": "unsupported-attachment",
+      "fault_case_id": null,
+      "precondition": null,
+      "fault_injection": null,
+      "expected_code": "unsupported_attachment",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Remove the attachment or use a manifest-allowed textual type."
+    },
+    {
+      "case": "unsafe_attachment_filename",
+      "fixture_case_id": "allowed-text-attachment",
+      "fault_case_id": "unsafe-attachment-filename",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "unsafe_attachment_filename",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Use a basename-only synthetic attachment filename."
+    },
+    {
+      "case": "attachment_per_file_size_limit",
+      "fixture_case_id": "allowed-text-attachment",
+      "fault_case_id": "attachment-per-file-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "attachment_too_large",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Reduce every decoded attachment below the frozen per-file limit."
+    },
+    {
+      "case": "attachment_total_size_limit",
+      "fixture_case_id": "allowed-text-attachment",
+      "fault_case_id": "attachment-total-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "attachment_total_too_large",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Reduce total decoded attachment bytes below the frozen limit."
+    },
+    {
+      "case": "attachment_count_limit",
+      "fixture_case_id": "allowed-text-attachment",
+      "fault_case_id": "attachment-count-limit",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "too_many_attachments",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Reduce the message to at most three allowed attachments."
+    },
+    {
+      "case": "attachment_decode_failure",
+      "fixture_case_id": "allowed-text-attachment",
+      "fault_case_id": "attachment-decode-failure",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "attachment_decode_failed",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Provide a correctly encoded manifest-approved attachment."
+    },
+    {
+      "case": "attachment_redaction_failure",
+      "fixture_case_id": "allowed-text-attachment",
+      "fault_case_id": "attachment-redaction-failure",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "attachment_redaction_failed",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Keep the source local and repair attachment redaction."
+    },
+    {
+      "case": "html_plain_text_disagreement",
+      "fixture_case_id": "html-plain-disagreement",
+      "fault_case_id": null,
+      "precondition": null,
+      "fault_injection": null,
+      "expected_code": "alternative_disagreement",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Provide one authoritative plain-text body with no conflicting alternative."
+    },
+    {
+      "case": "redaction_failure",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "redaction-stage-failure",
+      "precondition": null,
+      "fault_injection": "redactor_raises_before_envelope_construction",
+      "expected_code": "redaction_failed",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Keep the source local and repair the redaction configuration."
+    },
+    {
+      "case": "assisted_authoring_provider_failure",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "provider-terminal-failure",
+      "precondition": "redacted SourceEnvelope accepted",
+      "fault_injection": "provider_returns_typed_terminal_failure",
+      "expected_code": "assist_unavailable",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "redacted_source_envelope_only",
+      "candidate_effect": "no_provider_candidates",
+      "safe_next_action": "Use local/manual authoring or request a new explicit provider authorization."
+    },
+    {
+      "case": "unknown_thread_parent",
+      "fixture_case_id": "thread-follow-up",
+      "fault_case_id": "unknown-thread-parent",
+      "precondition": "thread-root already accepted",
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "thread_parent_not_found",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing_new",
+      "candidate_effect": "no_new_candidates",
+      "safe_next_action": "Import the referenced synthetic root before its follow-up."
+    },
+    {
+      "case": "source_link_violation",
+      "fixture_case_id": "thread-root",
+      "fault_case_id": "source-link-violation",
+      "precondition": null,
+      "fault_injection": "deterministic_fault_case",
+      "expected_code": "source_link_violation",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Regenerate candidates from the exact current redacted source version."
+    },
+    {
+      "case": "missing_stable_identity",
+      "fixture_case_id": "missing-message-id",
+      "fault_case_id": null,
+      "precondition": null,
+      "fault_injection": null,
+      "expected_code": "missing_message_id",
+      "is_failure": true,
+      "retry": false,
+      "persistence": "nothing",
+      "candidate_effect": "no_candidates",
+      "safe_next_action": "Provide an approved fixture with exactly one syntactically valid Message-ID."
+    }
+  ],
+  "quality_gates": {
+    "fixture_digest_match_rate_min": 1.0,
+    "source_identity_exact_rate_min": 1.0,
+    "source_version_exact_rate_min": 1.0,
+    "version_id_exact_rate_min": 1.0,
+    "redaction_exact_rate_min": 1.0,
+    "attachment_filename_redaction_exact_rate_min": 1.0,
+    "provenance_span_exact_rate_min": 1.0,
+    "candidate_count_exact_rate_min": 1.0,
+    "candidate_projection_exact_rate_min": 1.0,
+    "candidate_needs_review_rate_min": 1.0,
+    "duplicate_reimport_idempotency_rate_min": 1.0,
+    "concurrent_duplicate_idempotency_rate_min": 1.0,
+    "follow_up_new_version_rate_min": 1.0,
+    "typed_failure_rate_min": 1.0,
+    "declared_refusal_executed_rate_min": 1.0,
+    "authority_violation_count_max": 0,
+    "consent_violation_count_max": 0,
+    "raw_source_persistence_count_max": 0,
+    "raw_source_log_count_max": 0,
+    "sensitive_value_leak_count_max": 0,
+    "secret_leak_count_max": 0,
+    "email_created_approval_count_max": 0,
+    "email_created_confirmation_count_max": 0,
+    "email_created_freeze_count_max": 0,
+    "email_created_measurement_count_max": 0,
+    "email_created_verdict_count_max": 0,
+    "duplicate_candidate_count_max": 0,
+    "partial_attachment_persistence_count_max": 0,
+    "source_adapter_external_egress_count_max": 0
+  },
+  "receipt_contract": {
+    "required_for_every_terminal_outcome": true,
+    "allowed_fields": [
+      "source_type",
+      "manifest_id",
+      "manifest_version",
+      "fixture_case_id",
+      "outcome_code",
+      "source_version",
+      "candidate_count",
+      "elapsed_ms"
+    ],
+    "forbidden_content": [
+      "raw_rfc822",
+      "raw_header",
+      "raw_message_id",
+      "sender_address",
+      "recipient_address",
+      "subject_text",
+      "body_text",
+      "attachment_filename",
+      "attachment_content",
+      "customer_term",
+      "secret",
+      "candidate_text",
+      "provider_request",
+      "provider_response"
+    ]
+  },
+  "wave_exit_gate": "From every approved synthetic RFC822 fixture, one explicit employee action creates a redacted provider-neutral SourceEnvelope and source-linked NEEDS_REVIEW candidates in under 60 seconds. Exact serial and concurrent reimport is idempotent; a new referenced message creates exactly one new source version; changed bytes under the same Message-ID fail closed. Missing or invalid approval markers, fixture digest mismatch, raw/header/MIME limits, malformed encoding, unsupported charset, unsafe attachments, ambiguous senders, missing or oversized content, alternative disagreement, redaction failure, and provider failure produce typed safe outcomes. Raw source is never persisted, every candidate has byte-exact redacted provenance, and email can never approve, confirm, freeze, measure, or assign a verdict."
+}

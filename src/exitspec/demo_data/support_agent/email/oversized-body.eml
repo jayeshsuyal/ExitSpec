@@ -1,0 +1,51 @@
+From: Priya Customer <priya@customer.example>
+To: Alex Engineer <alex@exitspec.example>
+Date: Mon, 27 Jul 2026 11:45:00 -0700
+Message-ID: <oversized-body-001@customer.example>
+Subject: Synthetic oversized body
+X-ExitSpec-Synthetic: true
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This synthetic body intentionally exceeds the 4096-byte normalized body limit.
+Line 01: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 02: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 03: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 04: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 05: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 06: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 07: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 08: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 09: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 10: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 11: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 12: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 13: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 14: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 15: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 16: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 17: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 18: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 19: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 20: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 21: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 22: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 23: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 24: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 25: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 26: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 27: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 28: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 29: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 30: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 31: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 32: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 33: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 34: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 35: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 36: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 37: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 38: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 39: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
+Line 40: This repeated synthetic requirement text exists only to exercise a deterministic size refusal before persistence.
