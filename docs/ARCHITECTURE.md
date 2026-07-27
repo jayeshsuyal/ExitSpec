@@ -256,6 +256,26 @@ is no built-in live transport, no live Fireworks evidence, and no external
 provider path wired into the browser. The browser's optional assisted action is
 the local deterministic executor described above, not Fireworks.
 
+The provider-egress contract starts from a frozen Wave-1 manifest. That
+trusted policy fixes the provider, model, exact HTTPS endpoint, approved
+synthetic payload digest, fixture and case provenance, redaction configuration,
+data-policy and pricing snapshots, request ceilings, and spend cap. Request
+input cannot choose or weaken those terms.
+
+The in-memory authorizer owns its clock and randomness. After explicit
+acknowledgement, it issues a five-minute, single-use capability. Authorization
+recomputes the binding from the exact `StructuredJSONRequest` and trusted policy,
+then returns a one-use permit that privately carries that same request. A future
+transport must accept and take only this permit; it must not accept a separately
+supplied request. The permit rechecks server time when the transport takes it,
+so authorization just before expiry cannot be held for a later send. Public
+records never serialize the token verifier, nonce, or raw request. Malformed,
+mismatched, expired, and replayed paths fail closed as the typed, sanitized
+`egress_not_authorized` error.
+
+No live provider transport or server route is wired to this contract yet. It
+does not enable external execution, and Wave 1 remains blocked.
+
 Provider output can propose facts; it cannot set review status, confirmation,
 contract state, adapter selection, canonical hashes, or verdicts.
 
