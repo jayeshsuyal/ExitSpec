@@ -135,6 +135,8 @@ class ProviderEgressAcknowledgementError(ValueError):
     """A safe typed refusal that grants no provider-egress authority."""
 
     code = "egress_not_authorized"
+    retryable = False
+    next_action = "reauthorize_provider_egress"
 
     def __init__(self, reason: EgressRejectionReason, safe_message: str) -> None:
         self.reason = EgressRejectionReason(reason)

@@ -119,36 +119,41 @@ class FireworksProvider:
         started_at = self._monotonic()
 
         for attempt in range(1, self.max_attempts + 1):
+            transport_failure: Optional[ProviderError] = None
             try:
                 response = self._transport.send(http_request)
             except (ProviderTimeoutError, TimeoutError):
                 if attempt < self.max_attempts:
                     self._sleep(self._backoff_delay(attempt, None))
                     continue
-                raise self._exhausted_error(
+                transport_failure = self._exhausted_error(
                     attempts=attempt,
                     last_code=ProviderErrorCode.TIMEOUT,
                     safe_message="Provider timed out after the configured retry limit.",
-                ) from None
+                )
             except ProviderRedirectError as error:
-                raise ProviderError(
+                transport_failure = ProviderError(
                     ProviderErrorCode.REDIRECT_REJECTED,
                     "Provider redirect was rejected before a follow-up request.",
                     status_code=error.status_code,
                     attempts=attempt,
-                ) from None
+                )
             except ProviderTransportError:
-                raise ProviderError(
+                transport_failure = ProviderError(
                     ProviderErrorCode.TRANSPORT,
                     "Provider transport failed before a usable response was received.",
                     attempts=attempt,
-                ) from None
+                )
             except Exception:
-                raise ProviderError(
+                transport_failure = ProviderError(
                     ProviderErrorCode.TRANSPORT,
                     "Provider transport failed before a usable response was received.",
                     attempts=attempt,
-                ) from None
+                )
+            if transport_failure is not None:
+                # Raise only after the handler so the transport exception and
+                # any provider-controlled message are not retained as context.
+                raise transport_failure from None
 
             if not isinstance(response, ProviderHTTPResponse):
                 raise ProviderError(
@@ -164,6 +169,15 @@ class FireworksProvider:
                     retry_after = _header(response.headers, "retry-after")
                     self._sleep(self._backoff_delay(attempt, retry_after))
                     continue
+                if retry_code == ProviderErrorCode.RATE_LIMITED:
+                    raise ProviderError(
+                        ProviderErrorCode.RATE_LIMITED,
+                        "Provider rate limiting remained active after the configured retry limit.",
+                        status_code=response.status_code,
+                        attempts=attempt,
+                        last_code=retry_code,
+                        provider_request_id=request_id,
+                    )
                 raise self._exhausted_error(
                     attempts=attempt,
                     last_code=retry_code,
@@ -269,9 +283,12 @@ class FireworksProvider:
     ) -> Tuple[
         OutputT, Tuple[Optional[int], Optional[int], Optional[int]], Optional[str]
     ]:
+        envelope_invalid = False
         try:
             envelope = json.loads(response.body)
         except (TypeError, json.JSONDecodeError):
+            envelope_invalid = True
+        if envelope_invalid:
             raise ProviderError(
                 ProviderErrorCode.MALFORMED_RESPONSE,
                 "Provider returned a non-JSON response envelope.",
@@ -287,10 +304,13 @@ class FireworksProvider:
             )
 
         request_id = _provider_request_id(response, envelope)
+        content_missing = False
         try:
             choices = envelope["choices"]
             content = choices[0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
+            content_missing = True
+        if content_missing:
             raise ProviderError(
                 ProviderErrorCode.MALFORMED_RESPONSE,
                 "Provider response did not contain structured message content.",
@@ -304,9 +324,12 @@ class FireworksProvider:
                 attempts=attempt,
                 provider_request_id=request_id,
             )
+        output_json_invalid = False
         try:
             parsed_output = json.loads(content)
         except json.JSONDecodeError:
+            output_json_invalid = True
+        if output_json_invalid:
             raise ProviderError(
                 ProviderErrorCode.INVALID_OUTPUT,
                 "Provider message content was not valid JSON.",
@@ -320,18 +343,24 @@ class FireworksProvider:
                 attempts=attempt,
                 provider_request_id=request_id,
             )
+        schema_invalid = False
         try:
             request.validate_response_instance(parsed_output)
         except Exception:
+            schema_invalid = True
+        if schema_invalid:
             raise ProviderError(
                 ProviderErrorCode.INVALID_OUTPUT,
                 "Provider JSON did not conform to the declared response schema.",
                 attempts=attempt,
                 provider_request_id=request_id,
             ) from None
+        typed_conversion_invalid = False
         try:
             output = request.validate_output(parsed_output)
         except Exception:
+            typed_conversion_invalid = True
+        if typed_conversion_invalid:
             raise ProviderError(
                 ProviderErrorCode.INVALID_OUTPUT,
                 "Provider JSON failed local typed conversion.",
@@ -352,6 +381,12 @@ class FireworksProvider:
         if status in {401, 403}:
             code = ProviderErrorCode.AUTHENTICATION
             message = "Provider rejected authentication or authorization."
+        elif status == 402:
+            code = ProviderErrorCode.ACCOUNT_UNAVAILABLE
+            message = "Provider account billing or availability must be restored."
+        elif status == 412:
+            code = ProviderErrorCode.PRECONDITION_FAILED
+            message = "Provider precondition or account status requires review."
         elif 400 <= status < 500:
             code = ProviderErrorCode.CLIENT_REQUEST
             message = "Provider rejected the request without a retryable status."
@@ -412,7 +447,6 @@ class FireworksProvider:
         return ProviderError(
             ProviderErrorCode.RETRIES_EXHAUSTED,
             safe_message,
-            retryable=True,
             status_code=status_code,
             attempts=attempts,
             last_code=last_code,

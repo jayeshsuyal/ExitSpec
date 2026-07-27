@@ -137,12 +137,34 @@ authority.
 - The pinned HTTPS seam connects only to the exact Fireworks host and path,
   performs one first-hop request, rejects every redirect without reading or
   following `Location`, bounds/strictly decodes the body, and closes every path.
+- Status handling follows Fireworks'
+  [inference error meanings](https://docs.fireworks.ai/guides/inference-error-codes):
+  `401`/`403` are authentication failures, `402` is billing or usage
+  unavailability, `412` is a failed precondition, `429` is rate limiting, and
+  `503` is service unavailability. Fireworks documents both account status and
+  a failed LoRA load as possible `412` causes, so ExitSpec reports the neutral
+  `precondition_failed` category and does not infer the cause.
+- The narrower permit-only Wave-1 executor accepts only the frozen
+  provider-owned DeepSeek-V4-Flash base model, excluding the failed-LoRA
+  interpretation. At that exact boundary, both `402` and `412` normalize to
+  the manifest's content-free `account_unavailable` outcome.
+- Only timeout, `429`, and `503` trigger bounded internal retries, consistent
+  with [Fireworks' serverless retry
+  guidance](https://docs.fireworks.ai/serverless/rate-limits). Terminal
+  `retries_exhausted` does not authorize another automatic retry.
+- Schema-valid provider facts must still link to the exact allowed source.
+  Missing, mismatched, or non-exact links fail as typed, non-retryable
+  `source_link_violation` and cannot create a proposal, agreement, or verdict.
 
-Tests run `FireworksProvider` and the assisted-authoring composition with fake
-injected transports. The permit-only executor and HTTPS seam use fake
-connections. No credential loader, server route, browser action, live
-Fireworks call, or live evidence exists. The browser's assisted action is a
-deterministic local executor and is labeled as such. Wave 1 remains blocked.
+The complete frozen failure matrix runs through fake transports and fake
+connections, including configuration, account, retry, output, budget, source,
+and redirect failures. Sanitized failures are detached from their original
+exception graph before they cross the provider or assisted-authoring boundary.
+Every connection in this proof is fake. No credential loader, server route,
+browser action, live Fireworks call, or live evidence exists. The browser's
+assisted action is a deterministic local executor and is labeled as such. Wave
+1 remains blocked on a later server disclosure/action and one explicitly
+approved, bounded live smoke.
 
 Any future live provider use requires a frozen manifest for the approved model,
 endpoint, synthetic payload, disclosure, data and pricing policy, request

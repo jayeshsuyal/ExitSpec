@@ -381,6 +381,9 @@ def test_source_line_speaker_and_quote_must_match_exactly(field, mismatch):
     assert str(captured.value) == (
         "Provider proposal source did not exactly match the redacted transcript."
     )
+    assert captured.value.code == "source_link_violation"
+    assert captured.value.retryable is False
+    assert captured.value.next_action == "review_source_link"
     assert str(mismatch) not in str(captured.value)
     assert str(mismatch) not in repr(captured.value)
 
@@ -442,6 +445,10 @@ def test_provider_error_is_sanitized_from_none_and_returns_no_authoring_state():
     assert str(captured.value) == (
         "Provider-assisted discovery could not be completed."
     )
+    assert captured.value.code == "client_request_error"
+    assert captured.value.retryable is False
+    assert captured.value.attempts == 1
+    assert captured.value.next_action == "review_request"
     assert "PASS" not in str(captured.value)
     assert "draft" not in str(captured.value).lower()
     for sensitive_value in (RAW_EMAIL, RAW_API_TOKEN, RAW_CUSTOMER_TERM):

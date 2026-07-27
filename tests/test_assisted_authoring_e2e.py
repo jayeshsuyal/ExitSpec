@@ -405,6 +405,9 @@ def test_source_mismatch_fails_closed_without_leaking_raw_notes():
     assert str(captured.value) == (
         "Provider proposal source did not exactly match the redacted transcript."
     )
+    assert captured.value.code == "source_link_violation"
+    assert captured.value.retryable is False
+    assert captured.value.next_action == "review_source_link"
     assert not hasattr(captured.value, "discovery_pack")
     error_material = {
         "str": str(captured.value),

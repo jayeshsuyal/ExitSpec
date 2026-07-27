@@ -141,10 +141,14 @@ strict UTF-8, and closes on every outcome. Any `3xx` response becomes
 `redirect_rejected` with only the status retained; `Location`, headers, bodies,
 and credentials are excluded from errors and representations.
 
-All transport tests inject fake connections. No credential loader, server route,
-browser action, or live Fireworks evidence exists. Wave 1 remains blocked until
-the complete frozen failure matrix and one explicitly approved bounded live
-smoke pass.
+The complete frozen failure matrix is exercised with fake transports and fake
+connections. It covers missing configuration, `401`/`403`, `402`, `412`, `429`,
+timeout, `503`, other `5xx`, malformed JSON, schema and exact-source-link
+violations, retry exhaustion, budget refusal, and every declared redirect.
+Every connection in this proof is fake. No credential loader, server route,
+browser action, live Fireworks call, or live evidence exists. Wave 1 remains
+blocked on a later server disclosure/action and one explicitly approved,
+bounded live smoke.
 
 ## Error and retry contract
 
@@ -154,12 +158,41 @@ unavailability, other service errors, timeout, transport failure, malformed
 response envelopes, invalid model output, budget refusal, and exhausted
 retries. Redirect refusal is a distinct non-retryable category.
 
-Only transport timeouts, HTTP `429`, and HTTP `503` are retried. Attempts are
-bounded. Exponential fallback delays are capped; numeric or HTTP-date
-`Retry-After` values are also capped. Malformed output, schema-validation
-failure, ordinary `4xx`, and other errors are not retried. Error strings and
-representations never include request content, response bodies, headers, or API
-keys. Redirects are never retried or followed.
+ExitSpec follows Fireworks' documented
+[inference error meanings](https://docs.fireworks.ai/guides/inference-error-codes):
+`401` and `403` are authentication failures; `402` means billing or usage is
+unavailable; `412` is a failed precondition; `429` is rate limiting; and `503`
+is service unavailability. Fireworks documents both account status and a failed
+LoRA load as possible `412` causes, so the provider-neutral adapter reports
+`precondition_failed` and does not invent the cause. The stable categories are
+`authentication_error`, `account_unavailable`, `precondition_failed`,
+`rate_limited`, and `service_unavailable` as applicable.
+At the narrower permit-only Wave-1 boundary, the frozen provider-owned
+DeepSeek-V4-Flash base model excludes the failed-LoRA interpretation. There,
+both `402` and `412` safely normalize to the manifest's
+`account_unavailable` outcome. This refinement is not applied by the generic
+adapter.
+Every provider category maps to a fixed content-free operator action, such as
+checking the credential, restoring the account, retrying later, reviewing the
+request or output, or reducing the request. Egress refusals require a fresh
+explicit authorization; they are never retried automatically.
+
+Only transport timeouts, HTTP `429`, and HTTP `503` trigger internal retries.
+Attempts, exponential delays, and numeric or HTTP-date `Retry-After` values are
+bounded; this matches Fireworks'
+[serverless retry guidance](https://docs.fireworks.ai/serverless/rate-limits).
+Once the internal attempt ceiling is reached, the terminal
+`retries_exhausted` outcome does not authorize another automatic retry.
+Malformed output, schema-validation failure, other `4xx`, other errors, and
+redirects are not retried; redirects are never followed.
+
+After a schema-valid response, assisted authoring still requires every proposed
+fact to link to the exact allowed source. A missing, mismatched, or non-exact
+link becomes the typed, non-retryable `source_link_violation`; no proposal,
+agreement, or verdict is created. Error strings and representations never
+include request content, response bodies, headers, or API keys. Sanitized
+boundary errors are raised outside provider exception handlers so suppressed
+exception graphs cannot retain those values either.
 
 ## Budget behavior
 

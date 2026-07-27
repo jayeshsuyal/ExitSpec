@@ -295,6 +295,8 @@ def test_issue_requires_explicit_acknowledgement_and_owns_policy_time_and_random
         )
     assert error.value.code == "egress_not_authorized"
     assert error.value.reason == EgressRejectionReason.NOT_ACKNOWLEDGED
+    assert error.value.retryable is False
+    assert error.value.next_action == "reauthorize_provider_egress"
 
     issue_parameters = inspect.signature(authorizer.issue).parameters
     assert "policy" not in issue_parameters
