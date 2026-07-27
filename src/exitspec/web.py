@@ -1,8 +1,8 @@
 """A local-only browser demo for ExitSpec's Define -> Prove -> Decide loop.
 
-The server deliberately has no authentication, persistence, provider credentials, or
-network integrations. It is a runnable product demo over the synthetic support-agent
-fixture, not an authorization service. Human review actions live only in process.
+The server deliberately has no authentication, persistence, provider credentials,
+or provider execution. It is a runnable product demo over synthetic inputs, not a
+production authorization service. Human review actions live only in process.
 """
 
 from __future__ import annotations
@@ -65,6 +65,11 @@ from .models import (
     TranscriptSpan,
     VerdictStatus,
 )
+from .provider_egress import (
+    InMemoryProviderEgressAuthorizer,
+    ProviderEgressAcknowledgement,
+)
+from .providers import StructuredJSONRequest
 from .runner import RunResult, run_demo
 from .reporting import render_customer_draft
 from .review_links import (
@@ -80,6 +85,11 @@ from .synthetic_assisted_authoring import (
     SyntheticAssistedAuthoringExecutor,
     safe_receipt_facts,
 )
+from .wave1_runtime import (
+    build_frozen_wave1_request,
+    frozen_wave1_policy,
+    wave1_provider_disclosure,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -92,8 +102,12 @@ STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
 JSON_MEDIA_TYPE = "application/json"
 LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
+MAX_WAVE1_PROVIDER_AUTHORIZATION_OPERATIONS = 64
 UNSUPPORTED_MEDIA_TYPE_ERROR = "Content-Type must be application/json."
 FORBIDDEN_ORIGIN_ERROR = "Origin is not allowed."
+PROVIDER_ROUTE_PARAMETERS_ERROR = (
+    "Provider authority routes do not accept URL parameters."
+)
 SUPPORTED_RULE_TEMPLATE = {
     "metric": Metric.EXACT_TOOL_SELECTION_RATE.value,
     "metric_label": "Exact expected support-tool selection",
@@ -116,6 +130,97 @@ SUPPORTED_RULE_TEMPLATE = {
 
 class DemoStateError(ValueError):
     """A user-visible constraint in the local demo workflow."""
+
+
+class _Wave1ProviderAuthorization:
+    """Server-private capability state with a deliberately content-free repr."""
+
+    __slots__ = (
+        "acknowledgement",
+        "authorizer",
+        "capability_token",
+        "disclosure_id",
+        "idempotency_key",
+        "replaced_previous",
+        "request",
+    )
+
+    def __init__(
+        self,
+        *,
+        acknowledgement: ProviderEgressAcknowledgement,
+        authorizer: InMemoryProviderEgressAuthorizer,
+        capability_token: str,
+        disclosure_id: str,
+        idempotency_key: str,
+        replaced_previous: bool,
+        request: StructuredJSONRequest[Any],
+    ) -> None:
+        self.acknowledgement = acknowledgement
+        self.authorizer = authorizer
+        self.capability_token = capability_token
+        self.disclosure_id = disclosure_id
+        self.idempotency_key = idempotency_key
+        self.replaced_previous = replaced_previous
+        self.request = request
+
+    def public_payload(self, *, idempotent_replay: bool) -> Dict[str, Any]:
+        return {
+            "acknowledgement_id": self.acknowledgement.acknowledgement_id,
+            "disclosure_id": self.disclosure_id,
+            "issued_at": self.acknowledgement.issued_at.isoformat(),
+            "expires_at": self.acknowledgement.expires_at.isoformat(),
+            "one_time_use": True,
+            "status": "authorization_recorded_not_executed",
+            "execution_available": False,
+            "idempotent_replay": idempotent_replay,
+            "replaced_previous": self.replaced_previous,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            "_Wave1ProviderAuthorization("
+            "acknowledgement_id={0!r}, capability=<redacted>, "
+            "request=<redacted>)"
+        ).format(self.acknowledgement.acknowledgement_id)
+
+
+class _Wave1ProviderAuthorizationOperation:
+    """Content-free idempotency record that cannot reactivate an old capability."""
+
+    __slots__ = (
+        "acknowledgement_id",
+        "disclosure_id",
+        "expires_at",
+        "issued_at",
+        "replaced_previous",
+    )
+
+    def __init__(self, state: _Wave1ProviderAuthorization) -> None:
+        self.acknowledgement_id = state.acknowledgement.acknowledgement_id
+        self.disclosure_id = state.disclosure_id
+        self.issued_at = state.acknowledgement.issued_at.isoformat()
+        self.expires_at = state.acknowledgement.expires_at.isoformat()
+        self.replaced_previous = state.replaced_previous
+
+    def public_payload(self, *, idempotent_replay: bool) -> Dict[str, Any]:
+        return {
+            "acknowledgement_id": self.acknowledgement_id,
+            "disclosure_id": self.disclosure_id,
+            "issued_at": self.issued_at,
+            "expires_at": self.expires_at,
+            "one_time_use": True,
+            "status": "authorization_recorded_not_executed",
+            "execution_available": False,
+            "idempotent_replay": idempotent_replay,
+            "replaced_previous": self.replaced_previous,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            "_Wave1ProviderAuthorizationOperation("
+            "acknowledgement_id={0!r}, content=<redacted>)"
+        ).format(self.acknowledgement_id)
 
 
 def _serialized_session(method: Any) -> Any:
@@ -157,6 +262,20 @@ class DemoSession:
     authoring_adapter: str = "source_candidate_capture"
     authoring_adapter_version: str = "1"
     authoring_receipt: Optional[Dict[str, Any]] = None
+    _wave1_provider_authorization: Optional[_Wave1ProviderAuthorization] = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_provider_authorization_operations: Dict[
+        str, _Wave1ProviderAuthorizationOperation
+    ] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     _sample_discovery_pack: Optional[DiscoveryPack] = field(
         default=None,
         repr=False,
@@ -188,6 +307,100 @@ class DemoSession:
             self._sample_contract_seed = self.contract_seed.model_copy(deep=True)
         if self._sample_fixture_path is None:
             self._sample_fixture_path = self.fixture_path
+
+    def _clear_wave1_provider_authorization(self) -> None:
+        self._wave1_provider_authorization = None
+        self._wave1_provider_authorization_operations.clear()
+
+    @_serialized_session
+    def wave1_provider_disclosure_payload(self) -> Dict[str, Any]:
+        """Return the exact frozen disclosure without enabling provider execution."""
+
+        disclosure = wave1_provider_disclosure()
+        authorization = self._wave1_provider_authorization
+        disclosure["authorization"] = (
+            None
+            if authorization is None
+            else authorization.public_payload(idempotent_replay=False)
+        )
+        return disclosure
+
+    @_serialized_session
+    def authorize_wave1_provider_egress(
+        self,
+        *,
+        disclosure_id: str,
+        acknowledged: bool,
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        """Record one explicit authorization while keeping its capability private."""
+
+        disclosure = wave1_provider_disclosure()
+        expected_disclosure_id = disclosure["disclosure_id"]
+        if (
+            not isinstance(disclosure_id, str)
+            or disclosure_id != expected_disclosure_id
+        ):
+            raise DemoStateError(
+                "Provider disclosure changed; review the current disclosure again."
+            )
+        if acknowledged is not True:
+            raise DemoStateError(
+                "Provider egress requires explicit acknowledgement of the current disclosure."
+            )
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise DemoStateError(
+                "Provider authorization requires an idempotency key."
+            )
+        normalized_idempotency_key = idempotency_key.strip()
+        if len(normalized_idempotency_key) > 200:
+            raise DemoStateError(
+                "Provider authorization idempotency key is too long."
+            )
+
+        operation = self._wave1_provider_authorization_operations.get(
+            normalized_idempotency_key
+        )
+        if operation is not None:
+            return {
+                "authorization": operation.public_payload(idempotent_replay=True),
+                "disclosure": disclosure,
+            }
+        if (
+            len(self._wave1_provider_authorization_operations)
+            >= MAX_WAVE1_PROVIDER_AUTHORIZATION_OPERATIONS
+        ):
+            raise DemoStateError(
+                "Provider authorization operation limit reached; reset the session."
+            )
+
+        existing = self._wave1_provider_authorization
+        replaced_previous = existing is not None
+        policy = frozen_wave1_policy()
+        request = build_frozen_wave1_request()
+        authorizer = InMemoryProviderEgressAuthorizer(policy)
+        acknowledgement, capability_token = authorizer.issue(
+            request,
+            acknowledged=True,
+        )
+        state = _Wave1ProviderAuthorization(
+            acknowledgement=acknowledgement,
+            authorizer=authorizer,
+            capability_token=capability_token,
+            disclosure_id=expected_disclosure_id,
+            idempotency_key=normalized_idempotency_key,
+            replaced_previous=replaced_previous,
+            request=request,
+        )
+        self._wave1_provider_authorization = state
+        self._wave1_provider_authorization_operations[
+            normalized_idempotency_key
+        ] = _Wave1ProviderAuthorizationOperation(state)
+        public = state.public_payload(idempotent_replay=False)
+        return {
+            "authorization": public,
+            "disclosure": disclosure,
+        }
 
     @classmethod
     def synthetic_support_agent(
@@ -441,6 +654,7 @@ class DemoSession:
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
+        self._clear_wave1_provider_authorization()
         self.transcript_redaction = intake.redaction
         self.transcript_notice = (
             "Synthetic pasted meeting notes were redacted before intake under "
@@ -495,6 +709,7 @@ class DemoSession:
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
+        self._clear_wave1_provider_authorization()
         self.transcript_redaction = authored.redaction
         self.transcript_notice = (
             "Synthetic assisted authoring redacted meeting notes under policy {0}. "
@@ -524,6 +739,7 @@ class DemoSession:
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
+        self._clear_wave1_provider_authorization()
         self.transcript_notice = "Built-in synthetic discovery transcript"
         self.transcript_redaction = None
         self.authoring_mode = "deterministic"
@@ -1207,6 +1423,18 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
         parsed = urlparse(self.path)
+        if parsed.path == "/api/provider/fireworks/disclosure":
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": PROVIDER_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                self.server.session.wave1_provider_disclosure_payload(),
+            )
+            return
         if parsed.path == "/api/state":
             self._send_json(HTTPStatus.OK, self.server.session.state_payload())
             return
@@ -1233,22 +1461,61 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._serve_static(parsed.path)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+        parsed = urlparse(self.path)
+        is_provider_authorization = (
+            parsed.path == "/api/provider/fireworks/authorization"
+        )
+        if (
+            is_provider_authorization
+            and (parsed.params or parsed.query or parsed.fragment)
+        ):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": PROVIDER_ROUTE_PARAMETERS_ERROR},
+            )
+            return
         if not self._has_json_media_type():
             self._send_json(
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
             )
             return
-        if not self._has_allowed_origin():
+        if not self._has_allowed_origin(
+            require_present=is_provider_authorization,
+            exact_request_origin=is_provider_authorization,
+        ):
             self._send_json(
                 HTTPStatus.FORBIDDEN,
                 {"error": FORBIDDEN_ORIGIN_ERROR},
             )
             return
 
-        parsed = urlparse(self.path)
         try:
             payload = self._read_json()
+            if parsed.path == "/api/provider/fireworks/authorization":
+                _require_only_fields(
+                    payload,
+                    {
+                        "acknowledged",
+                        "disclosure_id",
+                        "idempotency_key",
+                    },
+                )
+                authorized = (
+                    self.server.session.authorize_wave1_provider_egress(
+                        disclosure_id=_required_exact_string(
+                            payload,
+                            "disclosure_id",
+                        ),
+                        acknowledged=_optional_boolean(
+                            payload,
+                            "acknowledged",
+                        ),
+                        idempotency_key=self._idempotency_key(payload),
+                    )
+                )
+                self._send_json(HTTPStatus.OK, authorized)
+                return
             if parsed.path == "/api/review":
                 reviewed = self.server.session.review(
                     draft_id=_required_string(payload, "draft_id"),
@@ -1508,10 +1775,15 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Idempotency key must be at most 200 characters.")
         return resolved
 
-    def _has_allowed_origin(self) -> bool:
+    def _has_allowed_origin(
+        self,
+        *,
+        require_present: bool = False,
+        exact_request_origin: bool = False,
+    ) -> bool:
         origins = self.headers.get_all("Origin") or []
         if not origins:
-            return True
+            return not require_present
         if len(origins) != 1:
             return False
 
@@ -1549,7 +1821,48 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         ):
             return False
         effective_port = 80 if port is None else port
-        return effective_port == self.server.server_port
+        if effective_port != self.server.server_port:
+            return False
+        if not exact_request_origin:
+            return True
+
+        hosts = self.headers.get_all("Host") or []
+        if len(hosts) != 1:
+            return False
+        host = hosts[0]
+        if host != host.strip():
+            return False
+        try:
+            request_authority = urlparse("http://{0}".format(host))
+            request_hostname = request_authority.hostname
+            request_port = request_authority.port
+        except ValueError:
+            return False
+        if (
+            request_hostname not in LOOPBACK_ORIGIN_HOSTS
+            or request_authority.username is not None
+            or request_authority.password is not None
+            or request_authority.path
+            or request_authority.params
+            or request_authority.query
+            or request_authority.fragment
+        ):
+            return False
+        request_host = (
+            "[::1]" if request_hostname == "::1" else request_hostname
+        )
+        expected_request_authority = (
+            request_host
+            if request_port is None
+            else "{0}:{1}".format(request_host, request_port)
+        )
+        if request_authority.netloc.lower() != expected_request_authority:
+            return False
+        request_effective_port = 80 if request_port is None else request_port
+        return (
+            request_effective_port == self.server.server_port
+            and parsed.netloc.lower() == request_authority.netloc.lower()
+        )
 
     def _read_json(self) -> Dict[str, Any]:
         content_length = self.headers.get("Content-Length")
@@ -1621,6 +1934,22 @@ def _required_string(payload: Dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("{0} must be a non-empty string.".format(key))
     return value.strip()
+
+
+def _required_exact_string(payload: Dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError("{0} must be a non-empty string.".format(key))
+    if value != value.strip():
+        raise ValueError(
+            "{0} must match exactly without surrounding whitespace.".format(key)
+        )
+    return value
+
+
+def _require_only_fields(payload: Dict[str, Any], allowed: set[str]) -> None:
+    if not set(payload).issubset(allowed):
+        raise ValueError("Request contains unsupported fields.")
 
 
 def _optional_string(payload: Dict[str, Any], key: str) -> Optional[str]:

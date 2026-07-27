@@ -75,8 +75,9 @@ loop.
   retries, terminal exhaustion, and typed exact-source-link rejection. Generic
   `412` handling stays neutral; the exact frozen non-LoRA Wave-1 boundary
   safely narrows it to account unavailability.
-- No credential loading, live Fireworks call/evidence, server or UI integration,
-  or speech-to-text.
+- Loopback disclosure and authorization routes derived from the frozen policy;
+  no credential loading, provider execution route, browser action, live
+  Fireworks call/evidence, DNS/TLS activity, provider spend, or speech-to-text.
 
 ## Next sequence
 
@@ -122,6 +123,20 @@ and retry ceilings, and passes it to an exact-origin HTTPS seam. The seam issues
 one first-hop request and rejects redirects without following `Location`; all
 connections are fake.
 
+The loopback server now exposes
+`GET /api/provider/fireworks/disclosure` and
+`POST /api/provider/fireworks/authorization`. Disclosure is derived from the
+code-pinned frozen policy. Both authority routes reject URL parameters.
+Authorization requires the byte-exact disclosure identity, explicit `true`
+acknowledgement, JSON whose `Origin` authority exactly matches the request
+`Host`, and an idempotency key. Identical replay returns the same public result;
+conflicting key reuse is rejected. A new authorization replaces the previous
+active private state without allowing an old replay to reactivate it. A bounded,
+content-free operation history fails closed at 64 entries until reset. The
+capability token and exact request never leave the server. Because this is
+authorization rather than execution, `/api/state` continues to report
+`provider_calls: false`.
+
 The complete frozen fake failure matrix now covers missing configuration,
 authentication, billing/usage unavailability, neutral precondition failures,
 rate limiting, timeout, service failure, malformed or invalid output,
@@ -132,9 +147,9 @@ Only timeout, `429`, and `503` receive bounded internal retries, following Firew
 [serverless guidance](https://docs.fireworks.ai/serverless/rate-limits);
 terminal exhaustion does not authorize another automatic retry.
 
-No credential loader, server route, browser action, live Fireworks call, or live
-evidence exists. Wave 1 remains blocked on a later server disclosure/action and
-one explicitly approved, bounded live smoke.
+No credential loader, provider execution route, browser action, live Fireworks
+call, DNS/TLS activity, provider spend, or live evidence exists. Wave 1 remains
+blocked on PR24's one bounded action and one explicitly approved live smoke.
 
 ```text
 explicit user action
@@ -149,12 +164,14 @@ Exit gate: raw secrets and customer terms never enter provider requests,
 browser state, receipts, errors, or persistence; every provider result stays
 `NEEDS_REVIEW`; provider failure creates no agreement or verdict.
 
-### 3. Prove one live Fireworks boundary
+### 3. Consume one authorization, then prove one live Fireworks boundary
 
-Only after the frozen Wave-1 manifest, credential source, and permit-only
-boundary are approved, add the server disclosure and explicit action for the
-one approved synthetic structured request. Then run one separately approved,
-bounded live smoke.
+PR24 will add one bounded server action for the approved synthetic structured
+request. That action must consume the exact private authorization already held
+by the server; it must not accept a capability token or replacement provider
+request from the browser. Only after the credential source and this complete
+permit-only path are approved may a separate, explicitly approved bounded live
+smoke run.
 
 Exit gate: success, authentication failure, rate limit, timeout, malformed
 response, schema failure, retry exhaustion, and budget behavior produce typed,

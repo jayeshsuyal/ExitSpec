@@ -121,6 +121,36 @@ nonce, or raw request. Invalid acknowledgement, malformed input, policy or
 request mismatch, expiry, and replay all fail closed with the stable, sanitized
 `egress_not_authorized` code.
 
+### Loopback disclosure and authorization API
+
+`GET /api/provider/fireworks/disclosure` returns the public disclosure and
+identity derived from the code-pinned frozen Wave-1 policy. The route accepts no
+caller-selected provider, model, endpoint, payload, pricing, retry, or budget
+policy, and it rejects URL parameters.
+
+`POST /api/provider/fireworks/authorization` accepts only JSON whose exact
+`Origin` authority matches the request `Host`, rejects URL parameters, and
+requires:
+
+- the byte-exact disclosure identity returned by the GET route;
+- an explicit `true` acknowledgement; and
+- an idempotency key.
+
+An identical replay returns the original public authorization result;
+conflicting reuse of the key is rejected. A new valid authorization replaces
+the previous active private authorization without allowing an old replay to
+reactivate it. The server retains at most 64 content-free operation records and
+fails closed until reset if that bound is reached. Reset clears both the active
+authorization and operation history. The capability token and exact
+`StructuredJSONRequest` remain server-private and are never serialized to the
+browser. `/api/state` continues to report `provider_calls: false`: creating
+authorization is not a provider call.
+
+These routes do not load a credential or expose an execution action. They
+perform no Fireworks request, DNS/TLS activity, or provider spend, and there is
+no browser button for this boundary. PR24 is planned to consume the private
+authorization for one bounded action.
+
 ### Permit-only pinned HTTPS seam
 
 `AuthorizedFireworksExecutor` is the only composition intended for future live
@@ -145,10 +175,10 @@ The complete frozen failure matrix is exercised with fake transports and fake
 connections. It covers missing configuration, `401`/`403`, `402`, `412`, `429`,
 timeout, `503`, other `5xx`, malformed JSON, schema and exact-source-link
 violations, retry exhaustion, budget refusal, and every declared redirect.
-Every connection in this proof is fake. No credential loader, server route,
-browser action, live Fireworks call, or live evidence exists. Wave 1 remains
-blocked on a later server disclosure/action and one explicitly approved,
-bounded live smoke.
+Every connection in this proof is fake. No credential loader, provider
+execution route, browser action, live Fireworks call, DNS/TLS activity, provider
+spend, or live evidence exists. Wave 1 remains blocked on PR24's one bounded
+action and one explicitly approved, bounded live smoke.
 
 ## Error and retry contract
 
