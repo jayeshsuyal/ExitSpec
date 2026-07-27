@@ -18,6 +18,7 @@ from exitspec.providers import (
     ProviderError,
     ProviderErrorCode,
     ProviderHTTPResponse,
+    ProviderNextAction,
 )
 
 
@@ -278,6 +279,8 @@ def test_permit_and_provider_retry_limits_are_each_enforced_once():
     assert error.value.code == ProviderErrorCode.RETRIES_EXHAUSTED
     assert error.value.last_code == ProviderErrorCode.TIMEOUT
     assert error.value.attempts == POLICY.request_limits()["max_attempts"]
+    assert error.value.retryable is False
+    assert error.value.next_action == ProviderNextAction.RETRY_LATER
     assert len(factory.calls) == POLICY.request_limits()["max_attempts"]
     assert delays == [0.25]
 
@@ -335,6 +338,34 @@ def test_provider_request_id_is_removed_from_typed_error_boundary():
     assert error.value.code == ProviderErrorCode.AUTHENTICATION
     assert error.value.provider_request_id is None
     assert error.value.receipt is None
+    assert error.value.__context__ is None
+    assert error.value.__cause__ is None
+    assert API_KEY not in str(error.value)
+    assert API_KEY not in repr(error.value)
+
+
+@pytest.mark.parametrize("status_code", (402, 412))
+def test_frozen_wave1_account_failures_share_one_safe_outcome(status_code):
+    response = FakeHTTPSResponse(
+        ProviderHTTPResponse(
+            status_code=status_code,
+            headers={"X-Request-ID": API_KEY},
+            body=API_KEY,
+        )
+    )
+    factory = RecordingConnectionFactory(FakeHTTPSConnection(response))
+    executor = _executor(factory)
+    permit, _ = _permit()
+
+    with pytest.raises(ProviderError) as error:
+        executor.execute(permit)
+
+    assert error.value.code == ProviderErrorCode.ACCOUNT_UNAVAILABLE
+    assert error.value.status_code == status_code
+    assert error.value.next_action == ProviderNextAction.RESTORE_ACCOUNT
+    assert error.value.retryable is False
+    assert error.value.provider_request_id is None
+    assert error.value.__context__ is None
     assert API_KEY not in str(error.value)
     assert API_KEY not in repr(error.value)
 

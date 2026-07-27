@@ -103,10 +103,20 @@ def _content_free_receipt(receipt: ProviderReceipt) -> ProviderReceipt:
     )
 
 
-def _content_free_error(error: ProviderError) -> ProviderError:
+def _content_free_wave1_error(error: ProviderError) -> ProviderError:
+    code = error.code
+    safe_message = error.safe_message
+    if (
+        error.code == ProviderErrorCode.PRECONDITION_FAILED
+        and error.status_code == 412
+    ):
+        # This executor accepts only the frozen provider-owned base model, so
+        # Fireworks' alternate 412 meaning for a failed LoRA load is excluded.
+        code = ProviderErrorCode.ACCOUNT_UNAVAILABLE
+        safe_message = "Frozen Wave-1 provider account is unavailable."
     return ProviderError(
-        error.code,
-        error.safe_message,
+        code,
+        safe_message,
         retryable=error.retryable,
         status_code=error.status_code,
         attempts=error.attempts,
@@ -184,6 +194,7 @@ class AuthorizedFireworksExecutor:
                 "Provider execution requires one authorized request permit.",
             )
         request = permit.take_request()
+        intent_rejected = False
         try:
             build_provider_egress_intent(
                 request,
@@ -191,14 +202,22 @@ class AuthorizedFireworksExecutor:
                 customer_terms=(),
             )
         except Exception:
+            intent_rejected = True
+        if intent_rejected:
             raise ProviderEgressAcknowledgementError(
                 EgressRejectionReason.INTENT_MISMATCH,
                 "Authorized provider request no longer matches frozen policy.",
             ) from None
+
+        provider_failure: Optional[ProviderError] = None
         try:
             result = self._provider.execute(request)
         except ProviderError as error:
-            raise _content_free_error(error) from None
+            provider_failure = _content_free_wave1_error(error)
+        if provider_failure is not None:
+            # Raising after the handler prevents the original provider exception
+            # graph from remaining reachable through ``__context__``.
+            raise provider_failure from None
         return StructuredJSONResult(
             output=result.output,
             receipt=_content_free_receipt(result.receipt),

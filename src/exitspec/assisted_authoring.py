@@ -48,7 +48,23 @@ from .redaction import (
 
 
 class AssistedAuthoringError(ValueError):
-    """A sanitized local-boundary failure that contains no transcript values."""
+    """A sanitized typed failure that contains no transcript values."""
+
+    def __init__(
+        self,
+        safe_message: str,
+        *,
+        code: str = "assisted_authoring_error",
+        retryable: bool = False,
+        attempts: int = 0,
+        next_action: str = "review_assisted_authoring_input",
+    ) -> None:
+        super().__init__(safe_message)
+        self.code = code
+        self.safe_message = safe_message
+        self.retryable = retryable
+        self.attempts = attempts
+        self.next_action = next_action
 
 
 class ProposalClassification(str, Enum):
@@ -213,6 +229,7 @@ def _execute_provider(
     customer_terms: Sequence[str],
 ) -> StructuredJSONResult[ProposalBatch]:
     failure: Optional[str] = None
+    provider_failure: Optional[tuple[str, bool, int, str]] = None
     try:
         # This fresh gate intentionally sits immediately before provider execution.
         assert_redaction_egress(
@@ -222,8 +239,14 @@ def _execute_provider(
         return executor.execute(request)
     except RedactionBoundaryError:
         failure = "redaction"
-    except ProviderError:
+    except ProviderError as error:
         failure = "provider"
+        provider_failure = (
+            error.code.value,
+            error.retryable,
+            error.attempts,
+            error.next_action.value,
+        )
 
     # Raise outside the handler so provider-controlled exception state is not
     # retained as ``__context__`` on the sanitized boundary error.
@@ -232,8 +255,14 @@ def _execute_provider(
             "Provider egress was denied by the redaction policy."
         ) from None
     if failure == "provider":
+        if provider_failure is None:
+            raise AssertionError("Provider failure metadata was not captured.")
         raise AssistedAuthoringError(
-            "Provider-assisted discovery could not be completed."
+            "Provider-assisted discovery could not be completed.",
+            code=provider_failure[0],
+            retryable=provider_failure[1],
+            attempts=provider_failure[2],
+            next_action=provider_failure[3],
         ) from None
     raise AssertionError("Provider execution failure was not categorized.")
 
@@ -286,7 +315,9 @@ def _source_span(
 ) -> TranscriptSpan:
     if proposal.line_number > len(intake.transcript.lines):
         raise AssistedAuthoringError(
-            "Provider proposal source did not exactly match the redacted transcript."
+            "Provider proposal source did not exactly match the redacted transcript.",
+            code="source_link_violation",
+            next_action="review_source_link",
         )
     source_line = intake.transcript.lines[proposal.line_number - 1]
     if (
@@ -295,7 +326,9 @@ def _source_span(
         or source_line.text != proposal.quote
     ):
         raise AssistedAuthoringError(
-            "Provider proposal source did not exactly match the redacted transcript."
+            "Provider proposal source did not exactly match the redacted transcript.",
+            code="source_link_violation",
+            next_action="review_source_link",
         )
     return TranscriptSpan(
         transcript_id=intake.transcript.id,
@@ -411,6 +444,7 @@ def build_assisted_discovery_pack(
         )
 
     _assert_safe_provider_facts(provider_result.output, customer_terms=customer_terms)
+    conversion_failed = False
     try:
         drafts = [
             _draft_from_facts(
@@ -425,6 +459,8 @@ def build_assisted_discovery_pack(
     except AssistedAuthoringError:
         raise
     except (ValidationError, ValueError):
+        conversion_failed = True
+    if conversion_failed:
         raise AssistedAuthoringError(
             "Provider proposal could not be converted at the local authoring boundary."
         ) from None

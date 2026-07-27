@@ -69,6 +69,12 @@ loop.
   types.
 - `FireworksProvider`, the permit-only executor, and the pinned first-hop HTTPS
   transport tested through fake transports and fake connections.
+- Complete frozen fake failure matrix, including Fireworks'
+  [documented](https://docs.fireworks.ai/guides/inference-error-codes)
+  `401`/`403`, `402`, `412`, `429`, and `503` semantics, bounded internal
+  retries, terminal exhaustion, and typed exact-source-link rejection. Generic
+  `412` handling stays neutral; the exact frozen non-LoRA Wave-1 boundary
+  safely narrows it to account unavailability.
 - No credential loading, live Fireworks call/evidence, server or UI integration,
   or speech-to-text.
 
@@ -114,9 +120,21 @@ paths fail closed as typed, sanitized `egress_not_authorized`.
 The permit-only executor now takes the request once, applies the frozen pricing
 and retry ceilings, and passes it to an exact-origin HTTPS seam. The seam issues
 one first-hop request and rejects redirects without following `Location`; all
-tests use fake connections. No credential loader, server route, browser action,
-or live Fireworks evidence exists. Wave 1 remains blocked on the rest of the
-failure matrix and one explicitly approved bounded live smoke.
+connections are fake.
+
+The complete frozen fake failure matrix now covers missing configuration,
+authentication, billing/usage unavailability, neutral precondition failures,
+rate limiting, timeout, service failure, malformed or invalid output,
+exact-source-link rejection, retry exhaustion, budget refusal, and redirects.
+The frozen Wave-1 account case executes both `402` and `412`; only its exact
+provider-owned base-model boundary narrows `412` to `account_unavailable`.
+Only timeout, `429`, and `503` receive bounded internal retries, following Fireworks'
+[serverless guidance](https://docs.fireworks.ai/serverless/rate-limits);
+terminal exhaustion does not authorize another automatic retry.
+
+No credential loader, server route, browser action, live Fireworks call, or live
+evidence exists. Wave 1 remains blocked on a later server disclosure/action and
+one explicitly approved, bounded live smoke.
 
 ```text
 explicit user action
@@ -133,9 +151,10 @@ browser state, receipts, errors, or persistence; every provider result stays
 
 ### 3. Prove one live Fireworks boundary
 
-Only after the frozen Wave-1 manifest, credential source, disclosure, and
-permit-only boundary are approved, wire the pinned transport to an explicit
-server action for the one approved synthetic structured request.
+Only after the frozen Wave-1 manifest, credential source, and permit-only
+boundary are approved, add the server disclosure and explicit action for the
+one approved synthetic structured request. Then run one separately approved,
+bounded live smoke.
 
 Exit gate: success, authentication failure, rate limit, timeout, malformed
 response, schema failure, retry exhaustion, and budget behavior produce typed,

@@ -29,6 +29,8 @@ class ProviderErrorCode(str, Enum):
 
     CONFIGURATION = "configuration_error"
     AUTHENTICATION = "authentication_error"
+    ACCOUNT_UNAVAILABLE = "account_unavailable"
+    PRECONDITION_FAILED = "precondition_failed"
     CLIENT_REQUEST = "client_request_error"
     RATE_LIMITED = "rate_limited"
     SERVICE_UNAVAILABLE = "service_unavailable"
@@ -40,6 +42,41 @@ class ProviderErrorCode(str, Enum):
     BUDGET_EXCEEDED = "budget_exceeded"
     RETRIES_EXHAUSTED = "retries_exhausted"
     REDIRECT_REJECTED = "redirect_rejected"
+
+
+class ProviderNextAction(str, Enum):
+    """Content-free operator actions for provider failures."""
+
+    CONFIGURE_PROVIDER = "configure_provider"
+    CHECK_CREDENTIAL = "check_provider_credential"
+    RESTORE_ACCOUNT = "restore_provider_account"
+    REVIEW_PRECONDITION = "review_provider_precondition"
+    REVIEW_REQUEST = "review_request"
+    RETRY_LATER = "retry_later"
+    CONTACT_PROVIDER = "contact_provider"
+    CHECK_CONNECTIVITY = "check_provider_connectivity"
+    REVIEW_OUTPUT = "review_provider_output"
+    REDUCE_REQUEST = "reduce_request"
+    REVIEW_DESTINATION = "review_provider_destination"
+
+
+_PROVIDER_NEXT_ACTIONS = {
+    ProviderErrorCode.CONFIGURATION: ProviderNextAction.CONFIGURE_PROVIDER,
+    ProviderErrorCode.AUTHENTICATION: ProviderNextAction.CHECK_CREDENTIAL,
+    ProviderErrorCode.ACCOUNT_UNAVAILABLE: ProviderNextAction.RESTORE_ACCOUNT,
+    ProviderErrorCode.PRECONDITION_FAILED: ProviderNextAction.REVIEW_PRECONDITION,
+    ProviderErrorCode.CLIENT_REQUEST: ProviderNextAction.REVIEW_REQUEST,
+    ProviderErrorCode.RATE_LIMITED: ProviderNextAction.RETRY_LATER,
+    ProviderErrorCode.SERVICE_UNAVAILABLE: ProviderNextAction.RETRY_LATER,
+    ProviderErrorCode.SERVICE_ERROR: ProviderNextAction.CONTACT_PROVIDER,
+    ProviderErrorCode.TIMEOUT: ProviderNextAction.RETRY_LATER,
+    ProviderErrorCode.TRANSPORT: ProviderNextAction.CHECK_CONNECTIVITY,
+    ProviderErrorCode.MALFORMED_RESPONSE: ProviderNextAction.REVIEW_OUTPUT,
+    ProviderErrorCode.INVALID_OUTPUT: ProviderNextAction.REVIEW_OUTPUT,
+    ProviderErrorCode.BUDGET_EXCEEDED: ProviderNextAction.REDUCE_REQUEST,
+    ProviderErrorCode.RETRIES_EXHAUSTED: ProviderNextAction.RETRY_LATER,
+    ProviderErrorCode.REDIRECT_REJECTED: ProviderNextAction.REVIEW_DESTINATION,
+}
 
 
 @dataclass(frozen=True)
@@ -386,6 +423,12 @@ class ProviderError(RuntimeError):
         self.last_code = last_code
         self.provider_request_id = provider_request_id
         self.receipt = receipt
+
+    @property
+    def next_action(self) -> ProviderNextAction:
+        """Return the fixed content-free action for this failure category."""
+
+        return _PROVIDER_NEXT_ACTIONS[self.code]
 
     def __str__(self) -> str:
         return "{0}: {1}".format(self.code.value, self.safe_message)

@@ -10,6 +10,7 @@ from exitspec.providers import (
     ProviderErrorCode,
     ProviderHTTPResponse,
     ProviderMessage,
+    ProviderNextAction,
     ProviderRedirectError,
     ProviderTimeoutError,
     StructuredJSONRequest,
@@ -50,6 +51,21 @@ class SequenceClock:
 
     def __call__(self):
         return next(self.values)
+
+
+def exception_graph(root):
+    pending = [root]
+    seen = set()
+    while pending:
+        error = pending.pop()
+        identity = id(error)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        yield error
+        for linked in (error.__cause__, error.__context__):
+            if isinstance(linked, BaseException):
+                pending.append(linked)
 
 
 def validate_draft(value):
@@ -118,6 +134,13 @@ def pricing():
         output_usd_per_million=Decimal("4"),
         version="synthetic-pricing-2026-07-22",
     )
+
+
+def test_every_provider_failure_code_has_a_content_free_next_action():
+    for code in ProviderErrorCode:
+        error = ProviderError(code, "Safe fixed message.")
+        assert isinstance(error.next_action, ProviderNextAction)
+        assert error.next_action.value
 
 
 def test_success_builds_documented_chat_request_and_records_receipt():
@@ -328,6 +351,7 @@ def test_schema_instance_error_does_not_leak_provider_content():
         provider.execute(request(validate_output=identity_output))
 
     assert raised.value.code == ProviderErrorCode.INVALID_OUTPUT
+    assert list(exception_graph(raised.value)) == [raised.value]
     for rendered_error in (str(raised.value), repr(raised.value)):
         assert SENSITIVE_OUTPUT not in rendered_error
         assert API_KEY not in rendered_error
@@ -360,6 +384,29 @@ def test_malformed_or_invalid_output_is_not_retried(response, expected_code):
     assert len(transport.requests) == 1
 
 
+def test_malformed_response_drops_provider_content_from_exception_graph():
+    provider_body = "{not-json-" + SENSITIVE_OUTPUT
+    transport = ScriptedTransport(
+        ProviderHTTPResponse(status_code=200, body=provider_body)
+    )
+    provider = FireworksProvider(transport=transport, api_key=API_KEY)
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    graph = list(exception_graph(raised.value))
+    assert graph == [raised.value]
+    for error in graph:
+        rendered = "{0}\n{1}\n{2}".format(
+            str(error),
+            repr(error),
+            getattr(error, "doc", ""),
+        )
+        assert provider_body not in rendered
+        assert SENSITIVE_OUTPUT not in rendered
+        assert API_KEY not in rendered
+
+
 def test_429_and_503_retry_with_capped_retry_after_then_succeed():
     transport = ScriptedTransport(
         ProviderHTTPResponse(
@@ -388,6 +435,31 @@ def test_429_and_503_retry_with_capped_retry_after_then_succeed():
     assert len(transport.requests) == 3
 
 
+def test_rate_limit_remains_typed_after_bounded_retry_is_exhausted():
+    transport = ScriptedTransport(
+        ProviderHTTPResponse(status_code=429, body="ignored"),
+        ProviderHTTPResponse(status_code=429, body="also ignored"),
+    )
+    delays = []
+    provider = FireworksProvider(
+        transport=transport,
+        max_attempts=2,
+        sleeper=delays.append,
+    )
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    error = raised.value
+    assert error.code == ProviderErrorCode.RATE_LIMITED
+    assert error.last_code == ProviderErrorCode.RATE_LIMITED
+    assert error.attempts == 2
+    assert error.retryable is False
+    assert error.next_action == ProviderNextAction.RETRY_LATER
+    assert delays == [0.25]
+    assert len(transport.requests) == 2
+
+
 def test_timeouts_stop_at_bound_and_report_exhaustion():
     transport = ScriptedTransport(
         ProviderTimeoutError("first {0}".format(API_KEY)),
@@ -410,7 +482,8 @@ def test_timeouts_stop_at_bound_and_report_exhaustion():
     assert error.code == ProviderErrorCode.RETRIES_EXHAUSTED
     assert error.last_code == ProviderErrorCode.TIMEOUT
     assert error.attempts == 3
-    assert error.retryable is True
+    assert error.retryable is False
+    assert error.next_action == ProviderNextAction.RETRY_LATER
     assert delays == [0.25, 0.5]
     assert API_KEY not in str(error)
     assert API_KEY not in repr(error)
@@ -428,6 +501,58 @@ def test_ordinary_4xx_is_not_retried():
 
     assert raised.value.code == ProviderErrorCode.CLIENT_REQUEST
     assert raised.value.status_code == 400
+    assert len(transport.requests) == 1
+
+
+def test_billing_unavailable_is_typed_and_not_retried():
+    transport = ScriptedTransport(
+        ProviderHTTPResponse(status_code=402, body="ignored account detail"),
+        success_response(),
+    )
+    provider = FireworksProvider(transport=transport)
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == ProviderErrorCode.ACCOUNT_UNAVAILABLE
+    assert raised.value.status_code == 402
+    assert raised.value.retryable is False
+    assert raised.value.next_action == ProviderNextAction.RESTORE_ACCOUNT
+    assert len(transport.requests) == 1
+
+
+def test_ambiguous_precondition_is_neutral_and_not_retried():
+    transport = ScriptedTransport(
+        ProviderHTTPResponse(status_code=412, body="ignored precondition detail"),
+        success_response(),
+    )
+    provider = FireworksProvider(transport=transport)
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == ProviderErrorCode.PRECONDITION_FAILED
+    assert raised.value.status_code == 412
+    assert raised.value.retryable is False
+    assert raised.value.next_action == ProviderNextAction.REVIEW_PRECONDITION
+    assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("status_code", (401, 403))
+def test_authentication_statuses_are_typed_and_not_retried(status_code):
+    transport = ScriptedTransport(
+        ProviderHTTPResponse(status_code=status_code, body="ignored auth detail"),
+        success_response(),
+    )
+    provider = FireworksProvider(transport=transport)
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == ProviderErrorCode.AUTHENTICATION
+    assert raised.value.status_code == status_code
+    assert raised.value.retryable is False
+    assert raised.value.next_action == ProviderNextAction.CHECK_CREDENTIAL
     assert len(transport.requests) == 1
 
 
@@ -592,6 +717,7 @@ def test_unexpected_transport_exception_is_sanitized_and_not_retried():
 
     assert raised.value.code == ProviderErrorCode.TRANSPORT
     assert len(transport.requests) == 1
+    assert list(exception_graph(raised.value)) == [raised.value]
     assert API_KEY not in str(raised.value)
     assert API_KEY not in repr(raised.value)
 
