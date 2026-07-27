@@ -10,6 +10,7 @@ from exitspec.providers import (
     ProviderErrorCode,
     ProviderHTTPResponse,
     ProviderMessage,
+    ProviderRedirectError,
     ProviderTimeoutError,
     StructuredJSONRequest,
     TokenPricing,
@@ -430,6 +431,30 @@ def test_ordinary_4xx_is_not_retried():
     assert len(transport.requests) == 1
 
 
+@pytest.mark.parametrize("status_code", (301, 302, 303, 307, 308))
+def test_transport_redirect_refusal_is_typed_and_never_retried(status_code):
+    transport = ScriptedTransport(
+        ProviderRedirectError(status_code),
+        success_response(),
+    )
+    provider = FireworksProvider(
+        transport=transport,
+        api_key=API_KEY,
+        max_attempts=3,
+    )
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == ProviderErrorCode.REDIRECT_REJECTED
+    assert raised.value.status_code == status_code
+    assert raised.value.attempts == 1
+    assert raised.value.retryable is False
+    assert len(transport.requests) == 1
+    assert API_KEY not in str(raised.value)
+    assert API_KEY not in repr(raised.value)
+
+
 def test_preflight_budget_blocks_before_transport_when_ceiling_is_known():
     transport = ScriptedTransport(success_response())
     provider = FireworksProvider(transport=transport, pricing={MODEL: pricing()})
@@ -531,6 +556,28 @@ def test_untrusted_endpoint_is_rejected_before_transport_can_receive_key(
         )
 
     assert transport.requests == []
+
+
+@pytest.mark.parametrize(
+    "invalid_key",
+    (
+        " " + API_KEY,
+        API_KEY + " ",
+        API_KEY + "\nheader-injection",
+        API_KEY + "\rheader-injection",
+        API_KEY + "\tseparator",
+        "x" * 4097,
+    ),
+)
+def test_ambiguous_api_key_is_rejected_before_transport(invalid_key):
+    transport = ScriptedTransport(success_response())
+
+    with pytest.raises(ValueError, match="nonblank string") as raised:
+        FireworksProvider(transport=transport, api_key=invalid_key)
+
+    assert transport.requests == []
+    assert invalid_key not in str(raised.value)
+    assert invalid_key not in repr(raised.value)
 
 
 def test_unexpected_transport_exception_is_sanitized_and_not_retried():

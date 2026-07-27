@@ -39,6 +39,7 @@ class ProviderErrorCode(str, Enum):
     INVALID_OUTPUT = "invalid_output"
     BUDGET_EXCEEDED = "budget_exceeded"
     RETRIES_EXHAUSTED = "retries_exhausted"
+    REDIRECT_REJECTED = "redirect_rejected"
 
 
 @dataclass(frozen=True)
@@ -342,6 +343,23 @@ class ProviderTimeoutError(TimeoutError):
 
 class ProviderTransportError(RuntimeError):
     """A non-timeout transport failure."""
+
+
+class ProviderRedirectError(ProviderTransportError):
+    """A first-hop redirect refused before any follow-up request."""
+
+    def __init__(self, status_code: int) -> None:
+        if (
+            isinstance(status_code, bool)
+            or not isinstance(status_code, int)
+            or not 300 <= status_code <= 399
+        ):
+            raise ValueError("Redirect status must be an integer from 300 to 399.")
+        self.status_code = status_code
+        super().__init__("Provider redirect was rejected.")
+
+    def __repr__(self) -> str:
+        return "ProviderRedirectError(status_code={0})".format(self.status_code)
 
 
 class ProviderError(RuntimeError):

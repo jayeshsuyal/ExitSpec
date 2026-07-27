@@ -16,6 +16,7 @@ from .base import (
     ProviderHTTPRequest,
     ProviderHTTPResponse,
     ProviderReceipt,
+    ProviderRedirectError,
     ProviderTimeoutError,
     ProviderTransport,
     ProviderTransportError,
@@ -64,7 +65,11 @@ class FireworksProvider:
                 "Fireworks endpoint must be the official chat-completions HTTPS endpoint."
             )
         if api_key is not None and (
-            not isinstance(api_key, str) or not api_key.strip()
+            not isinstance(api_key, str)
+            or not api_key
+            or len(api_key) > 4096
+            or api_key != api_key.strip()
+            or any(character.isspace() for character in api_key)
         ):
             raise ValueError("api_key must be a nonblank string when provided.")
         if isinstance(max_attempts, bool) or not isinstance(max_attempts, int):
@@ -124,6 +129,13 @@ class FireworksProvider:
                     attempts=attempt,
                     last_code=ProviderErrorCode.TIMEOUT,
                     safe_message="Provider timed out after the configured retry limit.",
+                ) from None
+            except ProviderRedirectError as error:
+                raise ProviderError(
+                    ProviderErrorCode.REDIRECT_REJECTED,
+                    "Provider redirect was rejected before a follow-up request.",
+                    status_code=error.status_code,
+                    attempts=attempt,
                 ) from None
             except ProviderTransportError:
                 raise ProviderError(

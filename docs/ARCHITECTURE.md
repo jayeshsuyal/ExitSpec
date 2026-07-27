@@ -251,10 +251,19 @@ external schema references are rejected.
 
 `FireworksProvider` is a replaceable adapter with an injected transport,
 content-free receipt, bounded retries, and sanitized typed errors. Tests execute
-the real adapter and assisted-authoring composition with fake transports. There
-is no built-in live transport, no live Fireworks evidence, and no external
-provider path wired into the browser. The browser's optional assisted action is
-the local deterministic executor described above, not Fireworks.
+the real adapter and assisted-authoring composition with fake transports. The
+`AuthorizedFireworksExecutor` is the only composition intended for future live
+server wiring: it accepts a sealed permit, not a raw request, and applies the
+frozen pricing and retry limits. It constructs the pinned HTTPS transport
+itself rather than accepting an arbitrary provider transport.
+
+`PinnedFireworksHTTPSTransport` is a narrow standard-library HTTPS seam for the
+exact Fireworks host and path. It performs one first-hop request, rejects every
+redirect without following `Location`, bounds and strictly decodes the response,
+and closes on every path. Its tests inject fake connections. No credential is
+loaded, no live Fireworks evidence exists, and no provider path is wired into
+the server or browser. The browser's optional assisted action remains the local
+deterministic executor described above, not Fireworks.
 
 The provider-egress contract starts from a frozen Wave-1 manifest. That
 trusted policy fixes the provider, model, exact HTTPS endpoint, approved
@@ -273,8 +282,8 @@ records never serialize the token verifier, nonce, or raw request. Malformed,
 mismatched, expired, and replayed paths fail closed as the typed, sanitized
 `egress_not_authorized` error.
 
-No live provider transport or server route is wired to this contract yet. It
-does not enable external execution, and Wave 1 remains blocked.
+No server route, browser action, or credential loader is wired to this contract.
+The HTTPS seam is exercised only with fake connections; Wave 1 remains blocked.
 
 Provider output can propose facts; it cannot set review status, confirmation,
 contract state, adapter selection, canonical hashes, or verdicts.
