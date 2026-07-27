@@ -434,6 +434,48 @@ def build_assisted_discovery_pack(
         outbound_redaction,
         customer_terms=customer_terms,
     )
+    return _build_assisted_result(
+        intake,
+        provider_result,
+        policy=policy,
+        customer_terms=customer_terms,
+    )
+
+
+def build_assisted_discovery_pack_from_result(
+    raw_transcript: str,
+    *,
+    provider_result: StructuredJSONResult[ProposalBatch],
+    policy: ExactToolSelectionPolicy,
+    customer_terms: Sequence[str] = (),
+    transcript_id: str = "assisted-transcript",
+    title: str = "Provider-assisted discovery transcript",
+) -> AssistedAuthoringResult:
+    """Apply local redaction, schema, source, and authority gates to one result."""
+
+    intake = redact_and_parse_pasted_transcript(
+        raw_transcript,
+        transcript_id=transcript_id,
+        title=title,
+        customer_terms=customer_terms,
+    )
+    return _build_assisted_result(
+        intake,
+        provider_result,
+        policy=policy,
+        customer_terms=customer_terms,
+    )
+
+
+def _build_assisted_result(
+    intake: RedactedTranscriptIntake,
+    provider_result: StructuredJSONResult[ProposalBatch],
+    *,
+    policy: ExactToolSelectionPolicy,
+    customer_terms: Sequence[str],
+) -> AssistedAuthoringResult:
+    """Convert locally validated provider facts into review-only drafts."""
+
     if (
         not isinstance(provider_result, StructuredJSONResult)
         or not isinstance(provider_result.output, ProposalBatch)

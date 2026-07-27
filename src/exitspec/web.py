@@ -1,12 +1,14 @@
 """A local-only browser demo for ExitSpec's Define -> Prove -> Decide loop.
 
-The server deliberately has no authentication, persistence, provider credentials,
-or provider execution. It is a runnable product demo over synthetic inputs, not a
-production authorization service. Human review actions live only in process.
+The server deliberately has no authentication or persistence. Optional Fireworks
+execution is disabled by default, accepts only the frozen synthetic request, and
+never grants provider output lifecycle or verdict authority. This remains a local
+prototype, not a production authorization service.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import mimetypes
@@ -16,6 +18,7 @@ import uuid
 import webbrowser
 from contextlib import ExitStack
 from dataclasses import dataclass, field
+from decimal import Decimal
 from functools import wraps
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,7 +37,11 @@ from .authoring import (
     load_discovery_pack,
     reject_draft,
 )
-from .assisted_authoring import AssistedAuthoringError, build_assisted_discovery_pack
+from .assisted_authoring import (
+    AssistedAuthoringError,
+    build_assisted_discovery_pack,
+    build_assisted_discovery_pack_from_result,
+)
 from .confirmations import (
     ConfirmationDecision,
     ContractConfirmation,
@@ -68,8 +75,9 @@ from .models import (
 from .provider_egress import (
     InMemoryProviderEgressAuthorizer,
     ProviderEgressAcknowledgement,
+    ProviderEgressAcknowledgementError,
 )
-from .providers import StructuredJSONRequest
+from .providers import ProviderError, StructuredJSONRequest
 from .runner import RunResult, run_demo
 from .reporting import render_customer_draft
 from .review_links import (
@@ -85,9 +93,16 @@ from .synthetic_assisted_authoring import (
     SyntheticAssistedAuthoringExecutor,
     safe_receipt_facts,
 )
+from .wave1_execution import (
+    WAVE1_FIREWORKS_ADAPTER,
+    WAVE1_FIREWORKS_ADAPTER_VERSION,
+    Wave1ProviderExecutionConfiguration,
+    wave1_terminal_receipt,
+)
 from .wave1_runtime import (
     build_frozen_wave1_request,
     frozen_wave1_policy,
+    frozen_wave1_source,
     wave1_provider_disclosure,
 )
 
@@ -103,6 +118,7 @@ MAX_REQUEST_BYTES = 128 * 1024
 JSON_MEDIA_TYPE = "application/json"
 LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_WAVE1_PROVIDER_AUTHORIZATION_OPERATIONS = 64
+MAX_WAVE1_PROVIDER_EXECUTION_OPERATIONS = 64
 UNSUPPORTED_MEDIA_TYPE_ERROR = "Content-Type must be application/json."
 FORBIDDEN_ORIGIN_ERROR = "Origin is not allowed."
 PROVIDER_ROUTE_PARAMETERS_ERROR = (
@@ -130,6 +146,19 @@ SUPPORTED_RULE_TEMPLATE = {
 
 class DemoStateError(ValueError):
     """A user-visible constraint in the local demo workflow."""
+
+
+class ProviderExecutionInProgressError(DemoStateError):
+    """A same-key replay timed out locally while its operation is still running."""
+
+    code = "provider_execution_in_progress"
+
+
+WAVE1_PROVIDER_REPLAY_WAIT_SECONDS = 70.0
+
+
+def _usd_text(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.01")), "f")
 
 
 class _Wave1ProviderAuthorization:
@@ -171,8 +200,7 @@ class _Wave1ProviderAuthorization:
             "issued_at": self.acknowledgement.issued_at.isoformat(),
             "expires_at": self.acknowledgement.expires_at.isoformat(),
             "one_time_use": True,
-            "status": "authorization_recorded_not_executed",
-            "execution_available": False,
+            "status": "authorization_recorded",
             "idempotent_replay": idempotent_replay,
             "replaced_previous": self.replaced_previous,
         }
@@ -210,8 +238,7 @@ class _Wave1ProviderAuthorizationOperation:
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
             "one_time_use": True,
-            "status": "authorization_recorded_not_executed",
-            "execution_available": False,
+            "status": "authorization_recorded",
             "idempotent_replay": idempotent_replay,
             "replaced_previous": self.replaced_previous,
         }
@@ -221,6 +248,113 @@ class _Wave1ProviderAuthorizationOperation:
             "_Wave1ProviderAuthorizationOperation("
             "acknowledgement_id={0!r}, content=<redacted>)"
         ).format(self.acknowledgement_id)
+
+
+class _Wave1ProviderExecutionOperation:
+    """Content-free pending/terminal record for safe execution replay."""
+
+    __slots__ = (
+        "_completed",
+        "_event",
+        "acknowledgement_id",
+        "attempts",
+        "execution_id",
+        "next_action",
+        "outcome_code",
+        "provider_call_attempted",
+        "proposals_created",
+        "receipt",
+        "retryable",
+        "reserved_cost_usd",
+        "safe_message",
+        "status",
+    )
+
+    def __init__(
+        self,
+        *,
+        acknowledgement_id: str,
+        execution_id: str,
+        reserved_cost_usd: Decimal,
+    ) -> None:
+        self._completed = False
+        self._event = threading.Event()
+        self.acknowledgement_id = acknowledgement_id
+        self.attempts = 0
+        self.execution_id = execution_id
+        self.next_action = "wait_for_provider_execution"
+        self.outcome_code = "in_progress"
+        self.provider_call_attempted = False
+        self.proposals_created = 0
+        self.receipt: Optional[Dict[str, Any]] = None
+        self.retryable = False
+        self.reserved_cost_usd = reserved_cost_usd
+        self.safe_message = "Provider execution is in progress."
+        self.status = "in_progress"
+
+    @property
+    def completed(self) -> bool:
+        return self._completed
+
+    def wait(self, timeout_seconds: float) -> bool:
+        return self._event.wait(timeout_seconds)
+
+    def complete(
+        self,
+        *,
+        attempts: int,
+        next_action: str,
+        outcome_code: str,
+        provider_call_attempted: bool,
+        proposals_created: int,
+        receipt: Dict[str, Any],
+        retryable: bool,
+        safe_message: str,
+        status: str,
+    ) -> None:
+        if self._completed:
+            raise RuntimeError("Provider execution operation is already terminal.")
+        self.attempts = attempts
+        self.next_action = next_action
+        self.outcome_code = outcome_code
+        self.provider_call_attempted = provider_call_attempted
+        self.proposals_created = proposals_created
+        if not isinstance(receipt, dict):
+            raise ValueError("A terminal provider receipt is required.")
+        self.receipt = json.loads(json.dumps(receipt, allow_nan=False))
+        self.retryable = retryable
+        self.safe_message = safe_message
+        self.status = status
+        self._completed = True
+        self._event.set()
+
+    def public_payload(self, *, idempotent_replay: bool) -> Dict[str, Any]:
+        return {
+            "execution_id": self.execution_id,
+            "acknowledgement_id": self.acknowledgement_id,
+            "status": self.status,
+            "outcome_code": self.outcome_code,
+            "safe_message": self.safe_message,
+            "next_action": self.next_action,
+            "attempts": self.attempts,
+            "retryable": self.retryable,
+            "provider_call_attempted": self.provider_call_attempted,
+            "proposals_created": self.proposals_created,
+            "reserved_cost_usd": _usd_text(self.reserved_cost_usd),
+            "receipt": (
+                None
+                if self.receipt is None
+                else json.loads(json.dumps(self.receipt, allow_nan=False))
+            ),
+            "idempotent_replay": idempotent_replay,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            "_Wave1ProviderExecutionOperation("
+            "execution_id={0!r}, outcome_code={1!r}, "
+            "completed={2!r}, content=<redacted>)"
+        ).format(self.execution_id, self.outcome_code, self._completed)
 
 
 def _serialized_session(method: Any) -> Any:
@@ -276,6 +410,50 @@ class DemoSession:
         repr=False,
         compare=False,
     )
+    _wave1_provider_execution_operations: Dict[
+        str, _Wave1ProviderExecutionOperation
+    ] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_provider_last_execution_key: Optional[str] = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_provider_execution_enabled: bool = field(
+        default=False,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_provider_execution_configured: bool = field(
+        default=False,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_provider_calls: bool = field(
+        default=False,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_provider_reserved_spend_usd: Decimal = field(
+        default_factory=lambda: Decimal("0"),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _wave1_workflow_epoch: int = field(
+        default=0,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     _sample_discovery_pack: Optional[DiscoveryPack] = field(
         default=None,
         repr=False,
@@ -309,14 +487,144 @@ class DemoSession:
             self._sample_fixture_path = self.fixture_path
 
     def _clear_wave1_provider_authorization(self) -> None:
+        """Drop active authority without erasing replay or spend tombstones."""
+
         self._wave1_provider_authorization = None
-        self._wave1_provider_authorization_operations.clear()
+        self._wave1_workflow_epoch += 1
+
+    @_serialized_session
+    def configure_wave1_provider_execution(
+        self,
+        configuration: Wave1ProviderExecutionConfiguration,
+    ) -> None:
+        """Record only public enablement facts; the credential stays server-owned."""
+
+        if type(configuration) is not Wave1ProviderExecutionConfiguration:
+            raise ValueError(
+                "Wave-1 provider execution configuration is invalid."
+            )
+        public = configuration.public_status()
+        self._wave1_provider_execution_enabled = public["enabled"]
+        self._wave1_provider_execution_configured = public["configured"]
+
+    def _wave1_provider_execution_status_payload(self) -> Dict[str, Any]:
+        policy = frozen_wave1_policy()
+        limits = policy.request_limits()
+        total_limit = Decimal(limits["max_live_smoke_total_cost_usd"])
+        remaining = max(
+            Decimal("0"),
+            total_limit - self._wave1_provider_reserved_spend_usd,
+        )
+        authorization = self._wave1_provider_authorization
+        last_operation = (
+            None
+            if self._wave1_provider_last_execution_key is None
+            else self._wave1_provider_execution_operations.get(
+                self._wave1_provider_last_execution_key
+            )
+        )
+        return {
+            "enabled": self._wave1_provider_execution_enabled,
+            "configured": self._wave1_provider_execution_configured,
+            "authorization_active": authorization is not None,
+            "execution_available": bool(
+                self._wave1_provider_execution_enabled
+                and self._wave1_provider_execution_configured
+                and authorization is not None
+                and remaining >= policy.max_request_cost_usd
+                and (
+                    len(self._wave1_provider_execution_operations)
+                    < MAX_WAVE1_PROVIDER_EXECUTION_OPERATIONS
+                )
+            ),
+            "provider_calls": self._wave1_provider_calls,
+            "reserved_spend_usd": _usd_text(
+                self._wave1_provider_reserved_spend_usd
+            ),
+            "remaining_spend_usd": _usd_text(remaining),
+            "max_live_smoke_total_cost_usd": _usd_text(total_limit),
+            "last_execution": (
+                None
+                if last_operation is None
+                else last_operation.public_payload(
+                    idempotent_replay=False
+                )
+            ),
+        }
+
+    def _wave1_disclosure_with_runtime(self) -> Dict[str, Any]:
+        disclosure = wave1_provider_disclosure()
+        disclosure["runtime"] = self._wave1_provider_execution_status_payload()
+        return disclosure
+
+    def _wave1_workflow_publication_guard(self) -> str:
+        """Bind an in-flight result to the exact workflow state it started from."""
+
+        review_token_digest = (
+            None
+            if self.customer_review_token is None
+            else hashlib.sha256(
+                self.customer_review_token.encode("utf-8")
+            ).hexdigest()
+        )
+        payload = {
+            "workflow_epoch": self._wave1_workflow_epoch,
+            "discovery_pack": self.discovery_pack.model_dump(mode="json"),
+            "reviewed_drafts": [
+                draft.model_dump(mode="json")
+                for draft in self.reviewed_drafts
+            ],
+            "reviewed_contract": (
+                None
+                if self.reviewed_contract is None
+                else self.reviewed_contract.model_dump(mode="json")
+            ),
+            "frozen_contract": (
+                None
+                if self.frozen_contract is None
+                else self.frozen_contract.model_dump(mode="json")
+            ),
+            "customer_review_invitation": (
+                None
+                if self.customer_review_invitation is None
+                else self.customer_review_invitation.model_dump(mode="json")
+            ),
+            "customer_review_token_digest": review_token_digest,
+            "customer_confirmation": (
+                None
+                if self.customer_confirmation is None
+                else self.customer_confirmation.model_dump(mode="json")
+            ),
+            "revision_request": self.revision_request,
+            "revision_parent_version": self.revision_parent_version,
+            "revision_edit_applied_ids": sorted(
+                self.revision_edit_applied_ids
+            ),
+            "last_run": self._proof_payload(),
+            "customer_draft_path": (
+                None
+                if self.customer_draft_path is None
+                else str(self.customer_draft_path)
+            ),
+            "authoring_mode": self.authoring_mode,
+            "authoring_adapter": self.authoring_adapter,
+            "authoring_adapter_version": self.authoring_adapter_version,
+            "authoring_receipt": self.authoring_receipt,
+        }
+        encoded = json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @_serialized_session
     def wave1_provider_disclosure_payload(self) -> Dict[str, Any]:
-        """Return the exact frozen disclosure without enabling provider execution."""
+        """Return frozen terms plus detached local runtime availability."""
 
-        disclosure = wave1_provider_disclosure()
+        disclosure = self._wave1_disclosure_with_runtime()
         authorization = self._wave1_provider_authorization
         disclosure["authorization"] = (
             None
@@ -335,7 +643,7 @@ class DemoSession:
     ) -> Dict[str, Any]:
         """Record one explicit authorization while keeping its capability private."""
 
-        disclosure = wave1_provider_disclosure()
+        disclosure = self._wave1_disclosure_with_runtime()
         expected_disclosure_id = disclosure["disclosure_id"]
         if (
             not isinstance(disclosure_id, str)
@@ -371,7 +679,8 @@ class DemoSession:
             >= MAX_WAVE1_PROVIDER_AUTHORIZATION_OPERATIONS
         ):
             raise DemoStateError(
-                "Provider authorization operation limit reached; reset the session."
+                "Provider authorization operation limit reached; restart the "
+                "local server."
             )
 
         existing = self._wave1_provider_authorization
@@ -396,11 +705,354 @@ class DemoSession:
         self._wave1_provider_authorization_operations[
             normalized_idempotency_key
         ] = _Wave1ProviderAuthorizationOperation(state)
+        disclosure["runtime"] = self._wave1_provider_execution_status_payload()
         public = state.public_payload(idempotent_replay=False)
         return {
             "authorization": public,
             "disclosure": disclosure,
         }
+
+    def execute_wave1_provider_assist(
+        self,
+        *,
+        configuration: Wave1ProviderExecutionConfiguration,
+        idempotency_key: str,
+    ) -> Dict[str, Any]:
+        """Claim, execute, and conditionally publish one frozen synthetic assist."""
+
+        if type(configuration) is not Wave1ProviderExecutionConfiguration:
+            raise DemoStateError(
+                "Wave-1 provider execution is not configured safely."
+            )
+        if (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key
+            or idempotency_key != idempotency_key.strip()
+            or any(character.isspace() for character in idempotency_key)
+        ):
+            raise DemoStateError(
+                "Provider execution requires one exact idempotency key."
+            )
+        if len(idempotency_key) > 200:
+            raise DemoStateError(
+                "Provider execution idempotency key is too long."
+            )
+
+        waiter: Optional[_Wave1ProviderExecutionOperation] = None
+        operation: Optional[_Wave1ProviderExecutionOperation] = None
+        executor = None
+        publication_guard = ""
+        source: Dict[str, Any] = {}
+
+        with self._lock:
+            previous = self._wave1_provider_execution_operations.get(
+                idempotency_key
+            )
+            if previous is not None:
+                if previous.completed:
+                    return {
+                        "execution": previous.public_payload(
+                            idempotent_replay=True
+                        ),
+                        "state": self.state_payload(),
+                    }
+                waiter = previous
+            else:
+                if any(
+                    not recorded.completed
+                    for recorded in self._wave1_provider_execution_operations.values()
+                ):
+                    raise DemoStateError(
+                        "Another provider execution is in progress; wait for "
+                        "its terminal result."
+                    )
+                if (
+                    len(self._wave1_provider_execution_operations)
+                    >= MAX_WAVE1_PROVIDER_EXECUTION_OPERATIONS
+                ):
+                    raise DemoStateError(
+                        "Provider execution operation limit reached; "
+                        "restart the local server."
+                    )
+                authorization = self._wave1_provider_authorization
+                if authorization is None:
+                    raise DemoStateError(
+                        "Review and authorize the current provider disclosure first."
+                    )
+
+                policy = frozen_wave1_policy()
+                operation = _Wave1ProviderExecutionOperation(
+                    acknowledgement_id=(
+                        authorization.acknowledgement.acknowledgement_id
+                    ),
+                    execution_id="wave1_execution_{0}".format(
+                        uuid.uuid4().hex
+                    ),
+                    reserved_cost_usd=Decimal("0"),
+                )
+                self._wave1_provider_execution_operations[
+                    idempotency_key
+                ] = operation
+                self._wave1_provider_last_execution_key = idempotency_key
+
+                configuration_status = configuration.public_status()
+                expected_status = {
+                    "enabled": self._wave1_provider_execution_enabled,
+                    "configured": self._wave1_provider_execution_configured,
+                }
+                if configuration_status != expected_status:
+                    operation.complete(
+                        attempts=0,
+                        next_action="restart_with_provider_configuration",
+                        outcome_code="configuration_error",
+                        provider_call_attempted=False,
+                        proposals_created=0,
+                        receipt=wave1_terminal_receipt(
+                            policy=policy,
+                            outcome_code="configuration_error",
+                            attempts=0,
+                        ),
+                        retryable=False,
+                        safe_message=(
+                            "Provider execution configuration changed; "
+                            "restart the local server."
+                        ),
+                        status="failed",
+                    )
+                    return {
+                        "execution": operation.public_payload(
+                            idempotent_replay=False
+                        ),
+                        "state": self.state_payload(),
+                    }
+                if not configuration.configured:
+                    operation.complete(
+                        attempts=0,
+                        next_action="configure_provider",
+                        outcome_code="configuration_error",
+                        provider_call_attempted=False,
+                        proposals_created=0,
+                        receipt=wave1_terminal_receipt(
+                            policy=policy,
+                            outcome_code="configuration_error",
+                            attempts=0,
+                        ),
+                        retryable=False,
+                        safe_message=(
+                            "Fireworks is disabled or its server credential "
+                            "is missing."
+                        ),
+                        status="failed",
+                    )
+                    return {
+                        "execution": operation.public_payload(
+                            idempotent_replay=False
+                        ),
+                        "state": self.state_payload(),
+                    }
+
+                total_limit = Decimal(
+                    policy.request_limits()[
+                        "max_live_smoke_total_cost_usd"
+                    ]
+                )
+                reservation = policy.max_request_cost_usd
+                if (
+                    self._wave1_provider_reserved_spend_usd + reservation
+                    > total_limit
+                ):
+                    operation.complete(
+                        attempts=0,
+                        next_action="restart_after_budget_review",
+                        outcome_code="budget_exceeded",
+                        provider_call_attempted=False,
+                        proposals_created=0,
+                        receipt=wave1_terminal_receipt(
+                            policy=policy,
+                            outcome_code="budget_exceeded",
+                            attempts=0,
+                        ),
+                        retryable=False,
+                        safe_message=(
+                            "The process-local Wave-1 live-smoke spend "
+                            "ceiling has been reached."
+                        ),
+                        status="failed",
+                    )
+                    return {
+                        "execution": operation.public_payload(
+                            idempotent_replay=False
+                        ),
+                        "state": self.state_payload(),
+                    }
+
+                operation.reserved_cost_usd = reservation
+                self._wave1_provider_reserved_spend_usd += reservation
+                publication_guard = self._wave1_workflow_publication_guard()
+                self._wave1_provider_authorization = None
+                source = frozen_wave1_source()
+                executor = configuration.bind(
+                    policy=policy,
+                    authorizer=authorization.authorizer,
+                    capability_token=authorization.capability_token,
+                    request=authorization.request,
+                )
+
+        if waiter is not None:
+            if not waiter.wait(WAVE1_PROVIDER_REPLAY_WAIT_SECONDS):
+                raise ProviderExecutionInProgressError(
+                    "Provider execution is still in progress; retry the same "
+                    "idempotency key."
+                )
+            with self._lock:
+                return {
+                    "execution": waiter.public_payload(
+                        idempotent_replay=True
+                    ),
+                    "state": self.state_payload(),
+                }
+        if operation is None or executor is None:
+            raise AssertionError("Provider execution claim was not created.")
+
+        authored = None
+        outcome_code = "internal_error"
+        safe_message = (
+            "Provider-assisted discovery failed at the local execution boundary."
+        )
+        next_action = "reset_and_reauthorize"
+        attempts = 0
+        retryable = False
+        status = "failed"
+
+        try:
+            provider_result = executor.execute()
+            authored = build_assisted_discovery_pack_from_result(
+                source["transcript"],
+                provider_result=provider_result,
+                policy=SYNTHETIC_ASSISTED_POLICY,
+                customer_terms=source["customer_terms"],
+                transcript_id=source["transcript_id"],
+                title=source["title"],
+            )
+            if any(
+                draft.status != DraftStatus.NEEDS_REVIEW
+                or draft.review is not None
+                or (
+                    draft.proposed_criterion is not None
+                    and draft.proposed_criterion.approved
+                )
+                for draft in authored.discovery_pack.drafts
+            ):
+                authored = None
+                safe_message = (
+                    "Provider output violated the local review-only boundary."
+                )
+                outcome_code = "review_boundary_violation"
+                next_action = "review_provider_output"
+        except AssistedAuthoringError as error:
+            outcome_code = error.code
+            safe_message = error.safe_message
+            next_action = error.next_action
+            attempts = error.attempts
+            retryable = error.retryable
+        except ProviderError as error:
+            outcome_code = error.code.value
+            safe_message = error.safe_message
+            next_action = error.next_action.value
+            attempts = error.attempts
+            retryable = error.retryable
+        except ProviderEgressAcknowledgementError as error:
+            outcome_code = error.code
+            safe_message = str(error)
+            next_action = error.next_action
+        except Exception:
+            # Never retain or reflect an unexpected provider/request exception.
+            authored = None
+
+        if executor.last_receipt is not None:
+            attempts = executor.last_receipt.attempts
+
+        proposals_created = 0
+        with self._lock:
+            self._wave1_provider_calls = bool(
+                self._wave1_provider_calls
+                or executor.provider_call_attempted
+            )
+            if (
+                authored is not None
+                and publication_guard
+                != self._wave1_workflow_publication_guard()
+            ):
+                authored = None
+                outcome_code = "stale_workflow"
+                safe_message = (
+                    "The workflow changed while Fireworks was running; "
+                    "the provider result was not published."
+                )
+                next_action = "review_current_workflow"
+                attempts = (
+                    0
+                    if executor.last_receipt is None
+                    else executor.last_receipt.attempts
+                )
+                retryable = False
+                status = "failed"
+
+            if authored is not None:
+                proposals_created = len(authored.discovery_pack.drafts)
+                self.discovery_pack = authored.discovery_pack
+                self.reviewed_drafts = list(authored.discovery_pack.drafts)
+                self.revision_request = None
+                self.revision_parent_version = None
+                self.revision_edit_applied_ids.clear()
+                self._invalidate_customer_agreement()
+                self.transcript_redaction = authored.redaction
+                self.transcript_notice = (
+                    "Fireworks assisted authoring used the approved synthetic "
+                    "request under policy {0}. Every proposal remains "
+                    "NEEDS_REVIEW."
+                ).format(authored.redaction.policy_version)
+                self.authoring_mode = "fireworks_assisted"
+                self.authoring_adapter = WAVE1_FIREWORKS_ADAPTER
+                self.authoring_adapter_version = (
+                    WAVE1_FIREWORKS_ADAPTER_VERSION
+                )
+                self.authoring_receipt = safe_receipt_facts(
+                    authored.receipt
+                )
+                outcome_code = "success"
+                safe_message = (
+                    "Fireworks proposals passed local schema, redaction, and "
+                    "source-link checks and now require human review."
+                )
+                next_action = "review_provider_proposals"
+                attempts = authored.receipt.attempts
+                retryable = False
+                status = "succeeded_needs_review"
+
+            receipt = wave1_terminal_receipt(
+                policy=policy,
+                outcome_code=outcome_code,
+                attempts=attempts,
+                provider_receipt=executor.last_receipt,
+            )
+            operation.complete(
+                attempts=attempts,
+                next_action=next_action,
+                outcome_code=outcome_code,
+                provider_call_attempted=executor.provider_call_attempted,
+                proposals_created=proposals_created,
+                receipt=receipt,
+                retryable=retryable,
+                safe_message=safe_message,
+                status=status,
+            )
+            return {
+                "execution": operation.public_payload(
+                    idempotent_replay=False
+                ),
+                "state": self.state_payload(),
+            }
 
     @classmethod
     def synthetic_support_agent(
@@ -460,6 +1112,7 @@ class DemoSession:
     def _invalidate_customer_agreement(self) -> None:
         """Invalidate every downstream state when the proposed agreement changes."""
 
+        self._clear_wave1_provider_authorization()
         self.reviewed_contract = None
         self.frozen_contract = None
         self.customer_review_invitation = None
@@ -654,7 +1307,6 @@ class DemoSession:
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
-        self._clear_wave1_provider_authorization()
         self.transcript_redaction = intake.redaction
         self.transcript_notice = (
             "Synthetic pasted meeting notes were redacted before intake under "
@@ -709,7 +1361,6 @@ class DemoSession:
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
-        self._clear_wave1_provider_authorization()
         self.transcript_redaction = authored.redaction
         self.transcript_notice = (
             "Synthetic assisted authoring redacted meeting notes under policy {0}. "
@@ -739,7 +1390,6 @@ class DemoSession:
         self.revision_parent_version = None
         self.revision_edit_applied_ids.clear()
         self._invalidate_customer_agreement()
-        self._clear_wave1_provider_authorization()
         self.transcript_notice = "Built-in synthetic discovery transcript"
         self.transcript_redaction = None
         self.authoring_mode = "deterministic"
@@ -770,6 +1420,7 @@ class DemoSession:
                 )
             )
 
+        self._clear_wave1_provider_authorization()
         self.output_root.mkdir(parents=True, exist_ok=True)
         run_id = "web-{0}-{1}".format(scenario, uuid.uuid4().hex[:12])
         self.last_run = None
@@ -848,6 +1499,7 @@ class DemoSession:
         self.frozen_contract = None
         self.last_run = None
         self.customer_draft_path = draft_path
+        self._clear_wave1_provider_authorization()
         return draft_path
 
     @_serialized_session
@@ -1076,6 +1728,8 @@ class DemoSession:
         self.customer_confirmation = confirmation
         self.frozen_contract = None
         self.last_run = None
+        if existing_operation is None:
+            self._clear_wave1_provider_authorization()
         return confirmation, existing_operation is not None
 
     @_serialized_session
@@ -1179,6 +1833,7 @@ class DemoSession:
         except ValueError as error:
             raise DemoStateError(str(error)) from error
         self.last_run = None
+        self._clear_wave1_provider_authorization()
         return self.frozen_contract
 
     @_serialized_session
@@ -1200,9 +1855,10 @@ class DemoSession:
             "mode": "local_synthetic_demo",
             "safety": {
                 "synthetic_only": True,
-                "provider_calls": False,
+                "provider_calls": self._wave1_provider_calls,
                 "authorization": "ExitSpec proves evidence; humans retain every approval decision.",
             },
+            "provider_execution": self._wave1_provider_execution_status_payload(),
             "transcript_notice": self.transcript_notice,
             "transcript_redaction": (
                 None
@@ -1211,7 +1867,7 @@ class DemoSession:
             ),
             "authoring": {
                 "mode": self.authoring_mode,
-                "provider_calls": False,
+                "provider_calls": self._wave1_provider_calls,
                 "redaction": (
                     None
                     if self.transcript_redaction is None
@@ -1400,10 +2056,24 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         session: DemoSession,
         *,
         resource_stack: Optional[ExitStack] = None,
+        wave1_provider_execution: Optional[
+            Wave1ProviderExecutionConfiguration
+        ] = None,
     ) -> None:
+        configuration = (
+            Wave1ProviderExecutionConfiguration()
+            if wave1_provider_execution is None
+            else wave1_provider_execution
+        )
+        if type(configuration) is not Wave1ProviderExecutionConfiguration:
+            raise ValueError(
+                "Wave-1 provider execution configuration is invalid."
+            )
         self._resource_stack = resource_stack
         super().__init__(address, ExitSpecDemoRequestHandler)
         self.session = session
+        self.wave1_provider_execution = configuration
+        self.session.configure_wave1_provider_execution(configuration)
         self.static_root = STATIC_ROOT
 
     def server_close(self) -> None:
@@ -1462,11 +2132,12 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
         parsed = urlparse(self.path)
-        is_provider_authorization = (
-            parsed.path == "/api/provider/fireworks/authorization"
-        )
+        is_provider_authority_action = parsed.path in {
+            "/api/provider/fireworks/authorization",
+            "/api/provider/fireworks/execution",
+        }
         if (
-            is_provider_authorization
+            is_provider_authority_action
             and (parsed.params or parsed.query or parsed.fragment)
         ):
             self._send_json(
@@ -1481,8 +2152,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             )
             return
         if not self._has_allowed_origin(
-            require_present=is_provider_authorization,
-            exact_request_origin=is_provider_authorization,
+            require_present=is_provider_authority_action,
+            exact_request_origin=is_provider_authority_action,
         ):
             self._send_json(
                 HTTPStatus.FORBIDDEN,
@@ -1515,6 +2186,16 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     )
                 )
                 self._send_json(HTTPStatus.OK, authorized)
+                return
+            if parsed.path == "/api/provider/fireworks/execution":
+                _require_only_fields(payload, set())
+                executed = self.server.session.execute_wave1_provider_assist(
+                    configuration=self.server.wave1_provider_execution,
+                    idempotency_key=(
+                        self._provider_execution_idempotency_key()
+                    ),
+                )
+                self._send_json(HTTPStatus.OK, executed)
                 return
             if parsed.path == "/api/review":
                 reviewed = self.server.session.review(
@@ -1721,7 +2402,11 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Unknown API route."})
         except DemoStateError as error:
-            self._send_json(HTTPStatus.CONFLICT, {"error": str(error)})
+            payload = {"error": str(error)}
+            error_code = getattr(error, "code", None)
+            if isinstance(error_code, str) and error_code:
+                payload["code"] = error_code
+            self._send_json(HTTPStatus.CONFLICT, payload)
         except ReviewInvitationError as error:
             status = (
                 HTTPStatus.GONE
@@ -1774,6 +2459,25 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if len(resolved) > 200:
             raise ValueError("Idempotency key must be at most 200 characters.")
         return resolved
+
+    def _provider_execution_idempotency_key(self) -> str:
+        values = self.headers.get_all("Idempotency-Key") or []
+        if len(values) != 1:
+            raise ValueError(
+                "Provider execution requires one Idempotency-Key header."
+            )
+        value = values[0]
+        if (
+            not value
+            or len(value) > 200
+            or value != value.strip()
+            or any(character.isspace() for character in value)
+        ):
+            raise ValueError(
+                "Provider execution Idempotency-Key must be exact and "
+                "at most 200 characters."
+            )
+        return value
 
     def _has_allowed_origin(
         self,
@@ -2061,6 +2765,9 @@ def serve_demo(
     port: int = 8765,
     output_root: Path = DEFAULT_RUNS_ROOT,
     open_browser: bool = False,
+    *,
+    enable_fireworks: bool = False,
+    fireworks_api_key: object = None,
 ) -> ExitSpecDemoServer:
     """Start the local-only server. The caller owns ``serve_forever`` lifecycle."""
 
@@ -2077,10 +2784,15 @@ def serve_demo(
             contract_seed_path=demo_paths.contract_seed,
             fixture_path=demo_paths.fixture,
         )
+        provider_execution = Wave1ProviderExecutionConfiguration(
+            enabled=enable_fireworks,
+            api_key=fireworks_api_key,
+        )
         server = ExitSpecDemoServer(
             (host, port),
             session,
             resource_stack=resource_stack,
+            wave1_provider_execution=provider_execution,
         )
     except Exception:
         resource_stack.close()

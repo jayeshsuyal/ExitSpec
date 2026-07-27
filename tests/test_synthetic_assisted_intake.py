@@ -57,7 +57,7 @@ def test_assisted_intake_happy_path_is_synthetic_and_review_only(tmp_path):
     assert state["authoring"]["provider_calls"] is False
     assert state["authoring"]["adapter"] == "synthetic_assisted_authoring"
     assert state["authoring"]["receipt"]["provider"] == "synthetic"
-    assert state["authoring"]["receipt"]["provider_request_id"] is None
+    assert "provider_request_id" not in state["authoring"]["receipt"]
     assert state["transcript_redaction"]["decision"] == "ALLOW_REDACTED_ONLY"
     assert state["drafts"]
     assert all(

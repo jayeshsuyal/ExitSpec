@@ -66,6 +66,9 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     for endpoint in (
         "/api/state",
         "/api/intake",
+        "/api/provider/fireworks/disclosure",
+        "/api/provider/fireworks/authorization",
+        "/api/provider/fireworks/execution",
         "/api/draft/define",
         "/api/review",
         "/api/customer-draft",
@@ -140,6 +143,87 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     assert "Approve rule" not in javascript
     assert "Reject request" not in javascript
     assert "normalized_claim:" not in javascript
+
+
+def test_fireworks_browser_action_is_explicit_bounded_and_content_free():
+    html = (STATIC_ROOT / "index.html").read_text(encoding="utf-8")
+    styles = (STATIC_ROOT / "styles.css").read_text(encoding="utf-8")
+    javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
+    action = javascript.split("async function runFireworksAssist() {", 1)[1].split(
+        "function drafts() {", 1
+    )[0]
+    acknowledgement = javascript.split(
+        "function recordFireworksAcknowledgement() {", 1
+    )[1].split("async function runFireworksAssist() {", 1)[0]
+    request_helper = javascript.split("async function request(path, options = {}) {", 1)[
+        1
+    ].split("function applyState(payload) {", 1)[0]
+
+    for control in (
+        'id="fireworks-runtime-status"',
+        'id="fireworks-provider"',
+        'id="fireworks-model"',
+        'id="fireworks-destination"',
+        'id="fireworks-max-cost"',
+        'id="fireworks-data-policy"',
+        'id="fireworks-acknowledgement"',
+        'id="fireworks-assist-button"',
+        'id="fireworks-assist-status"',
+    ):
+        assert control in html
+
+    assert (
+        "Sends the frozen approved synthetic case—not the editable notes above."
+        in html
+    )
+    assert "Local safety cap" in html
+    assert "process guardrail left" in javascript
+    assert "I authorize one bounded synthetic action under this disclosure." in html
+    assert "up to ${limits.max_attempts} provider attempts" in javascript
+    assert (
+        "fireworksAcknowledgedDisclosureId = fireworksDisclosure.disclosure_id;"
+        in acknowledgement
+    )
+    assert "fireworksAcknowledgedDisclosureId = null;" in acknowledgement
+    assert 'headers: { "Idempotency-Key": fireworksAttempt.authorizationKey }' in action
+    assert 'headers: { "Idempotency-Key": fireworksAttempt.executionKey }' in action
+    assert "disclosure_id: fireworksAttempt.disclosureId" in action
+    assert "acknowledged: true" in action
+    assert (
+        "fireworksAcknowledgedDisclosureId\n"
+        "        !== currentDisclosure.disclosure_id"
+    ) in action
+    assert action.index(
+        "const currentDisclosure = await request(API.fireworksDisclosure);"
+    ) < action.index("await request(API.fireworksAuthorization")
+    assert action.index(
+        "fireworksAcknowledgedDisclosureId\n"
+        "        !== currentDisclosure.disclosure_id"
+    ) < action.index("await request(API.fireworksAuthorization")
+    assert (
+        'error.payload?.code === "provider_execution_in_progress"'
+        in action
+    )
+    assert "if (error.status && !executionPending)" in action
+    assert (
+        "Retry to check the same bounded action."
+        in action
+    )
+    assert 'body: "{}"' in action
+    assert "meeting-notes" not in action
+    assert "transcript" not in action
+    assert "model:" not in action
+    assert "endpoint:" not in action
+    assert "prompt" not in action
+    assert "capability" not in action
+    assert 'execution.status === "succeeded_needs_review"' in action
+    assert "applyState(response)" in action
+    assert request_helper.index("...options") < request_helper.index(
+        'headers: { "Content-Type": "application/json"'
+    )
+    assert "body.recording-mode.provider-enabled .source-details" in styles
+    assert ".provider-disclosure-grid" in styles
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in styles
 
 
 def test_recording_mode_is_query_driven_and_enters_the_define_workflow():

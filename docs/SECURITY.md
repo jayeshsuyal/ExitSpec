@@ -13,8 +13,9 @@ The browser server:
 - requires JSON media type and bounds request size;
 - returns API and artifact responses with `Cache-Control: no-store`;
 - contains static and artifact paths under their approved roots; and
-- exposes provider integration only through disclosure and authorization
-  control-plane routes, which make no provider or external network calls.
+- exposes provider integration only through disclosure, authorization, and one
+  bounded synthetic execution route. Execution is disabled by default and
+  accepts no browser-supplied request or policy fields.
 
 Loopback binding is a demo safety boundary, not a production authorization model.
 Requests without browser-origin context are not authenticated.
@@ -125,7 +126,7 @@ authority.
   five-minute, single-use acknowledgement.
 - Authorization recomputes the binding from the exact `StructuredJSONRequest`
   and trusted policy, then returns a one-use permit that privately carries that
-  exact request. A future transport must accept and take only the permit, which
+  exact request. The authorized transport accepts and takes only the permit, which
   rechecks server time and fails closed if it expired before transport.
 - Public acknowledgement and permit records never serialize the token verifier,
   nonce, or raw request. Malformed, mismatched, expired, and replayed paths fail
@@ -140,9 +141,25 @@ authority.
   original public result; conflicting key reuse is rejected.
 - A new valid authorization replaces the previous active private authorization,
   and replaying an older operation cannot reactivate it. A content-free
-  operation history is bounded at 64 entries and fails closed until reset;
-  reset clears both states. The capability token and exact request remain
-  server-private. `/api/state` continues to report `provider_calls: false`.
+  authorization history is bounded at 64 entries and fails closed until process
+  restart. Reset clears active authority but deliberately preserves
+  authorization and execution tombstones. The capability token and exact
+  request remain server-private. Authorization alone does not set
+  `provider_calls`.
+- `POST /api/provider/fireworks/execution` rejects URL parameters and accepts
+  only exact same-origin JSON, one exact header-only idempotency key, and an
+  empty object. It accepts no browser-supplied provider, model, endpoint,
+  prompt, source, request, schema, capability, retry, or budget field.
+- The server claims the operation, reserves the manifest's `$0.01` maximum,
+  detaches active authority, and fingerprints workflow state before releasing
+  the lock. Network execution occurs outside the lock. Publication requires the
+  same fingerprint; reset or workflow mutation produces `stale_workflow` and
+  discards the provider result.
+- Identical concurrent execution keys share one terminal record. A different
+  key cannot execute concurrently. The `$0.10` process-local reservation cap,
+  provider-call history, and operation tombstones survive reset and clear only
+  on process restart. A crash after send can leave the external outcome unknown,
+  so exactly-once is claimed only within one running process.
 - The live-capable composition accepts only a sealed permit and reapplies the
   frozen model, pricing, retry, timeout, and spend policy before transport. It
   constructs the pinned HTTPS transport rather than accepting an arbitrary
@@ -172,14 +189,17 @@ authority.
 
 The complete frozen failure matrix runs through fake transports and fake
 connections, including configuration, account, retry, output, budget, source,
-and redirect failures. Sanitized failures are detached from their original
-exception graph before they cross the provider or assisted-authoring boundary.
-Every connection in this proof is fake. No credential loader, provider
-execution route, browser action, live Fireworks call, DNS/TLS activity, provider
-spend, or live evidence exists. The browser's assisted action is a deterministic
-local executor and is labeled as such. PR24 is planned to consume the private
-authorization for one bounded action. Wave 1 remains blocked on that action and
-one explicitly approved, bounded live smoke.
+redirect, concurrency, stale-publication, and spend-cap failures. Sanitized
+failures are detached from their original exception graph before they cross the
+provider or assisted-authoring boundary. Every connection in this automated
+proof is fake.
+
+The optional browser action is disabled by default. The CLI reads
+`FIREWORKS_API_KEY` only when `--enable-fireworks` is explicit; disabled or
+missing configuration preserves the deterministic local path. The code is
+live-capable, but no successful real-account Fireworks smoke or verified
+provider-spend evidence is claimed. Wave 1 remains blocked on one explicitly
+approved, bounded live smoke.
 
 Any future live provider use requires a frozen manifest for the approved model,
 endpoint, synthetic payload, disclosure, data and pricing policy, request
@@ -259,5 +279,7 @@ Before real customer or hosted use, ExitSpec needs:
 9. hosted worker isolation and artifact access policy; and
 10. consent, audio lifecycle, and residency controls before any speech-to-text.
 
-Until those gates exist, ExitSpec must remain synthetic, local, and
-provider-free in its public browser demonstration.
+Until those gates exist, ExitSpec must remain synthetic and local in its public
+browser demonstration. The optional provider action must remain disabled by
+default and must not be presented as successful live evidence or as
+production-safe.

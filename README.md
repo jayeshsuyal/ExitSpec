@@ -111,6 +111,17 @@ The workbench is served at `http://127.0.0.1:8765/app`. For a clean recording,
 open `http://127.0.0.1:8765/app?mode=recording` and click **Restart** before the
 take.
 
+The optional Wave-1 Fireworks authoring action is disabled by default. To expose
+it, set `FIREWORKS_API_KEY` in the server environment and start:
+
+```bash
+exitspec serve --enable-fireworks
+```
+
+This flag permits only the code-pinned synthetic request shown in the browser
+disclosure. It does not turn pasted notes into a caller-controlled provider
+request.
+
 The command-line demos use bundled synthetic defaults; they do not require paths
 into this checkout:
 
@@ -140,15 +151,22 @@ distribution, and patch hygiene.
 
 ## Honest scope
 
-The browser product is local, loopback-only, single-process, synthetic, and
-makes no provider call. Its optional assisted-authoring action uses a
-deterministic local executor. The Fireworks adapter and provider-backed
-composition are tested through fake injected transports. The permit-only
-executor and pinned HTTPS transport seam are also fake-tested. The local server
-exposes disclosure and authorization control-plane routes, but no credential is
-loaded, no provider execution or external network path is wired into the server
-or UI, and no live Fireworks call has been made. There is no speech-to-text
-ingestion.
+The browser product is local, loopback-only, single-process, and synthetic. Its
+default capture and local-assisted paths make no provider call. An experimental
+Fireworks action is wired but disabled by default. When an operator explicitly
+starts the server with `--enable-fireworks` and a server-owned
+`FIREWORKS_API_KEY`, the browser can disclose and authorize one code-pinned
+synthetic request, then ask the server to execute it within a `$0.01` request
+ceiling and `$0.10` process-local reservation ceiling. Provider output still
+passes local schema, redaction, and exact-source checks and remains
+`NEEDS_REVIEW`.
+
+The complete action and failure matrix use fake HTTPS connections in automated
+tests. No successful real-account Fireworks smoke evidence is claimed yet.
+Authorization, idempotency tombstones, provider-call history, and spend
+reservations are in-memory process state; reset drops active authority but does
+not erase those safety records, while process restart does. There is no
+speech-to-text ingestion.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, a live endpoint measurement adapter, generic metric

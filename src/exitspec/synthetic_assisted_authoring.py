@@ -234,7 +234,6 @@ def safe_receipt_facts(receipt: ProviderReceipt) -> Dict[str, Any]:
         "input_tokens": receipt.input_tokens,
         "output_tokens": receipt.output_tokens,
         "total_tokens": receipt.total_tokens,
-        "provider_request_id": None,
         "estimated_cost_usd": (
             None
             if receipt.estimated_cost_usd is None

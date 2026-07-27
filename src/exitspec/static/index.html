@@ -249,12 +249,71 @@
                         <button class="button secondary" id="load-transcript" type="button">Capture notes</button>
                         <button class="text-action" id="reset-demo" type="button">Restore sample</button>
                       </div>
+                      <section
+                        class="provider-assist"
+                        id="fireworks-assist"
+                        data-status="loading"
+                        aria-labelledby="fireworks-assist-title"
+                      >
+                        <div class="provider-assist-heading">
+                          <div>
+                            <p class="eyebrow">Optional provider assist</p>
+                            <h3 id="fireworks-assist-title">Draft with Fireworks</h3>
+                          </div>
+                          <span id="fireworks-runtime-status">Checking…</span>
+                        </div>
+                        <p class="provider-boundary">
+                          Sends the frozen approved synthetic case—not the editable notes above.
+                        </p>
+                        <dl class="provider-disclosure-grid" id="fireworks-disclosure-grid">
+                          <div class="provider-disclosure-item">
+                            <dt>Provider</dt>
+                            <dd id="fireworks-provider">Fireworks</dd>
+                          </div>
+                          <div class="provider-disclosure-item">
+                            <dt>Model</dt>
+                            <dd id="fireworks-model">Loading…</dd>
+                          </div>
+                          <div class="provider-disclosure-item">
+                            <dt>Destination</dt>
+                            <dd id="fireworks-destination">Loading…</dd>
+                          </div>
+                          <div class="provider-disclosure-item">
+                            <dt>Local safety cap</dt>
+                            <dd id="fireworks-max-cost">Loading…</dd>
+                          </div>
+                        </dl>
+                        <p class="provider-data-policy" id="fireworks-data-policy">
+                          Loading provider data policy…
+                        </p>
+                        <details id="fireworks-policy-details">
+                          <summary>Policy details</summary>
+                          <p id="fireworks-policy-detail-copy"></p>
+                        </details>
+                        <label class="provider-consent" for="fireworks-acknowledgement">
+                          <input id="fireworks-acknowledgement" type="checkbox" />
+                          <span id="fireworks-acknowledgement-copy">
+                            I authorize one bounded synthetic action under this disclosure.
+                          </span>
+                        </label>
+                        <div class="provider-assist-actions">
+                          <button class="button primary" id="fireworks-assist-button" type="button" disabled>
+                            Draft with Fireworks
+                          </button>
+                        </div>
+                        <p
+                          class="provider-assist-status"
+                          id="fireworks-assist-status"
+                          role="status"
+                          aria-live="polite"
+                        ></p>
+                      </section>
                       <div class="assisted-intake">
                         <div>
-                          <p class="eyebrow">Optional assist</p>
-                          <p class="assisted-intake-copy">Draft review-only candidates from these notes.</p>
+                          <p class="eyebrow">Local fallback</p>
+                          <p class="assisted-intake-copy">Draft review-only candidates without an external call.</p>
                         </div>
-                        <button class="button tertiary" id="assisted-authoring" type="button">Draft with assisted authoring</button>
+                        <button class="button tertiary" id="assisted-authoring" type="button">Draft locally</button>
                         <p class="helper-text" id="assisted-authoring-status" role="status">Local synthetic assist · redacted first · no external call.</p>
                       </div>
                     </div>
