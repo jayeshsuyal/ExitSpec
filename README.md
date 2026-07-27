@@ -94,11 +94,13 @@ action.
 ## Local development
 
 ExitSpec requires Python 3.12 or newer. The frozen confirmation-ledger schema
-also requires SQLite 3.37.0 or newer because it uses `STRICT` tables.
+also requires SQLite 3.37.0 or newer because it uses `STRICT` tables. Running
+the complete engineering gate also requires Node.js for browser JavaScript
+syntax checks.
 
 ```bash
 python3 -m pip install -e '.[dev]'
-python3 -m pytest
+./scripts/engineering_gate.sh
 exitspec serve --open-browser
 ```
 
@@ -121,9 +123,10 @@ under `runs/` by default.
 
 The wheel includes the deterministic discovery pack, review plan, contract seed,
 frozen contract, fixture, and browser assets. Installed `define`, `demo`, and
-`serve` flows therefore work outside the repository. CI tests Python 3.12 and
-3.13, browser JavaScript syntax, the full Python suite, and an installed-wheel
-distribution gate.
+`serve` flows therefore work outside the repository. CI runs the same
+`engineering_gate.sh` entry point used locally on Python 3.12 and 3.13. The gate
+checks browser JavaScript syntax, the full Python suite, the installed-wheel
+distribution, and patch hygiene.
 
 ## Verdicts
 
