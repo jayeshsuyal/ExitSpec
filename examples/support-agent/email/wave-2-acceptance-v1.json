@@ -1,9 +1,17 @@
 {
   "schema_version": "1.0",
   "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
-  "manifest_version": "1.0.0",
+  "manifest_version": "1.0.1",
   "status": "FROZEN",
   "frozen_at": "2026-07-27",
+  "supersession": {
+    "supersedes_manifest_version": "1.0.0",
+    "reason": "Implementation review found the prepared-to-final transaction lifecycle, content_sha256 projection, parent-key input, private replay fingerprint, receipt candidate count, and browser timing ownership underdefined before any product implementation consumed them.",
+    "superseded_before_product_implementation": true,
+    "fixture_bytes_changed": false,
+    "fixture_set_digest_changed": false,
+    "behavioral_outcomes_changed": false
+  },
   "decision": "ExitSpec may import only an employee-selected, manifest-approved synthetic RFC822 fixture into a provider-neutral redacted SourceEnvelope and may create source-linked proposals that remain NEEDS_REVIEW.",
   "non_goals": [
     "OAuth or mailbox credentials",
@@ -65,6 +73,7 @@
         "expected_message_key": "msg:3441e0367e663c0aa2ecb630380f46c1e96327a0b72519417c5830125492f724",
         "expected_source_version": 1,
         "expected_version_id": "srcv:38b660b5386d71bfb9254640d775acc58660663bf21be0912c93f06660198375",
+        "expected_content_sha256": "43de7333648b0ed24bfd4c95e935b32d01d631cd1b685c340330b629b0df5028",
         "expected_redacted_header_sha256": "e0baa16b8ccee24b0a950a11f28731e14d0fed89259b05d4cfdbe785b842440f",
         "expected_candidate_count": 2,
         "expected_candidate_state": "NEEDS_REVIEW",
@@ -160,6 +169,7 @@
         "expected_message_key": "msg:0a189049c8c46e767e0dde2b3c9d2d62f9bc72e8c486678f3dc2c861339d5eaf",
         "expected_source_version": 2,
         "expected_version_id": "srcv:6169e814d8328a4d17e0677ef8aacf53800e0e3410e98e32f37ee3a69756df62",
+        "expected_content_sha256": "729e7c5057b1ef971a384f53233f8789b6485d3de9e624c24d76a96deb85b898",
         "expected_redacted_header_sha256": "ac8db8232a9f30869f8d2235f848e4ee22fc9d91ea8d2e2bef12f0bcd3ec3be1",
         "expected_candidate_count": 1,
         "expected_candidate_state": "NEEDS_REVIEW",
@@ -246,6 +256,7 @@
         "expected_message_key": "msg:8f944cc41461f1ee385cb7b8d0fcd37e785c10583226d106c6c04afb01ebd96d",
         "expected_source_version": 1,
         "expected_version_id": "srcv:fa8ef87bd0bcbd9d5403c7e5c71d922c6062f380adce590efde86ec887761b44",
+        "expected_content_sha256": "61cdb5ab7ec4f1b927df50b021db6aa4fad9617cafe5b0da3262c30fde14902c",
         "expected_redacted_header_sha256": "0b7ae1135060314efc672d3101d4bf2fb777d51455623867a58f4c2f3685944f",
         "expected_candidate_count": 1,
         "expected_candidate_state": "NEEDS_REVIEW",
@@ -388,6 +399,7 @@
         "expected_message_key": "msg:1d2853d543a74b6714e89af6c11e8426e9065dd553fd895c42d7aeb13fb9f2f2",
         "expected_source_version": 1,
         "expected_version_id": "srcv:746038571fa6a566582498ef424ccf15540837fbfa7ad88c6b61215fe43e92aa",
+        "expected_content_sha256": "efa8e893c1689b7a470a52318e6d09be320978145dee01c88388b73b24d64b10",
         "expected_redacted_header_sha256": "9d2f27616781f3d14bbabd1b8533d48c5b22e102861c1950adae1d3aa699841b",
         "expected_candidate_count": 1,
         "expected_candidate_state": "NEEDS_REVIEW",
@@ -470,6 +482,150 @@
       "background_prefetch_or_import_allowed": false,
       "one_action_imports_at_most_one_fixture": true
     },
+    "prepared_to_final_lifecycle": {
+      "prepared_source_envelope": {
+        "immutable": true,
+        "provider_neutral": true,
+        "exact_fields": [
+          "schema_version",
+          "source_type",
+          "synthetic",
+          "authority",
+          "source_id",
+          "observed_at",
+          "redaction",
+          "message",
+          "candidate_drafts"
+        ],
+        "constant_fields": {
+          "schema_version": "exitspec-source-envelope/1.0",
+          "source_type": "rfc822",
+          "synthetic": true,
+          "authority": "untrusted_source_only"
+        },
+        "redaction_scope": "current_message_only",
+        "redaction_exact_fields": [
+          "policy_version",
+          "counts"
+        ],
+        "redaction_count_exact_fields": [
+          "customer_term",
+          "email",
+          "phone",
+          "secret"
+        ],
+        "message_cardinality": 1,
+        "message_exact_fields": [
+          "message_key",
+          "redacted_headers",
+          "redacted_header_sha256",
+          "parts"
+        ],
+        "redacted_header_exact_fields": [
+          "authored_at",
+          "from",
+          "subject",
+          "to"
+        ],
+        "part_exact_fields": [
+          "part_path",
+          "kind",
+          "media_type",
+          "redacted_text",
+          "redacted_text_sha256",
+          "redacted_filename_sha256"
+        ],
+        "candidate_scope": "current_message_only",
+        "excluded_transaction_owned_fields": [
+          "source_version",
+          "version_id",
+          "ingested_at",
+          "content_sha256"
+        ],
+        "excluded_final_candidate_binding_fields": [
+          "source_id",
+          "source_version",
+          "version_id"
+        ]
+      },
+      "prepared_candidate_draft": {
+        "immutable": true,
+        "exact_fields": [
+          "candidate_type",
+          "state",
+          "projection",
+          "message_key",
+          "part_path",
+          "start_byte",
+          "end_byte",
+          "quote_sha256"
+        ],
+        "required_state": "NEEDS_REVIEW",
+        "binding": "The finalizer inherits source_id from the prepared envelope and binds source_version and version_id only after atomic version allocation."
+      },
+      "prepared_import_request": {
+        "request_local_only": true,
+        "exact_fields": [
+          "approved_synthetic_fixture",
+          "normalized_thread_root_message_id",
+          "thread_root_message_key",
+          "prepared_envelope"
+        ],
+        "approved_synthetic_fixture_exact_fields": [
+          "manifest_id",
+          "manifest_version",
+          "fixture_case_id",
+          "synthetic_fixture_sha256"
+        ],
+        "publicly_serializable": false,
+        "repr_hidden": true,
+        "approved_synthetic_fixture_repr_hidden": true,
+        "repr_forbidden_fields": [
+          "approved_synthetic_fixture",
+          "normalized_thread_root_message_id",
+          "thread_root_message_key"
+        ]
+      },
+      "finalization_transaction": {
+        "single_store_transaction": true,
+        "ordered_steps": [
+          "validate private prepared import provenance and source-thread binding",
+          "check private replay fingerprint and source identity",
+          "check thread-root parent state",
+          "allocate the next source_version",
+          "record ingested_at",
+          "build cumulative accepted-ingestion-order messages and cumulative redaction",
+          "compute redacted header and part digests",
+          "compute version_id",
+          "compute content_sha256",
+          "bind current-version candidate drafts to source_id, source_version, and version_id",
+          "atomically publish the envelope, current-version candidates, and private idempotency record"
+        ],
+        "failure_before_publish": "zero writes, zero candidates, and no consumed source_version"
+      },
+      "final_source_envelope": {
+        "immutable": true,
+        "exact_fields": [
+          "schema_version",
+          "source_type",
+          "source_id",
+          "source_version",
+          "version_id",
+          "observed_at",
+          "ingested_at",
+          "synthetic",
+          "authority",
+          "redaction",
+          "messages",
+          "content_sha256",
+          "candidates"
+        ],
+        "message_scope": "cumulative accepted-ingestion order",
+        "candidate_scope": "current-version-only; never cumulative",
+        "follow_up_message_count": 2,
+        "follow_up_candidate_count": 1
+      }
+    },
     "identity": {
       "message_id_cardinality": "exactly_one",
       "normalization": "trim ASCII whitespace, remove one surrounding angle-bracket pair, lowercase ASCII; empty is invalid",
@@ -484,7 +640,56 @@
       "source_id_format": "rfc822:<sha256(domain || NUL || normalized_thread_root_message_id)>",
       "raw_message_id_persisted": false,
       "same_message_key_same_fixture_digest": "idempotent_replay",
-      "same_message_key_changed_fixture_digest": "source_identity_conflict"
+      "same_message_key_changed_fixture_digest": "source_identity_conflict",
+      "source_thread_binding": {
+        "private_request_input_field": "normalized_thread_root_message_id",
+        "input_requirement": "already normalized exactly by identity.normalization",
+        "validation_order": [
+          "reject when normalizing normalized_thread_root_message_id changes its value",
+          "recompute thread_root_message_key from normalized_thread_root_message_id and require equality with the request field",
+          "recompute source_id from normalized_thread_root_message_id and require equality with prepared_envelope.source_id",
+          "for a root require thread_root_message_key equals prepared_envelope.message.message_key",
+          "for a follow-up require thread_root_message_key resolves to prepared_envelope.source_id in the stored root index"
+        ],
+        "validation_precedes": [
+          "replay lookup",
+          "parent lookup",
+          "source version allocation",
+          "persistence"
+        ],
+        "mismatch_code": "source_thread_binding_mismatch",
+        "mismatch_new_write_count": 0,
+        "mismatch_new_candidate_count": 0,
+        "mismatch_consumed_source_version_count": 0,
+        "forbidden_destinations": [
+          "SourceEnvelope",
+          "terminal receipt",
+          "error",
+          "log",
+          "provider payload",
+          "browser output",
+          "public serialization",
+          "repr"
+        ]
+      },
+      "thread_root_message_key": {
+        "scope": "request-local PreparedSourceImport field outside PreparedSourceEnvelope",
+        "normalization": "the same Message-ID normalization used for message_key, applied to the resolved root Message-ID",
+        "domain": "exitspec-rfc822-message-id-v1",
+        "format": "msg:<sha256(domain || NUL || normalized_root_message_id)>",
+        "root_rule": "for a root import, thread_root_message_key equals the current message_key",
+        "follow_up_rule": "for a follow-up import, thread_root_message_key must match an already stored root message_key",
+        "unknown_parent_code": "thread_parent_not_found",
+        "unknown_parent_new_write_count": 0,
+        "forbidden_destinations": [
+          "SourceEnvelope",
+          "terminal receipt",
+          "error",
+          "log",
+          "provider payload",
+          "browser output"
+        ]
+      }
     },
     "versioning": {
       "source_version_type": "positive_integer",
@@ -530,7 +735,68 @@
     },
     "digests": {
       "fixture_sha256": "SHA-256 of exact manifest-approved .eml bytes; test evidence only",
-      "persisted_content_sha256": "SHA-256 of canonical redacted envelope content",
+      "content_sha256": {
+        "domain": "exitspec-source-envelope-content-v1",
+        "digest": "sha256(domain || NUL || canonical_json(exact projection))",
+        "format": "64 lowercase hexadecimal characters",
+        "canonical_json": "UTF-8 JSON with ensure_ascii=false, keys sorted lexically, separators ',' and ':', integers as JSON numbers, and absent optional values represented as JSON null",
+        "projection_exact_fields": [
+          "schema_version",
+          "source_type",
+          "source_id",
+          "source_version",
+          "version_id",
+          "synthetic",
+          "authority",
+          "redaction",
+          "messages"
+        ],
+        "excluded_fields": [
+          "observed_at",
+          "ingested_at",
+          "candidates",
+          "content_sha256"
+        ],
+        "redaction_exact_fields": [
+          "policy_version",
+          "counts"
+        ],
+        "redaction_count_exact_fields": [
+          "customer_term",
+          "email",
+          "phone",
+          "secret"
+        ],
+        "redaction_scope": "cumulative across every message in this source version",
+        "message_exact_fields": [
+          "message_key",
+          "redacted_headers",
+          "redacted_header_sha256",
+          "parts"
+        ],
+        "redacted_header_exact_fields": [
+          "authored_at",
+          "from",
+          "subject",
+          "to"
+        ],
+        "part_exact_fields": [
+          "part_path",
+          "kind",
+          "media_type",
+          "redacted_text",
+          "redacted_text_sha256",
+          "redacted_filename_sha256"
+        ],
+        "message_order": "cumulative accepted-ingestion order",
+        "part_order": "accepted MIME traversal order",
+        "computation_order": [
+          "redacted header and part digests",
+          "version_id",
+          "content_sha256",
+          "current-version candidate binding"
+        ]
+      },
       "raw_fixture_digest_persisted_for_real_source": false,
       "digest_mismatch_code": "fixture_digest_mismatch"
     },
@@ -992,6 +1258,83 @@
     "same_message_id_changed_content_result": "source_identity_conflict",
     "same_message_id_changed_content_new_write_count": 0,
     "unknown_thread_parent_result": "thread_parent_not_found",
+    "source_thread_binding_oracle": {
+      "expected_code": "source_thread_binding_mismatch",
+      "new_persistence_count": 0,
+      "new_candidate_count": 0,
+      "consumed_source_version_count": 0,
+      "cases": [
+        {
+          "case_id": "root-message-key-mismatch",
+          "fixture_case_id": "thread-root",
+          "precondition_case_ids": [],
+          "mutation_field": "thread_root_message_key"
+        },
+        {
+          "case_id": "root-source-id-mismatch",
+          "fixture_case_id": "thread-root",
+          "precondition_case_ids": [],
+          "mutation_field": "prepared_envelope.source_id"
+        },
+        {
+          "case_id": "follow-up-message-key-mismatch",
+          "fixture_case_id": "thread-follow-up",
+          "precondition_case_ids": [
+            "thread-root"
+          ],
+          "mutation_field": "thread_root_message_key"
+        },
+        {
+          "case_id": "follow-up-source-id-mismatch",
+          "fixture_case_id": "thread-follow-up",
+          "precondition_case_ids": [
+            "thread-root"
+          ],
+          "mutation_field": "prepared_envelope.source_id"
+        },
+        {
+          "case_id": "replay-source-id-mismatch",
+          "fixture_case_id": "thread-root",
+          "precondition_case_ids": [
+            "thread-root"
+          ],
+          "mutation_field": "prepared_envelope.source_id"
+        },
+        {
+          "case_id": "identity-conflict-source-id-mismatch",
+          "fixture_case_id": "thread-root-mutated",
+          "precondition_case_ids": [
+            "thread-root"
+          ],
+          "mutation_field": "prepared_envelope.source_id"
+        }
+      ]
+    },
+    "private_idempotency_record": {
+      "synthetic_only": true,
+      "private_store_only": true,
+      "immutable": true,
+      "repr_hidden": true,
+      "exact_fields": [
+        "message_key",
+        "synthetic_fixture_sha256",
+        "source_id",
+        "source_version",
+        "version_id"
+      ],
+      "write_boundary": "inside the same atomic source transaction",
+      "same_message_key_same_synthetic_fixture_sha256": "duplicate_replay",
+      "same_message_key_different_synthetic_fixture_sha256": "source_identity_conflict",
+      "forbidden_destinations": [
+        "SourceEnvelope",
+        "terminal receipt",
+        "error",
+        "log",
+        "provider payload",
+        "browser output",
+        "public serialization"
+      ]
+    },
     "concurrent_duplicate_oracle": {
       "case_id": "concurrent-thread-root-double-import",
       "fixture_case_id": "thread-root",
@@ -1490,6 +1833,7 @@
     "source_identity_exact_rate_min": 1.0,
     "source_version_exact_rate_min": 1.0,
     "version_id_exact_rate_min": 1.0,
+    "content_sha256_exact_rate_min": 1.0,
     "redaction_exact_rate_min": 1.0,
     "attachment_filename_redaction_exact_rate_min": 1.0,
     "provenance_span_exact_rate_min": 1.0,
@@ -1525,13 +1869,25 @@
       "fixture_case_id",
       "outcome_code",
       "source_version",
-      "candidate_count",
-      "elapsed_ms"
+      "candidate_count"
     ],
+    "candidate_count_semantics": {
+      "meaning": "candidates newly created by this operation",
+      "accepted": "the selected fixture expected_candidate_count",
+      "accepted_new_version": "the selected fixture expected_candidate_count",
+      "duplicate_replay": 0,
+      "typed_refusal": 0,
+      "assisted_authoring_provider_failure": 0,
+      "replay_result_may_return_existing_candidates": true,
+      "replay_receipt_candidate_count": 0
+    },
     "forbidden_content": [
       "raw_rfc822",
       "raw_header",
       "raw_message_id",
+      "normalized_thread_root_message_id",
+      "thread_root_message_key",
+      "synthetic_fixture_sha256",
       "sender_address",
       "recipient_address",
       "subject_text",
@@ -1544,6 +1900,18 @@
       "provider_request",
       "provider_response"
     ]
+  },
+  "browser_timing_evidence_contract": {
+    "exact_fields": [
+      "fixture_case_id",
+      "outcome_code",
+      "elapsed_ms"
+    ],
+    "producer": "browser acceptance harness",
+    "produced_after": "the first rendered animation frame required by the matching timing-gate end condition",
+    "source_store_may_emit": false,
+    "source_store_may_persist": false,
+    "server_terminal_receipt_may_include_elapsed_ms": false
   },
   "wave_exit_gate": "From every approved synthetic RFC822 fixture, one explicit employee action creates a redacted provider-neutral SourceEnvelope and source-linked NEEDS_REVIEW candidates in under 60 seconds. Exact serial and concurrent reimport is idempotent; a new referenced message creates exactly one new source version; changed bytes under the same Message-ID fail closed. Missing or invalid approval markers, fixture digest mismatch, raw/header/MIME limits, malformed encoding, unsupported charset, unsafe attachments, ambiguous senders, missing or oversized content, alternative disagreement, redaction failure, and provider failure produce typed safe outcomes. Raw source is never persisted, every candidate has byte-exact redacted provenance, and email can never approve, confirm, freeze, measure, or assign a verdict."
 }

@@ -73,6 +73,25 @@ EXPECTED_CANDIDATE_PROJECTIONS = {
     ],
 }
 
+EXPECTED_CONTENT_SHA256 = {
+    "thread-root": (
+        "43de7333648b0ed24bfd4c95e935b32d"
+        "01d631cd1b685c340330b629b0df5028"
+    ),
+    "thread-follow-up": (
+        "729e7c5057b1ef971a384f53233f8789"
+        "b6485d3de9e624c24d76a96deb85b898"
+    ),
+    "allowed-text-attachment": (
+        "61cdb5ab7ec4f1b927df50b021db6aa4"
+        "fad9617cafe5b0da3262c30fde14902c"
+    ),
+    "authority-attack": (
+        "efa8e893c1689b7a470a52318e6d09be"
+        "320978145dee01c88388b73b24d64b10"
+    ),
+}
+
 
 def _load_manifest():
     return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -409,6 +428,119 @@ def _expected_version_id(manifest, fixture):
     ).hexdigest()
 
 
+def _content_part_projection(part):
+    kind, media_type, _ = part["part_path"].split(":", 2)
+    return {
+        "part_path": part["part_path"],
+        "kind": kind,
+        "media_type": media_type,
+        "redacted_text": part["redacted_text"],
+        "redacted_text_sha256": hashlib.sha256(
+            part["redacted_text"].encode("utf-8")
+        ).hexdigest(),
+        "redacted_filename_sha256": part[
+            "redacted_filename_sha256"
+        ],
+    }
+
+
+def _content_input(manifest, fixture):
+    cases = _fixture_cases(manifest)
+    case_ids = [
+        *fixture.get("precondition_case_ids", []),
+        fixture["case_id"],
+    ]
+    messages = []
+    cumulative_redaction_counts = {
+        "customer_term": 0,
+        "email": 0,
+        "phone": 0,
+        "secret": 0,
+    }
+
+    for case_id in case_ids:
+        message_fixture = cases[case_id]
+        message = _parse_fixture(message_fixture)
+        parts, message_redaction_counts = _normalized_redacted_parts(
+            message,
+            message_fixture["customer_terms"],
+            manifest,
+        )
+        _merge_counts(
+            cumulative_redaction_counts,
+            message_redaction_counts,
+        )
+        messages.append(
+            {
+                "message_key": message_fixture["expected_message_key"],
+                "redacted_headers": _redacted_header_projection(
+                    message,
+                    message_fixture["customer_terms"],
+                    manifest,
+                ),
+                "redacted_header_sha256": _redacted_header_digest(
+                    message,
+                    message_fixture["customer_terms"],
+                    manifest,
+                ),
+                "parts": [
+                    _content_part_projection(part)
+                    for part in parts
+                ],
+            }
+        )
+
+    source_contract = manifest["source_contract"]
+    return {
+        "schema_version": source_contract["envelope_schema_version"],
+        "source_type": source_contract["source_type"],
+        "source_id": fixture["expected_source_id"],
+        "source_version": fixture["expected_source_version"],
+        "version_id": fixture["expected_version_id"],
+        "synthetic": manifest["fixture_set"]["synthetic_only"],
+        "authority": source_contract["authority"]["email_role"],
+        "redaction": {
+            "policy_version": source_contract[
+                "redaction_policy_version"
+            ],
+            "counts": cumulative_redaction_counts,
+        },
+        "messages": messages,
+    }
+
+
+def _expected_content_sha256(manifest, fixture):
+    content_contract = manifest["source_contract"]["digests"][
+        "content_sha256"
+    ]
+    projection = _content_input(manifest, fixture)
+    assert set(projection) == set(
+        content_contract["projection_exact_fields"]
+    )
+    assert set(projection["redaction"]) == set(
+        content_contract["redaction_exact_fields"]
+    )
+    assert set(projection["redaction"]["counts"]) == set(
+        content_contract["redaction_count_exact_fields"]
+    )
+    for message in projection["messages"]:
+        assert set(message) == set(
+            content_contract["message_exact_fields"]
+        )
+        assert set(message["redacted_headers"]) == set(
+            content_contract["redacted_header_exact_fields"]
+        )
+        for part in message["parts"]:
+            assert set(part) == set(
+                content_contract["part_exact_fields"]
+            )
+    return hashlib.sha256(
+        content_contract["domain"].encode("ascii")
+        + b"\x00"
+        + _canonical_json_bytes(projection)
+    ).hexdigest()
+
+
 def _candidate_source_link_is_valid(candidate, fixture, parts):
     parts_by_path = {
         part["part_path"]: part["redacted_text"].encode("utf-8")
@@ -682,7 +814,21 @@ def test_wave2_manifest_freezes_the_exact_synthetic_rfc822_suite():
     fixture_paths = {_fixture_path(fixture) for fixture in fixtures}
 
     assert manifest["status"] == "FROZEN"
-    assert manifest["manifest_version"] == "1.0.0"
+    assert manifest["manifest_version"] == "1.0.1"
+    assert manifest["supersession"] == {
+        "supersedes_manifest_version": "1.0.0",
+        "reason": (
+            "Implementation review found the prepared-to-final transaction "
+            "lifecycle, content_sha256 projection, parent-key input, private "
+            "replay fingerprint, receipt candidate count, and browser timing "
+            "ownership underdefined before any product implementation "
+            "consumed them."
+        ),
+        "superseded_before_product_implementation": True,
+        "fixture_bytes_changed": False,
+        "fixture_set_digest_changed": False,
+        "behavioral_outcomes_changed": False,
+    }
     assert fixture_set["synthetic_only"] is True
     assert len(fixtures) == fixture_set["case_count"] == 11
     assert len({fixture["case_id"] for fixture in fixtures}) == len(fixtures)
@@ -712,6 +858,10 @@ def test_wave2_manifest_freezes_the_exact_synthetic_rfc822_suite():
         b"exitspec-wave2-fixture-set-v1\x00"
         + _canonical_json_bytes(digest_projection)
     ).hexdigest()
+    assert fixture_set["set_sha256"] == (
+        "49edc7adacc8d9e5cdc86983ae22b41c1"
+        "2f84c4440a8e67e423ecf15d0dc0e72"
+    )
     assert fixture_set["set_digest_projection"] == (
         "canonical JSON array containing only case_id, path, and sha256"
     )
@@ -833,6 +983,660 @@ def test_identity_duplicate_and_follow_up_oracles_are_exact():
     assert manifest["source_contract"]["versioning"][
         "ordering_basis"
     ].startswith("atomic accepted-ingestion")
+
+
+def test_prepared_to_final_lifecycle_is_exact_and_transaction_owned():
+    manifest = _load_manifest()
+    cases = _fixture_cases(manifest)
+    lifecycle = manifest["source_contract"][
+        "prepared_to_final_lifecycle"
+    ]
+    prepared = lifecycle["prepared_source_envelope"]
+    draft = lifecycle["prepared_candidate_draft"]
+    request = lifecycle["prepared_import_request"]
+    transaction = lifecycle["finalization_transaction"]
+    final = lifecycle["final_source_envelope"]
+
+    assert prepared["immutable"] is True
+    assert prepared["provider_neutral"] is True
+    assert prepared["exact_fields"] == [
+        "schema_version",
+        "source_type",
+        "synthetic",
+        "authority",
+        "source_id",
+        "observed_at",
+        "redaction",
+        "message",
+        "candidate_drafts",
+    ]
+    assert prepared["constant_fields"] == {
+        "schema_version": "exitspec-source-envelope/1.0",
+        "source_type": "rfc822",
+        "synthetic": True,
+        "authority": "untrusted_source_only",
+    }
+    assert prepared["redaction_scope"] == "current_message_only"
+    assert prepared["redaction_exact_fields"] == [
+        "policy_version",
+        "counts",
+    ]
+    assert prepared["redaction_count_exact_fields"] == [
+        "customer_term",
+        "email",
+        "phone",
+        "secret",
+    ]
+    assert prepared["message_cardinality"] == 1
+    assert prepared["message_exact_fields"] == [
+        "message_key",
+        "redacted_headers",
+        "redacted_header_sha256",
+        "parts",
+    ]
+    assert prepared["redacted_header_exact_fields"] == [
+        "authored_at",
+        "from",
+        "subject",
+        "to",
+    ]
+    assert prepared["part_exact_fields"] == [
+        "part_path",
+        "kind",
+        "media_type",
+        "redacted_text",
+        "redacted_text_sha256",
+        "redacted_filename_sha256",
+    ]
+    assert prepared["candidate_scope"] == "current_message_only"
+    assert prepared["excluded_transaction_owned_fields"] == [
+        "source_version",
+        "version_id",
+        "ingested_at",
+        "content_sha256",
+    ]
+    assert prepared["excluded_final_candidate_binding_fields"] == [
+        "source_id",
+        "source_version",
+        "version_id",
+    ]
+    assert set(prepared["exact_fields"]).isdisjoint(
+        prepared["excluded_transaction_owned_fields"]
+    )
+
+    assert draft["immutable"] is True
+    assert draft["exact_fields"] == [
+        "candidate_type",
+        "state",
+        "projection",
+        "message_key",
+        "part_path",
+        "start_byte",
+        "end_byte",
+        "quote_sha256",
+    ]
+    assert draft["required_state"] == "NEEDS_REVIEW"
+    assert set(draft["exact_fields"]).isdisjoint(
+        prepared["excluded_final_candidate_binding_fields"]
+    )
+
+    assert request == {
+        "request_local_only": True,
+        "exact_fields": [
+            "approved_synthetic_fixture",
+            "normalized_thread_root_message_id",
+            "thread_root_message_key",
+            "prepared_envelope",
+        ],
+        "approved_synthetic_fixture_exact_fields": [
+            "manifest_id",
+            "manifest_version",
+            "fixture_case_id",
+            "synthetic_fixture_sha256",
+        ],
+        "publicly_serializable": False,
+        "repr_hidden": True,
+        "approved_synthetic_fixture_repr_hidden": True,
+        "repr_forbidden_fields": [
+            "approved_synthetic_fixture",
+            "normalized_thread_root_message_id",
+            "thread_root_message_key",
+        ],
+    }
+    assert transaction["single_store_transaction"] is True
+    assert transaction["ordered_steps"] == [
+        (
+            "validate private prepared import provenance and "
+            "source-thread binding"
+        ),
+        "check private replay fingerprint and source identity",
+        "check thread-root parent state",
+        "allocate the next source_version",
+        "record ingested_at",
+        (
+            "build cumulative accepted-ingestion-order messages and "
+            "cumulative redaction"
+        ),
+        "compute redacted header and part digests",
+        "compute version_id",
+        "compute content_sha256",
+        (
+            "bind current-version candidate drafts to source_id, "
+            "source_version, and version_id"
+        ),
+        (
+            "atomically publish the envelope, current-version candidates, "
+            "and private idempotency record"
+        ),
+    ]
+    assert transaction["failure_before_publish"] == (
+        "zero writes, zero candidates, and no consumed source_version"
+    )
+
+    assert final["immutable"] is True
+    assert final["exact_fields"] == [
+        "schema_version",
+        "source_type",
+        "source_id",
+        "source_version",
+        "version_id",
+        "observed_at",
+        "ingested_at",
+        "synthetic",
+        "authority",
+        "redaction",
+        "messages",
+        "content_sha256",
+        "candidates",
+    ]
+    assert final["message_scope"] == (
+        "cumulative accepted-ingestion order"
+    )
+    assert final["candidate_scope"] == (
+        "current-version-only; never cumulative"
+    )
+
+    for case_id in EXPECTED_CANDIDATE_PROJECTIONS:
+        fixture = cases[case_id]
+        candidate_drafts = [
+            {
+                field: candidate[field]
+                for field in draft["exact_fields"]
+            }
+            for candidate in fixture["expected_candidates"]
+        ]
+        assert len(candidate_drafts) == fixture[
+            "expected_candidate_count"
+        ]
+        assert all(
+            set(candidate_draft) == set(draft["exact_fields"])
+            for candidate_draft in candidate_drafts
+        )
+        assert all(
+            candidate_draft["state"] == draft["required_state"]
+            for candidate_draft in candidate_drafts
+        )
+
+    follow_up = cases["thread-follow-up"]
+    follow_up_projection = _content_input(manifest, follow_up)
+    assert len(follow_up_projection["messages"]) == final[
+        "follow_up_message_count"
+    ] == 2
+    assert len(follow_up["expected_candidates"]) == final[
+        "follow_up_candidate_count"
+    ] == 1
+
+
+def test_content_sha256_projection_and_fixture_vectors_are_exact():
+    manifest = _load_manifest()
+    cases = _fixture_cases(manifest)
+    content_contract = manifest["source_contract"]["digests"][
+        "content_sha256"
+    ]
+
+    assert content_contract["domain"] == (
+        "exitspec-source-envelope-content-v1"
+    )
+    assert content_contract["digest"] == (
+        "sha256(domain || NUL || canonical_json(exact projection))"
+    )
+    assert content_contract["format"] == (
+        "64 lowercase hexadecimal characters"
+    )
+    assert content_contract["canonical_json"] == (
+        "UTF-8 JSON with ensure_ascii=false, keys sorted lexically, "
+        "separators ',' and ':', integers as JSON numbers, and absent "
+        "optional values represented as JSON null"
+    )
+    assert content_contract["projection_exact_fields"] == [
+        "schema_version",
+        "source_type",
+        "source_id",
+        "source_version",
+        "version_id",
+        "synthetic",
+        "authority",
+        "redaction",
+        "messages",
+    ]
+    assert content_contract["excluded_fields"] == [
+        "observed_at",
+        "ingested_at",
+        "candidates",
+        "content_sha256",
+    ]
+    assert content_contract["redaction_exact_fields"] == [
+        "policy_version",
+        "counts",
+    ]
+    assert content_contract["redaction_count_exact_fields"] == [
+        "customer_term",
+        "email",
+        "phone",
+        "secret",
+    ]
+    assert content_contract["redaction_scope"] == (
+        "cumulative across every message in this source version"
+    )
+    assert content_contract["message_exact_fields"] == [
+        "message_key",
+        "redacted_headers",
+        "redacted_header_sha256",
+        "parts",
+    ]
+    assert content_contract["redacted_header_exact_fields"] == [
+        "authored_at",
+        "from",
+        "subject",
+        "to",
+    ]
+    assert content_contract["part_exact_fields"] == [
+        "part_path",
+        "kind",
+        "media_type",
+        "redacted_text",
+        "redacted_text_sha256",
+        "redacted_filename_sha256",
+    ]
+    assert content_contract["message_order"] == (
+        "cumulative accepted-ingestion order"
+    )
+    assert content_contract["part_order"] == (
+        "accepted MIME traversal order"
+    )
+    assert content_contract["computation_order"] == [
+        "redacted header and part digests",
+        "version_id",
+        "content_sha256",
+        "current-version candidate binding",
+    ]
+    assert set(content_contract["projection_exact_fields"]).isdisjoint(
+        content_contract["excluded_fields"]
+    )
+    prepared = manifest["source_contract"][
+        "prepared_to_final_lifecycle"
+    ]["prepared_source_envelope"]
+    assert prepared["redaction_exact_fields"] == content_contract[
+        "redaction_exact_fields"
+    ]
+    assert prepared["redaction_count_exact_fields"] == content_contract[
+        "redaction_count_exact_fields"
+    ]
+    assert prepared["message_exact_fields"] == content_contract[
+        "message_exact_fields"
+    ]
+    assert prepared["redacted_header_exact_fields"] == content_contract[
+        "redacted_header_exact_fields"
+    ]
+    assert prepared["part_exact_fields"] == content_contract[
+        "part_exact_fields"
+    ]
+
+    observed_vectors = {}
+    for case_id, exact_vector in EXPECTED_CONTENT_SHA256.items():
+        fixture = cases[case_id]
+        projection = _content_input(manifest, fixture)
+        recomputed = _expected_content_sha256(manifest, fixture)
+        observed_vectors[case_id] = fixture["expected_content_sha256"]
+
+        assert recomputed == exact_vector
+        assert fixture["expected_content_sha256"] == exact_vector
+        assert re.fullmatch(r"[0-9a-f]{64}", exact_vector)
+        assert set(projection) == set(
+            content_contract["projection_exact_fields"]
+        )
+        assert set(projection).isdisjoint(
+            content_contract["excluded_fields"]
+        )
+
+        mutated_projection = deepcopy(projection)
+        mutated_projection["messages"][0]["parts"][0][
+            "redacted_text"
+        ] += " "
+        mutated_digest = hashlib.sha256(
+            content_contract["domain"].encode("ascii")
+            + b"\x00"
+            + _canonical_json_bytes(mutated_projection)
+        ).hexdigest()
+        assert mutated_digest != exact_vector
+
+    assert observed_vectors == EXPECTED_CONTENT_SHA256
+    assert _content_input(
+        manifest,
+        cases["thread-root"],
+    )["redaction"]["counts"] == {
+        "customer_term": 2,
+        "email": 3,
+        "phone": 1,
+        "secret": 1,
+    }
+    assert _content_input(
+        manifest,
+        cases["thread-follow-up"],
+    )["redaction"]["counts"] == {
+        "customer_term": 3,
+        "email": 6,
+        "phone": 1,
+        "secret": 1,
+    }
+
+
+def test_parent_key_and_private_replay_fingerprint_are_non_public():
+    manifest = _load_manifest()
+    cases = _fixture_cases(manifest)
+    identity = manifest["source_contract"]["identity"]
+    root_contract = identity["thread_root_message_key"]
+    lifecycle = manifest["source_contract"][
+        "prepared_to_final_lifecycle"
+    ]
+    request = lifecycle["prepared_import_request"]
+    binding = identity["source_thread_binding"]
+    replay = manifest["reimport_and_thread_rules"][
+        "private_idempotency_record"
+    ]
+    receipt = manifest["receipt_contract"]
+
+    assert root_contract["domain"] == identity["message_key_domain"]
+    assert root_contract["format"] == (
+        "msg:<sha256(domain || NUL || normalized_root_message_id)>"
+    )
+    assert root_contract["unknown_parent_code"] == (
+        "thread_parent_not_found"
+    )
+    assert root_contract["unknown_parent_new_write_count"] == 0
+    assert root_contract["forbidden_destinations"] == [
+        "SourceEnvelope",
+        "terminal receipt",
+        "error",
+        "log",
+        "provider payload",
+        "browser output",
+    ]
+
+    root = cases["thread-root"]
+    follow_up = cases["thread-follow-up"]
+    root_message = _parse_fixture(root)
+    follow_up_message = _parse_fixture(follow_up)
+    root_thread_key = _opaque_identity(
+        root_contract["domain"],
+        _thread_root_message_id(root_message),
+        "msg",
+    )
+    follow_up_thread_key = _opaque_identity(
+        root_contract["domain"],
+        _thread_root_message_id(follow_up_message),
+        "msg",
+    )
+    assert root_thread_key == root["expected_message_key"]
+    assert follow_up_thread_key == root["expected_message_key"]
+    assert follow_up_thread_key != follow_up["expected_message_key"]
+
+    assert "thread_root_message_key" not in lifecycle[
+        "prepared_source_envelope"
+    ]["exact_fields"]
+    assert "thread_root_message_key" not in lifecycle[
+        "final_source_envelope"
+    ]["exact_fields"]
+    assert "thread_root_message_key" not in receipt["allowed_fields"]
+    assert request["publicly_serializable"] is False
+    assert request["repr_hidden"] is True
+    assert request["approved_synthetic_fixture_repr_hidden"] is True
+    assert request["repr_forbidden_fields"] == [
+        "approved_synthetic_fixture",
+        "normalized_thread_root_message_id",
+        "thread_root_message_key",
+    ]
+    assert binding["private_request_input_field"] == (
+        "normalized_thread_root_message_id"
+    )
+    assert "repr" in binding["forbidden_destinations"]
+
+    assert replay == {
+        "synthetic_only": True,
+        "private_store_only": True,
+        "immutable": True,
+        "repr_hidden": True,
+        "exact_fields": [
+            "message_key",
+            "synthetic_fixture_sha256",
+            "source_id",
+            "source_version",
+            "version_id",
+        ],
+        "write_boundary": (
+            "inside the same atomic source transaction"
+        ),
+        "same_message_key_same_synthetic_fixture_sha256": (
+            "duplicate_replay"
+        ),
+        "same_message_key_different_synthetic_fixture_sha256": (
+            "source_identity_conflict"
+        ),
+        "forbidden_destinations": [
+            "SourceEnvelope",
+            "terminal receipt",
+            "error",
+            "log",
+            "provider payload",
+            "browser output",
+            "public serialization",
+        ],
+    }
+    assert "synthetic_fixture_sha256" not in lifecycle[
+        "prepared_source_envelope"
+    ]["exact_fields"]
+    assert "synthetic_fixture_sha256" not in lifecycle[
+        "final_source_envelope"
+    ]["exact_fields"]
+    assert "synthetic_fixture_sha256" not in receipt["allowed_fields"]
+    assert {
+        "normalized_thread_root_message_id",
+        "thread_root_message_key",
+        "synthetic_fixture_sha256",
+    } <= set(receipt["forbidden_content"])
+
+
+def test_source_thread_binding_is_recomputable_and_zero_write_on_mismatch():
+    manifest = _load_manifest()
+    cases = _fixture_cases(manifest)
+    identity = manifest["source_contract"]["identity"]
+    binding = identity["source_thread_binding"]
+    oracle = manifest["reimport_and_thread_rules"][
+        "source_thread_binding_oracle"
+    ]
+
+    assert binding == {
+        "private_request_input_field": (
+            "normalized_thread_root_message_id"
+        ),
+        "input_requirement": (
+            "already normalized exactly by identity.normalization"
+        ),
+        "validation_order": [
+            (
+                "reject when normalizing "
+                "normalized_thread_root_message_id changes its value"
+            ),
+            (
+                "recompute thread_root_message_key from "
+                "normalized_thread_root_message_id and require equality "
+                "with the request field"
+            ),
+            (
+                "recompute source_id from "
+                "normalized_thread_root_message_id and require equality "
+                "with prepared_envelope.source_id"
+            ),
+            (
+                "for a root require thread_root_message_key equals "
+                "prepared_envelope.message.message_key"
+            ),
+            (
+                "for a follow-up require thread_root_message_key resolves "
+                "to prepared_envelope.source_id in the stored root index"
+            ),
+        ],
+        "validation_precedes": [
+            "replay lookup",
+            "parent lookup",
+            "source version allocation",
+            "persistence",
+        ],
+        "mismatch_code": "source_thread_binding_mismatch",
+        "mismatch_new_write_count": 0,
+        "mismatch_new_candidate_count": 0,
+        "mismatch_consumed_source_version_count": 0,
+        "forbidden_destinations": [
+            "SourceEnvelope",
+            "terminal receipt",
+            "error",
+            "log",
+            "provider payload",
+            "browser output",
+            "public serialization",
+            "repr",
+        ],
+    }
+    assert oracle["expected_code"] == binding["mismatch_code"]
+    assert oracle["new_persistence_count"] == 0
+    assert oracle["new_candidate_count"] == 0
+    assert oracle["consumed_source_version_count"] == 0
+
+    expected_cases = {
+        (
+            "root-message-key-mismatch",
+            "thread-root",
+            (),
+            "thread_root_message_key",
+        ),
+        (
+            "root-source-id-mismatch",
+            "thread-root",
+            (),
+            "prepared_envelope.source_id",
+        ),
+        (
+            "follow-up-message-key-mismatch",
+            "thread-follow-up",
+            ("thread-root",),
+            "thread_root_message_key",
+        ),
+        (
+            "follow-up-source-id-mismatch",
+            "thread-follow-up",
+            ("thread-root",),
+            "prepared_envelope.source_id",
+        ),
+        (
+            "replay-source-id-mismatch",
+            "thread-root",
+            ("thread-root",),
+            "prepared_envelope.source_id",
+        ),
+        (
+            "identity-conflict-source-id-mismatch",
+            "thread-root-mutated",
+            ("thread-root",),
+            "prepared_envelope.source_id",
+        ),
+    }
+    assert {
+        (
+            case["case_id"],
+            case["fixture_case_id"],
+            tuple(case["precondition_case_ids"]),
+            case["mutation_field"],
+        )
+        for case in oracle["cases"]
+    } == expected_cases
+
+    for fixture_case_id in (
+        "thread-root",
+        "thread-follow-up",
+        "allowed-text-attachment",
+        "authority-attack",
+    ):
+        fixture = cases[fixture_case_id]
+        message = _parse_fixture(fixture)
+        normalized_root = _normalized_message_id(
+            _thread_root_message_id(message)
+        )
+        assert _normalized_message_id(normalized_root) == normalized_root
+        assert _opaque_identity(
+            identity["message_key_domain"],
+            normalized_root,
+            "msg",
+        ) == (
+            cases["thread-root"]["expected_message_key"]
+            if fixture_case_id == "thread-follow-up"
+            else fixture["expected_message_key"]
+        )
+        assert _opaque_identity(
+            identity["source_id_domain"],
+            normalized_root,
+            "rfc822",
+        ) == fixture["expected_source_id"]
+
+    for case in oracle["cases"]:
+        fixture = cases[case["fixture_case_id"]]
+        message = _parse_fixture(fixture)
+        normalized_root = _normalized_message_id(
+            _thread_root_message_id(message)
+        )
+        request_thread_key = _opaque_identity(
+            identity["message_key_domain"],
+            normalized_root,
+            "msg",
+        )
+        request_source_id = (
+            cases["thread-root"]["expected_source_id"]
+            if case["fixture_case_id"] == "thread-root-mutated"
+            else fixture["expected_source_id"]
+        )
+        if case["mutation_field"] == "thread_root_message_key":
+            request_thread_key = "msg:" + ("0" * 64)
+        else:
+            request_source_id = "rfc822:" + ("0" * 64)
+
+        binding_is_valid = (
+            _normalized_message_id(normalized_root) == normalized_root
+            and request_thread_key
+            == _opaque_identity(
+                identity["message_key_domain"],
+                normalized_root,
+                "msg",
+            )
+            and request_source_id
+            == _opaque_identity(
+                identity["source_id_domain"],
+                normalized_root,
+                "rfc822",
+            )
+        )
+        assert binding_is_valid is False
+        assert oracle["expected_code"] == (
+            "source_thread_binding_mismatch"
+        )
 
 
 def test_concurrent_duplicate_oracle_is_exact_for_both_commit_orders():
@@ -1379,6 +2183,7 @@ def test_authority_privacy_secret_timing_and_receipt_gates_are_binary():
     timing = manifest["timing_gate"]
     transport = manifest["transport_gates"]
     receipt = manifest["receipt_contract"]
+    timing_evidence = manifest["browser_timing_evidence_contract"]
 
     assert authority["email_role"] == "untrusted_source_only"
     assert authority["candidate_state"] == "NEEDS_REVIEW"
@@ -1468,10 +2273,54 @@ def test_authority_privacy_secret_timing_and_receipt_gates_are_binary():
     }
 
     assert receipt["required_for_every_terminal_outcome"] is True
+    assert receipt["allowed_fields"] == [
+        "source_type",
+        "manifest_id",
+        "manifest_version",
+        "fixture_case_id",
+        "outcome_code",
+        "source_version",
+        "candidate_count",
+    ]
+    assert "elapsed_ms" not in receipt["allowed_fields"]
+    assert receipt["candidate_count_semantics"] == {
+        "meaning": "candidates newly created by this operation",
+        "accepted": "the selected fixture expected_candidate_count",
+        "accepted_new_version": (
+            "the selected fixture expected_candidate_count"
+        ),
+        "duplicate_replay": 0,
+        "typed_refusal": 0,
+        "assisted_authoring_provider_failure": 0,
+        "replay_result_may_return_existing_candidates": True,
+        "replay_receipt_candidate_count": 0,
+    }
+    accepted_codes = {"accepted", "accepted_new_version"}
+    cases = _fixture_cases(manifest)
+    for fixture in cases.values():
+        if fixture["expected_outcome_code"] in accepted_codes:
+            assert fixture["expected_candidate_count"] > 0
+        else:
+            assert fixture.get("expected_candidate_count", 0) == 0
+
+    for outcome in manifest["required_failure_matrix"]:
+        if outcome["expected_code"] in accepted_codes:
+            assert cases[outcome["fixture_case_id"]][
+                "expected_candidate_count"
+            ] > 0
+        else:
+            assert receipt["candidate_count_semantics"].get(
+                outcome["expected_code"],
+                receipt["candidate_count_semantics"]["typed_refusal"],
+            ) == 0
+
     assert {
         "raw_rfc822",
         "raw_header",
         "raw_message_id",
+        "normalized_thread_root_message_id",
+        "thread_root_message_key",
+        "synthetic_fixture_sha256",
         "sender_address",
         "recipient_address",
         "subject_text",
@@ -1484,6 +2333,28 @@ def test_authority_privacy_secret_timing_and_receipt_gates_are_binary():
         "provider_request",
         "provider_response",
     } == set(receipt["forbidden_content"])
+
+    assert timing_evidence == {
+        "exact_fields": [
+            "fixture_case_id",
+            "outcome_code",
+            "elapsed_ms",
+        ],
+        "producer": "browser acceptance harness",
+        "produced_after": (
+            "the first rendered animation frame required by the matching "
+            "timing-gate end condition"
+        ),
+        "source_store_may_emit": False,
+        "source_store_may_persist": False,
+        "server_terminal_receipt_may_include_elapsed_ms": False,
+    }
+    assert set(timing_evidence["exact_fields"]) == {
+        "fixture_case_id",
+        "outcome_code",
+        "elapsed_ms",
+    }
+    assert timing_evidence["exact_fields"][-1] == "elapsed_ms"
 
 
 def test_scope_excludes_real_mailbox_transport_and_customer_email():

@@ -21,9 +21,9 @@ from types import MappingProxyType
 
 _EMAIL_MANIFEST_FILENAME = "wave-2-acceptance-v1.json"
 _EMAIL_MANIFEST_ID = "exitspec-wave-2-synthetic-rfc822-intake"
-_EMAIL_MANIFEST_VERSION = "1.0.0"
+_EMAIL_MANIFEST_VERSION = "1.0.1"
 _EMAIL_MANIFEST_SHA256 = (
-    "7f236239d6ce450e074196da25241b6242dfa0134da514c255df81e14e22f466"
+    "aa514787eb6b14a93216682d702fc29a32d630eb1a91a16dae6ce0873a268ae2"
 )
 _EMAIL_FIXTURE_COUNT = 11
 _EMAIL_FIXTURE_PATH_PREFIX = ("examples", "support-agent", "email")
