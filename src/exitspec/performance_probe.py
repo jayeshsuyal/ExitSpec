@@ -284,6 +284,7 @@ class StreamResponse:
 
     status_code: int
     chunks: Iterable[bytes] = field(repr=False)
+    content_type: str | None = "text/event-stream"
     _closer: Callable[[], None] = field(
         default=lambda: None,
         repr=False,
@@ -371,6 +372,7 @@ class OpenAIHTTPTransport:
             headers["Authorization"] = "Bearer " + self.__api_key
 
         connection: Any | None = None
+        deadline_monotonic = time.monotonic() + request.timeout_seconds
         try:
             connection = connection_factory(
                 parts.hostname,
@@ -399,20 +401,42 @@ class OpenAIHTTPTransport:
                     pass
             raise
 
-        owner = _HTTPResponseOwner(response, connection)
+        get_header = getattr(response, "getheader", None)
+        content_type = (
+            get_header("Content-Type") if callable(get_header) else None
+        )
+        owner = _HTTPResponseOwner(
+            response,
+            connection,
+            deadline_monotonic=deadline_monotonic,
+        )
         return StreamResponse(
             status_code=status,
             chunks=owner.iter_chunks(),
+            content_type=content_type,
             _closer=owner.close,
         )
 
 
 class _HTTPResponseOwner:
-    __slots__ = ("__closed", "__connection", "__response", "__lock")
+    __slots__ = (
+        "__closed",
+        "__connection",
+        "__deadline_monotonic",
+        "__response",
+        "__lock",
+    )
 
-    def __init__(self, response: Any, connection: Any) -> None:
+    def __init__(
+        self,
+        response: Any,
+        connection: Any,
+        *,
+        deadline_monotonic: float,
+    ) -> None:
         self.__response = response
         self.__connection = connection
+        self.__deadline_monotonic = deadline_monotonic
         self.__closed = False
         self.__lock = threading.Lock()
 
@@ -421,6 +445,13 @@ class _HTTPResponseOwner:
         if not callable(read_chunk):
             read_chunk = self.__response.read
         while True:
+            remaining = self.__deadline_monotonic - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            socket = getattr(self.__connection, "sock", None)
+            set_timeout = getattr(socket, "settimeout", None)
+            if callable(set_timeout):
+                set_timeout(remaining)
             chunk = read_chunk(4096)
             if not chunk:
                 break
@@ -877,6 +908,15 @@ def _execute_attempt(
                 ended_ns = _clock_value(clock_ns)
                 outcome = ProbeOutcome.HTTP_ERROR
             else:
+                content_type = candidate.content_type
+                if (
+                    type(content_type) is not str
+                    or content_type.split(";", 1)[0].strip().lower()
+                    != "text/event-stream"
+                ):
+                    raise ProbeProtocolError(
+                        "Streaming response content type is invalid."
+                    )
                 first_token_at, stream_done_at = _consume_openai_sse(
                     candidate.chunks,
                     clock_ns=clock_ns,
@@ -907,14 +947,16 @@ def _execute_attempt(
         ended_ns = _clock_value(clock_ns)
         outcome = ProbeOutcome.INTERNAL_ERROR
 
-    close_failed = False
+    close_failure_outcome: ProbeOutcome | None = None
     if response is not None:
         try:
             response.close()
+        except (OSError, http.client.HTTPException):
+            close_failure_outcome = ProbeOutcome.TRANSPORT_ERROR
         except Exception:
-            close_failed = True
-    if close_failed:
-        outcome = ProbeOutcome.TRANSPORT_ERROR
+            close_failure_outcome = ProbeOutcome.INTERNAL_ERROR
+    if close_failure_outcome is not None:
+        outcome = close_failure_outcome
         ttft_ns = None
         ended_ns = _clock_value(clock_ns)
 
