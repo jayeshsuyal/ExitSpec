@@ -52,7 +52,7 @@ def test_dashboard_and_seeded_workbench_have_distinct_stable_routes(tmp_path):
         assert b'id="performance-main"' in performance
         assert b'id="performance-current-task"' in performance
         assert b'id="current-task"' not in performance
-        assert b"Run the frozen latency check" in performance
+        assert b"Check endpoint readiness" in performance
         assert b"Evidence Pack" in performance
         assert _get_bytes(base_url + "/dashboard.css")
         assert _get_bytes(base_url + "/dashboard.js")
@@ -212,7 +212,7 @@ def test_performance_poc_detail_rejects_url_parameters(tmp_path, suffix):
         server.server_close()
 
 
-def test_performance_ui_has_no_browser_execution_control():
+def test_performance_ui_exposes_only_the_trusted_operation_control():
     static_root = Path(__file__).resolve().parents[1] / "src/exitspec/static"
     html = (static_root / "performance.html").read_text("utf-8")
     javascript = (static_root / "performance.js").read_text("utf-8")
@@ -220,12 +220,18 @@ def test_performance_ui_has_no_browser_execution_control():
     assert 'id="performance-current-task"' in html
     assert 'id="requirement-list"' in html
     assert 'id="evidence-verdict"' in html
+    assert 'id="evidence-pack-link"' in html
+    assert 'id="check-readiness"' in html
+    assert 'id="run-proof"' in html
+    assert "Check readiness" in html
+    assert "Run proof" in html
     assert "<details" in html
     assert "<canvas" not in html
     assert "<svg" not in html
-    assert 'id="run-proof"' not in html
-    assert "fetch(DETAIL_API" in javascript
-    assert "method:" not in javascript
+    assert "requestJson(DETAIL_API)" in javascript
+    assert "requestJson(READINESS_API)" in javascript
+    assert '$("#run-proof").addEventListener("click"' in javascript
+    assert 'method: "POST"' in javascript
 
 
 @pytest.mark.parametrize(
