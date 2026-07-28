@@ -53,6 +53,10 @@ SOURCE_WEB_CONTRACT_NAME = "wave-2-source-web-v1.json"
 EXPECTED_SOURCE_WEB_CONTRACT_SHA256 = (
     "f89825510155b1d579814da0f6e3a639c1b03d3111deba170556654eaca35ffd"
 )
+IMPLEMENTATION_EVIDENCE_NAME = "wave-2-implementation-evidence-v1.json"
+EXPECTED_IMPLEMENTATION_EVIDENCE_SHA256 = (
+    "bc3986ac0b8a5e718f98398b4c76bd42d2dc19f9d0cfb54774ee1707afe92990"
+)
 EXPECTED_EMAIL_CASES = {
     "allowed-text-attachment": (
         "a1edd2fde773cd07dab79d7a3fbae80232660fa1ae340bb8f46a888769c38b51"
@@ -360,6 +364,15 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
             if member.startswith("exitspec/demo_data/support_agent/email/")
         }
         assert actual_email_members == expected_email_members
+        evidence_member = (
+            "exitspec/demo_data/support_agent/evidence/{0}".format(
+                IMPLEMENTATION_EVIDENCE_NAME
+            )
+        )
+        assert evidence_member in members
+        assert _sha256(archive.read(evidence_member)) == (
+            EXPECTED_IMPLEMENTATION_EVIDENCE_SHA256
+        )
         for filename, expected_sha256 in EXPECTED_EMAIL_RESOURCES.items():
             member = "exitspec/demo_data/support_agent/email/{0}".format(
                 filename
