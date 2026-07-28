@@ -80,6 +80,14 @@ from .performance_workspace import (
     performance_poc_detail_payload,
     performance_workspace_record_and_facts,
 )
+from .performance_web_api import (
+    handle_performance_web_api_request,
+    is_performance_web_api_target,
+)
+from .performance_web_runtime import PerformanceWebRuntime
+from .performance_web_service import (
+    build_trusted_performance_web_runtime,
+)
 from .poc_creation import (
     DraftPOCCapacityExceeded,
     DraftPOCCreateRequest,
@@ -2376,6 +2384,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         wave1_provider_execution: Optional[
             Wave1ProviderExecutionConfiguration
         ] = None,
+        performance_runtime: Optional[PerformanceWebRuntime] = None,
     ) -> None:
         configuration = (
             Wave1ProviderExecutionConfiguration()
@@ -2385,9 +2394,21 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         if type(configuration) is not Wave1ProviderExecutionConfiguration:
             raise ValueError(
                 "Wave-1 provider execution configuration is invalid."
-            )
+        )
         self._resource_stack = resource_stack
         self.draft_poc_service = ProcessLocalDraftPOCService()
+        if (
+            performance_runtime is not None
+            and type(performance_runtime) is not PerformanceWebRuntime
+        ):
+            raise ValueError("Performance web runtime is invalid.")
+        self.performance_runtime = (
+            performance_runtime
+            if performance_runtime is not None
+            else build_trusted_performance_web_runtime(
+                output_root=session.output_root.resolve(),
+            )
+        )
         super().__init__(address, ExitSpecDemoRequestHandler)
         self.session = session
         self.wave1_provider_execution = configuration
@@ -2497,6 +2518,67 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
         return True
 
+    def _dispatch_performance_read(self) -> bool:
+        response = handle_performance_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.performance_runtime,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_performance_write(self) -> bool:
+        if not is_performance_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_performance_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.performance_runtime,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        try:
+            payload = self._read_json()
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance API request is invalid."},
+            )
+            return True
+        response = handle_performance_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            runtime=self.server.performance_runtime,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
     def send_error(
         self,
         code: int,
@@ -2512,10 +2594,19 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             and self._dispatch_source_request()
         ):
             return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_performance_web_api_target(self.path)
+            and self._dispatch_performance_read()
+        ):
+            return
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
         if self._dispatch_source_request():
+            return
+        if self._dispatch_performance_read():
             return
         parsed = urlparse(self.path)
         if parsed.path == "/app/pocs/new":
@@ -2631,6 +2722,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
         if self._dispatch_source_request():
+            return
+        if self._dispatch_performance_write():
             return
         parsed = urlparse(self.path)
         if parsed.path == "/api/pocs":
