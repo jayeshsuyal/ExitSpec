@@ -216,18 +216,11 @@ class ErrorRateRule(FrozenExitSpecModel):
     metric: Literal["error_rate"]
     aggregation: Literal["rate"]
     unit: Literal["proportion"]
-    operator: Literal["lt", "lte"]
-    threshold: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    operator: Literal["lt"]
+    threshold: float = Field(gt=0.0, lt=1.0, allow_inf_nan=False)
     method: Literal["failed_attempts_over_total_attempts"]
     minimum_attempts: int = Field(gt=0, le=1_000)
     must_pass: Literal[True]
-
-    @model_validator(mode="after")
-    def reject_impossible_strict_zero_threshold(self) -> "ErrorRateRule":
-        if self.operator == "lt" and self.threshold == 0.0:
-            raise ValueError("A strict error-rate threshold below zero is impossible.")
-        return self
-
 
 class InferencePerformanceCriterion(FrozenExitSpecModel):
     """One must-have criterion composed of non-compensating performance rules."""
@@ -285,7 +278,7 @@ class CriterionDraft(ExitSpecModel):
     human_added: bool = False
     human_added_rationale: Optional[str] = None
     normalized_claim: str = Field(min_length=1)
-    proposed_criterion: Optional[Criterion] = None
+    proposed_criterion: Optional[ContractCriterion] = None
     open_questions: List[str] = Field(default_factory=list)
     review: Optional[CriterionReview] = None
 

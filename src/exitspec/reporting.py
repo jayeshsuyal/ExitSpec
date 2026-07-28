@@ -17,6 +17,8 @@ from .models import (
     POCContract,
     ProportionMeasurement,
     RunManifest,
+    InferencePerformanceCriterion,
+    ContractCriterion,
 )
 from .verdicts import aggregate_overall_verdict, evaluate_proportion_criterion
 
@@ -29,6 +31,18 @@ def _draft_measurement_summary(draft: CriterionDraft) -> str:
     criterion = draft.proposed_criterion
     if criterion is None:
         return "No executable measurement proposed yet."
+    if isinstance(criterion, InferencePerformanceCriterion):
+        return (
+            "Client-observed p95 TTFT {ttft_operator} {ttft_threshold:g} ms; "
+            "attempted-request error rate &lt; {error_threshold:.2%}; "
+            "both must pass; adapter {adapter}@{version}"
+        ).format(
+            ttft_operator=_operator_symbol(criterion.ttft_p95.operator),
+            ttft_threshold=criterion.ttft_p95.threshold,
+            error_threshold=criterion.error_rate.threshold,
+            adapter=escape(criterion.adapter),
+            version=escape(criterion.adapter_version),
+        )
     return "{0} ≥ {1:.0%}; at least {2} samples; adapter {3}@{4}".format(
         escape(criterion.metric.value),
         criterion.rule.threshold,
@@ -186,7 +200,7 @@ def render_define_review(
     )
 
 
-def _source_quote(criterion: Criterion) -> str:
+def _source_quote(criterion: ContractCriterion) -> str:
     """Return a short, safe explanation of where a criterion came from."""
 
     source = criterion.source
@@ -200,8 +214,33 @@ def _source_quote(criterion: Criterion) -> str:
     )
 
 
-def _criterion_rule_summary(criterion: Criterion) -> str:
-    """Use plain language for the currently supported proportion rule."""
+def _operator_symbol(operator: str) -> str:
+    return {
+        "lt": "&lt;",
+        "lte": "≤",
+        "gt": "&gt;",
+        "gte": "≥",
+        "eq": "=",
+    }[operator]
+
+
+def _criterion_rule_summary(criterion: ContractCriterion) -> str:
+    """Use plain language for each supported agreement rule."""
+
+    if isinstance(criterion, InferencePerformanceCriterion):
+        return (
+            "Client-observed p95 time to first non-empty content must be "
+            "{ttft_operator} {ttft_threshold:g} milliseconds across at least "
+            "{ttft_samples} successful measured requests. Attempted-request "
+            "error rate must be &lt; {error_threshold:.2%} across exactly the "
+            "frozen {attempts}-attempt workload. Both checks must pass."
+        ).format(
+            ttft_operator=_operator_symbol(criterion.ttft_p95.operator),
+            ttft_threshold=criterion.ttft_p95.threshold,
+            ttft_samples=criterion.ttft_p95.minimum_successful_samples,
+            error_threshold=criterion.error_rate.threshold,
+            attempts=criterion.error_rate.minimum_attempts,
+        )
 
     return (
         "At least {threshold} {metric} across at least {minimum_samples} samples. "

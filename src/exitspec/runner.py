@@ -16,6 +16,7 @@ from .contracts import utc_now, verify_contract_digest
 from .fixtures import fixture_sha256, load_tool_selection_fixture
 from .models import (
     ContractStatus,
+    Criterion,
     CriterionVerdict,
     EvidenceArtifact,
     OverallVerdict,
@@ -68,7 +69,12 @@ def _run_status(external_blocked_reason: Optional[str], internal_error: Optional
 def _require_brick_one_contract(contract: POCContract) -> None:
     if len(contract.criteria) != 1:
         raise ValueError("Brick 1 supports exactly one criterion per demo run.")
-    if contract.criteria[0].adapter != DeterministicToolSelectionAdapter.name:
+    criterion = contract.criteria[0]
+    if not isinstance(criterion, Criterion):
+        raise ValueError(
+            "Brick 1 supports only the legacy exact-tool-selection criterion type."
+        )
+    if criterion.adapter != DeterministicToolSelectionAdapter.name:
         raise ValueError("Brick 1 requires the deterministic_tool_selection adapter.")
 
 
