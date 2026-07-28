@@ -48,6 +48,10 @@ def inputs(
             b'{ "text": "alpha", "prompt_id": "p1" }\n'
             b'{"prompt_id":"p2","text":"beta"}'
         ),
+        "preflight_json": json_bytes(
+            schema_version="exitspec.performance-preflight.v1",
+            outcome="SUCCESS",
+        ),
         "probe_manifest_json": json_bytes(
             schema_version="probe.v1",
             manifest_sha256="a" * 64,
@@ -97,6 +101,7 @@ def test_atomic_persistence_creates_only_fixed_layout_and_returns_exact_bytes(
         "confirmation.json",
         "workload.json",
         "prompt-fixture.jsonl",
+        "evidence/preflight.json",
         "evidence/probe-manifest.json",
         "evidence/probe-records.jsonl",
         "receipt.json",
@@ -125,8 +130,8 @@ def test_registry_and_hash_inventory_are_strict_and_recomputed(tmp_path: Path):
     inventory = json.loads(verified.artifact_hashes_json)
 
     assert registry["run_id"] == RUN_ID
-    assert len(registry["artifacts"]) == 10
-    assert len(inventory["artifacts"]) == 11
+    assert len(registry["artifacts"]) == 11
+    assert len(inventory["artifacts"]) == 12
     assert inventory["algorithm"] == "sha256"
     registry_by_path = {
         entry["path"]: entry for entry in registry["artifacts"]
@@ -283,6 +288,7 @@ def test_unknown_or_unverified_redaction_state_is_rejected(tmp_path: Path):
         "confirmation.json",
         "workload.json",
         "prompt-fixture.jsonl",
+        "evidence/preflight.json",
         "evidence/probe-manifest.json",
         "evidence/probe-records.jsonl",
         "receipt.json",

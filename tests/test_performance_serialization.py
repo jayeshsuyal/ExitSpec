@@ -42,6 +42,7 @@ from exitspec.performance_serialization import (
     parse_performance_verdict_display,
     parse_probe_manifest,
     parse_probe_run,
+    parse_probe_run_envelope,
     recompute_and_compare_performance_verdict,
     serialize_confirmation,
     serialize_contract,
@@ -50,6 +51,7 @@ from exitspec.performance_serialization import (
     serialize_probe_manifest,
     serialize_probe_records_jsonl,
     serialize_probe_run,
+    serialize_probe_run_envelope,
 )
 from exitspec.performance_verdicts import evaluate_performance_criterion
 from exitspec.runner import load_contract
@@ -291,6 +293,27 @@ def test_probe_run_round_trip_calls_whole_run_validation():
 
     assert parsed == run
     assert serialize_probe_records_jsonl(parsed) == record_bytes
+
+
+def test_probe_run_envelope_round_trip_is_canonical_and_self_binding():
+    run = _probe_run()
+    serialized = serialize_probe_run_envelope(run)
+
+    assert serialized == canonical_json_bytes(json.loads(serialized))
+    assert parse_probe_run_envelope(serialized) == run
+
+    payload = json.loads(serialized)
+    payload["records_sha256"] = "0" * 64
+    with pytest.raises(
+        PerformanceSerializationError,
+        match="artifact hash",
+    ):
+        parse_probe_run_envelope(canonical_json_bytes(payload))
+
+    payload = json.loads(serialized)
+    payload["unknown"] = True
+    with pytest.raises(PerformanceSerializationError, match="fields"):
+        parse_probe_run_envelope(canonical_json_bytes(payload))
 
 
 def test_probe_run_rejects_record_hash_execution_and_manifest_mismatch():

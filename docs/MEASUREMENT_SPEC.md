@@ -98,11 +98,13 @@ TTFT is client-observed. It includes network, proxy, queueing, and inference
 time; it is not presented as GPU execution latency.
 
 The authoritative runner reconstructs the contract, confirmation, workload,
-manifest, records, receipt, calculations, verdict, and static HTML from
-persisted bytes and recalculates the decision before returning it. SQLite binds
-the ledger run, probe execution, receipt, and artifact-registry hash. A crashed
-`RUNNING` operation is never silently rerun or auto-promoted from an orphaned
-directory.
+successful readiness probe, manifest, records, receipt, calculations, verdict,
+and static HTML from persisted bytes and recalculates the decision before
+returning it. The readiness probe is sanitized, hashed, and checked against its
+independently derived one-request configuration; it is not part of the customer
+criterion denominator. SQLite binds the ledger run, probe execution, receipt,
+and artifact-registry hash. A crashed `RUNNING` operation is never silently
+rerun or auto-promoted from an orphaned directory.
 
 Future performance versions may add complete p50/p95/p99 distributions,
 throughput, output-token distributions, warm/cold state, environment metadata,

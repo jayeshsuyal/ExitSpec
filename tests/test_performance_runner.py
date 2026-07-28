@@ -23,6 +23,7 @@ from exitspec.performance_operations import (
     PerformanceOperationConflict,
     PerformanceOperationStatus,
 )
+from exitspec.performance_probe import ProbeOutcome
 from exitspec.performance_runner import (
     PerformanceRunnerError,
     run_performance_proof,
@@ -269,6 +270,12 @@ def test_full_live_sse_loop_returns_only_recomputed_verified_pass(
     assert first.verdict.value == "PASS"
     assert first.operation.status is PerformanceOperationStatus.COMPLETED
     assert first.artifacts is not None
+    assert first.preflight_run is not None
+    assert len(first.preflight_run.records) == 1
+    assert first.preflight_run.records[0].outcome is ProbeOutcome.SUCCESS
+    assert json.loads(first.artifacts.preflight_json)["records"][0][
+        "outcome"
+    ] == "SUCCESS"
     assert first.artifacts.decision_packet_html.count(b'class="fact-row') == 2
     assert first.artifacts.decision_packet_html == (
         replay.artifacts.decision_packet_html
@@ -593,6 +600,85 @@ def test_same_key_with_changed_frozen_inputs_conflicts_before_network(
             )
 
     assert state.request_count == calls_before_conflict
+
+
+def test_fully_rehashed_unsuccessful_preflight_is_rejected_on_replay(
+    tmp_path: Path,
+):
+    with _endpoint() as (endpoint, _state):
+        bundle = tmp_path / "bundle"
+        output = tmp_path / "runs"
+        contract_path, confirmation_path = _write_bundle(
+            bundle,
+            endpoint,
+        )
+        result = _run(
+            bundle,
+            output,
+            contract_path,
+            confirmation_path,
+        )
+
+    run_dir = result.artifacts.run_dir
+    preflight_path = run_dir / "evidence/preflight.json"
+    forged = json.loads(preflight_path.read_bytes())
+    record = forged["records"][0]
+    record.update(
+        {
+            "http_status": 503,
+            "outcome": "HTTP_ERROR",
+            "ttft_ns": None,
+        }
+    )
+    forged["records_sha256"] = hashlib.sha256(
+        canonical_json_bytes(record)
+    ).hexdigest()
+    preflight_bytes = canonical_json_bytes(forged)
+    preflight_path.write_bytes(preflight_bytes)
+
+    registry_path = run_dir / "evidence-artifacts.json"
+    registry = json.loads(registry_path.read_bytes())
+    preflight_entry = next(
+        item
+        for item in registry["artifacts"]
+        if item["path"] == "evidence/preflight.json"
+    )
+    preflight_entry["size_bytes"] = len(preflight_bytes)
+    preflight_entry["sha256"] = hashlib.sha256(
+        preflight_bytes
+    ).hexdigest()
+    registry_bytes = canonical_json_bytes(registry)
+    registry_path.write_bytes(registry_bytes)
+
+    inventory_path = run_dir / "artifact-hashes.json"
+    inventory = json.loads(inventory_path.read_bytes())
+    inventory_preflight = next(
+        item
+        for item in inventory["artifacts"]
+        if item["path"] == "evidence/preflight.json"
+    )
+    inventory_preflight.update(preflight_entry)
+    inventory_registry = next(
+        item
+        for item in inventory["artifacts"]
+        if item["path"] == "evidence-artifacts.json"
+    )
+    inventory_registry["size_bytes"] = len(registry_bytes)
+    inventory_registry["sha256"] = hashlib.sha256(
+        registry_bytes
+    ).hexdigest()
+    inventory_path.write_bytes(canonical_json_bytes(inventory))
+
+    with pytest.raises(
+        PerformanceRunnerError,
+        match="successful preflight|failed closed",
+    ):
+        _run(
+            bundle,
+            output,
+            contract_path,
+            confirmation_path,
+        )
 
 
 def test_fully_rehashed_forged_verdict_is_rejected_on_replay(

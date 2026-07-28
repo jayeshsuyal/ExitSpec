@@ -61,6 +61,9 @@ _MAX_JSON_BYTES: Final = 16 * 1024 * 1024
 _MAX_JSONL_BYTES: Final = 64 * 1024 * 1024
 _SHA256_LENGTH: Final = 64
 _PROMPT_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+PREFLIGHT_ENVELOPE_SCHEMA_VERSION: Final = (
+    "exitspec.performance-preflight.v1"
+)
 
 _MANIFEST_FIELDS: Final = frozenset(
     {
@@ -81,6 +84,15 @@ _MANIFEST_FIELDS: Final = frozenset(
     }
 )
 _PROMPT_DESCRIPTOR_FIELDS: Final = frozenset({"prompt_id", "sha256"})
+_PREFLIGHT_ENVELOPE_FIELDS: Final = frozenset(
+    {
+        "schema_version",
+        "execution_id",
+        "records_sha256",
+        "manifest",
+        "records",
+    }
+)
 _RECORD_FIELDS: Final = frozenset(
     {
         "schema_version",
@@ -421,6 +433,74 @@ def serialize_probe_run(probe_run: ProbeRun) -> tuple[bytes, bytes]:
     return (
         serialize_probe_manifest(probe_run.manifest),
         serialize_probe_records_jsonl(probe_run),
+    )
+
+
+def serialize_probe_run_envelope(probe_run: ProbeRun) -> bytes:
+    """Serialize one self-binding probe run for readiness evidence."""
+
+    if type(probe_run) is not ProbeRun:
+        raise TypeError("probe_run must be a ProbeRun.")
+    manifest_json, records_jsonl_bytes = serialize_probe_run(probe_run)
+    records = [
+        json.loads(line)
+        for line in records_jsonl_bytes.decode("utf-8").splitlines()
+    ]
+    return canonical_json_bytes(
+        {
+            "schema_version": PREFLIGHT_ENVELOPE_SCHEMA_VERSION,
+            "execution_id": probe_run.execution_id,
+            "records_sha256": probe_run.records_sha256,
+            "manifest": json.loads(manifest_json),
+            "records": records,
+        }
+    )
+
+
+def parse_probe_run_envelope(data: bytes) -> ProbeRun:
+    """Reconstruct and validate one canonical readiness probe envelope."""
+
+    payload = _load_canonical_object(
+        data,
+        artifact_name="preflight probe",
+    )
+    _require_exact_fields(
+        payload,
+        _PREFLIGHT_ENVELOPE_FIELDS,
+        "preflight probe",
+    )
+    if payload["schema_version"] != PREFLIGHT_ENVELOPE_SCHEMA_VERSION:
+        raise PerformanceSerializationError(
+            "Preflight probe schema version is unsupported."
+        )
+    if type(payload["manifest"]) is not dict:
+        raise PerformanceSerializationError(
+            "Preflight probe manifest must be an object."
+        )
+    records = payload["records"]
+    if type(records) is not list or not records:
+        raise PerformanceSerializationError(
+            "Preflight probe records must be a non-empty array."
+        )
+    if any(type(record) is not dict for record in records):
+        raise PerformanceSerializationError(
+            "Every preflight probe record must be an object."
+        )
+    manifest_json = canonical_json_bytes(payload["manifest"])
+    records_jsonl_bytes = b"\n".join(
+        canonical_json_bytes(record) for record in records
+    )
+    return parse_probe_run(
+        manifest_json,
+        records_jsonl_bytes,
+        expected_execution_id=_require_str(
+            payload["execution_id"],
+            "preflight execution_id",
+        ),
+        expected_records_sha256=_require_sha256(
+            payload["records_sha256"],
+            "preflight records_sha256",
+        ),
     )
 
 
@@ -1103,6 +1183,7 @@ __all__ = [
     "parse_performance_verdict_display",
     "parse_probe_manifest",
     "parse_probe_run",
+    "parse_probe_run_envelope",
     "recompute_and_compare_performance_verdict",
     "serialize_confirmation",
     "serialize_contract",
@@ -1111,4 +1192,5 @@ __all__ = [
     "serialize_probe_manifest",
     "serialize_probe_records_jsonl",
     "serialize_probe_run",
+    "serialize_probe_run_envelope",
 ]
