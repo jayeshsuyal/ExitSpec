@@ -125,6 +125,26 @@ def build_parser() -> argparse.ArgumentParser:
             "Do not place API keys directly on the command line."
         ),
     )
+    performance.add_argument(
+        "--credential-endpoint",
+        type=str,
+        default=None,
+        metavar="URL",
+        help=(
+            "Exact frozen endpoint authorized to receive the credential. "
+            "Required with --api-key-env."
+        ),
+    )
+    performance.add_argument(
+        "--authorize-requests",
+        type=int,
+        default=None,
+        metavar="COUNT",
+        help=(
+            "Authorize the exact preflight + warmup + measured request count. "
+            "Required for remote or credentialed execution."
+        ),
+    )
 
     serve = subparsers.add_parser(
         "serve", help="Run the local synthetic Define → Prove → Decide browser demo."
@@ -189,6 +209,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             raise ValueError(
                 "The requested API key environment variable is not set."
             )
+        if args.api_key_env is not None and args.credential_endpoint is None:
+            raise ValueError(
+                "--credential-endpoint is required with --api-key-env."
+            )
+        if args.api_key_env is None and args.credential_endpoint is not None:
+            raise ValueError(
+                "--credential-endpoint requires --api-key-env."
+            )
         result = run_performance_proof(
             contract_path=args.contract,
             confirmation_path=args.confirmation,
@@ -197,6 +225,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             operation_database_path=args.operation_db,
             idempotency_key=args.idempotency_key,
             api_key=api_key,
+            credential_endpoint=args.credential_endpoint,
+            authorized_request_count=args.authorize_requests,
         )
         del api_key
         print("Operation: {0}".format(result.operation.run_id))

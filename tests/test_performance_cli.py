@@ -74,12 +74,23 @@ def test_performance_cli_reads_api_key_only_from_explicit_environment(
 
     exit_code = cli_module.main(
         _argv(tmp_path)
-        + ["--api-key-env", "SYNTHETIC_ENDPOINT_KEY"]
+        + [
+            "--api-key-env",
+            "SYNTHETIC_ENDPOINT_KEY",
+            "--credential-endpoint",
+            "https://inference.example.test/v1/chat/completions",
+            "--authorize-requests",
+            "111",
+        ]
     )
 
     output = capsys.readouterr().out
     assert exit_code == 0
     assert captured["api_key"] == secret
+    assert captured["credential_endpoint"] == (
+        "https://inference.example.test/v1/chat/completions"
+    )
+    assert captured["authorized_request_count"] == 111
     assert secret not in output
     assert "Evidence verdict: PASS" in output
     assert "decision-packet.html" in output
@@ -102,6 +113,33 @@ def test_performance_cli_fails_before_runner_when_requested_env_is_missing(
         cli_module.main(
             _argv(tmp_path)
             + ["--api-key-env", "MISSING_ENDPOINT_KEY"]
+        )
+
+    assert called is False
+
+
+def test_performance_cli_requires_exact_credential_endpoint_disclosure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    called = False
+
+    def fake_run(**kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(cli_module, "run_performance_proof", fake_run)
+    monkeypatch.setenv("SYNTHETIC_ENDPOINT_KEY", "secret")
+
+    with pytest.raises(ValueError, match="credential-endpoint"):
+        cli_module.main(
+            _argv(tmp_path)
+            + [
+                "--api-key-env",
+                "SYNTHETIC_ENDPOINT_KEY",
+                "--authorize-requests",
+                "111",
+            ]
         )
 
     assert called is False

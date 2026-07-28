@@ -144,7 +144,10 @@ def test_artifacts_are_deterministic_json_and_never_persist_content_or_key():
     manifest_text = manifest_json(result.manifest)
     records_text = records_jsonl(result.records)
     complete_artifact = manifest_text + records_text + repr(
-        OpenAIHTTPTransport(API_KEY)
+        OpenAIHTTPTransport(
+            API_KEY,
+            credential_endpoint=REMOTE_ENDPOINT,
+        )
     )
 
     assert manifest_text == manifest_json(result.manifest)
@@ -581,6 +584,7 @@ def test_stdlib_transport_posts_streaming_body_without_following_redirects():
     factory = FakeConnectionFactory(connection)
     transport = OpenAIHTTPTransport._for_testing(
         API_KEY,
+        credential_endpoint=REMOTE_ENDPOINT,
         connection_factory=factory,
     )
 
@@ -603,6 +607,34 @@ def test_stdlib_transport_posts_streaming_body_without_following_redirects():
     assert request_body["messages"][0]["content"] == SECRET_PROMPT
     assert response.close_calls == 1
     assert connection.close_calls == 1
+
+
+def test_stdlib_transport_refuses_credential_endpoint_mismatch_before_connect():
+    response = FakeHTTPResponse()
+    connection = FakeHTTPConnection(response)
+    factory = FakeConnectionFactory(connection)
+    transport = OpenAIHTTPTransport._for_testing(
+        API_KEY,
+        credential_endpoint=REMOTE_ENDPOINT,
+        connection_factory=factory,
+    )
+
+    with pytest.raises(
+        ProbeConfigurationError,
+        match="unbound endpoint",
+    ):
+        transport.send(
+            ProbeRequest(
+                request_id="credential-mismatch",
+                endpoint=(
+                    "https://other.example.test/v1/chat/completions"
+                ),
+                json_body={"stream": True},
+                timeout_seconds=5,
+            )
+        )
+
+    assert factory.calls == []
 
 
 def test_record_constructor_cannot_smuggle_a_nonterminal_outcome():
