@@ -26,7 +26,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import yaml
 
@@ -119,6 +119,7 @@ from .wave1_runtime import (
 )
 from .workspace import (
     ArchiveState,
+    DashboardFilter,
     POCRegistryEntry,
     POCWorkflowFacts,
     ReadOnlyPOCRegistry,
@@ -144,6 +145,9 @@ UNSUPPORTED_MEDIA_TYPE_ERROR = "Content-Type must be application/json."
 FORBIDDEN_ORIGIN_ERROR = "Origin is not allowed."
 PROVIDER_ROUTE_PARAMETERS_ERROR = (
     "Provider authority routes do not accept URL parameters."
+)
+WORKSPACE_FILTER_ERROR = (
+    "Workspace filter must be exactly Active, Needs attention, or Completed."
 )
 SUPPORTED_RULE_TEMPLATE = {
     "metric": Metric.EXACT_TOOL_SELECTION_RATE.value,
@@ -2070,10 +2074,27 @@ class DemoSession:
             "workspace": self._workspace_projection_payload(contract, proof),
         }
 
+    @_serialized_session
+    def workspace_payload(
+        self,
+        selected_filter: DashboardFilter = DashboardFilter.ACTIVE,
+    ) -> Dict[str, Any]:
+        """Return one bounded dashboard projection without changing POC state."""
+
+        reviewed_contract = self.approved_contract()
+        contract = self.frozen_contract or reviewed_contract
+        return self._workspace_projection_payload(
+            contract,
+            self._proof_payload(),
+            selected_filter=selected_filter,
+        )
+
     def _workspace_projection_payload(
         self,
         contract: Optional[POCContract],
         proof: Optional[Dict[str, Any]],
+        *,
+        selected_filter: DashboardFilter = DashboardFilter.ACTIVE,
     ) -> Dict[str, Any]:
         """Project the seeded POC without granting the workspace write authority."""
 
@@ -2139,6 +2160,7 @@ class DemoSession:
             ReadOnlyPOCRegistry((record,)),
             {record.poc_id: facts},
             current_owner=owner,
+            selected_filter=selected_filter,
         )
         return dashboard.model_dump(mode="json")
 
@@ -2479,6 +2501,23 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/state":
             self._send_json(HTTPStatus.OK, self.server.session.state_payload())
             return
+        if parsed.path == "/api/workspace":
+            if parsed.params or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": WORKSPACE_FILTER_ERROR},
+                )
+                return
+            try:
+                selected_filter = _workspace_filter(parsed.query)
+            except ValueError as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                self.server.session.workspace_payload(selected_filter),
+            )
+            return
         customer_review_token = _customer_review_api_token(parsed.path)
         if customer_review_token is not None:
             try:
@@ -2499,7 +2538,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/artifacts/"):
             self._serve_artifact(parsed.path)
             return
-        self._serve_static(parsed.path)
+        self._serve_static(parsed.path, parsed.query)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
         if self._dispatch_source_request():
@@ -2989,8 +3028,16 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Request body must be a JSON object.")
         return payload
 
-    def _serve_static(self, request_path: str) -> None:
+    def _serve_static(self, request_path: str, query: str = "") -> None:
         if request_path in ("", "/", "/app", "/app/"):
+            relative = (
+                "index.html"
+                if _is_compatibility_workbench_query(query)
+                else "dashboard.html"
+            )
+        elif request_path.strip("/") == (
+            "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
+        ):
             relative = "index.html"
         elif _is_customer_review_page(request_path):
             relative = "review.html"
@@ -3129,6 +3176,32 @@ def _safe_child(root: Path, relative: str) -> Optional[Path]:
     except (OSError, ValueError):
         return None
     return target
+
+
+def _workspace_filter(query: str) -> DashboardFilter:
+    if not query:
+        return DashboardFilter.ACTIVE
+    try:
+        fields = parse_qsl(query, keep_blank_values=True, strict_parsing=True)
+    except ValueError as error:
+        raise ValueError(WORKSPACE_FILTER_ERROR) from error
+    if len(fields) != 1 or fields[0][0] != "filter":
+        raise ValueError(WORKSPACE_FILTER_ERROR)
+    try:
+        return DashboardFilter(fields[0][1])
+    except ValueError as error:
+        raise ValueError(WORKSPACE_FILTER_ERROR) from error
+
+
+def _is_compatibility_workbench_query(query: str) -> bool:
+    try:
+        fields = parse_qsl(query, keep_blank_values=True)
+    except ValueError:
+        return False
+    return any(
+        (key, value) in {("intake", "email"), ("mode", "recording")}
+        for key, value in fields
+    )
 
 
 def _is_customer_review_page(request_path: str) -> bool:

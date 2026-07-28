@@ -72,12 +72,13 @@ Current implementation status is recorded separately at
 `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; ExitSpec
 does not rewrite a frozen contract to claim completion.
 
-The first POC-workspace implementation slice is also present behind the current
-workbench: an immutable local POC registry snapshot and deterministic read-only
-projection derive source summary, `Define`/`Prove`/`Decide` phase, next action,
-blockers, and latest evidence from existing domain state. `/api/state` exposes
-that one seeded projection under `workspace`. The POC dashboard and creation UI
-are not implemented yet.
+The first POC-workspace slices are implemented: an immutable local POC registry
+snapshot and deterministic read-only projection derive source summary,
+`Define`/`Prove`/`Decide` phase, next action, blockers, and latest evidence from
+existing domain state. `/app` renders that state as one bounded POC dashboard;
+`/api/workspace` exposes its three deterministic filters; and the seeded
+workbench lives at `/app/pocs/poc_support_agent_demo`. POC creation remains
+visibly unavailable until its separate authority-free draft flow is built.
 
 ### Confirm
 
@@ -139,9 +140,11 @@ python3 -m pip install -e '.[dev]'
 exitspec serve --open-browser
 ```
 
-The workbench is served at `http://127.0.0.1:8765/app`. For a clean recording,
-open `http://127.0.0.1:8765/app?mode=recording` and click **Restart** before the
-take.
+The POC dashboard is served at `http://127.0.0.1:8765/app`; its seeded
+workbench is at
+`http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`. For a clean recording,
+the compatibility entry `http://127.0.0.1:8765/app?mode=recording` still opens
+the workbench directly. Click **Restart** before the take.
 
 For the guided Wave 2 email demo, open
 `http://127.0.0.1:8765/app?intake=email` from a clean server and follow the

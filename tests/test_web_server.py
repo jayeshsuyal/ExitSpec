@@ -157,13 +157,22 @@ def test_recording_mode_query_serves_workbench_and_its_static_contract(tmp_path)
     server, worker, base_url = _running_server(tmp_path)
     try:
         recording_html = _get_bytes(base_url + "/app?mode=recording")
-        standard_html = _get_bytes(base_url + "/app")
+        email_html = _get_bytes(base_url + "/app?intake=email")
+        workbench_html = _get_bytes(
+            base_url + "/app/pocs/poc_support_agent_demo"
+        )
+        dashboard_html = _get_bytes(base_url + "/app")
         javascript = _get_bytes(base_url + "/app.js").decode("utf-8")
         styles = _get_bytes(base_url + "/styles.css").decode("utf-8")
 
-        assert recording_html == standard_html
+        assert recording_html == email_html == workbench_html
+        assert dashboard_html != workbench_html
+        assert b'id="dashboard-main"' in dashboard_html
+        assert b'id="continue-card"' in dashboard_html
         assert b'id="recording-restart"' in recording_html
         assert b'class="proof-workspace"' in recording_html
+        assert b'href="/styles.css"' in recording_html
+        assert b'src="/app.js"' in recording_html
         assert '<details class="rule-technical-details">' in javascript
         assert "body.recording-mode .source-details" in styles
     finally:

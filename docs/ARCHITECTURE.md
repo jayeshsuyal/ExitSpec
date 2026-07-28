@@ -46,10 +46,11 @@ The implemented local product still owns one process-scoped demo session. The
 next architecture target is accepted in
 [POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and frozen in
 [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
-The overall workspace remains contract-only. Its first implementation slice is
-now present: `workspace.py` provides immutable registry entries, an immutable
-registry snapshot, strict workflow facts, deterministic POC projections,
-bounded filters, and continue-card ordering. It has no mutation methods.
+The overall workspace remains contract-only. Its first two implementation
+slices are now present: `workspace.py` provides immutable registry entries, an
+immutable registry snapshot, strict workflow facts, deterministic POC
+projections, bounded filters, and continue-card ordering; `/app` renders the
+projection as the read-only POC dashboard. Neither surface has mutation methods.
 
 The target introduces a POC aggregate above the existing source, agreement, run,
 and evidence services:
@@ -84,24 +85,28 @@ The target route ownership is:
 /artifacts/{run_path}        existing static evidence boundary
 ```
 
-`/app?intake=email` and `/app?mode=recording` remain compatibility entries until
-the new dashboard and creation paths meet their acceptance contract. The route
-migration must preserve current review and artifact URLs.
+`/app?intake=email` and `/app?mode=recording` remain compatibility entries that
+open the seeded workbench directly. The dashboard opens the same workbench at
+`/app/pocs/poc_support_agent_demo`; current review and artifact URLs are
+unchanged.
 
 The first registry may remain explicitly local and process-scoped. Durable POC
 storage, authenticated workspace identity, tenant isolation, and real-customer
 source remain behind the real-customer trust gate.
 
 The current `DemoSession` adapts its existing synthetic state into exactly one
-`poc_support_agent_demo` projection under `/api/state.workspace`. It derives
-timestamps from existing domain records rather than reading the clock, preserves
-one POC identity when the guided source changes from transcript to email, and
-uses the existing contract, confirmation, run, and verdict enums. Missing or
-contradictory facts become typed visible blockers and reset the navigation phase
-to `Define`; the projection never repairs or advances underlying state.
+`poc_support_agent_demo` projection under `/api/state.workspace` and the bounded
+`/api/workspace?filter=...` read endpoint. It derives timestamps from existing
+domain records rather than reading the clock, preserves one POC identity when
+the guided source changes from transcript to email, and uses the existing
+contract, confirmation, run, and verdict enums. Missing or contradictory facts
+become typed visible blockers and reset the navigation phase to `Define`; the
+projection and dashboard never repair or advance underlying state.
 
-No dashboard HTML, POC creation route, registry mutation, second source record,
-durable persistence, or new authority is included in this slice.
+The dashboard has one visibly unavailable **New POC** control, at most one
+continue card, one finite list, and only the accepted Active, Needs attention,
+and Completed filters. POC creation, registry mutation, a second source record,
+durable persistence, and new authority remain excluded.
 
 ## Authority boundaries
 
@@ -460,10 +465,11 @@ on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 
 ## Deliberate limits and scale path
 
-The accepted dashboard, create flow, multi-source navigation, synthetic
-meeting-transcript source addition, and graphite/orange restoration are not yet
-implemented. The read-only registry and projection slice is implemented against
-the current single-session truth; the frozen overall contract remains unchanged.
+The create flow, multi-source navigation, and synthetic meeting-transcript
+source addition are not yet implemented. The read-only registry, projection,
+dashboard, route split, and graphite/orange visual contract are implemented
+against the current single-session truth; the frozen overall contract remains
+unchanged.
 
 The workspace implementation must reuse the existing source, review,
 confirmation, freeze, measurement, verdict, and artifact authorities. A

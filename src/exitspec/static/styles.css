@@ -1,16 +1,16 @@
 :root {
   color-scheme: dark;
-  --canvas: #0e141b;
-  --mast: #121a23;
-  --sheet: #18222d;
-  --raised: #1d2936;
-  --primary: #f1f4f7;
-  --secondary: #c7d0db;
-  --muted: #9aa8b8;
-  --rule: #2a3747;
-  --strong-rule: #40516a;
-  --signal: #8298f2;
-  --success: #73cda0;
+  --canvas: #0b0d0c;
+  --mast: #101310;
+  --sheet: #151815;
+  --raised: #1b1f1b;
+  --primary: #f2f0e8;
+  --secondary: #bec4ba;
+  --muted: #858d84;
+  --rule: #30362f;
+  --strong-rule: #4a5248;
+  --signal: #ff6b3d;
+  --success: #78d6a3;
   --text: var(--primary);
   --text-soft: var(--secondary);
   --faint: var(--muted);
@@ -28,14 +28,6 @@
     sans-serif;
   font-synthesis: none;
 }
-
-/*
- * Retired proof-sheet tokens kept as migration notes for downstream asset checks:
- * --canvas: #0b0d0c; --mast: #101310; --sheet: #151815; --raised: #1b1f1b;
- * --primary: #f2f0e8; --secondary: #bec4ba; --muted: #858d84;
- * --rule: #30362f; --strong-rule: #4a5248; --signal: #ff6b3d;
- * --success: #78d6a3.
- */
 
 * {
   box-sizing: border-box;
@@ -386,7 +378,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   border: 1px solid var(--rule);
   border-radius: 2px;
   background: var(--sheet);
-  box-shadow: 0 22px 60px rgb(4 8 13 / 32%);
+  box-shadow: 0 22px 60px rgb(5 7 5 / 32%);
 }
 
 .task-heading {
@@ -650,7 +642,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   border: 1px solid var(--strong-rule);
   padding: 12px;
   background: var(--raised);
-  box-shadow: 0 18px 48px rgb(4 8 13 / 38%);
+  box-shadow: 0 18px 48px rgb(5 7 5 / 38%);
   color: var(--secondary);
   font-size: 11px;
   line-height: 1.5;
@@ -1088,7 +1080,7 @@ textarea {
   border: 1px solid var(--strong-rule);
   padding: 12px;
   background: var(--raised);
-  box-shadow: 0 18px 48px rgb(4 8 13 / 38%);
+  box-shadow: 0 18px 48px rgb(5 7 5 / 38%);
   scrollbar-color: var(--strong-rule) transparent;
   scrollbar-width: thin;
 }
@@ -1486,7 +1478,7 @@ textarea {
   position: fixed;
   z-index: 70;
   inset: 54px 0 0;
-  background: rgb(14 20 27 / 78%);
+  background: rgb(11 13 12 / 78%);
   content: "";
   pointer-events: none;
 }
@@ -1504,7 +1496,7 @@ textarea {
   border-radius: 4px;
   padding: 18px 20px 20px;
   background: var(--raised);
-  box-shadow: 0 -24px 70px rgb(4 8 13 / 48%);
+  box-shadow: 0 -24px 70px rgb(5 7 5 / 48%);
 }
 
 .source-quote {
@@ -1788,14 +1780,14 @@ textarea {
 }
 
 .button.tertiary {
-  border-color: #526a9c;
+  border-color: #7f4d3c;
   background: transparent;
-  color: #cbd5ff;
+  color: #ffd2c3;
 }
 
 .button.tertiary:hover {
   border-color: var(--accent);
-  background: #202d44;
+  background: #332019;
 }
 
 .inline-status {
