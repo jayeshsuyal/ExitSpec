@@ -44,6 +44,7 @@
   const decisionStatus = document.querySelector("#decision-status");
   const errorPanel = document.querySelector("#proposal-review-error");
   const completionPanel = document.querySelector("#review-complete");
+  const defineCriteriaLink = document.querySelector("#define-criteria");
 
   let proposals = [];
   let initialCount = 0;
@@ -392,6 +393,13 @@
       initialCount === 0
         ? "There are no source proposals awaiting review. No contract was created or approved."
         : `${initialCount} proposals reviewed: ${keptCount} kept for contract authoring and ${discardedCount} discarded. No contract was created or approved.`;
+    if (pocId && keptCount > 0) {
+      defineCriteriaLink.href = `/app/pocs/${pocId}/define`;
+      defineCriteriaLink.hidden = false;
+    } else {
+      defineCriteriaLink.href = "/app";
+      defineCriteriaLink.hidden = true;
+    }
     const progressBar = document.querySelector("#progress-bar");
     progressBar.setAttribute("aria-valuenow", String(initialCount));
     document.querySelector("#progress-fill").style.width = "100%";

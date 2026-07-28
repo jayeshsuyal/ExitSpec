@@ -42,6 +42,9 @@
     if (poc.next_action_code === "REVIEW_PROPOSALS") {
       return `${base}/review`;
     }
+    if (poc.next_action_code === "PREPARE_AGREEMENT") {
+      return `${base}/define`;
+    }
     return null;
   }
 
@@ -204,12 +207,8 @@
       );
       footer.append(link);
     } else {
-      const unavailableLabel =
-        poc.next_action_code === "PREPARE_AGREEMENT"
-          ? "Contract builder is next"
-          : "POC unavailable";
       footer.append(
-        element("span", "continue-link is-unavailable", unavailableLabel)
+        element("span", "continue-link is-unavailable", "POC unavailable")
       );
     }
 

@@ -72,7 +72,7 @@ def test_dashboard_has_one_compact_create_action_and_safe_rendering():
     assert 'poc.next_action_code === "REVIEW_PROPOSALS"' in javascript
     assert 'return `${base}/review`;' in javascript
     assert 'poc.next_action_code === "PREPARE_AGREEMENT"' in javascript
-    assert "Contract builder is next" in javascript
+    assert 'return `${base}/define`;' in javascript
     assert "SEEDED_POC_IDS.has(pocId)" in javascript
     assert "innerHTML" not in javascript
     assert ".textContent =" in javascript

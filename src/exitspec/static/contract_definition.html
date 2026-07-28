@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Define one bounded ExitSpec performance criterion from each reviewed proposal."
+    />
+    <title>ExitSpec — Define criteria</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/contract_definition.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#contract-definition-main">
+      Skip to criterion definition
+    </a>
+
+    <div class="dashboard-shell contract-definition-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app" aria-current="page">POCs</a>
+          <a href="/app/pocs/new">New POC</a>
+        </nav>
+
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="contract-definition-main" id="contract-definition-main">
+        <header class="object-header">
+          <div class="object-heading">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Draft POC · criterion definition</p>
+            <h1 id="poc-title">Loading draft…</h1>
+            <p id="poc-context">
+              Validating kept proposals and existing definitions.
+            </p>
+          </div>
+
+          <div
+            class="authority-boundary"
+            aria-label="Criterion definition authority boundary"
+          >
+            <span>Definition boundary</span>
+            <strong>Authoring only · zero execution authority</strong>
+          </div>
+        </header>
+
+        <section
+          class="definition-current-task"
+          id="definition-current-task"
+          aria-labelledby="current-task-heading"
+          aria-busy="true"
+        >
+          <header class="task-heading">
+            <div>
+              <p class="eyebrow">Current task</p>
+              <h2 id="current-task-heading">Define one acceptance criterion</h2>
+              <p>Turn the reviewed claim into a bounded, testable requirement.</p>
+            </div>
+
+            <div
+              class="definition-progress"
+              id="definition-progress"
+              role="status"
+              aria-live="polite"
+            >
+              <strong id="progress-copy">Loading proposals…</strong>
+              <div
+                class="progress-track"
+                role="progressbar"
+                aria-label="Criterion definition progress"
+                aria-valuemin="0"
+                aria-valuemax="1"
+                aria-valuenow="0"
+                id="progress-bar"
+              >
+                <span id="progress-fill"></span>
+              </div>
+            </div>
+          </header>
+
+          <div class="definition-layout">
+            <article
+              class="proposal-evidence"
+              id="definition-evidence"
+              tabindex="-1"
+              aria-labelledby="proposal-heading"
+            >
+              <header class="proposal-header">
+                <div>
+                  <p class="eyebrow">Reviewed source</p>
+                  <h3 id="proposal-heading">Waiting for a kept proposal</h3>
+                </div>
+                <span class="source-kind" id="source-kind">Validating</span>
+              </header>
+
+              <div class="evidence-section">
+                <p class="section-label">Redacted source quote</p>
+                <blockquote id="source-quote">
+                  Source content will appear only after validation.
+                </blockquote>
+              </div>
+
+              <div class="claim-section">
+                <p class="section-label">Normalized claim</p>
+                <p class="normalized-claim" id="normalized-claim">
+                  No claim loaded.
+                </p>
+              </div>
+
+              <p class="source-safety-note">
+                The source is redacted and shown only to support this human
+                definition. It is not written to browser storage.
+              </p>
+            </article>
+
+            <form class="definition-panel" id="contract-definition-form" novalidate>
+              <header>
+                <p class="eyebrow">Human definition</p>
+                <h3>Set the measurement boundary</h3>
+                <p>
+                  Starting values are suggestions only. Verify every value
+                  against the reviewed source before saving.
+                </p>
+              </header>
+
+              <div class="definition-fields">
+                <div class="primary-fields">
+                  <div class="field-group metric-field">
+                    <label for="metric">Metric</label>
+                    <select id="metric" name="metric" required disabled>
+                      <option value="TTFT_P95_MS">P95 time to first token</option>
+                      <option value="ERROR_RATE_PERCENT">Error rate</option>
+                    </select>
+                  </div>
+
+                  <div class="field-group threshold-field">
+                    <label for="threshold">Threshold</label>
+                    <div class="bounded-input">
+                      <span class="fixed-operator" aria-label="at most">≤</span>
+                      <input
+                        id="threshold"
+                        name="threshold"
+                        type="number"
+                        min="0.001"
+                        max="60000"
+                        step="any"
+                        inputmode="decimal"
+                        value="500"
+                        required
+                        disabled
+                      />
+                      <span class="threshold-unit" id="threshold-unit">ms</span>
+                    </div>
+                  </div>
+
+                  <div class="field-group">
+                    <label for="minimum-samples">Minimum samples</label>
+                    <input
+                      id="minimum-samples"
+                      name="minimum_samples"
+                      type="number"
+                      min="1"
+                      max="100000"
+                      step="1"
+                      inputmode="numeric"
+                      value="100"
+                      required
+                      disabled
+                    />
+                  </div>
+
+                  <div class="field-group">
+                    <label for="concurrency">Concurrency</label>
+                    <input
+                      id="concurrency"
+                      name="concurrency"
+                      type="number"
+                      min="1"
+                      max="10000"
+                      step="1"
+                      inputmode="numeric"
+                      value="4"
+                      required
+                      disabled
+                    />
+                  </div>
+                </div>
+
+                <details class="technical-fields">
+                  <summary>Technical workload ranges</summary>
+                  <p>
+                    These defaults shape the workload. Confirm them against the
+                    source; they are not inferred or approved automatically.
+                  </p>
+
+                  <div class="range-grid">
+                    <fieldset>
+                      <legend>Prompt tokens</legend>
+                      <div class="range-pair">
+                        <div class="field-group">
+                          <label for="prompt-tokens-min">Minimum</label>
+                          <input
+                            id="prompt-tokens-min"
+                            name="prompt_tokens_min"
+                            type="number"
+                            min="1"
+                            max="1000000"
+                            step="1"
+                            inputmode="numeric"
+                            value="512"
+                            required
+                            disabled
+                          />
+                        </div>
+                        <div class="field-group">
+                          <label for="prompt-tokens-max">Maximum</label>
+                          <input
+                            id="prompt-tokens-max"
+                            name="prompt_tokens_max"
+                            type="number"
+                            min="1"
+                            max="1000000"
+                            step="1"
+                            inputmode="numeric"
+                            value="4096"
+                            required
+                            disabled
+                          />
+                        </div>
+                      </div>
+                    </fieldset>
+
+                    <fieldset>
+                      <legend>Output tokens</legend>
+                      <div class="range-pair">
+                        <div class="field-group">
+                          <label for="output-tokens-min">Minimum</label>
+                          <input
+                            id="output-tokens-min"
+                            name="output_tokens_min"
+                            type="number"
+                            min="1"
+                            max="1000000"
+                            step="1"
+                            inputmode="numeric"
+                            value="64"
+                            required
+                            disabled
+                          />
+                        </div>
+                        <div class="field-group">
+                          <label for="output-tokens-max">Maximum</label>
+                          <input
+                            id="output-tokens-max"
+                            name="output_tokens_max"
+                            type="number"
+                            min="1"
+                            max="1000000"
+                            step="1"
+                            inputmode="numeric"
+                            value="512"
+                            required
+                            disabled
+                          />
+                        </div>
+                      </div>
+                    </fieldset>
+                  </div>
+                </details>
+
+                <div class="review-fields">
+                  <div class="field-group">
+                    <label for="reviewer">Reviewer</label>
+                    <input
+                      id="reviewer"
+                      name="reviewer"
+                      type="text"
+                      maxlength="160"
+                      autocomplete="off"
+                      required
+                      disabled
+                    />
+                  </div>
+
+                  <div class="field-group">
+                    <label for="rationale">Rationale</label>
+                    <textarea
+                      id="rationale"
+                      name="rationale"
+                      maxlength="2000"
+                      rows="3"
+                      autocomplete="off"
+                      required
+                      disabled
+                      placeholder="Why is this the correct measurable boundary for the reviewed claim?"
+                    ></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div class="definition-footer">
+                <p
+                  class="definition-status"
+                  id="definition-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  Waiting for trusted proposal data.
+                </p>
+                <button
+                  class="primary-action"
+                  id="save-definition"
+                  type="submit"
+                  disabled
+                >
+                  Save definition
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section
+          class="definition-complete"
+          id="definition-complete"
+          tabindex="-1"
+          aria-labelledby="definition-complete-heading"
+          hidden
+        >
+          <p class="eyebrow">Criterion definition complete</p>
+          <h2 id="definition-complete-heading">
+            Definitions are ready for later agreement drafting
+          </h2>
+          <p id="definition-complete-summary">
+            Every currently kept proposal has a bounded definition.
+          </p>
+          <p class="completion-boundary">
+            No contract was created, approved, customer-confirmed, frozen, run,
+            scored, or given a verdict.
+          </p>
+        </section>
+
+        <p
+          class="definition-error"
+          id="contract-definition-error"
+          role="alert"
+          hidden
+        ></p>
+      </main>
+    </div>
+
+    <script src="/contract_definition.js"></script>
+  </body>
+</html>

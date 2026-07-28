@@ -358,7 +358,7 @@ def test_completion_requires_an_authoritative_queue_refresh():
     )
 
 
-def test_completion_is_concise_honest_and_has_no_fake_next_link():
+def test_completion_is_concise_honest_and_links_to_real_definition_step():
     html = _asset(HTML_PATH)
     javascript = _asset(JS_PATH)
     completion_html = html.split('id="review-complete"', 1)[1].split(
@@ -373,8 +373,12 @@ def test_completion_is_concise_honest_and_has_no_fake_next_link():
     assert "No proposals remain in this queue" in completion_html
     assert "No contract was created or approved." in completion_html
     assert "remain separate steps" in completion_html
-    assert "<a " not in completion_html
-    assert "href=" not in completion_html
+    assert 'id="define-criteria"' in completion_html
+    assert "Define acceptance criteria" in completion_html
+    assert "keptCount > 0" in completion_js
+    assert "`/app/pocs/${pocId}/define`" in completion_js
+    assert "defineCriteriaLink.hidden = false;" in completion_js
+    assert "defineCriteriaLink.hidden = true;" in completion_js
     assert "initialCount === 0" in completion_js
     assert "keptCount" in completion_js
     assert "discardedCount" in completion_js
