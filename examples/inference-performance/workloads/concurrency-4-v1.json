@@ -1,5 +1,6 @@
 {
   "schema_version": "exitspec.performance-workload.v1",
+  "workload_id": "inference-latency-demo-v1",
   "adapter": "vllm_streaming_latency",
   "adapter_version": "1.0.0",
   "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
