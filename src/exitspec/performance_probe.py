@@ -1021,6 +1021,12 @@ def _consume_openai_sse(
                 done_at=done_at,
                 clock_ns=clock_ns,
             )
+            if done_at is not None:
+                if first_token_at is None:
+                    raise ProbeProtocolError(
+                        "Stream ended before emitting content."
+                    )
+                return first_token_at, done_at
 
     if cancellation is not None and cancellation.is_set():
         raise InterruptedError
@@ -1035,6 +1041,12 @@ def _consume_openai_sse(
             done_at=done_at,
             clock_ns=clock_ns,
         )
+        if done_at is not None:
+            if first_token_at is None:
+                raise ProbeProtocolError(
+                    "Stream ended before emitting content."
+                )
+            return first_token_at, done_at
     if event_lines:
         first_token_at, done_at = _process_sse_event(
             event_lines,
@@ -1194,7 +1206,7 @@ def _validate_endpoint(endpoint: object):
         raise ProbeConfigurationError("endpoint is invalid.")
     try:
         parts = urlsplit(endpoint)
-        port = parts.port
+        _ = parts.port
     except (TypeError, ValueError):
         raise ProbeConfigurationError("endpoint is invalid.") from None
     if (

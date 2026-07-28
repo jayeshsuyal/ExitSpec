@@ -340,7 +340,6 @@ def test_http_timeout_and_malformed_streams_are_terminal_sanitized_records():
         sse(content_event("hello"), done=False),
         b"event: message\ndata: {}\n\n",
         b"data: \xff\n\n",
-        b"data: [DONE]\n\ndata: {}\n\n",
     ],
 )
 def test_malformed_sse_fails_closed_as_protocol_error(body):
@@ -354,6 +353,29 @@ def test_malformed_sse_fails_closed_as_protocol_error(body):
     record = result.records[0]
     assert record.outcome is ProbeOutcome.PROTOCOL_ERROR
     assert record.ttft_ns is None
+
+
+def test_done_event_ends_measurement_without_waiting_for_connection_close():
+    def keep_alive_stream():
+        yield sse(content_event("complete"))
+        raise TimeoutError("a persistent SSE connection stayed open")
+
+    class KeepAliveTransport:
+        def send(self, request: ProbeRequest) -> StreamResponse:
+            return StreamResponse(
+                status_code=200,
+                chunks=keep_alive_stream(),
+            )
+
+    result = run_probe(
+        config(),
+        prompts(),
+        transport=KeepAliveTransport(),
+        clock_ns=IncrementingClock(),
+    )
+
+    assert result.records[0].outcome is ProbeOutcome.SUCCESS
+    assert result.records[0].ttft_ns is not None
 
 
 def test_successful_http_response_requires_event_stream_content_type():
