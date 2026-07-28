@@ -124,6 +124,58 @@
                   <span>Customer requested a change</span>
                   <blockquote id="revision-request-text"></blockquote>
                 </aside>
+                <section
+                  class="source-intake-panel"
+                  id="source-intake-panel"
+                  aria-label="Synthetic source intake"
+                  hidden
+                >
+                  <div class="source-intake-start">
+                    <div class="source-intake-copy">
+                      <p class="eyebrow">Synthetic source</p>
+                      <h2>Start from a sample email</h2>
+                    </div>
+                    <div class="source-picker">
+                      <label for="source-fixture-select">
+                        <span>Sample email</span>
+                        <select id="source-fixture-select" disabled>
+                          <option value="">Loading samples…</option>
+                        </select>
+                      </label>
+                      <button class="button primary" id="import-source-fixture" type="button" disabled>
+                        Import sample email
+                      </button>
+                    </div>
+                    <p class="source-boundary">Untrusted source · human review required</p>
+                  </div>
+
+                  <div class="source-summary" id="source-summary" hidden>
+                    <div class="source-summary-copy">
+                      <strong></strong>
+                      <span></span>
+                    </div>
+                    <span class="source-summary-boundary">Untrusted source</span>
+                    <details id="source-summary-details">
+                      <summary>Source details</summary>
+                      <div class="source-summary-technical"></div>
+                      <div class="source-summary-actions">
+                        <button class="text-action source-replay-action" type="button">
+                          Check same sample again
+                        </button>
+                        <button class="text-action source-reset-action" type="button">
+                          Reset to choose another
+                        </button>
+                      </div>
+                    </details>
+                  </div>
+
+                  <p
+                    class="source-intake-status"
+                    id="source-intake-status"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                </section>
                 <div class="candidate-list" id="candidate-list" aria-live="polite"></div>
                 <p class="inline-status" id="intake-status" aria-live="polite"></p>
               </section>

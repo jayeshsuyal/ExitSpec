@@ -16,11 +16,16 @@
     freeze: "/api/freeze",
     prove: "/api/prove",
     reset: "/api/reset",
+    sourceFixtures: "/api/source/fixtures",
+    sourceImport: "/api/source/import",
   };
 
   const DEFAULT_DEMO_NOTES = "Customer: Our support agent must select the correct tool at least 95% of the time. We want to inspect any mistakes before we scale traffic.";
   const CUSTOMER_POLL_INTERVAL_MS = 1800;
-  const recordingMode = new URLSearchParams(window.location.search).get("mode") === "recording";
+  const recordingMode =
+    new URLSearchParams(window.location.search).get("mode") === "recording";
+  const emailIntakeMode =
+    new URLSearchParams(window.location.search).get("intake") === "email";
 
   let state = null;
   let selectedScenario = "pass";
@@ -36,15 +41,28 @@
   let fireworksAcknowledgedDisclosureId = null;
   let fireworksStatusMessage = "";
   let fireworksStatusTone = "";
+  let sourceCatalog = null;
+  let sourceCatalogRunning = false;
+  let sourceCatalogVersion = 0;
+  let sourceImportRunning = false;
+  let sourceImportRequestPromise = null;
+  let sourceOperationVersion = 0;
+  let resetRunning = false;
+  let sourceLastReceipt = null;
+  let sourceTimingEvidence = null;
+  let sourceStatusMessage = "";
+  let sourceStatusTone = "";
 
   const $ = (selector) => document.querySelector(selector);
   const modeChip = $("#mode-chip");
   const intakeStatus = $("#intake-status");
   const proveStatus = $("#prove-status");
+  const sourceIntakeStatus = $("#source-intake-status");
 
   function applyPresentationMode() {
     document.body.dataset.mode = recordingMode ? "recording" : "standard";
     document.body.classList.toggle("recording-mode", recordingMode);
+    document.body.classList.toggle("email-intake-mode", emailIntakeMode);
     $("#recording-cue").hidden = !recordingMode;
   }
 
@@ -64,9 +82,17 @@
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const error = new Error(body.error || `Request failed with ${response.status}.`);
+      const typedError = body && typeof body.error === "object"
+        ? body.error
+        : null;
+      const error = new Error(
+        typedError?.message
+        || (typeof body.error === "string" ? body.error : "")
+        || `Request failed with ${response.status}.`
+      );
       error.payload = body;
       error.status = response.status;
+      error.code = typedError?.code || body.code || "";
       throw error;
     }
     return body;
@@ -417,6 +443,342 @@
     });
   }
 
+  function guidedSourceIntake() {
+    return emailIntakeMode && state?.source_intake
+      && typeof state.source_intake === "object"
+      ? state.source_intake
+      : null;
+  }
+
+  function setSourceStatus(message, tone = "") {
+    sourceStatusMessage = message || "";
+    sourceStatusTone = tone;
+  }
+
+  function preserveSourceReceipt(receipt) {
+    const exactFields = [
+      "source_type",
+      "manifest_id",
+      "manifest_version",
+      "fixture_case_id",
+      "outcome_code",
+      "source_version",
+      "candidate_count",
+    ];
+    if (
+      !receipt
+      || typeof receipt !== "object"
+      || Object.keys(receipt).sort().join("|") !== exactFields.slice().sort().join("|")
+    ) {
+      throw new Error("The local source service returned an invalid receipt.");
+    }
+    return Object.freeze(Object.fromEntries(
+      exactFields.map((field) => [field, receipt[field]])
+    ));
+  }
+
+  function requireCompleteWorkflowState(payload) {
+    const incoming = payload && (payload.state || payload);
+    const requiredFields = [
+      "mode",
+      "safety",
+      "provider_execution",
+      "drafts",
+      "contract",
+      "ready_to_prepare_customer_review",
+      "ready_to_freeze",
+      "ready_to_prove",
+      "proof_pack",
+      "source_intake",
+    ];
+    if (
+      !incoming
+      || typeof incoming !== "object"
+      || !requiredFields.every((field) => Object.hasOwn(incoming, field))
+      || !Array.isArray(incoming.drafts)
+      || !incoming.source_intake
+      || typeof incoming.source_intake !== "object"
+    ) {
+      throw new Error("The complete local workflow state is unavailable.");
+    }
+    return payload;
+  }
+
+  function sourceFailureMessage(error) {
+    const candidateCode = error?.code
+      || error?.payload?.error?.code
+      || error?.payload?.code
+      || "";
+    const code = typeof candidateCode === "string" ? candidateCode : "";
+    if (!error?.status) {
+      return "Local source service unavailable. Start the ExitSpec service, then try again.";
+    }
+    const pinnedMessages = {
+      invalid_local_host: "Use the local ExitSpec application address.",
+      forbidden_origin: "Open this action from the same local ExitSpec application.",
+      forbidden_fetch_site: "Open this action from the same local ExitSpec application.",
+      route_parameters_not_allowed: "The local source action does not accept route parameters.",
+      get_body_not_allowed: "The local source catalog does not accept a request body.",
+      unsupported_media_type: "The local service refused the source request format.",
+      request_length_required: "The local service requires a bounded source request.",
+      invalid_content_length: "The local service refused an invalid request length.",
+      source_request_too_large: "The source request exceeded the safe size limit.",
+      content_length_mismatch: "The source request length did not match its body.",
+      empty_json_body: "The source request was empty.",
+      malformed_json: "The source request was not valid JSON.",
+      duplicate_json_member: "The source request repeated a JSON field.",
+      json_object_required: "The source request must be one JSON object.",
+      invalid_source_request: "Choose one approved sample email.",
+      source_not_approved: "That sample is not approved for this guided demo.",
+      source_import_refused: "The sample could not pass the safe source boundary.",
+      source_change_requires_reset: "Reset this workflow before choosing a different sample. Nothing was changed.",
+      source_import_locked: "Source import is locked because downstream review already exists. Reset to start over.",
+      unknown_source_route: "The local source service is unavailable at the expected route.",
+      method_not_allowed: "The local source service refused this action.",
+    };
+    if (Object.hasOwn(pinnedMessages, code)) {
+      return `${pinnedMessages[code]} (${code})`;
+    }
+    const safeCode = /^[a-z][a-z0-9_]{0,47}$/.test(code) ? code : "";
+    const safeRefusal = "The source action failed safely.";
+    return safeCode ? `${safeRefusal} (${safeCode})` : safeRefusal;
+  }
+
+  function sourceReviewControl(draftId) {
+    const controls = guidedSourceIntake()?.review_controls;
+    if (!Array.isArray(controls)) {
+      return null;
+    }
+    return controls.find((control) => control?.draft_id === draftId) || null;
+  }
+
+  function renderSourceIntake() {
+    const panel = $("#source-intake-panel");
+    panel.hidden = !emailIntakeMode;
+    if (!emailIntakeMode) {
+      return;
+    }
+
+    const intake = guidedSourceIntake();
+    const start = panel.querySelector(".source-intake-start");
+    const summary = $("#source-summary");
+    const details = $("#source-summary-details");
+    panel.classList.toggle("has-source", Boolean(intake));
+    start.hidden = Boolean(intake);
+    summary.hidden = !intake;
+
+    if (intake) {
+      summary.querySelector(".source-summary-copy strong").textContent = intake.label;
+      summary.querySelector(".source-summary-copy span").textContent =
+        `${intake.proposal_count} proposals · sensitive fields removed`;
+      const detailCopy = details.querySelector(".source-summary-technical");
+      const reviewState = intake.pending_count > 0
+        ? `${intake.pending_count} awaiting human review`
+        : "Human review complete";
+      detailCopy.replaceChildren();
+      const paragraph = document.createElement("p");
+      paragraph.textContent = [
+        `Version ${intake.source_version}.`,
+        reviewState + ".",
+        "Sensitive fields were removed before review.",
+        sourceLastReceipt?.fixture_case_id === intake.fixture_case_id
+          ? `Last import: ${sourceLastReceipt.outcome_code}.`
+          : "",
+        sourceTimingEvidence?.fixture_case_id === intake.fixture_case_id
+          ? `Rendered locally in ${sourceTimingEvidence.elapsed_ms} ms.`
+          : "",
+        "To choose a different sample, reset this workflow first; current reviews remain unchanged until reset.",
+      ].filter(Boolean).join(" ");
+      detailCopy.append(paragraph);
+      details.querySelector(".source-replay-action").disabled =
+        sourceImportRunning || resetRunning;
+      details.querySelector(".source-reset-action").disabled = resetRunning;
+    } else {
+      details.open = false;
+      const select = $("#source-fixture-select");
+      const selectedValue = select.value;
+      select.replaceChildren();
+      const fixtures = Array.isArray(sourceCatalog?.fixtures)
+        ? sourceCatalog.fixtures
+        : [];
+      if (fixtures.length > 0) {
+        fixtures.forEach((fixture) => {
+          const option = document.createElement("option");
+          option.value = fixture.fixture_case_id;
+          option.textContent = fixture.label;
+          select.append(option);
+        });
+        const allowedValues = fixtures.map((fixture) => fixture.fixture_case_id);
+        select.value = allowedValues.includes(selectedValue)
+          ? selectedValue
+          : sourceCatalog.default_fixture_case_id;
+      } else {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = sourceCatalogRunning
+          ? "Loading samples…"
+          : "Samples unavailable";
+        select.append(option);
+      }
+      select.disabled = sourceCatalogRunning
+        || fixtures.length === 0
+        || sourceImportRunning
+        || resetRunning;
+      const importButton = $("#import-source-fixture");
+      importButton.disabled = select.disabled || !select.value;
+      importButton.textContent = sourceImportRunning
+        ? "Importing sample…"
+        : "Import sample email";
+    }
+
+    sourceIntakeStatus.textContent = sourceStatusMessage;
+    sourceIntakeStatus.className = `source-intake-status${sourceStatusTone ? ` is-${sourceStatusTone}` : ""}`;
+  }
+
+  async function loadSourceCatalog() {
+    if (!emailIntakeMode || sourceCatalogRunning) {
+      return;
+    }
+    const catalogVersion = ++sourceCatalogVersion;
+    sourceCatalogRunning = true;
+    setSourceStatus("Loading approved samples…");
+    renderSourceIntake();
+    try {
+      const catalog = await request(API.sourceFixtures);
+      if (catalogVersion !== sourceCatalogVersion || !pageActive) {
+        return;
+      }
+      const fixtureIds = Array.isArray(catalog?.fixtures)
+        ? catalog.fixtures.map((fixture) => fixture?.fixture_case_id).sort()
+        : [];
+      if (
+        !catalog
+        || !Array.isArray(catalog.fixtures)
+        || catalog.fixtures.length !== 2
+        || fixtureIds.join("|") !== "authority-attack|thread-root"
+        || !fixtureIds.includes(catalog.default_fixture_case_id)
+        || catalog.fixtures.some((fixture) => typeof fixture?.label !== "string")
+      ) {
+        throw new Error("The local source catalog returned an invalid response.");
+      }
+      sourceCatalog = catalog;
+      setSourceStatus("");
+    } catch (error) {
+      if (catalogVersion !== sourceCatalogVersion || !pageActive) {
+        return;
+      }
+      sourceCatalog = null;
+      setSourceStatus(sourceFailureMessage(error), "error");
+    } finally {
+      if (catalogVersion === sourceCatalogVersion) {
+        sourceCatalogRunning = false;
+        if (pageActive) {
+          renderSourceIntake();
+        }
+      }
+    }
+  }
+
+  async function importSourceFixture(fixtureCaseId = "") {
+    if (!emailIntakeMode || sourceImportRunning || resetRunning) {
+      return;
+    }
+    const selectedFixture = fixtureCaseId || $("#source-fixture-select").value;
+    if (!selectedFixture) {
+      setSourceStatus("Choose one approved sample email.", "error");
+      renderSourceIntake();
+      return;
+    }
+
+    const operationVersion = ++sourceOperationVersion;
+    const workflowVersion = ++stateRefreshVersion;
+    const startedAt = window.performance.now();
+    sourceImportRunning = true;
+    setSourceStatus("Importing through the safe source boundary…");
+    renderSourceIntake();
+    let importRequest = null;
+    try {
+      importRequest = request(API.sourceImport, {
+        method: "POST",
+        body: JSON.stringify({ fixture_case_id: selectedFixture }),
+      });
+      sourceImportRequestPromise = importRequest;
+      const response = await importRequest;
+      if (
+        operationVersion !== sourceOperationVersion
+        || workflowVersion !== stateRefreshVersion
+        || !pageActive
+      ) {
+        return;
+      }
+      sourceLastReceipt = preserveSourceReceipt(response?.receipt);
+      const completeWorkflow = await request(API.state);
+      if (
+        operationVersion !== sourceOperationVersion
+        || workflowVersion !== stateRefreshVersion
+        || !pageActive
+      ) {
+        return;
+      }
+      applyState(requireCompleteWorkflowState(completeWorkflow));
+      editingDraftId = null;
+      const outcomeCode = sourceLastReceipt.outcome_code;
+      setSourceStatus(
+        outcomeCode === "duplicate_replay"
+          ? "Same sample already imported. Existing reviews were preserved. (duplicate_replay)"
+          : "Sample imported. Review each proposal.",
+        "success"
+      );
+      render();
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      if (
+        operationVersion !== sourceOperationVersion
+        || workflowVersion !== stateRefreshVersion
+        || !pageActive
+      ) {
+        return;
+      }
+      sourceTimingEvidence = Object.freeze({
+        fixture_case_id: sourceLastReceipt.fixture_case_id,
+        outcome_code: sourceLastReceipt.outcome_code,
+        elapsed_ms: Math.max(
+          0,
+          Math.round((window.performance.now() - startedAt) * 100) / 100
+        ),
+      });
+      renderSourceIntake();
+      if (sourceLastReceipt.outcome_code !== "duplicate_replay") {
+        window.requestAnimationFrame(() => {
+          if (operationVersion === sourceOperationVersion) {
+            $("#candidate-list [data-decision], #candidate-list [data-edit-rule]")?.focus();
+          }
+        });
+      }
+    } catch (error) {
+      if (
+        operationVersion !== sourceOperationVersion
+        || workflowVersion !== stateRefreshVersion
+        || !pageActive
+      ) {
+        return;
+      }
+      setSourceStatus(sourceFailureMessage(error), "error");
+    } finally {
+      if (sourceImportRequestPromise === importRequest) {
+        sourceImportRequestPromise = null;
+      }
+      if (
+        operationVersion === sourceOperationVersion
+        && workflowVersion === stateRefreshVersion
+      ) {
+        sourceImportRunning = false;
+        if (pageActive) {
+          render();
+        }
+      }
+    }
+  }
+
   function percentage(value) {
     return typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "—";
   }
@@ -494,6 +856,18 @@
   }
 
   function workflowModel() {
+    if (emailIntakeMode && !guidedSourceIntake()) {
+      return {
+        stage: "define",
+        eyebrow: "Define · Synthetic source",
+        title: "Bring one sample request into review",
+        copy: "Choose an approved synthetic email. Nothing is imported until you select the action below.",
+        nextTitle: "Import sample email",
+        nextCopy: "The source can propose requirements; only people can approve them.",
+        blockers: ["An approved sample email must be imported."],
+      };
+    }
+
     const currentDrafts = drafts();
     const pendingDrafts = currentDrafts.filter((draft) => draft.status === "NEEDS_REVIEW");
     const pending = pendingDrafts.length;
@@ -515,15 +889,21 @@
       );
       return {
         stage: "define",
-        eyebrow: `Define · Requirement ${reviewed + 1} of ${currentDrafts.length}`,
-        title: !hasMeasurableRule && anotherRuleIsActive
+        eyebrow: emailIntakeMode
+          ? "Email proposal · synthetic source"
+          : `Define · Requirement ${reviewed + 1} of ${currentDrafts.length}`,
+        title: emailIntakeMode
+          ? "Does this match the intended POC?"
+          : !hasMeasurableRule && anotherRuleIsActive
           ? "Keep this request as context?"
           : editingDraftId === currentDraft?.id || (!hasMeasurableRule && state?.revision_request)
           ? "Define the exact acceptance rule"
           : hasMeasurableRule
           ? "Does this rule match the customer’s intent?"
           : "Can this request use the supported measurement?",
-        copy: !hasMeasurableRule && anotherRuleIsActive
+        copy: emailIntakeMode
+          ? `Review proposal ${reviewed + 1} of ${currentDrafts.length}. The email cannot approve its own request.`
+          : !hasMeasurableRule && anotherRuleIsActive
           ? "One rule is already executable. Keep this request outside the agreement."
           : editingDraftId === currentDraft?.id || !hasMeasurableRule
           ? "Add the metric, threshold, and evidence rule."
@@ -642,18 +1022,28 @@
   }
 
   function renderCustody(model) {
-    const hasPendingDrafts = drafts().some((draft) => draft.status === "NEEDS_REVIEW");
+    const sourcePresent = !emailIntakeMode || Boolean(guidedSourceIntake());
+    const hasPendingDrafts = sourcePresent
+      && drafts().some((draft) => draft.status === "NEEDS_REVIEW");
     const hasReviewLink = Boolean(state?.customer_review_url || state?.customer_draft_url);
     const customerDecision = state?.confirmation?.decision;
     const isFrozen = state?.contract?.status === "FROZEN";
     const proof = state?.proof_pack;
 
     const entries = [
-      { id: "source", className: "is-recorded", text: "CAPTURED" },
+      {
+        id: "source",
+        className: sourcePresent ? "is-recorded" : "is-current",
+        text: sourcePresent ? "CAPTURED" : "CHOOSE SAMPLE",
+      },
       {
         id: "agreement",
-        className: hasPendingDrafts ? "is-current" : "is-recorded",
-        text: hasPendingDrafts ? "IN REVIEW" : "DRAFTED",
+        className: !sourcePresent
+          ? "is-pending"
+          : hasPendingDrafts
+            ? "is-current"
+            : "is-recorded",
+        text: !sourcePresent ? "PENDING" : hasPendingDrafts ? "IN REVIEW" : "DRAFTED",
       },
       {
         id: "customer",
@@ -716,7 +1106,10 @@
     const stageOrder = ["define", "prove", "decide"];
     const currentIndex = stageOrder.indexOf(model.stage);
 
-    $("#poc-label").textContent = state?.poc_label || state?.transcript?.title || "Current POC";
+    $("#poc-label").textContent = state?.poc_label
+      || guidedSourceIntake()?.label
+      || state?.transcript?.title
+      || "Current POC";
     $("#proof-pack-title").textContent = state?.contract?.use_case || state?.poc_label || "Current POC";
     $("#workspace-eyebrow").textContent = model.eyebrow;
     $("#current-task-title").textContent = model.title;
@@ -806,6 +1199,12 @@
     const samples = criterion?.rule?.minimum_samples || 200;
     const workload = criterion?.workload_slice || "support-tool-selection-v1";
     const isRevision = Boolean(state?.revision_request);
+    const sourceControl = emailIntakeMode ? sourceReviewControl(draft.id) : null;
+    const allowReject = !emailIntakeMode || Boolean(
+      sourceControl
+      && Array.isArray(sourceControl.allowed_actions)
+      && sourceControl.allowed_actions.includes("REJECT")
+    );
     return `
       <div class="rule-editor" data-rule-editor="${escapeHtml(draft.id)}">
         <div class="rule-editor__heading">
@@ -849,7 +1248,7 @@
         <div class="candidate-actions">
           <button class="button primary" type="button" data-save-rule="${escapeHtml(draft.id)}">${isRevision ? "Apply revision" : "Save rule"}</button>
           ${isRevision ? "" : `<button class="button secondary" type="button" data-cancel-rule="${escapeHtml(draft.id)}">Cancel</button>`}
-          <button class="text-action" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>
+          ${allowReject ? `<button class="text-action" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>` : ""}
         </div>
       </div>`;
   }
@@ -865,6 +1264,9 @@
   function candidateActions(draft) {
     if (draft.status !== "NEEDS_REVIEW") {
       return "";
+    }
+    if (emailIntakeMode && guidedSourceIntake()) {
+      return emailCandidateActions(draft);
     }
     const complete = Boolean(
       draft.proposed_criterion
@@ -904,7 +1306,63 @@
       </div>`;
   }
 
+  function emailCandidateActions(draft) {
+    const control = sourceReviewControl(draft.id);
+    if (!control) {
+      return `
+        <div class="candidate-actions contextual-only">
+          <span>Review controls are unavailable. Refresh the local workflow.</span>
+        </div>`;
+    }
+    const allowedActions = Array.isArray(control.allowed_actions)
+      ? control.allowed_actions
+      : [];
+    const allowApprove = allowedActions.includes("APPROVE");
+    const allowReject = allowedActions.includes("REJECT");
+    const canEditRule = control.can_edit_rule === true;
+    const complete = Boolean(
+      draft.proposed_criterion
+      && (!draft.open_questions || draft.open_questions.length === 0)
+    );
+    const editorOpen = editingDraftId === draft.id;
+    if (editorOpen && canEditRule) {
+      return structuredRuleEditor(draft);
+    }
+
+    const actions = [];
+    if (allowApprove && complete) {
+      actions.push(
+        `<button class="button primary" type="button" data-decision="APPROVE" data-id="${escapeHtml(draft.id)}">Matches intent</button>`
+      );
+    }
+    if (canEditRule) {
+      actions.push(
+        `<button class="button ${actions.length === 0 ? "primary" : "secondary"}" type="button" data-edit-rule="${escapeHtml(draft.id)}">Define acceptance rule</button>`
+      );
+    }
+    if (allowReject) {
+      actions.push(
+        `<button class="${actions.length === 0 ? "button primary" : "text-action"}" type="button" data-decision="REJECT" data-id="${escapeHtml(draft.id)}">Keep as context</button>`
+      );
+    }
+    if (actions.length === 0) {
+      return `
+        <div class="candidate-actions contextual-only">
+          <span>No review action is allowed by the current server state.</span>
+        </div>`;
+    }
+    return `<div class="candidate-actions">${actions.join("")}</div>`;
+  }
+
   function renderCandidates() {
+    const candidateList = $("#candidate-list");
+    if (emailIntakeMode && !guidedSourceIntake()) {
+      candidateList.hidden = true;
+      candidateList.replaceChildren();
+      $("#review-count").textContent = "0 reviewed";
+      return;
+    }
+    candidateList.hidden = false;
     const currentDrafts = drafts();
     const pendingDrafts = currentDrafts.filter((draft) => draft.status === "NEEDS_REVIEW");
     const reviewed = currentDrafts.length - pendingDrafts.length;
@@ -918,11 +1376,13 @@
         && state.revision_edit_applied_ids.includes(draft.id);
       const editorVisible = editingDraftId === draft.id
         || (Boolean(state?.revision_request) && !revisionApplied);
-      $("#candidate-list").innerHTML = `
+      candidateList.innerHTML = `
         <article class="candidate decision-card">
           <div class="customer-ask">
-            <p class="section-label">Customer asked · CALL 02:14 · CUSTOMER</p>
-            <blockquote>${escapeHtml(source)}</blockquote>
+            <p class="section-label">${emailIntakeMode ? "Email proposal · synthetic source" : "Customer asked · CALL 02:14 · CUSTOMER"}</p>
+            <div class="customer-ask-copy">
+              <blockquote>${escapeHtml(source)}</blockquote>
+            </div>
           </div>
 
           ${editorVisible
@@ -959,7 +1419,7 @@
             : "No agreement created";
       const criterionLabel = `${approved.length} ${approved.length === 1 ? "criterion" : "criteria"} included`;
       const noteLabel = `${rejected.length} ${rejected.length === 1 ? "note" : "notes"} excluded`;
-      $("#candidate-list").innerHTML = `
+      candidateList.innerHTML = `
         <article class="contract-summary">
           <div class="summary-heading">
             <div>
@@ -974,25 +1434,25 @@
         </article>`;
     }
 
-    $("#candidate-list").querySelectorAll("[data-decision]").forEach((button) => {
+    candidateList.querySelectorAll("[data-decision]").forEach((button) => {
       button.addEventListener("click", () => reviewDraft(button.dataset.id, button.dataset.decision));
     });
-    $("#candidate-list").querySelectorAll("[data-edit-rule]").forEach((button) => {
+    candidateList.querySelectorAll("[data-edit-rule]").forEach((button) => {
       button.addEventListener("click", () => {
         editingDraftId = button.dataset.editRule;
         render();
       });
     });
-    $("#candidate-list").querySelectorAll("[data-cancel-rule]").forEach((button) => {
+    candidateList.querySelectorAll("[data-cancel-rule]").forEach((button) => {
       button.addEventListener("click", () => {
         editingDraftId = null;
         render();
       });
     });
-    $("#candidate-list").querySelectorAll("[data-save-rule]").forEach((button) => {
+    candidateList.querySelectorAll("[data-save-rule]").forEach((button) => {
       button.addEventListener("click", () => saveStructuredRule(button));
     });
-    $("#candidate-list")
+    candidateList
       .querySelectorAll(".rule-technical-details")
       .forEach(bindTechnicalDetailsFocus);
   }
@@ -1014,9 +1474,23 @@
   }
 
   function renderActions() {
-    const readyToPrepareReview = Boolean(state?.ready_to_prepare_customer_review);
+    const sourceIntake = guidedSourceIntake();
+    const sourceReviewIncomplete = Boolean(
+      emailIntakeMode
+      && sourceIntake
+      && drafts().some((draft) => draft.status === "NEEDS_REVIEW")
+    );
+    const sourceProofEligible = !emailIntakeMode || Boolean(
+      sourceIntake
+      && state?.confirmation?.decision === "CONFIRM"
+      && state?.contract?.status === "FROZEN"
+    );
+    const readyToPrepareReview = Boolean(
+      state?.ready_to_prepare_customer_review
+      && (!emailIntakeMode || (sourceIntake && !sourceReviewIncomplete))
+    );
     const readyToFreeze = Boolean(state?.ready_to_freeze);
-    const readyToProve = Boolean(state?.ready_to_prove);
+    const readyToProve = Boolean(state?.ready_to_prove && sourceProofEligible);
     const confirmationDecision = state?.confirmation?.decision;
     const hasCustomerReview = Boolean(state?.customer_review_url);
     const hasProof = Boolean(state?.proof_pack);
@@ -1030,7 +1504,7 @@
     customerDraftButton.title = readyToPrepareReview ? "" : "Resolve each candidate before preparing a customer review.";
 
     const sourceButton = $("#open-source-controls");
-    sourceButton.hidden = !noApprovedRule;
+    sourceButton.hidden = emailIntakeMode || !noApprovedRule;
 
     const runButton = $("#run-proof");
     runButton.disabled = !readyToProve;
@@ -1115,6 +1589,17 @@
           ? "Ready to run"
           : "Not run";
       evidenceStatus.className = hasProof ? tagClass(state.proof_pack.overall_verdict) : "";
+    }
+
+    if (emailIntakeMode && !sourceIntake) {
+      customerDraftButton.hidden = true;
+      sourceButton.hidden = true;
+      runButton.hidden = true;
+      rerunButton.hidden = true;
+      freezeButton.hidden = true;
+      revisionButton.hidden = true;
+      draftLink.hidden = true;
+      proofLink.hidden = true;
     }
   }
 
@@ -1207,6 +1692,7 @@
 
   function render() {
     const model = workflowModel();
+    renderSourceIntake();
     renderTranscript();
     renderRevisionRequest();
     renderCandidates();
@@ -1235,6 +1721,9 @@
       });
       applyState(response);
       editingDraftId = null;
+      if (emailIntakeMode) {
+        setSourceStatus("");
+      }
       setStatus(intakeStatus, "");
       render();
     } catch (error) {
@@ -1258,6 +1747,9 @@
 
   function resetLocalWorkbench() {
     stateRefreshVersion += 1;
+    sourceOperationVersion += 1;
+    sourceCatalogVersion += 1;
+    sourceCatalogRunning = false;
     stopCustomerPolling();
     editingDraftId = null;
     rerunMode = false;
@@ -1266,6 +1758,10 @@
     fireworksStatusMessage = "";
     fireworksStatusTone = "";
     fireworksRunning = false;
+    sourceImportRunning = false;
+    sourceLastReceipt = null;
+    sourceTimingEvidence = null;
+    setSourceStatus("");
     if ($("#fireworks-acknowledgement")) {
       $("#fireworks-acknowledgement").checked = false;
     }
@@ -1320,17 +1816,56 @@
   }
 
   async function resetDemo() {
+    if (resetRunning) {
+      return;
+    }
+    const pendingSourceImport = sourceImportRequestPromise;
     resetLocalWorkbench();
+    const resetVersion = stateRefreshVersion;
+    resetRunning = true;
+    if (emailIntakeMode) {
+      setSourceStatus("Resetting workflow…");
+      renderSourceIntake();
+    }
     try {
+      if (pendingSourceImport) {
+        await pendingSourceImport.catch(() => null);
+      }
+      if (resetVersion !== stateRefreshVersion || !pageActive) {
+        return;
+      }
       applyState(await request(API.reset, { method: "POST", body: "{}" }));
+      if (resetVersion !== stateRefreshVersion || !pageActive) {
+        return;
+      }
       await loadFireworksDisclosure();
       $("#meeting-notes").value = DEFAULT_DEMO_NOTES;
       setStatus(intakeStatus, "");
       setStatus(proveStatus, "");
+      setSourceStatus("");
       render();
-      $("#current-task").scrollIntoView({ block: "start", behavior: "auto" });
+      if (emailIntakeMode && !sourceCatalog) {
+        await loadSourceCatalog();
+      }
+      if (emailIntakeMode) {
+        $("#source-fixture-select").focus();
+      } else {
+        $("#current-task").scrollIntoView({ block: "start", behavior: "auto" });
+      }
     } catch (error) {
-      setStatus(intakeStatus, error.message);
+      if (emailIntakeMode) {
+        setSourceStatus(sourceFailureMessage(error), "error");
+        renderSourceIntake();
+      } else {
+        setStatus(intakeStatus, error.message);
+      }
+    } finally {
+      if (resetVersion === stateRefreshVersion) {
+        resetRunning = false;
+        if (pageActive) {
+          renderSourceIntake();
+        }
+      }
     }
   }
 
@@ -1442,7 +1977,7 @@
   }
 
   async function refreshState() {
-    if (!pageActive) {
+    if (!pageActive || sourceImportRunning || resetRunning) {
       return;
     }
     if (stateRefreshPromise !== null) {
@@ -1492,8 +2027,18 @@
   async function initialise() {
     try {
       applyState(await request(API.state));
-      await loadFireworksDisclosure();
-      setMode("live", recordingMode ? "Recording · synthetic" : "Local demo");
+      await Promise.all([
+        loadFireworksDisclosure(),
+        emailIntakeMode ? loadSourceCatalog() : Promise.resolve(),
+      ]);
+      setMode(
+        "live",
+        recordingMode
+          ? "Recording · synthetic"
+          : emailIntakeMode
+            ? "Local demo · synthetic email"
+            : "Local demo"
+      );
       render();
       if (recordingMode) {
         window.requestAnimationFrame(() => {
@@ -1502,13 +2047,29 @@
       }
     } catch (error) {
       setMode("demo", "Synthetic demo state unavailable");
-      setStatus(intakeStatus, "Start the local server with exitspec serve, then refresh this page.");
+      if (emailIntakeMode) {
+        setSourceStatus(
+          "Local source service unavailable. Start ExitSpec, then refresh this page.",
+          "error"
+        );
+        renderSourceIntake();
+      } else {
+        setStatus(intakeStatus, "Start the local server with exitspec serve, then refresh this page.");
+      }
       setStatus(proveStatus, "The browser surface never fabricates a proof result when the local evidence engine is unavailable.");
     }
   }
 
   applyPresentationMode();
 
+  $("#import-source-fixture").addEventListener("click", () => importSourceFixture());
+  $("#source-summary-details .source-replay-action").addEventListener("click", () => {
+    const fixtureCaseId = guidedSourceIntake()?.fixture_case_id;
+    if (fixtureCaseId) {
+      importSourceFixture(fixtureCaseId);
+    }
+  });
+  $("#source-summary-details .source-reset-action").addEventListener("click", resetDemo);
   $("#load-transcript").addEventListener("click", loadIntake);
   if ($("#assisted-authoring")) {
     $("#assisted-authoring").addEventListener("click", runAssistedAuthoring);
@@ -1537,11 +2098,19 @@
   window.addEventListener("pagehide", () => {
     pageActive = false;
     stateRefreshVersion += 1;
+    sourceOperationVersion += 1;
+    sourceCatalogVersion += 1;
+    sourceImportRunning = false;
+    sourceCatalogRunning = false;
+    resetRunning = false;
     stopCustomerPolling();
   });
   window.addEventListener("pageshow", () => {
     pageActive = true;
     refreshState();
+    if (emailIntakeMode && !sourceCatalog) {
+      loadSourceCatalog();
+    }
   });
 
   initialise();
