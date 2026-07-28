@@ -591,6 +591,8 @@ class ProcessLocalProposalReviewService:
     def _lookup(self, poc_id: str) -> Tuple[SourceBoundProposal, ...]:
         try:
             raw_proposals = self._proposal_lookup(poc_id)
+        except ProposalReviewError:
+            raise
         except Exception as error:
             raise ProposalReviewLookupUnavailable(
                 "Current source proposals are unavailable."

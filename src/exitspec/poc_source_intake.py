@@ -34,6 +34,10 @@ from .intake import (
 )
 from .models import ContractStatus, FrozenExitSpecModel, POCContract
 from .poc_creation import DraftPOCSnapshot, POC_ID_PATTERN
+from .poc_proposal_review import (
+    SourceBoundProposal,
+    derive_proposal_id,
+)
 from .poc_sources import (
     POCSourceAttachmentResult,
     POCSourceRevisionRequired,
@@ -413,6 +417,34 @@ class ProcessLocalPOCSourceIntake:
             )
             for source in self._source_service.snapshots(poc_id)
         )
+
+    def proposal_inputs(
+        self,
+        poc_id: str,
+    ) -> Tuple[SourceBoundProposal, ...]:
+        """Project only redacted source-bound candidates for human triage."""
+
+        self.list_receipts(poc_id)
+        proposals = []
+        for source in self._source_service.snapshots(poc_id):
+            source_receipt_id = _receipt_id(source.source_id)
+            for candidate in source.candidates:
+                proposals.append(
+                    SourceBoundProposal(
+                        poc_id=source.poc_id,
+                        proposal_id=derive_proposal_id(
+                            source.poc_id,
+                            source_receipt_id,
+                            candidate.candidate_id,
+                        ),
+                        source_receipt_id=source_receipt_id,
+                        source_kind=source.kind,
+                        source_quote=candidate.source_quote,
+                        normalized_claim=candidate.normalized_claim,
+                        state="NEEDS_REVIEW",
+                    )
+                )
+        return tuple(proposals)
 
     def capture_email(
         self,
