@@ -109,6 +109,42 @@ Post-implementation status is recorded separately in
 
 ## Next sequence
 
+### 0. POC-first workspace and multi-source shell
+
+The product direction is frozen in
+[POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and
+[`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
+The contract is accepted and `contract_only`; no dashboard implementation claim
+is made yet.
+
+Build the local synthetic/demo track in this order:
+
+1. read-only POC registry and deterministic next-action projection;
+2. `/app` dashboard with one **New POC** action, one bounded POC list, at most
+   one continue card, and three filters;
+3. `/app/pocs/new` local draft creation with zero authority side effects;
+4. source chooser with honest availability;
+5. bridge the existing manifest-approved synthetic email loop into one seeded
+   POC without modifying either frozen Wave 2 contract;
+6. add a pasted or deterministic synthetic meeting transcript as a second
+   source type, without raw audio;
+7. enforce new agreement versions and new customer decisions for material
+   multi-source changes;
+8. add the Evidence Pack library projection;
+9. restore the graphite/orange visual contract; and
+10. publish adversarial implementation evidence for every frozen workspace gate.
+
+This local train does not authorize real email, live meetings, raw audio,
+customer-bound delivery, authenticated identity, or durable production storage.
+Those remain behind the real-customer trust gate below.
+
+Exit gate: a first-time tester can create or resume one POC, understand email
+and meetings as sources, add two synthetic source types to the same POC,
+continue through the existing agreement-to-evidence spine, and distinguish
+agreement status from evidence verdict while every compatibility, authority,
+versioning, 1280×720, narrow-width, and graphite/orange rule in the frozen
+contract passes.
+
 ### 1. Production-grade customer confirmation
 
 Preserve the canonical projection and exact-version gate while adding:
@@ -286,3 +322,4 @@ step.
 5. Hosted identity, signature, authorization, retention, and deletion policy.
 6. First hosted measurement target and approved evidence-retention boundary.
 7. Consent and raw-audio policy before any speech-to-text implementation.
+8. Production POC retention, archive, deletion, and tenant-ownership policy.

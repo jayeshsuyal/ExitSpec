@@ -63,6 +63,38 @@ executable 95%/200 proposal plus a latency sentence that remains context because
 no latency adapter exists. **Untrusted-instructions test** proves that source
 language cannot approve, confirm, freeze, measure, or assign a verdict.
 
+## Accepted workspace direction
+
+The next product surface is governed by the
+[POC Workspace Specification](POC_WORKSPACE_SPEC.md) and its frozen
+[acceptance contract](../examples/product/poc-workspace-acceptance-v1.json).
+That contract is accepted but not implemented.
+
+ExitSpec is POC-first:
+
+```text
+POC
+    -> email, meeting transcript, notes, and document sources
+    -> explicit named human additions
+    -> reviewed requirements
+    -> versioned customer agreement
+    -> frozen contract
+    -> proof runs
+    -> Evidence Packs
+```
+
+Email and meetings are source types inside one POC, not separate POC products.
+The target `/app` surface is a bounded POC dashboard with one **New POC**
+action, at most one **Continue working** task, one POC list, and the three
+filters **Active**, **Needs attention**, and **Completed**. The current
+`/app?intake=email` and `/app?mode=recording` entries remain compatibility paths
+until the dashboard and create flow reach parity.
+
+The workspace phase `Define`, `Prove`, or `Decide` is a read-only projection for
+navigation. It cannot replace or mutate contract lifecycle, customer decision,
+run, or verdict state. Agreement status and evidence verdict remain visibly and
+semantically distinct.
+
 ## Product principles
 
 ### Agreement before evidence
@@ -97,6 +129,28 @@ frozen version is never edited in place.
 deployment, spend, procurement, production traffic, or policy exceptions.
 
 ## Functional requirements
+
+### R0. POC workspace and creation
+
+- Make the POC the stable workspace object, independent of source channel,
+  agreement version, proof run, and verdict.
+- Let one POC contain multiple provider-neutral sources while preserving exact
+  provenance and source authority boundaries.
+- Make `/app` the target POC dashboard and `/app/pocs/new` the target guided
+  creation flow.
+- Require display name, customer label, use case, and owner to create a local
+  draft POC; draft creation must not create an agreement, confirmation, freeze,
+  measurement, evidence, or provider authorization.
+- Offer Email, Meeting or transcript, Notes or document, and Start manually as
+  starting-source choices while labeling unavailable integrations honestly.
+- Derive the displayed workspace phase and next action from underlying domain
+  truth; do not store phase as authority or let a model rank customer priority.
+- Preserve the existing guided email, recording, review, and artifact URLs
+  during migration.
+- Require material source changes after review, confirmation, or freeze to use a
+  new agreement version and, when applicable, a new customer decision.
+- Restore the frozen graphite/orange visual contract defined in
+  `POC_WORKSPACE_SPEC.md`; orange is an action colour, not a `PASS` colour.
 
 ### R1. Source capture and supported rule definition
 
@@ -188,10 +242,12 @@ deployment, spend, procurement, production traffic, or policy exceptions.
 ### R7. Demo reliability and distribution
 
 - Provide a query-driven recording mode and deterministic `Restart`.
-- Keep the desktop workbench usable at 1280×720 without workflow-length body
-  scroll.
+- Keep the target dashboard and desktop workbench usable at 1280×720 without
+  workflow-length body scroll.
 - Reflow smaller and zoomed layouts into bounded panel scrolling, and keep the
   customer-facing Evidence Pack separate from the employee workbench.
+- Avoid infinite body scrolling, vanity metrics, decorative dashboard cards,
+  and channel-specific POC taxonomies.
 - Bundle all deterministic demo inputs and browser assets in the wheel.
 - Make `exitspec define`, `exitspec demo`, and `exitspec serve` operate outside
   the source checkout.
@@ -239,7 +295,10 @@ The product is accepted when:
   live email connectivity, or production authorization; and
 - frozen Wave 2 contract status is kept separate from post-implementation
   evidence in
-  `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`.
+  `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; and
+- the frozen POC workspace acceptance contract remains explicitly
+  `contract_only` until dashboard, creation, multi-source, compatibility, visual,
+  accessibility, and browser gates have implementation evidence.
 
 ## Non-goals for the current product
 
@@ -254,6 +313,9 @@ The product is accepted when:
 - Hosted endpoint measurement or load testing.
 - Authenticated customer identity, durable signatures, or durable review storage.
 - Multi-tenant authorization, CRM integration, billing, or Kubernetes.
+- A completed multi-POC dashboard, create flow, synthetic meeting source, or
+  graphite/orange restoration until the POC workspace implementation train
+  passes its frozen acceptance contract.
 - Automatic deployment, rollback, procurement, or traffic-expansion decisions.
 
 ## Principal risks

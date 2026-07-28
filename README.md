@@ -205,7 +205,9 @@ OAuth or webhooks, arbitrary email upload, or real-customer-email ingestion.
 ## Documentation
 
 - [Product requirements](docs/PRD.md)
+- [Accepted POC workspace contract — not yet implemented](docs/POC_WORKSPACE_SPEC.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Engineering playbook](docs/ENGINEERING_PLAYBOOK.md)
 - [Demo plan](docs/DEMO_PLAN.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Roadmap](docs/ROADMAP.md)
