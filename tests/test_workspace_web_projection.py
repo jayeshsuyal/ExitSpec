@@ -9,14 +9,17 @@ def _workspace_state(session: DemoSession) -> dict:
 
 def _current_poc(session: DemoSession) -> dict:
     workspace = _workspace_state(session)
-    assert workspace["continue_working"]["poc_id"] == (
-        SYNTHETIC_SUPPORT_AGENT_POC_ID
+    assert len(workspace["pocs"]) == 2
+    return next(
+        poc
+        for poc in workspace["pocs"]
+        if poc["poc_id"] == SYNTHETIC_SUPPORT_AGENT_POC_ID
     )
-    assert len(workspace["pocs"]) == 1
-    return workspace["pocs"][0]
 
 
-def test_seeded_demo_projects_one_read_only_poc(tmp_path: Path):
+def test_seeded_demo_projects_the_support_agent_poc_without_losing_identity(
+    tmp_path: Path,
+):
     session = DemoSession.synthetic_support_agent(output_root=tmp_path / "runs")
 
     poc = _current_poc(session)

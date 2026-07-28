@@ -74,6 +74,11 @@ from .models import (
     TranscriptSpan,
     VerdictStatus,
 )
+from .performance_workspace import (
+    PERFORMANCE_POC_ID,
+    performance_poc_detail_payload,
+    performance_workspace_record_and_facts,
+)
 from .provider_egress import (
     InMemoryProviderEgressAuthorizer,
     ProviderEgressAcknowledgement,
@@ -2156,9 +2161,15 @@ class DemoSession:
             ),
             action_since=updated_at,
         )
+        performance_record, performance_facts = (
+            performance_workspace_record_and_facts()
+        )
         dashboard = project_dashboard(
-            ReadOnlyPOCRegistry((record,)),
-            {record.poc_id: facts},
+            ReadOnlyPOCRegistry((record, performance_record)),
+            {
+                record.poc_id: facts,
+                performance_record.poc_id: performance_facts,
+            },
             current_owner=owner,
             selected_filter=selected_filter,
         )
@@ -2517,6 +2528,27 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 self.server.session.workspace_payload(selected_filter),
             )
+            return
+        if parsed.path == "/api/workspace/pocs/{0}".format(PERFORMANCE_POC_ID):
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": (
+                            "Performance POC detail does not accept URL parameters."
+                        )
+                    },
+                )
+                return
+            try:
+                payload = performance_poc_detail_payload()
+            except RuntimeError:
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Performance POC detail is unavailable."},
+                )
+                return
+            self._send_json(HTTPStatus.OK, payload)
             return
         customer_review_token = _customer_review_api_token(parsed.path)
         if customer_review_token is not None:
@@ -3039,6 +3071,10 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
         ):
             relative = "index.html"
+        elif request_path.strip("/") == (
+            "app/pocs/{0}".format(PERFORMANCE_POC_ID)
+        ):
+            relative = "performance.html"
         elif _is_customer_review_page(request_path):
             relative = "review.html"
         else:

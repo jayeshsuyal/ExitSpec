@@ -33,6 +33,9 @@ where = ["src"]
 [tool.setuptools.package-data]
 exitspec = ["static/*.html", "static/*.css", "static/*.js"]
 "exitspec.demo_data" = [
+  "inference_performance/contracts/*.json",
+  "inference_performance/prompts/*.jsonl",
+  "inference_performance/workloads/*.json",
   "support_agent/authoring/*.json",
   "support_agent/contracts/*.yaml",
   "support_agent/email/*.eml",

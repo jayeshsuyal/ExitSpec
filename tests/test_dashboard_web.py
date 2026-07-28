@@ -39,6 +39,9 @@ def test_dashboard_and_seeded_workbench_have_distinct_stable_routes(tmp_path):
         workbench = _get_bytes(
             base_url + "/app/pocs/poc_support_agent_demo"
         )
+        performance = _get_bytes(
+            base_url + "/app/pocs/poc_inference_latency_demo"
+        )
 
         assert root == dashboard
         assert b'id="dashboard-main"' in dashboard
@@ -46,8 +49,15 @@ def test_dashboard_and_seeded_workbench_have_distinct_stable_routes(tmp_path):
         assert b'id="current-task"' not in dashboard
         assert b'id="current-task"' in workbench
         assert b'id="dashboard-main"' not in workbench
+        assert b'id="performance-main"' in performance
+        assert b'id="performance-current-task"' in performance
+        assert b'id="current-task"' not in performance
+        assert b"Run the frozen latency check" in performance
+        assert b"Evidence Pack" in performance
         assert _get_bytes(base_url + "/dashboard.css")
         assert _get_bytes(base_url + "/dashboard.js")
+        assert _get_bytes(base_url + "/performance.css")
+        assert _get_bytes(base_url + "/performance.js")
     finally:
         server.shutdown()
         worker.join(timeout=5)
@@ -93,8 +103,8 @@ def test_unknown_poc_route_fails_closed(tmp_path):
 @pytest.mark.parametrize(
     ("filter_value", "expected_count"),
     (
-        ("Active", 1),
-        ("Needs%20attention", 1),
+        ("Active", 2),
+        ("Needs%20attention", 2),
         ("Completed", 0),
     ),
 )
@@ -114,6 +124,13 @@ def test_workspace_api_exposes_only_the_selected_bounded_filter(
         assert workspace["continue_working"]["poc_id"] == (
             "poc_support_agent_demo"
         )
+        if expected_count:
+            assert {
+                poc["poc_id"] for poc in workspace["pocs"]
+            } == {
+                "poc_support_agent_demo",
+                "poc_inference_latency_demo",
+            }
     finally:
         server.shutdown()
         worker.join(timeout=5)
@@ -135,6 +152,80 @@ def test_workspace_filtering_is_read_only_and_defaults_to_active(tmp_path):
         server.shutdown()
         worker.join(timeout=5)
         server.server_close()
+
+
+def test_performance_poc_detail_is_read_only_and_explicitly_not_run(tmp_path):
+    server, worker, base_url = _running_server(tmp_path)
+    try:
+        before = _get_bytes(base_url + "/api/state")
+        detail = _get_json(
+            base_url + "/api/workspace/pocs/poc_inference_latency_demo"
+        )
+        after = _get_bytes(base_url + "/api/state")
+
+        assert before == after
+        assert detail["poc_id"] == "poc_inference_latency_demo"
+        assert detail["phase"] == "PROVE"
+        assert detail["agreement_status"] == "FROZEN"
+        assert detail["customer_status"] == "CONFIRMED"
+        assert detail["execution_status"] == "NOT_STARTED"
+        assert detail["evidence_status"] == "NOT_RUN"
+        assert detail["evidence_reason"] == (
+            "No verified performance run has been completed or projected."
+        )
+        assert [
+            requirement["threshold"]
+            for requirement in detail["requirements"]
+        ] == ["< 500 ms", "< 1%"]
+        assert detail["run_plan"] == {
+            "configured_concurrency": 4,
+            "endpoint_class": "openai-compatible-chat-completions",
+            "measured_requests": 100,
+            "model": "Qwen/Qwen2.5-0.5B-Instruct",
+            "warmup_requests": 10,
+        }
+        assert "observed" not in json.dumps(detail).lower()
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    ("?view=full", "?filter=Active", ";detail"),
+)
+def test_performance_poc_detail_rejects_url_parameters(tmp_path, suffix):
+    server, worker, base_url = _running_server(tmp_path)
+    try:
+        with pytest.raises(HTTPError) as invalid:
+            _get_json(
+                base_url
+                + "/api/workspace/pocs/poc_inference_latency_demo"
+                + suffix
+            )
+
+        assert invalid.value.code == 400
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+
+
+def test_performance_ui_has_no_browser_execution_control():
+    static_root = Path(__file__).resolve().parents[1] / "src/exitspec/static"
+    html = (static_root / "performance.html").read_text("utf-8")
+    javascript = (static_root / "performance.js").read_text("utf-8")
+
+    assert 'id="performance-current-task"' in html
+    assert 'id="requirement-list"' in html
+    assert 'id="evidence-verdict"' in html
+    assert "<details" in html
+    assert "<canvas" not in html
+    assert "<svg" not in html
+    assert 'id="run-proof"' not in html
+    assert "fetch(DETAIL_API" in javascript
+    assert "method:" not in javascript
 
 
 @pytest.mark.parametrize(

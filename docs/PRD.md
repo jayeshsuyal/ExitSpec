@@ -311,13 +311,14 @@ The product is accepted when:
 - Speech-to-text or real customer call ingestion.
 - Live email connectors, Gmail/Outlook/IMAP access, mailbox OAuth, webhooks,
   arbitrary upload, sending/replying, or real customer email.
-- Generic metrics, multi-criterion contracts, latency or cost execution.
-- Hosted endpoint measurement or load testing.
+- Generic metrics, arbitrary multi-criterion contracts, or latency/cost
+  execution from the browser.
+- Unbounded hosted endpoint measurement or load testing.
 - Authenticated customer identity, durable signatures, or durable review storage.
 - Multi-tenant authorization, CRM integration, billing, or Kubernetes.
-- A completed multi-POC dashboard, create flow, synthetic meeting source, or
-  graphite/orange restoration until the POC workspace implementation train
-  passes its frozen acceptance contract.
+- User-created durable multi-POC workspaces, create flow, or synthetic meeting
+  source until those implementation trains pass their frozen acceptance
+  contracts.
 - Automatic deployment, rollback, procurement, or traffic-expansion decisions.
 
 ## Principal risks

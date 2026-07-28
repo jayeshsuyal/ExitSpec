@@ -78,8 +78,11 @@ snapshot and deterministic read-only projection derive source summary,
 `Define`/`Prove`/`Decide` phase, next action, blockers, and latest evidence from
 existing domain state. `/app` renders that state as one bounded POC dashboard;
 `/api/workspace` exposes its three deterministic filters; and the seeded
-workbench lives at `/app/pocs/poc_support_agent_demo`. POC creation remains
-visibly unavailable until its separate authority-free draft flow is built.
+support-agent workbench lives at `/app/pocs/poc_support_agent_demo`. The same
+dashboard also projects the bundled frozen inference-latency agreement at
+`/app/pocs/poc_inference_latency_demo`; it says `NOT RUN` until verified
+performance evidence exists. POC creation remains visibly unavailable until its
+separate authority-free draft flow is built.
 
 ### Confirm
 
@@ -141,8 +144,11 @@ passes that rule and one error fails. It does not claim four-way request
 overlap. TTFT includes network, proxy, queueing, and inference time; ExitSpec
 does not label it GPU latency.
 
-This path is intentionally CLI-only until its evidence projection is added to
-the existing `/app` workflow. It does not change the support-agent browser demo.
+Execution remains intentionally CLI-only. `/app` now provides a read-only
+projection of the frozen agreement, exact thresholds, workload shape, and
+explicit `NOT RUN` evidence state; it does not expose a browser Run button or
+invent observed results. Verified performance results are not projected until a
+real Evidence Pack exists. The support-agent browser demo remains independent.
 
 ## Authority model
 
@@ -168,10 +174,13 @@ exitspec serve --open-browser
 ```
 
 The POC dashboard is served at `http://127.0.0.1:8765/app`; its seeded
-workbench is at
-`http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`. For a clean recording,
-the compatibility entry `http://127.0.0.1:8765/app?mode=recording` still opens
-the workbench directly. Click **Restart** before the take.
+support-agent workbench is at
+`http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`, and its read-only
+inference-latency POC is at
+`http://127.0.0.1:8765/app/pocs/poc_inference_latency_demo`. For a clean
+support-agent recording, the compatibility entry
+`http://127.0.0.1:8765/app?mode=recording` still opens the workbench directly.
+Click **Restart** before the take.
 
 For the guided Wave 2 email demo, open
 `http://127.0.0.1:8765/app?intake=email` from a clean server and follow the
@@ -222,11 +231,11 @@ remain available when explicit inputs are needed. Generated artifacts are writte
 under `runs/` by default.
 
 The wheel includes the deterministic discovery pack, review plan, contract seed,
-frozen contract, fixture, and browser assets. Installed `define`, `demo`, and
-`serve` flows therefore work outside the repository. CI runs the same
-`engineering_gate.sh` entry point used locally on Python 3.12 and 3.13. The gate
-checks browser JavaScript syntax, the full Python suite, the installed-wheel
-distribution, and patch hygiene.
+frozen contracts, fixtures, validated inference-performance workspace bundle,
+and browser assets. Installed `define`, `demo`, and `serve` flows therefore work
+outside the repository. CI runs the same `engineering_gate.sh` entry point used
+locally on Python 3.12 and 3.13. The gate checks browser JavaScript syntax, the
+full Python suite, the installed-wheel distribution, and patch hygiene.
 
 ## Verdicts
 
