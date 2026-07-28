@@ -39,7 +39,8 @@ employee-selected synthetic sample email
   **Support-agent requirements** and **Untrusted-instructions test**.
 - The primary sample produces one executable 95%/200 exact-tool-selection
   proposal and one latency proposal. The latency sentence remains context
-  because the current product has no latency adapter.
+  because the guided support-agent workbench does not execute latency. A
+  separate bounded inference-performance adapter is available through the CLI.
 - Import deterministically normalizes and redacts the selected RFC822 fixture
   before it publishes source-linked proposals. Every proposal starts
   `NEEDS_REVIEW`; email has no approval, confirmation, freeze, measurement, or
@@ -258,7 +259,7 @@ vLLM/GPU endpoint result is claimed by the repository yet.
 ## Documentation
 
 - [Product requirements](docs/PRD.md)
-- [Accepted POC workspace contract — not yet implemented](docs/POC_WORKSPACE_SPEC.md)
+- [Accepted POC workspace contract — foundation implemented](docs/POC_WORKSPACE_SPEC.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Engineering playbook](docs/ENGINEERING_PLAYBOOK.md)
 - [Demo plan](docs/DEMO_PLAN.md)
