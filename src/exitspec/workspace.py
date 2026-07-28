@@ -694,7 +694,7 @@ def _derive_action(
     if facts.source_count > 0:
         return (
             WorkspacePhase.DEFINE,
-            WorkspaceAction.REVIEW_PROPOSALS,
+            WorkspaceAction.PREPARE_AGREEMENT,
             "Define an executable requirement from the reviewed source.",
         )
 

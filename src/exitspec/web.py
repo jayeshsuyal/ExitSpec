@@ -97,7 +97,10 @@ from .poc_creation import (
     DuplicateDraftPOCId,
     ProcessLocalDraftPOCService,
 )
-from .poc_proposal_review import ProcessLocalProposalReviewService
+from .poc_proposal_review import (
+    ProcessLocalProposalReviewService,
+    ProposalReviewState,
+)
 from .poc_proposal_web_api import (
     handle_poc_proposal_web_api_request,
     is_poc_proposal_web_api_target,
@@ -2424,6 +2427,27 @@ def _unavailable_draft_workspace_projection(
     return POCWorkspaceProjection.model_validate(payload)
 
 
+def _unavailable_review_workspace_projection(
+    projected: POCWorkspaceProjection,
+) -> POCWorkspaceProjection:
+    """Keep source facts visible while refusing an unknown review state."""
+
+    blocker = WorkspaceBlocker(
+        code="draft_proposal_review_unavailable",
+        message="Proposal review status is unavailable. Reload before continuing.",
+    )
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+            "next_human_action": blocker.message,
+            "blockers": (blocker,),
+            "attention_required": True,
+        }
+    )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
 class ExitSpecDemoServer(ThreadingHTTPServer):
     """A loopback-only server with one ephemeral DemoSession."""
 
@@ -2487,6 +2511,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         )
         drafts = self.draft_poc_service.snapshots()
         receipts_by_poc_id = {}
+        pending_proposal_counts_by_poc_id = {}
         unavailable = []
         for draft in drafts:
             try:
@@ -2501,13 +2526,41 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                             projected.continue_working
                         )
                     )
+                continue
+            try:
+                pending_proposal_counts_by_poc_id[draft.poc_id] = sum(
+                    item.review_state == ProposalReviewState.NEEDS_REVIEW
+                    for item in self.proposal_review_service.list_proposals(
+                        draft.poc_id
+                    )
+                )
+            except Exception:
+                projected = project_draft_dashboard(
+                    (draft,),
+                    {draft.poc_id: receipts_by_poc_id[draft.poc_id]},
+                )
+                receipts_by_poc_id.pop(draft.poc_id, None)
+                if projected.continue_working is not None:
+                    unavailable.append(
+                        _unavailable_review_workspace_projection(
+                            projected.continue_working
+                        )
+                    )
 
         available_drafts = tuple(
-            draft for draft in drafts if draft.poc_id in receipts_by_poc_id
+            draft
+            for draft in drafts
+            if (
+                draft.poc_id in receipts_by_poc_id
+                and draft.poc_id in pending_proposal_counts_by_poc_id
+            )
         )
         draft_active = project_draft_dashboard(
             available_drafts,
             receipts_by_poc_id,
+            pending_proposal_counts_by_poc_id=(
+                pending_proposal_counts_by_poc_id
+            ),
             selected_filter=DashboardFilter.ACTIVE,
         )
         active_local = _newest_workspace_items_first(
@@ -2517,6 +2570,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         draft_visible = project_draft_dashboard(
             available_drafts,
             receipts_by_poc_id,
+            pending_proposal_counts_by_poc_id=(
+                pending_proposal_counts_by_poc_id
+            ),
             selected_filter=selected_filter,
         )
         visible_local = list(draft_visible.pocs)

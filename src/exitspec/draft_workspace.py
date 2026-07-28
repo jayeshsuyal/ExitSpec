@@ -33,6 +33,8 @@ _WORKSPACE_SOURCE_BY_KIND = {
 def draft_workspace_record_and_facts(
     draft: DraftPOCSnapshot,
     receipts: Sequence[POCSourceReceipt],
+    *,
+    pending_proposal_count: int | None = None,
 ) -> tuple[POCRegistryEntry, POCWorkflowFacts]:
     """Project one draft and safe source receipts without mutating either."""
 
@@ -43,6 +45,21 @@ def draft_workspace_record_and_facts(
         raise TypeError("receipts must contain POCSourceReceipt values.")
     if any(receipt.poc_id != draft.poc_id for receipt in validated_receipts):
         raise ValueError("Source receipts must belong to the projected draft POC.")
+    total_proposals = sum(
+        receipt.proposal_count for receipt in validated_receipts
+    )
+    resolved_pending_count = (
+        total_proposals
+        if pending_proposal_count is None
+        else pending_proposal_count
+    )
+    if (
+        type(resolved_pending_count) is not int
+        or not 0 <= resolved_pending_count <= total_proposals
+    ):
+        raise ValueError(
+            "Pending proposal count must be between zero and the source total."
+        )
 
     archive_state = (
         ArchiveState.ACTIVE
@@ -71,9 +88,7 @@ def draft_workspace_record_and_facts(
     facts = POCWorkflowFacts(
         source_count=len(validated_receipts),
         source_types=source_types,
-        pending_draft_count=sum(
-            receipt.proposal_count for receipt in validated_receipts
-        ),
+        pending_draft_count=resolved_pending_count,
         action_since=draft.updated_at,
     )
     return record, facts
@@ -83,6 +98,7 @@ def project_draft_dashboard(
     drafts: Sequence[DraftPOCSnapshot],
     receipts_by_poc_id: Mapping[str, Sequence[POCSourceReceipt]],
     *,
+    pending_proposal_counts_by_poc_id: Mapping[str, int] | None = None,
     selected_filter: DashboardFilter = DashboardFilter.ACTIVE,
 ) -> DashboardProjection:
     """Project all current process-local drafts into the standard dashboard."""
@@ -100,6 +116,20 @@ def project_draft_dashboard(
                 ", ".join(unknown_receipt_ids)
             )
         )
+    resolved_pending_counts = (
+        {}
+        if pending_proposal_counts_by_poc_id is None
+        else dict(pending_proposal_counts_by_poc_id)
+    )
+    unknown_pending_ids = sorted(
+        set(resolved_pending_counts).difference(draft_ids)
+    )
+    if unknown_pending_ids:
+        raise ValueError(
+            "Pending proposal counts reference unknown draft POCs: {0}".format(
+                ", ".join(unknown_pending_ids)
+            )
+        )
 
     records = []
     facts_by_poc_id = {}
@@ -107,6 +137,7 @@ def project_draft_dashboard(
         record, facts = draft_workspace_record_and_facts(
             draft,
             receipts_by_poc_id.get(draft.poc_id, ()),
+            pending_proposal_count=resolved_pending_counts.get(draft.poc_id),
         )
         records.append(record)
         facts_by_poc_id[draft.poc_id] = facts

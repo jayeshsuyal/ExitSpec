@@ -126,10 +126,45 @@ def test_zero_candidate_source_still_requires_human_definition():
         {"poc_workspace_alpha": (receipt,)},
     ).pocs[0]
 
-    assert projected.next_action_code == WorkspaceAction.REVIEW_PROPOSALS
+    assert projected.next_action_code == WorkspaceAction.PREPARE_AGREEMENT
     assert projected.next_human_action == (
         "Define an executable requirement from the reviewed source."
     )
+
+
+def test_reviewed_proposals_advance_without_inventing_a_contract():
+    service = _drafts("poc_workspace_alpha")
+    receipt = _receipt("poc_workspace_alpha", proposal_count=2)
+
+    record, facts = draft_workspace_record_and_facts(
+        service.get("poc_workspace_alpha"),
+        (receipt,),
+        pending_proposal_count=0,
+    )
+    projected = project_draft_dashboard(
+        service.snapshots(),
+        {"poc_workspace_alpha": (receipt,)},
+        pending_proposal_counts_by_poc_id={"poc_workspace_alpha": 0},
+    ).pocs[0]
+
+    assert record.poc_id == "poc_workspace_alpha"
+    assert facts.pending_draft_count == 0
+    assert projected.next_action_code == WorkspaceAction.PREPARE_AGREEMENT
+    assert projected.active_contract_id is None
+    assert projected.latest_evidence_summary.status == "NOT_RUN"
+
+
+@pytest.mark.parametrize("pending_count", (-1, 3, True))
+def test_pending_proposal_override_is_bounded_by_source_total(pending_count):
+    service = _drafts("poc_workspace_alpha")
+    receipt = _receipt("poc_workspace_alpha", proposal_count=2)
+
+    with pytest.raises(ValueError, match="between zero"):
+        draft_workspace_record_and_facts(
+            service.get("poc_workspace_alpha"),
+            (receipt,),
+            pending_proposal_count=pending_count,
+        )
 
 
 def test_archived_draft_is_not_present_in_active_filter():
@@ -187,4 +222,12 @@ def test_cross_poc_receipts_and_unknown_receipt_maps_fail_closed():
         project_draft_dashboard(
             service.snapshots(),
             {"poc_workspace_unknown": ()},
+        )
+    with pytest.raises(ValueError, match="unknown"):
+        project_draft_dashboard(
+            service.snapshots(),
+            {},
+            pending_proposal_counts_by_poc_id={
+                "poc_workspace_unknown": 0,
+            },
         )

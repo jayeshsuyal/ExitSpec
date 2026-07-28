@@ -9,6 +9,10 @@ from exitspec.poc_creation import (
     DraftPOCCreateRequest,
     ProcessLocalDraftPOCService,
 )
+from exitspec.poc_proposal_review import (
+    ProcessLocalProposalReviewService,
+    ProposalDecision,
+)
 from exitspec.poc_source_intake import ProcessLocalPOCSourceIntake
 from exitspec.web import (
     DemoSession,
@@ -272,6 +276,50 @@ def test_workspace_get_updates_source_count_and_action_after_capture(
     assert receipt.proposal_count == 1
 
 
+def test_workspace_advances_after_all_source_proposals_are_triaged(
+    tmp_path: Path,
+):
+    with _running_workspace_server(tmp_path) as server:
+        draft = _create_local_workspace_draft(server.draft_poc_service)
+        server.poc_source_intake.capture_document(
+            poc_id=draft.poc_id,
+            document_text=(
+                "The p95 latency must stay below 500 ms. "
+                "Error rate must remain below 1%."
+            ),
+            idempotency_key="workspace-review-aware-source",
+        )
+        proposals = server.proposal_review_service.list_proposals(draft.poc_id)
+        before = _workspace_request(server)
+        for index, proposal in enumerate(proposals, start=1):
+            server.proposal_review_service.decide(
+                draft.poc_id,
+                proposal.proposal_id,
+                (
+                    ProposalDecision.KEEP_FOR_CONTRACT
+                    if index == 1
+                    else ProposalDecision.DISCARD
+                ),
+                "Jayesh",
+                "Human triage decision for dashboard continuity.",
+                f"workspace-review-aware-{index}",
+            )
+        after = _workspace_request(server)
+
+    projected_before = next(
+        poc for poc in before["pocs"] if poc["poc_id"] == draft.poc_id
+    )
+    projected_after = next(
+        poc for poc in after["pocs"] if poc["poc_id"] == draft.poc_id
+    )
+    assert projected_before["next_action_code"] == "REVIEW_PROPOSALS"
+    assert projected_after["next_action_code"] == "PREPARE_AGREEMENT"
+    assert projected_after["next_human_action"] == (
+        "Define an executable requirement from the reviewed source."
+    )
+    assert projected_after["active_contract_id"] is None
+
+
 def test_workspace_get_is_read_only_for_seeded_drafts_and_sources(
     tmp_path: Path,
 ):
@@ -331,6 +379,47 @@ def test_workspace_get_projects_receipt_failure_as_safe_blocker(
         {
             "code": "draft_source_summary_unavailable",
             "message": "Source status is unavailable. Reload before continuing.",
+        }
+    ]
+    assert "sensitive" not in json.dumps(projected).lower()
+
+
+def test_workspace_get_projects_review_failure_as_safe_blocker(
+    tmp_path: Path,
+    monkeypatch,
+):
+    with _running_workspace_server(tmp_path) as server:
+        draft = _create_local_workspace_draft(server.draft_poc_service)
+        server.poc_source_intake.capture_document(
+            poc_id=draft.poc_id,
+            document_text="Error rate must remain below 1%.",
+            idempotency_key="workspace-review-failure-source",
+        )
+
+        def refuse_review(
+            self: ProcessLocalProposalReviewService,
+            poc_id: str,
+        ):
+            raise RuntimeError("sensitive review failure")
+
+        monkeypatch.setattr(
+            ProcessLocalProposalReviewService,
+            "list_proposals",
+            refuse_review,
+        )
+        workspace = _workspace_request(server)
+
+    projected = next(
+        poc for poc in workspace["pocs"] if poc["poc_id"] == draft.poc_id
+    )
+    assert projected["next_action_code"] == "RESOLVE_BLOCKER"
+    assert projected["source_summary"]["count"] == 1
+    assert projected["blockers"] == [
+        {
+            "code": "draft_proposal_review_unavailable",
+            "message": (
+                "Proposal review status is unavailable. Reload before continuing."
+            ),
         }
     ]
     assert "sensitive" not in json.dumps(projected).lower()

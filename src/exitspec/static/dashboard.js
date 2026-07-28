@@ -42,7 +42,7 @@
     if (poc.next_action_code === "REVIEW_PROPOSALS") {
       return `${base}/review`;
     }
-    return base;
+    return null;
   }
 
   function evidenceLabel(status) {
@@ -204,8 +204,12 @@
       );
       footer.append(link);
     } else {
+      const unavailableLabel =
+        poc.next_action_code === "PREPARE_AGREEMENT"
+          ? "Contract builder is next"
+          : "POC unavailable";
       footer.append(
-        element("span", "continue-link is-unavailable", "POC unavailable")
+        element("span", "continue-link is-unavailable", unavailableLabel)
       );
     }
 
