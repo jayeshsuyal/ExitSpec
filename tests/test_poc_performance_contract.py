@@ -28,6 +28,11 @@ from exitspec.poc_performance_contract import (
     PerformanceTargetInput,
     prepare_performance_bundle,
 )
+from exitspec.poc_performance_lifecycle import (
+    PerformanceLifecycleConflict,
+    PerformanceLifecycleInvalid,
+    ProcessLocalPerformanceLifecycleService,
+)
 from exitspec.poc_proposal_review import (
     ProcessLocalProposalReviewService,
     ProposalDecision,
@@ -161,6 +166,24 @@ def _bundle(**input_updates):
         prompt_bytes=PROMPTS,
         prepared_at=NOW,
     )
+
+
+def _lifecycle_service():
+    draft, proposals, definitions = _inputs()
+    current_proposals = list(proposals)
+    current_definitions = list(definitions)
+    service = ProcessLocalPerformanceLifecycleService(
+        draft_lookup=lambda poc_id: draft
+        if poc_id == POC_ID
+        else (_ for _ in ()).throw(KeyError(poc_id)),
+        proposal_lookup=lambda poc_id: tuple(current_proposals)
+        if poc_id == POC_ID
+        else (),
+        definition_lookup=lambda: tuple(current_definitions),
+        prompt_bytes=PROMPTS,
+        clock=lambda: NOW,
+    )
+    return service, current_proposals, current_definitions
 
 
 @pytest.mark.parametrize(
@@ -301,3 +324,129 @@ def test_token_ranges_are_fingerprinted_as_explicit_non_goals():
     assert "Output minimum 64 tokens is not measured" in serialized
     assert bundle.approved_contract.canonical_hash is None
     assert bundle.approved_contract.confirmation_id is None
+
+
+def test_process_local_lifecycle_reuses_proven_confirmation_and_freeze():
+    service, _, _ = _lifecycle_service()
+
+    prepared = service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="This exact agreement is ready for customer review.",
+        idempotency_key="prepare-lifecycle-001",
+    )
+    confirmed = service.confirm(
+        POC_ID,
+        confirmer_identity="Customer approver",
+        agreement_acknowledged=True,
+        rationale="This exact target and requirement pair are correct.",
+        idempotency_key="confirm-lifecycle-001",
+    )
+    frozen = service.freeze(
+        POC_ID,
+        idempotency_key="freeze-lifecycle-001",
+    )
+    bundle, confirmation, frozen_contract = service.frozen_bundle(POC_ID)
+
+    assert prepared.replayed is False
+    assert confirmed.replayed is False
+    assert frozen.replayed is False
+    assert confirmation is confirmed.value
+    assert frozen_contract is frozen.value
+    assert frozen_contract.status is ContractStatus.FROZEN
+    assert frozen_contract.confirmation_id == confirmation.confirmation_id
+    assert bundle.bundle_fingerprint == prepared.value.bundle.bundle_fingerprint
+    assert service.snapshot(POC_ID).frozen_contract is frozen_contract
+
+
+def test_every_lifecycle_write_is_exactly_idempotent():
+    service, _, _ = _lifecycle_service()
+    prepare_arguments = {
+        "target": _target(),
+        "reviewer": "Jayesh",
+        "rationale": "This exact agreement is ready for customer review.",
+        "idempotency_key": "prepare-lifecycle-replay",
+    }
+    first_prepare = service.prepare(POC_ID, **prepare_arguments)
+    replay_prepare = service.prepare(POC_ID, **prepare_arguments)
+    confirm_arguments = {
+        "confirmer_identity": "Customer approver",
+        "agreement_acknowledged": True,
+        "rationale": "Confirmed exactly as displayed.",
+        "idempotency_key": "confirm-lifecycle-replay",
+    }
+    first_confirmation = service.confirm(POC_ID, **confirm_arguments)
+    replay_confirmation = service.confirm(POC_ID, **confirm_arguments)
+    first_freeze = service.freeze(
+        POC_ID,
+        idempotency_key="freeze-lifecycle-replay",
+    )
+    replay_freeze = service.freeze(
+        POC_ID,
+        idempotency_key="freeze-lifecycle-replay",
+    )
+
+    assert replay_prepare.replayed is True
+    assert replay_prepare.value is first_prepare.value
+    assert replay_confirmation.replayed is True
+    assert replay_confirmation.value is first_confirmation.value
+    assert replay_freeze.replayed is True
+    assert replay_freeze.value is first_freeze.value
+
+
+def test_freeze_requires_exact_affirmative_customer_confirmation():
+    service, _, _ = _lifecycle_service()
+    service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepared for exact customer review.",
+        idempotency_key="prepare-before-freeze",
+    )
+
+    with pytest.raises(PerformanceLifecycleConflict, match="confirmation"):
+        service.freeze(
+            POC_ID,
+            idempotency_key="freeze-without-confirmation",
+        )
+    with pytest.raises(PerformanceLifecycleInvalid, match="acknowledgement"):
+        service.confirm(
+            POC_ID,
+            confirmer_identity="Customer approver",
+            agreement_acknowledged=False,
+            rationale="No acknowledgement.",
+            idempotency_key="reject-missing-acknowledgement",
+        )
+
+
+def test_lifecycle_refuses_stale_upstream_and_conflicting_replays():
+    service, _, definitions = _lifecycle_service()
+    service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepared before upstream mutation.",
+        idempotency_key="prepare-stale-lifecycle",
+    )
+
+    definitions.pop()
+    with pytest.raises(PerformanceLifecycleConflict, match="cannot form"):
+        service.snapshot(POC_ID)
+
+    other, _, _ = _lifecycle_service()
+    other.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Original request.",
+        idempotency_key="prepare-conflict-lifecycle",
+    )
+    with pytest.raises(PerformanceLifecycleConflict, match="Idempotency"):
+        other.prepare(
+            POC_ID,
+            target=_target(),
+            reviewer="Jayesh",
+            rationale="Changed request.",
+            idempotency_key="prepare-conflict-lifecycle",
+        )
