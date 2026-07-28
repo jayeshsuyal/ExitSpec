@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Run and review one frozen ExitSpec inference-performance proof."
+    />
+    <title>ExitSpec — Performance proof</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/performance.css" />
+    <link rel="stylesheet" href="/proof.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#performance-current-task">
+      Skip to the current task
+    </a>
+
+    <div class="dashboard-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app">POCs</a>
+        </nav>
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main
+        class="performance-main"
+        id="performance-main"
+        aria-busy="true"
+      >
+        <header class="object-header">
+          <div class="object-identity">
+            <a class="back-link" href="/app">← All POCs</a>
+            <p class="eyebrow">Inference performance</p>
+            <div class="object-title-row">
+              <h1 id="performance-title">Loading proof…</h1>
+              <span class="object-phase" id="performance-phase">PROVE</span>
+            </div>
+            <p>
+              <span id="performance-customer">Loading customer…</span>
+              <span aria-hidden="true"> · </span>
+              <span id="performance-owner">Loading owner…</span>
+            </p>
+          </div>
+
+          <ol class="journey" aria-label="POC journey">
+            <li data-state="complete">
+              <span>1</span>
+              <strong>Define</strong>
+              <small>Complete</small>
+            </li>
+            <li id="journey-prove" data-state="current">
+              <span>2</span>
+              <strong>Prove</strong>
+              <small>Current</small>
+            </li>
+            <li id="journey-decide" data-state="locked">
+              <span>3</span>
+              <strong>Decide</strong>
+              <small>After evidence</small>
+            </li>
+          </ol>
+        </header>
+
+        <section
+          class="current-task-card"
+          id="performance-current-task"
+          aria-labelledby="current-task-heading"
+        >
+          <div class="task-copy">
+            <p class="task-kicker" id="task-kicker">
+              Current task · Prove
+            </p>
+            <h2 id="current-task-heading">Review the frozen proof</h2>
+            <p id="performance-use-case">
+              Loading the approved performance requirement…
+            </p>
+            <p class="task-guidance" id="task-guidance" aria-live="polite">
+              Loading the trusted run state…
+            </p>
+            <label class="run-acknowledgement" for="execution-acknowledged">
+              <input
+                id="execution-acknowledged"
+                type="checkbox"
+                disabled
+              />
+              <span id="execution-acknowledgement-copy">
+                Loading the exact request boundary…
+              </span>
+            </label>
+            <div class="task-actions">
+              <button
+                class="primary-action"
+                id="run-proof"
+                type="button"
+                aria-describedby="task-guidance"
+                disabled
+              >
+                Run frozen proof
+              </button>
+            </div>
+          </div>
+
+          <dl class="state-boundary" aria-label="POC authority states">
+            <div class="agreement-state" data-state="FROZEN">
+              <dt>Agreement</dt>
+              <dd id="agreement-status">Loading</dd>
+            </div>
+            <div class="execution-state" data-state="NOT_STARTED">
+              <dt>Run</dt>
+              <dd id="execution-status">Loading</dd>
+            </div>
+            <div class="evidence-state" data-state="NOT_STARTED">
+              <dt>Verdict / Evidence</dt>
+              <dd id="evidence-status">Loading</dd>
+            </div>
+          </dl>
+        </section>
+
+        <div class="performance-grid">
+          <section
+            class="acceptance-panel"
+            aria-labelledby="acceptance-heading"
+          >
+            <header class="panel-heading">
+              <div>
+                <p class="panel-index">01 · Frozen agreement</p>
+                <h2 id="acceptance-heading">Acceptance gate</h2>
+              </div>
+              <span>Both rules are mandatory</span>
+            </header>
+
+            <ul
+              class="requirement-list"
+              id="requirement-list"
+              aria-busy="true"
+            >
+              <li class="panel-loading">Loading frozen requirements…</li>
+            </ul>
+
+            <p class="agreement-note">
+              Exact target:
+              <strong id="target-summary">Loading</strong>.
+              Changing it requires a new agreement.
+            </p>
+          </section>
+
+          <div class="right-column">
+            <section class="run-panel" aria-labelledby="run-heading">
+              <header class="panel-heading">
+                <div>
+                  <p class="panel-index">02 · Trusted operation</p>
+                  <h2 id="run-heading">Proof run</h2>
+                </div>
+                <span>Server-controlled</span>
+              </header>
+
+              <div class="operation-summary">
+                <div>
+                  <span>Preflight</span>
+                  <strong id="readiness-status">Runs first</strong>
+                </div>
+                <p id="run-reason" aria-live="polite">
+                  The bounded readiness check is included in the run.
+                </p>
+              </div>
+
+              <dl class="run-shape">
+                <div>
+                  <dt>Measured</dt>
+                  <dd><span id="measured-requests">—</span> requests</dd>
+                </div>
+                <div>
+                  <dt>Concurrency</dt>
+                  <dd id="configured-concurrency">—</dd>
+                </div>
+                <div>
+                  <dt>Warmups</dt>
+                  <dd id="warmup-requests">—</dd>
+                </div>
+              </dl>
+
+              <p class="operation-reference">
+                Operation
+                <code id="operation-reference">Not started</code>
+              </p>
+            </section>
+
+            <section
+              class="evidence-panel"
+              data-state="NOT_STARTED"
+              aria-labelledby="evidence-heading"
+            >
+              <div>
+                <p class="panel-index">03 · Verified decision</p>
+                <h2 id="evidence-heading">Evidence Pack</h2>
+                <p id="evidence-reason">
+                  No performance conclusion exists before verified evidence.
+                </p>
+              </div>
+              <div class="evidence-action">
+                <strong class="verdict" id="evidence-verdict">NOT RUN</strong>
+                <a
+                  class="evidence-pack-link"
+                  id="evidence-pack-link"
+                  hidden
+                >
+                  Open Evidence Pack
+                </a>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <details class="technical-details">
+          <summary>Technical details and limits</summary>
+          <div class="technical-content">
+            <dl>
+              <div>
+                <dt>Model</dt>
+                <dd id="model-name">—</dd>
+              </div>
+              <div>
+                <dt>Endpoint class</dt>
+                <dd id="endpoint-class">—</dd>
+              </div>
+              <div>
+                <dt>Adapter</dt>
+                <dd id="adapter-identity">—</dd>
+              </div>
+              <div>
+                <dt>Contract</dt>
+                <dd id="contract-identity">—</dd>
+              </div>
+            </dl>
+            <p id="performance-limitation">
+              TTFT is client-observed. Configured concurrency does not prove
+              production capacity, GPU performance, model quality, or
+              long-duration reliability. Credentials remain server-owned.
+            </p>
+          </div>
+        </details>
+
+        <p
+          class="workspace-error"
+          id="performance-error"
+          role="alert"
+          hidden
+        ></p>
+      </main>
+    </div>
+
+    <script src="/proof.js"></script>
+  </body>
+</html>

@@ -530,6 +530,28 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
                 endpoint,
             )
             root = f"/api/pocs/{poc_id}"
+            proof_page = _request(
+                server,
+                "GET",
+                f"/app/pocs/{poc_id}",
+                content_type=None,
+                origin=None,
+            )
+            proof_css = _request(
+                server,
+                "GET",
+                "/proof.css",
+                content_type=None,
+                origin=None,
+            )
+            proof_javascript = _request(
+                server,
+                "GET",
+                "/proof.js",
+                content_type=None,
+                origin=None,
+            )
+            action_before_run = _workspace_action(server, poc_id)
             before = _request(
                 server,
                 "GET",
@@ -582,7 +604,21 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
                     "idempotency_key": "execute-dynamic-run-transport",
                 },
             )
+            workspace_after = _request(
+                server,
+                "GET",
+                "/api/workspace",
+                content_type=None,
+                origin=None,
+            )
 
+    assert proof_page[0] == proof_css[0] == proof_javascript[0] == 200
+    assert proof_page[2].startswith("text/html")
+    assert 'id="performance-main"' in proof_page[1]
+    assert 'id="execution-acknowledged"' in proof_page[1]
+    assert proof_css[2].startswith("text/css")
+    assert "javascript" in proof_javascript[2]
+    assert action_before_run == "RUN_POC"
     assert before[0] == 200
     assert before[1]["status"] == "NOT_STARTED"
     assert before[1]["operation_id"] is None
@@ -605,6 +641,18 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
     assert replay[1]["replayed"] is True
     assert replay[1]["operation"] == latest[1]
     assert endpoint_state["requests"] == 111
+    assert workspace_after[0] == 200
+    projected = next(
+        item
+        for item in workspace_after[1]["pocs"]
+        if item["poc_id"] == poc_id
+    )
+    assert projected["derived_phase"] == "DECIDE"
+    assert projected["next_action_code"] == "REVIEW_EVIDENCE"
+    assert projected["latest_evidence_summary"]["status"] == "PASS"
+    assert projected["latest_evidence_summary"]["report_url"] == (
+        latest[1]["evidence_pack_url"]
+    )
 
 
 def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):
@@ -616,6 +664,13 @@ def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):
             "idempotency_key": "execute-gated-run",
         }
         before_freeze = _request(server, "POST", root, payload=body)
+        proof_before_freeze = _request(
+            server,
+            "GET",
+            f"/app/pocs/{poc_id}",
+            content_type=None,
+            origin=None,
+        )
         wrong_media = _request(
             server,
             "POST",
@@ -687,6 +742,10 @@ def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):
     assert before_freeze[:2] == (
         409,
         {"error": "Performance run conflicts with current POC state."},
+    )
+    assert proof_before_freeze[:2] == (
+        409,
+        {"error": "Performance proof requires a confirmed frozen agreement."},
     )
     assert wrong_media[:2] == (
         415,

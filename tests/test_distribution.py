@@ -30,6 +30,9 @@ SUPPORT_AGENT_EXAMPLES = PROJECT_ROOT / "examples" / "support-agent"
 SUPPORT_AGENT_EMAIL_EXAMPLES = SUPPORT_AGENT_EXAMPLES / "email"
 STATIC_ROOT = PROJECT_ROOT / "src" / "exitspec" / "static"
 EXPECTED_STATIC_RESOURCES = {
+    "agreement.css",
+    "agreement.html",
+    "agreement.js",
     "app.js",
     "dashboard.css",
     "dashboard.html",
@@ -38,6 +41,9 @@ EXPECTED_STATIC_RESOURCES = {
     "performance.css",
     "performance.html",
     "performance.js",
+    "proof.css",
+    "proof.html",
+    "proof.js",
     "review.css",
     "review.html",
     "review.js",

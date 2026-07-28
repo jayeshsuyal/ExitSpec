@@ -51,10 +51,19 @@
         "CREATE_CUSTOMER_REVIEW",
         "WAIT_FOR_CUSTOMER",
         "FREEZE_CONFIRMED_CONTRACT",
-        "RUN_POC",
       ].includes(poc.next_action_code)
     ) {
       return `${base}/agreement`;
+    }
+    if (
+      [
+        "RUN_POC",
+        "WAIT_FOR_PROOF",
+        "RERUN_POC",
+        "REVIEW_EVIDENCE",
+      ].includes(poc.next_action_code)
+    ) {
+      return base;
     }
     return null;
   }

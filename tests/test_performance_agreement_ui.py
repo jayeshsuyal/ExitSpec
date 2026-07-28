@@ -82,7 +82,7 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
     assert 'id="freeze-panel"' in html
     assert 'id="freeze-form"' in html
     assert 'id="agreement-complete"' in html
-    assert html.count('class="primary-action"') == 3
+    assert html.count('class="primary-action"') == 4
     button_ids = {button["id"] for button in parser.buttons}
     assert button_ids == {
         "create-customer-draft",
@@ -520,22 +520,26 @@ def test_confirmation_and_freeze_visibility_require_authoritative_refresh():
     assert "agreementState.frozen_contract !== null" in renderer
 
 
-def test_completion_is_honest_and_has_no_fake_run_link_or_action():
+def test_completion_is_honest_and_links_to_the_real_proof_route():
     html = _asset(HTML_PATH)
     completion = html.split('id="agreement-complete"', 1)[1].split(
         'id="agreement-error"', 1
     )[0]
 
-    assert "Run binding is the next step" in completion
+    assert "The frozen proof is ready" in completion
     assert (
         "No run, evidence score, pass/fail decision, or verdict was\n"
         "                  created on this screen."
     ) in completion
     assert 'href="' not in completion
+    assert 'id="continue-to-proof"' in completion
+    assert "Continue to proof" in completion
     assert "<button" not in completion
     assert "Run POC" not in completion
     assert "PASS" not in completion
     assert "FAIL" not in completion
+    javascript = _asset(JS_PATH)
+    assert "continueToProof.href = `/app/pocs/${pocId}`;" in javascript
 
 
 def test_safety_copy_distinguishes_draft_confirmation_freeze_and_execution():

@@ -139,6 +139,7 @@
   const freezeButton = document.querySelector("#freeze-contract");
   const freezeStatus = document.querySelector("#freeze-status");
   const completionPanel = document.querySelector("#agreement-complete");
+  const continueToProof = document.querySelector("#continue-to-proof");
   const errorPanel = document.querySelector("#agreement-error");
   const draftControls = Object.freeze([
     targetProviderInput,
@@ -784,6 +785,7 @@
     workbench.setAttribute("aria-busy", "false");
 
     if (agreementState.frozen_contract !== null) {
+      continueToProof.href = `/app/pocs/${pocId}`;
       showOnly(completionPanel);
       setCurrentStep("complete");
       document.querySelector("#current-task-heading").textContent =

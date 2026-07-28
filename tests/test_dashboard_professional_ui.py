@@ -78,10 +78,17 @@ def test_dashboard_has_one_compact_create_action_and_safe_rendering():
         "CREATE_CUSTOMER_REVIEW",
         "WAIT_FOR_CUSTOMER",
         "FREEZE_CONFIRMED_CONTRACT",
-        "RUN_POC",
     ):
         assert f'"{agreement_action}"' in javascript
     assert 'return `${base}/agreement`;' in javascript
+    for proof_action in (
+        "RUN_POC",
+        "WAIT_FOR_PROOF",
+        "RERUN_POC",
+        "REVIEW_EVIDENCE",
+    ):
+        assert f'"{proof_action}"' in javascript
+    assert "return base;" in javascript
     assert "SEEDED_POC_IDS.has(pocId)" in javascript
     assert "innerHTML" not in javascript
     assert ".textContent =" in javascript

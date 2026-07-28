@@ -120,6 +120,14 @@ run_gate \
   node --check src/exitspec/static/performance.js
 
 run_gate \
+  "Performance agreement JavaScript syntax" \
+  node --check src/exitspec/static/agreement.js
+
+run_gate \
+  "Dynamic performance proof JavaScript syntax" \
+  node --check src/exitspec/static/proof.js
+
+run_gate \
   "Customer review JavaScript syntax" \
   node --check src/exitspec/static/review.js
 

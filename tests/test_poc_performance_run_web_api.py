@@ -34,8 +34,20 @@ def _snapshot(
     completed = status is POCPerformanceRunStatus.COMPLETED
     return POCPerformanceRunSnapshot(
         poc_id=POC_ID,
+        contract_id="agreement-dynamic-api",
+        contract_version="1",
         contract_hash="b" * 64,
         workload_id="perf-dynamic-api",
+        target_provider="local-vllm",
+        endpoint_class="openai-compatible-chat-completions",
+        endpoint="http://127.0.0.1:8000/v1/chat/completions",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        adapter="vllm_streaming_latency",
+        adapter_version="1.0.0",
+        measured_requests=100,
+        concurrency=4,
+        warmup_requests=10,
+        authorized_request_count=111,
         operation_id=(
             None
             if status is POCPerformanceRunStatus.NOT_STARTED

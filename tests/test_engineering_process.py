@@ -100,6 +100,16 @@ def _assert_baseline_commands(shell_text: str) -> None:
     assert has_line(
         "node",
         "--check",
+        "src/exitspec/static/agreement.js",
+    ), "Gate must syntax-check agreement.js"
+    assert has_line(
+        "node",
+        "--check",
+        "src/exitspec/static/proof.js",
+    ), "Gate must syntax-check proof.js"
+    assert has_line(
+        "node",
+        "--check",
         "src/exitspec/static/review.js",
     ), "Gate must syntax-check review.js"
     assert has_line("git", "diff", "--check"), "Gate must reject an unclean diff"

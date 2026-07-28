@@ -443,12 +443,14 @@ python3 -m pytest --ignore=tests/test_distribution.py
 node --check src/exitspec/static/app.js
 node --check src/exitspec/static/dashboard.js
 node --check src/exitspec/static/performance.js
+node --check src/exitspec/static/agreement.js
+node --check src/exitspec/static/proof.js
 node --check src/exitspec/static/review.js
 git diff --check
 ```
 
 `tests/test_distribution.py` builds and installs the wheel outside the checkout
-and proves the bundled deterministic demo. The remaining Python suite and both
+and proves the bundled deterministic demo. The remaining Python suite and
 browser syntax checks mirror the current CI split.
 
 These commands are the floor, not the entire gate. A PR also runs focused tests

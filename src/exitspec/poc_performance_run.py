@@ -87,8 +87,20 @@ class POCPerformanceRunStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class POCPerformanceRunSnapshot:
     poc_id: str
+    contract_id: str
+    contract_version: str
     contract_hash: str
     workload_id: str
+    target_provider: str
+    endpoint_class: str
+    endpoint: str
+    model: str
+    adapter: str
+    adapter_version: str
+    measured_requests: int
+    concurrency: int
+    warmup_requests: int
+    authorized_request_count: int
     operation_id: str | None
     status: POCPerformanceRunStatus
     reason_code: str | None
@@ -196,14 +208,13 @@ class ProcessLocalPOCPerformanceRunService:
 
     def snapshot(self, poc_id: str) -> POCPerformanceRunSnapshot:
         bundle, _, frozen = self._frozen_bundle(poc_id)
-        contract_hash = _contract_hash(frozen)
         with self._lock:
             operation_id = self._latest_by_poc.get(poc_id)
             if operation_id is None:
                 return _empty_snapshot(
                     poc_id,
-                    contract_hash,
-                    bundle.workload.workload_id,
+                    bundle,
+                    frozen,
                 )
             return self._snapshot_locked(self._records[operation_id])
 
@@ -472,21 +483,41 @@ class ProcessLocalPOCPerformanceRunService:
         self,
         record: _RunRecord,
     ) -> POCPerformanceRunSnapshot:
-        bundle, _, frozen = self._frozen_bundle(record.poc_id)
+        bundle, confirmation, frozen = self._frozen_bundle(record.poc_id)
         if not hmac.compare_digest(
             record.execution_fingerprint,
             _execution_fingerprint(
                 record.poc_id,
                 bundle,
-                self._lifecycle.frozen_bundle(record.poc_id)[1],
+                confirmation,
                 frozen,
             ),
         ):
             raise POCPerformanceRunConflict
         return POCPerformanceRunSnapshot(
             poc_id=record.poc_id,
+            contract_id=frozen.id,
+            contract_version=frozen.version,
             contract_hash=_contract_hash(frozen),
             workload_id=bundle.workload.workload_id,
+            target_provider=(
+                frozen.target_system.provider
+            ),
+            endpoint_class=(
+                frozen.target_system.endpoint_class
+            ),
+            endpoint=bundle.workload.endpoint,
+            model=bundle.workload.model,
+            adapter=bundle.workload.adapter,
+            adapter_version=bundle.workload.adapter_version,
+            measured_requests=bundle.workload.request_count,
+            concurrency=bundle.workload.concurrency,
+            warmup_requests=bundle.workload.warmup_count,
+            authorized_request_count=(
+                1
+                + bundle.workload.warmup_count
+                + bundle.workload.request_count
+            ),
             operation_id=record.operation_id,
             status=record.status,
             reason_code=record.reason_code,
@@ -682,13 +713,29 @@ def _percent(observed_rate: Decimal | None) -> str | None:
 
 def _empty_snapshot(
     poc_id: str,
-    contract_hash: str,
-    workload_id: str,
+    bundle: PreparedPerformanceBundle,
+    frozen: POCContract,
 ) -> POCPerformanceRunSnapshot:
     return POCPerformanceRunSnapshot(
         poc_id=poc_id,
-        contract_hash=contract_hash,
-        workload_id=workload_id,
+        contract_id=frozen.id,
+        contract_version=frozen.version,
+        contract_hash=_contract_hash(frozen),
+        workload_id=bundle.workload.workload_id,
+        target_provider=frozen.target_system.provider,
+        endpoint_class=frozen.target_system.endpoint_class,
+        endpoint=bundle.workload.endpoint,
+        model=bundle.workload.model,
+        adapter=bundle.workload.adapter,
+        adapter_version=bundle.workload.adapter_version,
+        measured_requests=bundle.workload.request_count,
+        concurrency=bundle.workload.concurrency,
+        warmup_requests=bundle.workload.warmup_count,
+        authorized_request_count=(
+            1
+            + bundle.workload.warmup_count
+            + bundle.workload.request_count
+        ),
         operation_id=None,
         status=POCPerformanceRunStatus.NOT_STARTED,
         reason_code=None,

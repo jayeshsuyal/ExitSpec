@@ -105,6 +105,7 @@ from .poc_creation import (
     ProcessLocalDraftPOCService,
 )
 from .poc_performance_lifecycle import (
+    PerformanceLifecycleError,
     PerformanceLifecycleSnapshot,
     ProcessLocalPerformanceLifecycleService,
 )
@@ -113,6 +114,8 @@ from .poc_performance_lifecycle_web_api import (
     is_performance_lifecycle_web_api_target,
 )
 from .poc_performance_run import (
+    POCPerformanceRunSnapshot,
+    POCPerformanceRunStatus,
     ProcessLocalPOCPerformanceRunService,
 )
 from .poc_performance_run_web_api import (
@@ -185,6 +188,7 @@ from .workspace import (
     ReadOnlyPOCRegistry,
     WorkspaceAction,
     WorkspaceBlocker,
+    WorkspaceEvidenceState,
     WorkspacePhase,
     WorkspaceSourceType,
     project_dashboard,
@@ -2474,6 +2478,7 @@ def _unavailable_review_workspace_projection(
 def _agreement_aware_workspace_projection(
     projected: POCWorkspaceProjection,
     snapshot: PerformanceLifecycleSnapshot,
+    run_snapshot: POCPerformanceRunSnapshot | None = None,
 ) -> POCWorkspaceProjection:
     """Project the exact local agreement lifecycle onto one dashboard row."""
 
@@ -2524,6 +2529,86 @@ def _agreement_aware_workspace_projection(
                 "updated_at": max(projected.updated_at, frozen.frozen_at),
             }
         )
+    if run_snapshot is not None:
+        run_status = run_snapshot.status
+        if run_status is POCPerformanceRunStatus.RUNNING:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.WAIT_FOR_PROOF,
+                    "next_human_action": (
+                        "Wait for the active proof run to finish."
+                    ),
+                }
+            )
+        elif run_status is POCPerformanceRunStatus.BLOCKED:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.RERUN_POC,
+                    "next_human_action": (
+                        "Resolve endpoint readiness, then retry the proof."
+                    ),
+                    "latest_evidence_summary": {
+                        "status": WorkspaceEvidenceState.BLOCKED,
+                        "reason": (
+                            run_snapshot.reason_code
+                            or "The proof run was blocked."
+                        ),
+                        "report_url": None,
+                    },
+                    "attention_required": True,
+                }
+            )
+        elif run_status is POCPerformanceRunStatus.NOT_PROVEN:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.RERUN_POC,
+                    "next_human_action": (
+                        "Review the unproven run, then retry safely."
+                    ),
+                    "latest_evidence_summary": {
+                        "status": WorkspaceEvidenceState.NOT_PROVEN,
+                        "reason": (
+                            run_snapshot.reason_code
+                            or "The proof did not produce verified evidence."
+                        ),
+                        "report_url": None,
+                    },
+                    "attention_required": True,
+                }
+            )
+        elif run_status is POCPerformanceRunStatus.COMPLETED:
+            verdict = run_snapshot.verdict
+            if verdict is None or run_snapshot.evidence_pack_url is None:
+                raise ValueError(
+                    "Completed performance run lacks verified evidence."
+                )
+            evidence_state = WorkspaceEvidenceState(verdict.value)
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.DECIDE,
+                    "next_action_code": WorkspaceAction.REVIEW_EVIDENCE,
+                    "next_human_action": (
+                        "Review the verified {0} Evidence Pack.".format(
+                            verdict.value
+                        )
+                    ),
+                    "latest_evidence_summary": {
+                        "status": evidence_state,
+                        "reason": (
+                            "Verified performance decision: {0}.".format(
+                                verdict.value
+                            )
+                        ),
+                        "report_url": run_snapshot.evidence_pack_url,
+                    },
+                    "attention_required": (
+                        evidence_state is not WorkspaceEvidenceState.PASS
+                    ),
+                }
+            )
     return POCWorkspaceProjection.model_validate(payload)
 
 
@@ -2624,6 +2709,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         kept_proposal_counts_by_poc_id = {}
         defined_criterion_counts_by_poc_id = {}
         agreement_snapshots_by_poc_id = {}
+        performance_run_snapshots_by_poc_id = {}
         unavailable = []
         for draft in drafts:
             try:
@@ -2658,8 +2744,18 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                         self.contract_definition_service.definitions()
                     )
                 )
-                agreement_snapshots_by_poc_id[draft.poc_id] = (
+                agreement_snapshot = (
                     self.performance_lifecycle_service.snapshot(draft.poc_id)
+                )
+                agreement_snapshots_by_poc_id[draft.poc_id] = (
+                    agreement_snapshot
+                )
+                performance_run_snapshots_by_poc_id[draft.poc_id] = (
+                    None
+                    if agreement_snapshot.frozen_contract is None
+                    else self.poc_performance_run_service.snapshot(
+                        draft.poc_id
+                    )
                 )
             except Exception:
                 projected = project_draft_dashboard(
@@ -2671,6 +2767,10 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 kept_proposal_counts_by_poc_id.pop(draft.poc_id, None)
                 defined_criterion_counts_by_poc_id.pop(draft.poc_id, None)
                 agreement_snapshots_by_poc_id.pop(draft.poc_id, None)
+                performance_run_snapshots_by_poc_id.pop(
+                    draft.poc_id,
+                    None,
+                )
                 if projected.continue_working is not None:
                     unavailable.append(
                         _unavailable_review_workspace_projection(
@@ -2687,6 +2787,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 and draft.poc_id in kept_proposal_counts_by_poc_id
                 and draft.poc_id in defined_criterion_counts_by_poc_id
                 and draft.poc_id in agreement_snapshots_by_poc_id
+                and draft.poc_id in performance_run_snapshots_by_poc_id
             )
         )
         draft_active = project_draft_dashboard(
@@ -2709,6 +2810,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                     _agreement_aware_workspace_projection(
                         item,
                         agreement_snapshots_by_poc_id[item.poc_id],
+                        performance_run_snapshots_by_poc_id[item.poc_id],
                     )
                     for item in draft_active.pocs
                 ),
@@ -2734,6 +2836,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             _agreement_aware_workspace_projection(
                 item,
                 agreement_snapshots_by_poc_id[item.poc_id],
+                performance_run_snapshots_by_poc_id[item.poc_id],
             )
             for item in draft_visible.pocs
         ]
@@ -3589,6 +3692,47 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return
             self._serve_static(parsed.path)
             return
+        dynamic_proof_poc_id = _dynamic_proof_page_poc_id(parsed.path)
+        if dynamic_proof_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                proof_draft = self.server.draft_poc_service.get(
+                    dynamic_proof_poc_id
+                )
+            except (ValueError, DraftPOCNotFound):
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Page not found."},
+                )
+                return
+            if proof_draft.archive_state != DraftPOCArchiveState.ACTIVE:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Page not found."},
+                )
+                return
+            try:
+                self.server.performance_lifecycle_service.frozen_bundle(
+                    dynamic_proof_poc_id
+                )
+            except PerformanceLifecycleError:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": (
+                            "Performance proof requires a confirmed "
+                            "frozen agreement."
+                        )
+                    },
+                )
+                return
+            self._serve_static(parsed.path)
+            return
         draft_poc_id = _draft_poc_api_id(parsed.path)
         if draft_poc_id is not None:
             if parsed.params or parsed.query or parsed.fragment:
@@ -4336,6 +4480,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             relative = "contract_definition.html"
         elif _performance_agreement_page_poc_id(request_path) is not None:
             relative = "agreement.html"
+        elif _dynamic_proof_page_poc_id(request_path) is not None:
+            relative = "proof.html"
         elif request_path.strip("/") == (
             "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
         ):
@@ -4672,6 +4818,26 @@ def _poc_performance_run_api_poc_id(
         return None
     poc_id = unquote(parts[2])
     if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _dynamic_proof_page_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return one local draft identity in an exact base POC page route."""
+
+    parts = request_path.strip("/").split("/")
+    if len(parts) != 3 or parts[:2] != ["app", "pocs"]:
+        return None
+    poc_id = unquote(parts[2])
+    if (
+        not poc_id
+        or "/" in poc_id
+        or "\\" in poc_id
+        or poc_id
+        in {SYNTHETIC_SUPPORT_AGENT_POC_ID, PERFORMANCE_POC_ID}
+    ):
         return None
     return poc_id
 
