@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from contextlib import contextmanager
 from http.client import HTTPConnection
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -180,15 +182,103 @@ def _create_defined_performance_poc(server: ExitSpecDemoServer) -> str:
 
 
 def _prepare_payload() -> dict:
+    return _prepare_payload_for(
+        "http://127.0.0.1:8000/v1/chat/completions"
+    )
+
+
+def _prepare_payload_for(endpoint: str) -> dict:
     return {
         "target_provider": "Local vLLM",
         "endpoint_class": "OpenAI-compatible chat completions",
-        "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
+        "endpoint": endpoint,
         "model": "Qwen/Qwen2.5-0.5B-Instruct",
         "reviewer": "Jayesh",
         "rationale": "Bind the reviewed requirements to this exact target.",
         "idempotency_key": "prepare-performance-agreement",
     }
+
+
+@contextmanager
+def _streaming_endpoint():
+    state = {"requests": 0}
+    lock = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:
+            with lock:
+                state["requests"] += 1
+            length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(length))
+            assert request["stream"] is True
+            payload = (
+                b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+                b"data: [DONE]\n\n"
+            )
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                "text/event-stream; charset=utf-8",
+            )
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    endpoint = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=endpoint.serve_forever, daemon=True)
+    worker.start()
+    try:
+        yield (
+            "http://127.0.0.1:{0}/v1/chat/completions".format(
+                endpoint.server_port
+            ),
+            state,
+        )
+    finally:
+        endpoint.shutdown()
+        worker.join(timeout=5)
+        endpoint.server_close()
+
+
+def _freeze_agreement(
+    server: ExitSpecDemoServer,
+    poc_id: str,
+    endpoint: str,
+) -> str:
+    root = f"/api/pocs/{poc_id}/agreement"
+    prepared = _request(
+        server,
+        "POST",
+        root,
+        payload=_prepare_payload_for(endpoint),
+    )
+    assert prepared[0] == 201
+    confirmed = _request(
+        server,
+        "POST",
+        root + "/confirm",
+        payload={
+            "confirmer": "Customer contact recorded by Jayesh",
+            "agreement_acknowledged": True,
+            "rationale": "The exact target and both criteria were reviewed.",
+            "idempotency_key": "confirm-dynamic-run-transport",
+        },
+    )
+    assert confirmed[0] == 201
+    frozen = _request(
+        server,
+        "POST",
+        root + "/freeze",
+        payload={"idempotency_key": "freeze-dynamic-run-transport"},
+    )
+    assert frozen[0] == 201
+    return str(frozen[1]["frozen_contract"]["canonical_hash"])
 
 
 def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
@@ -427,4 +517,197 @@ def test_agreement_assets_archived_routes_and_methods_fail_closed(tmp_path):
     assert archived_page[:2] == archived_read[:2] == archived_write[:2] == (
         404,
         {"error": "Performance agreement was not found."},
+    )
+
+
+def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
+    with _streaming_endpoint() as (endpoint, endpoint_state):
+        with _running_server(tmp_path) as server:
+            poc_id = _create_defined_performance_poc(server)
+            contract_hash = _freeze_agreement(
+                server,
+                poc_id,
+                endpoint,
+            )
+            root = f"/api/pocs/{poc_id}"
+            before = _request(
+                server,
+                "GET",
+                root + "/runs/latest",
+                content_type=None,
+                origin=None,
+            )
+            started = _request(
+                server,
+                "POST",
+                root + "/runs",
+                payload={
+                    "execution_acknowledged": True,
+                    "idempotency_key": "execute-dynamic-run-transport",
+                },
+            )
+            deadline = time.monotonic() + 10
+            latest = before
+            while time.monotonic() < deadline:
+                latest = _request(
+                    server,
+                    "GET",
+                    root + "/runs/latest",
+                    content_type=None,
+                    origin=None,
+                )
+                if latest[1]["is_terminal"]:
+                    break
+                time.sleep(0.01)
+            evidence = _request(
+                server,
+                "GET",
+                root + "/evidence",
+                content_type=None,
+                origin=None,
+            )
+            operation = _request(
+                server,
+                "GET",
+                root + "/runs/" + latest[1]["operation_id"],
+                content_type=None,
+                origin=None,
+            )
+            replay = _request(
+                server,
+                "POST",
+                root + "/runs",
+                payload={
+                    "execution_acknowledged": True,
+                    "idempotency_key": "execute-dynamic-run-transport",
+                },
+            )
+
+    assert before[0] == 200
+    assert before[1]["status"] == "NOT_STARTED"
+    assert before[1]["operation_id"] is None
+    assert started[0] == 202
+    assert started[1]["replayed"] is False
+    assert latest[0] == evidence[0] == operation[0] == 200
+    assert latest[1]["contract_hash"] == contract_hash
+    assert latest[1]["status"] == "COMPLETED"
+    assert latest[1]["verdict"] == "PASS"
+    assert latest[1]["attempted_count"] == 100
+    assert latest[1]["successful_count"] == 100
+    assert latest[1]["error_count"] == 0
+    assert latest[1]["p95_ttft_ms"] is not None
+    assert latest[1]["error_rate_percent"] == "0"
+    assert latest[1]["evidence_pack_url"].startswith("/artifacts/run_")
+    assert latest[1]["is_terminal"] is True
+    assert evidence[1] == latest[1]
+    assert operation[1] == latest[1]
+    assert replay[0] == 200
+    assert replay[1]["replayed"] is True
+    assert replay[1]["operation"] == latest[1]
+    assert endpoint_state["requests"] == 111
+
+
+def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):
+    with _running_server(tmp_path) as server:
+        poc_id = _create_defined_performance_poc(server)
+        root = f"/api/pocs/{poc_id}/runs"
+        body = {
+            "execution_acknowledged": True,
+            "idempotency_key": "execute-gated-run",
+        }
+        before_freeze = _request(server, "POST", root, payload=body)
+        wrong_media = _request(
+            server,
+            "POST",
+            root,
+            payload=body,
+            content_type="text/plain",
+        )
+        missing_origin = _request(
+            server,
+            "POST",
+            root,
+            payload=body,
+            origin=None,
+        )
+        header_authority = _request(
+            server,
+            "POST",
+            root,
+            payload=body,
+            headers={"Idempotency-Key": "must-not-control-run"},
+        )
+        duplicated = json.dumps(body).replace(
+            '"execution_acknowledged": true',
+            (
+                '"execution_acknowledged": true, '
+                '"execution_acknowledged": false'
+            ),
+        )
+        duplicate_json = _request(
+            server,
+            "POST",
+            root,
+            raw_body=duplicated.encode("utf-8"),
+        )
+        too_large = _request(
+            server,
+            "POST",
+            root,
+            raw_body=b"{" + b" " * MAX_REQUEST_BYTES + b"}",
+        )
+        parameterized = _request(
+            server,
+            "POST",
+            root + "?endpoint=https://evil.test",
+            payload=body,
+        )
+        unsupported = _request(
+            server,
+            "PATCH",
+            root,
+            content_type=None,
+            origin=None,
+        )
+        server.draft_poc_service.archive(poc_id)
+        archived_read = _request(
+            server,
+            "GET",
+            root + "/latest",
+            content_type=None,
+            origin=None,
+        )
+        archived_write = _request(
+            server,
+            "POST",
+            root,
+            payload=body,
+        )
+
+    assert before_freeze[:2] == (
+        409,
+        {"error": "Performance run conflicts with current POC state."},
+    )
+    assert wrong_media[:2] == (
+        415,
+        {"error": "Content-Type must be application/json."},
+    )
+    assert missing_origin[:2] == (
+        403,
+        {"error": "Origin is not allowed."},
+    )
+    invalid = {"error": "Performance run request is invalid."}
+    assert header_authority[:2] == duplicate_json[:2] == (400, invalid)
+    assert parameterized[:2] == (400, invalid)
+    assert too_large[:2] == (
+        413,
+        {"error": "Performance run request is too large."},
+    )
+    assert unsupported[:2] == (
+        405,
+        {"error": "Performance run method is not allowed."},
+    )
+    assert archived_read[:2] == archived_write[:2] == (
+        404,
+        {"error": "Performance run was not found."},
     )
