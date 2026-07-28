@@ -264,8 +264,6 @@ def _ordered_limitations(
         "and inference time.",
         "This run proves only the frozen model, workload, endpoint, and "
         "measurement conditions shown in this pack.",
-        "Evidence is not authorization. Deployment, traffic expansion, "
-        "procurement, and spending still require human approval.",
     )
     return tuple(dict.fromkeys((*verdict.limitations, *required)))
 

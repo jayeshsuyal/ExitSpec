@@ -78,7 +78,6 @@ _EXTERNAL_PREFLIGHT_OUTCOMES: Final = frozenset(
     {
         ProbeOutcome.HTTP_ERROR,
         ProbeOutcome.TIMEOUT,
-        ProbeOutcome.PROTOCOL_ERROR,
         ProbeOutcome.TRANSPORT_ERROR,
     }
 )
@@ -137,6 +136,13 @@ def run_performance_proof(
     contract_hash = contract.canonical_hash
     if contract_hash is None:
         raise PerformanceRunnerError("Frozen contract hash is missing.")
+    confirmation_hash = hashlib.sha256(
+        serialize_confirmation(confirmation)
+    ).hexdigest()
+    # Validate credential shape before creating a durable reservation. A
+    # caller can correct local configuration and retry without orphaning a
+    # RUNNING operation that never attempted network work.
+    transport = OpenAIHTTPTransport(api_key)
 
     output = _prepare_output_root(output_root)
     database_path = (
@@ -151,6 +157,7 @@ def run_performance_proof(
     reservation = ledger.reserve(
         idempotency_key=idempotency_key,
         frozen_contract_hash=contract_hash,
+        confirmation_hash=confirmation_hash,
         expected_manifest_hash=(
             context.expected_manifest.manifest_sha256
         ),
@@ -173,7 +180,6 @@ def run_performance_proof(
                 "Persisted performance evidence failed closed during replay."
             ) from error
 
-    transport = OpenAIHTTPTransport(api_key)
     try:
         preflight_status = _run_preflight(context, transport)
         if preflight_status is not None:

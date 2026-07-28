@@ -28,7 +28,10 @@ from .canonical import canonical_json_bytes
 PERFORMANCE_OPERATION_SCHEMA_NAME = "exitspec.performance-operations"
 PERFORMANCE_OPERATION_SCHEMA_VERSION = 1
 
-_INPUT_DIGEST_DOMAIN = b"exitspec-performance-operation-input-v1\x00"
+# v2 adds the exact key-redacted customer-confirmation digest. Existing v1
+# reservations therefore fail closed as input conflicts instead of silently
+# replaying under broader binding semantics.
+_INPUT_DIGEST_DOMAIN = b"exitspec-performance-operation-input-v2\x00"
 _IDEMPOTENCY_KEY_DOMAIN = (
     b"exitspec-performance-operation-idempotency-key-v1\x00"
 )
@@ -165,6 +168,7 @@ def performance_operation_idempotency_key_digest(
 def performance_operation_input_digest(
     *,
     frozen_contract_hash: str,
+    confirmation_hash: str,
     expected_manifest_hash: str,
     workload_hash: str,
     adapter: str,
@@ -173,6 +177,7 @@ def performance_operation_input_digest(
     """Bind every frozen input that authorizes one performance execution."""
 
     _require_sha256(frozen_contract_hash, "frozen_contract_hash")
+    _require_sha256(confirmation_hash, "confirmation_hash")
     _require_sha256(expected_manifest_hash, "expected_manifest_hash")
     _require_sha256(workload_hash, "workload_hash")
     _require_adapter(adapter)
@@ -182,6 +187,7 @@ def performance_operation_input_digest(
         {
             "adapter": adapter,
             "adapter_version": adapter_version,
+            "confirmation_hash": confirmation_hash,
             "expected_manifest_hash": expected_manifest_hash,
             "frozen_contract_hash": frozen_contract_hash,
             "schema_version": PERFORMANCE_OPERATION_SCHEMA_VERSION,
@@ -248,6 +254,7 @@ class SQLitePerformanceOperationLedger:
         *,
         idempotency_key: str,
         frozen_contract_hash: str,
+        confirmation_hash: str,
         expected_manifest_hash: str,
         workload_hash: str,
         adapter: str,
@@ -261,6 +268,7 @@ class SQLitePerformanceOperationLedger:
         )
         input_digest = performance_operation_input_digest(
             frozen_contract_hash=frozen_contract_hash,
+            confirmation_hash=confirmation_hash,
             expected_manifest_hash=expected_manifest_hash,
             workload_hash=workload_hash,
             adapter=adapter,

@@ -40,8 +40,9 @@ REGISTRY_SHA256 = "c" * 64
 
 DEFAULT_INPUTS = {
     "frozen_contract_hash": "1" * 64,
-    "expected_manifest_hash": "2" * 64,
-    "workload_hash": "3" * 64,
+    "confirmation_hash": "2" * 64,
+    "expected_manifest_hash": "3" * 64,
+    "workload_hash": "4" * 64,
     "adapter": "vllm_latency",
     "adapter_version": "1.0",
 }
@@ -152,13 +153,14 @@ def test_digests_are_domain_separated_rfc8785_hashes():
     input_payload = {
         "adapter": "vllm_latency",
         "adapter_version": "1.0",
-        "expected_manifest_hash": "2" * 64,
+        "confirmation_hash": "2" * 64,
+        "expected_manifest_hash": "3" * 64,
         "frozen_contract_hash": "1" * 64,
         "schema_version": 1,
-        "workload_hash": "3" * 64,
+        "workload_hash": "4" * 64,
     }
     expected_input_digest = hashlib.sha256(
-        b"exitspec-performance-operation-input-v1\x00"
+        b"exitspec-performance-operation-input-v2\x00"
         + canonical_json_bytes(input_payload)
     ).hexdigest()
     assert (
@@ -183,9 +185,10 @@ def test_same_key_and_same_inputs_replays_running_without_execution(tmp_path):
 @pytest.mark.parametrize(
     ("field", "different_value"),
     [
-        ("frozen_contract_hash", "4" * 64),
-        ("expected_manifest_hash", "5" * 64),
-        ("workload_hash", "6" * 64),
+        ("frozen_contract_hash", "5" * 64),
+        ("confirmation_hash", "6" * 64),
+        ("expected_manifest_hash", "7" * 64),
+        ("workload_hash", "8" * 64),
         ("adapter", "openai_latency"),
         ("adapter_version", "2.0"),
     ],

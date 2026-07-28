@@ -73,7 +73,11 @@ class _EndpointState:
 
 
 @contextmanager
-def _endpoint(*, fail_request: int | None = None):
+def _endpoint(
+    *,
+    fail_request: int | None = None,
+    malformed_request: int | None = None,
+):
     state = _EndpointState(fail_request=fail_request)
 
     class Handler(BaseHTTPRequestHandler):
@@ -92,6 +96,13 @@ def _endpoint(*, fail_request: int | None = None):
                     response = b'{"error":"synthetic unavailable"}'
                     self.send_response(503)
                     self.send_header("Content-Type", "application/json")
+                elif request_number == malformed_request:
+                    response = b"data: not-json\n\n"
+                    self.send_response(200)
+                    self.send_header(
+                        "Content-Type",
+                        "text/event-stream; charset=utf-8",
+                    )
                 else:
                     response = (
                         b'data: {"choices":[{"delta":{"content":"'
@@ -316,6 +327,55 @@ def test_failed_preflight_is_blocked_and_never_starts_measurement(
     assert result.artifacts is None
 
 
+def test_malformed_preflight_is_not_proven_not_external_block(
+    tmp_path: Path,
+):
+    with _endpoint(malformed_request=1) as (endpoint, state):
+        bundle = tmp_path / "bundle"
+        contract_path, confirmation_path = _write_bundle(
+            bundle,
+            endpoint,
+        )
+        result = _run(
+            bundle,
+            tmp_path / "runs",
+            contract_path,
+            confirmation_path,
+        )
+
+    assert state.request_count == 1
+    assert result.operation.status is PerformanceOperationStatus.NOT_PROVEN
+    assert result.operation.terminal_reason == "PREFLIGHT_NOT_PROVEN"
+    assert result.verdict is None
+    assert result.artifacts is None
+
+
+def test_invalid_api_key_is_rejected_before_reservation(
+    tmp_path: Path,
+):
+    with _endpoint() as (endpoint, state):
+        bundle = tmp_path / "bundle"
+        output = tmp_path / "runs"
+        contract_path, confirmation_path = _write_bundle(
+            bundle,
+            endpoint,
+        )
+
+        with pytest.raises(ValueError, match="api_key"):
+            run_performance_proof(
+                contract_path=contract_path,
+                confirmation_path=confirmation_path,
+                bundle_root=bundle,
+                output_root=output,
+                idempotency_key=EXECUTION_KEY,
+                api_key=" invalid ",
+                clock=lambda: FIXED_TIME,
+            )
+
+    assert state.request_count == 0
+    assert not output.exists()
+
+
 def test_confirmation_identity_mismatch_is_rejected_before_reservation_or_network(
     tmp_path: Path,
 ):
@@ -343,6 +403,40 @@ def test_confirmation_identity_mismatch_is_rejected_before_reservation_or_networ
 
     assert state.request_count == 0
     assert not output.exists()
+
+
+def test_same_key_with_changed_confirmation_conflicts_before_network(
+    tmp_path: Path,
+):
+    with _endpoint() as (endpoint, state):
+        bundle = tmp_path / "bundle"
+        output = tmp_path / "runs"
+        contract_path, confirmation_path = _write_bundle(
+            bundle,
+            endpoint,
+        )
+        _run(
+            bundle,
+            output,
+            contract_path,
+            confirmation_path,
+        )
+        calls_before_conflict = state.request_count
+        confirmation = json.loads(confirmation_path.read_bytes())
+        confirmation["rationale"] = (
+            "The customer supplied different confirmation metadata."
+        )
+        confirmation_path.write_bytes(canonical_json_bytes(confirmation))
+
+        with pytest.raises(PerformanceOperationConflict):
+            _run(
+                bundle,
+                output,
+                contract_path,
+                confirmation_path,
+            )
+
+    assert state.request_count == calls_before_conflict
 
 
 def test_concurrent_same_key_executes_one_network_loop_and_replays_pack(
