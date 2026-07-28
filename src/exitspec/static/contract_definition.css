@@ -350,7 +350,7 @@
 
 .bounded-input {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
   align-items: stretch;
 }
 
@@ -359,7 +359,7 @@
   border-left: 0;
 }
 
-.fixed-operator,
+.operator-input,
 .threshold-unit {
   display: grid;
   place-items: center;
@@ -369,6 +369,23 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 9px;
   font-weight: 800;
+}
+
+.operator-input {
+  min-height: 34px;
+  border-right: 0;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .threshold-unit {

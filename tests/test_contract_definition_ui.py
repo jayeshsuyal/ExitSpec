@@ -99,15 +99,19 @@ def test_source_quote_and_claim_are_visibly_separate_from_human_form():
     assert "not written to browser storage" in html
 
 
-def test_supported_metrics_and_fixed_operator_are_explicit_and_bounded():
+def test_supported_metrics_and_explicit_operators_are_bounded():
     html = _asset(HTML_PATH)
     javascript = _asset(JS_PATH)
 
     assert html.count('value="TTFT_P95_MS"') == 1
     assert html.count('value="ERROR_RATE_PERCENT"') == 1
-    assert 'name="operator"' not in html
-    assert '<span class="fixed-operator" aria-label="at most">≤</span>' in html
-    assert 'operator: "LTE"' in javascript
+    assert 'id="operator"' in html
+    assert 'name="operator"' in html
+    assert html.count('value="LT"') == 1
+    assert html.count('value="LTE"') == 1
+    assert 'const OPERATORS = Object.freeze(["LT", "LTE"]);' in javascript
+    assert "operator: operator" not in javascript
+    assert "operator," in javascript
     assert 'unit: "MILLISECONDS"' in javascript
     assert 'unit: "PERCENT"' in javascript
     assert "minimum: 0.001" in javascript
@@ -125,7 +129,8 @@ def test_normal_view_is_simple_and_workload_ranges_are_native_details():
     assert 'id="minimum-samples"' in html
     assert 'id="concurrency"' in html
     assert '<details class="technical-fields">' in html
-    assert "<summary>Technical workload ranges</summary>" in html
+    assert "Planning context · not measured by runner v1" in html
+    assert "does not prove token distributions" in html
     assert 'id="prompt-tokens-min"' in html
     assert 'id="prompt-tokens-max"' in html
     assert 'id="output-tokens-min"' in html
@@ -139,16 +144,16 @@ def test_defaults_are_visible_but_copy_requires_human_verification():
     assert 'id="threshold"' in html and 'value="500"' in html
     assert 'id="minimum-samples"' in html and 'value="100"' in html
     assert 'id="concurrency"' in html and 'value="4"' in html
+    assert 'max="1000"' in html
+    assert 'max="32"' in html
     for value in ("512", "4096", "64"):
         assert f'value="{value}"' in html
     assert (
         "Starting values are suggestions only. Verify every value\n"
         "                  against the reviewed source before saving."
     ) in html
-    assert (
-        "Confirm them against the\n"
-        "                    source; they are not inferred or approved automatically."
-    ) in html
+    assert "current runner binds a hashed prompt fixture" in html
+    assert "does not prove token distributions" in html
 
 
 def test_reviewer_and_rationale_are_required_and_bounded():
@@ -165,7 +170,7 @@ def test_reviewer_and_rationale_are_required_and_bounded():
     assert 'autocomplete="off"' in html
     assert 'id="rationale"' in html
     assert 'maxlength="2000"' in html
-    assert html.count("required") == 10
+    assert html.count("required") == 11
     assert "isSafeBoundedText(reviewer, 160)" in validator
     assert 'reviewer.includes("\\n")' in validator
     assert "isSafeBoundedText(rationale, 2000)" in validator
@@ -274,11 +279,13 @@ def test_definition_receipt_contract_is_exact_and_metric_consistent():
     assert "hasExactKeys(definition, DEFINITION_KEYS)" in validator
     assert "DEFINITION_ID_PATTERN.test(definition.definition_id)" in validator
     assert "SHA256_PATTERN.test(definition.definition_sha256)" in validator
-    assert 'definition.operator !== "LTE"' in validator
+    assert "!OPERATORS.includes(definition.operator)" in validator
     assert "definition.unit !== config.unit" in validator
     assert "Number.isFinite(definition.threshold)" in validator
     assert "definition.prompt_tokens_min > definition.prompt_tokens_max" in validator
     assert "definition.output_tokens_min > definition.output_tokens_max" in validator
+    assert 'definition.operator !== "LT"' in validator
+    assert "definition.concurrency > definition.minimum_samples" in validator
     assert "Date.parse(definition.defined_at)" in validator
 
 

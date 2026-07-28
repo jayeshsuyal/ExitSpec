@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from exitspec.poc_contract_definition import (
     MAX_IDEMPOTENCY_KEY_LENGTH,
     MAX_OUTPUT_TOKENS,
+    MAX_PERFORMANCE_CONCURRENCY,
+    MAX_PERFORMANCE_SAMPLES,
     MAX_PROMPT_TOKENS,
     MAX_RATIONALE_LENGTH,
     MAX_REVIEWER_LENGTH,
@@ -131,7 +133,7 @@ class _Lookup:
 def _criterion(**updates: object) -> InferencePerformanceCriterionDefinition:
     payload: dict[str, object] = {
         "metric": InferencePerformanceMetric.TTFT_P95_MS,
-        "operator": ContractDefinitionOperator.LTE,
+        "operator": ContractDefinitionOperator.LT,
         "threshold": 500.0,
         "minimum_samples": 100,
         "concurrency": 4,
@@ -190,7 +192,7 @@ def test_kept_proposal_creates_one_immutable_ttft_definition_receipt():
     assert receipt.criterion_type == "INFERENCE_PERFORMANCE_V1"
     assert receipt.metric == InferencePerformanceMetric.TTFT_P95_MS
     assert receipt.unit == ContractDefinitionUnit.MILLISECONDS
-    assert receipt.operator == ContractDefinitionOperator.LTE
+    assert receipt.operator == ContractDefinitionOperator.LT
     assert receipt.threshold == 500.0
     assert receipt.minimum_samples == 100
     assert receipt.concurrency == 4
@@ -203,21 +205,70 @@ def test_kept_proposal_creates_one_immutable_ttft_definition_receipt():
         receipt.threshold = 1.0
 
 
-@pytest.mark.parametrize("threshold", (0.0, 1.0, 100.0))
-def test_error_rate_percent_supports_inclusive_metric_bounds(threshold: float):
+def test_error_rate_percent_supports_strict_executable_boundary():
     lookup = _Lookup()
     lookup.by_poc[POC_ALPHA] = (_review_item(),)
     receipt = _define(
         _service(lookup),
         criterion=_criterion(
             metric=InferencePerformanceMetric.ERROR_RATE_PERCENT,
-            threshold=threshold,
+            operator=ContractDefinitionOperator.LT,
+            threshold=1.0,
         ),
     ).receipt
 
     assert receipt.metric == InferencePerformanceMetric.ERROR_RATE_PERCENT
     assert receipt.unit == ContractDefinitionUnit.PERCENT
-    assert receipt.threshold == threshold
+    assert receipt.operator == ContractDefinitionOperator.LT
+    assert receipt.threshold == 1.0
+
+
+def test_strict_zero_percent_error_threshold_is_rejected_as_impossible():
+    with pytest.raises(ValidationError, match="greater than 0"):
+        _criterion(
+            metric=InferencePerformanceMetric.ERROR_RATE_PERCENT,
+            operator=ContractDefinitionOperator.LT,
+            threshold=0.0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("operator", "threshold", "message"),
+    (
+        (ContractDefinitionOperator.LTE, 1.0, "strict LT"),
+        (ContractDefinitionOperator.LT, 100.0, "less than 100"),
+    ),
+)
+def test_error_rate_rejects_non_executable_operator_or_threshold(
+    operator: ContractDefinitionOperator,
+    threshold: float,
+    message: str,
+):
+    with pytest.raises(ValidationError, match=message):
+        _criterion(
+            metric=InferencePerformanceMetric.ERROR_RATE_PERCENT,
+            operator=operator,
+            threshold=threshold,
+        )
+
+
+def test_operator_semantics_participate_in_definition_identity():
+    first_lookup = _Lookup()
+    second_lookup = _Lookup()
+    first_lookup.by_poc[POC_ALPHA] = (_review_item(),)
+    second_lookup.by_poc[POC_ALPHA] = (_review_item(),)
+
+    strict = _define(
+        _service(first_lookup),
+        criterion=_criterion(operator=ContractDefinitionOperator.LT),
+    ).receipt
+    inclusive = _define(
+        _service(second_lookup),
+        criterion=_criterion(operator=ContractDefinitionOperator.LTE),
+    ).receipt
+
+    assert strict.definition_id != inclusive.definition_id
+    assert strict.definition_sha256 != inclusive.definition_sha256
 
 
 def test_identity_and_digest_are_stable_across_processes_and_clock_values():
@@ -461,9 +512,9 @@ def test_threshold_rejects_coercion_nonfinite_and_boolean_values(threshold: obje
     ("field", "value"),
     (
         ("minimum_samples", 0),
-        ("minimum_samples", 100_001),
+        ("minimum_samples", MAX_PERFORMANCE_SAMPLES + 1),
         ("concurrency", 0),
-        ("concurrency", 10_001),
+        ("concurrency", MAX_PERFORMANCE_CONCURRENCY + 1),
         ("prompt_tokens_min", 0),
         ("prompt_tokens_max", MAX_PROMPT_TOKENS + 1),
         ("output_tokens_min", 0),
@@ -477,6 +528,11 @@ def test_threshold_rejects_coercion_nonfinite_and_boolean_values(threshold: obje
 def test_integer_fields_are_exact_and_bounded(field: str, value: object):
     with pytest.raises(ValidationError, match=field):
         _criterion(**{field: value})
+
+
+def test_concurrency_cannot_exceed_the_measured_sample_count():
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        _criterion(minimum_samples=4, concurrency=5)
 
 
 @pytest.mark.parametrize(
@@ -496,6 +552,7 @@ def test_token_ranges_must_be_ordered(updates: dict[str, object]):
     (
         {"metric": "TTFT_P95_MS"},
         {"metric": "latency"},
+        {"operator": "LT"},
         {"operator": "LTE"},
         {"operator": "GTE"},
     ),
@@ -609,7 +666,7 @@ def test_models_forbid_extra_authority_fields_and_validated_copy_bypasses():
         {"source_kind": "MEETING"},
         {"metric": "TTFT_P95_MS"},
         {"unit": "MILLISECONDS"},
-        {"operator": "LTE"},
+        {"operator": "LT"},
         {"minimum_samples": 100.0},
         {"concurrency": "4"},
         {"defined_at": NOW.isoformat()},

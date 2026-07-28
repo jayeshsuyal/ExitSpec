@@ -152,7 +152,7 @@ def _body(
     payload: dict[str, Any] = {
         "proposal_id": proposal_id,
         "metric": "TTFT_P95_MS",
-        "operator": "LTE",
+        "operator": "LT",
         "threshold": 500.0,
         "minimum_samples": 100,
         "concurrency": 4,
@@ -282,7 +282,7 @@ def test_post_creates_then_exactly_replays_a_compact_definition():
         ],
         "metric": "TTFT_P95_MS",
         "unit": "MILLISECONDS",
-        "operator": "LTE",
+        "operator": "LT",
         "threshold": 500.0,
         "minimum_samples": 100,
         "concurrency": 4,

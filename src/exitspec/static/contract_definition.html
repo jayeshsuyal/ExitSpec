@@ -146,7 +146,19 @@
                   <div class="field-group threshold-field">
                     <label for="threshold">Threshold</label>
                     <div class="bounded-input">
-                      <span class="fixed-operator" aria-label="at most">≤</span>
+                      <label class="visually-hidden" for="operator">
+                        Comparison operator
+                      </label>
+                      <select
+                        class="operator-input"
+                        id="operator"
+                        name="operator"
+                        required
+                        disabled
+                      >
+                        <option value="LT">&lt;</option>
+                        <option value="LTE">≤</option>
+                      </select>
                       <input
                         id="threshold"
                         name="threshold"
@@ -170,7 +182,7 @@
                       name="minimum_samples"
                       type="number"
                       min="1"
-                      max="100000"
+                      max="1000"
                       step="1"
                       inputmode="numeric"
                       value="100"
@@ -186,7 +198,7 @@
                       name="concurrency"
                       type="number"
                       min="1"
-                      max="10000"
+                      max="32"
                       step="1"
                       inputmode="numeric"
                       value="4"
@@ -197,10 +209,11 @@
                 </div>
 
                 <details class="technical-fields">
-                  <summary>Technical workload ranges</summary>
+                  <summary>Planning context · not measured by runner v1</summary>
                   <p>
-                    These defaults shape the workload. Confirm them against the
-                    source; they are not inferred or approved automatically.
+                    These token ranges describe planning context only. The
+                    current runner binds a hashed prompt fixture and output
+                    maximum; it does not prove token distributions.
                   </p>
 
                   <div class="range-grid">

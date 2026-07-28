@@ -24,6 +24,7 @@
     "TTFT_P95_MS",
     "ERROR_RATE_PERCENT",
   ]);
+  const OPERATORS = Object.freeze(["LT", "LTE"]);
   const METRIC_CONFIG = Object.freeze({
     TTFT_P95_MS: Object.freeze({
       unit: "MILLISECONDS",
@@ -80,6 +81,7 @@
   const currentTask = document.querySelector("#definition-current-task");
   const form = document.querySelector("#contract-definition-form");
   const metricInput = document.querySelector("#metric");
+  const operatorInput = document.querySelector("#operator");
   const thresholdInput = document.querySelector("#threshold");
   const thresholdUnit = document.querySelector("#threshold-unit");
   const minimumSamplesInput = document.querySelector("#minimum-samples");
@@ -96,6 +98,7 @@
   const completionPanel = document.querySelector("#definition-complete");
   const formControls = Object.freeze([
     metricInput,
+    operatorInput,
     thresholdInput,
     minimumSamplesInput,
     concurrencyInput,
@@ -191,7 +194,7 @@
       !DEFINITION_ID_PATTERN.test(definition.definition_id) ||
       !SHA256_PATTERN.test(definition.definition_sha256) ||
       !METRICS.includes(definition.metric) ||
-      definition.operator !== "LTE"
+      !OPERATORS.includes(definition.operator)
     ) {
       return false;
     }
@@ -202,8 +205,16 @@
       !Number.isFinite(definition.threshold) ||
       definition.threshold < config.minimum ||
       definition.threshold > config.maximum ||
-      !isExactInteger(definition.minimum_samples, 1, 100000) ||
-      !isExactInteger(definition.concurrency, 1, 10000) ||
+      (definition.metric === "ERROR_RATE_PERCENT" &&
+        definition.threshold >= config.maximum) ||
+      (definition.metric === "ERROR_RATE_PERCENT" &&
+        definition.operator !== "LT") ||
+      (definition.metric === "ERROR_RATE_PERCENT" &&
+        definition.operator === "LT" &&
+        definition.threshold <= 0) ||
+      !isExactInteger(definition.minimum_samples, 1, 1000) ||
+      !isExactInteger(definition.concurrency, 1, 32) ||
+      definition.concurrency > definition.minimum_samples ||
       !isExactInteger(definition.prompt_tokens_min, 1, 1000000) ||
       !isExactInteger(definition.prompt_tokens_max, 1, 1000000) ||
       !isExactInteger(definition.output_tokens_min, 1, 1000000) ||
@@ -404,10 +415,11 @@
 
   function validatedDefinitionFields() {
     const metric = metricInput.value;
+    const operator = operatorInput.value;
     const config = METRIC_CONFIG[metric];
     const threshold = numberValue(thresholdInput);
-    const minimumSamples = integerValue(minimumSamplesInput, 1, 100000);
-    const concurrency = integerValue(concurrencyInput, 1, 10000);
+    const minimumSamples = integerValue(minimumSamplesInput, 1, 1000);
+    const concurrency = integerValue(concurrencyInput, 1, 32);
     const promptTokensMin = integerValue(
       promptTokensMinInput,
       1,
@@ -432,11 +444,18 @@
     const rationale = rationaleInput.value.trim();
     if (
       !config ||
+      !OPERATORS.includes(operator) ||
       threshold === null ||
       threshold < config.minimum ||
       threshold > config.maximum ||
+      (metric === "ERROR_RATE_PERCENT" && threshold >= config.maximum) ||
+      (metric === "ERROR_RATE_PERCENT" && operator !== "LT") ||
+      (metric === "ERROR_RATE_PERCENT" &&
+        operator === "LT" &&
+        threshold <= 0) ||
       minimumSamples === null ||
       concurrency === null ||
+      concurrency > minimumSamples ||
       promptTokensMin === null ||
       promptTokensMax === null ||
       outputTokensMin === null ||
@@ -451,7 +470,7 @@
     }
     return {
       metric,
-      operator: "LTE",
+      operator,
       threshold,
       minimum_samples: minimumSamples,
       concurrency,
@@ -480,6 +499,17 @@
     thresholdUnit.textContent = config.shortUnit;
     if (resetThreshold) {
       thresholdInput.value = String(config.defaultThreshold);
+    }
+    const inclusiveOption = operatorInput.querySelector(
+      'option[value="LTE"]'
+    );
+    if (inclusiveOption) {
+      const errorRateSelected =
+        metricInput.value === "ERROR_RATE_PERCENT";
+      inclusiveOption.disabled = errorRateSelected;
+      if (errorRateSelected && operatorInput.value === "LTE") {
+        operatorInput.value = "LT";
+      }
     }
   }
 
@@ -526,6 +556,7 @@
 
   function resetFormForProposal() {
     metricInput.value = "TTFT_P95_MS";
+    operatorInput.value = "LT";
     updateMetricBoundary(true);
     minimumSamplesInput.value = "100";
     concurrencyInput.value = "4";

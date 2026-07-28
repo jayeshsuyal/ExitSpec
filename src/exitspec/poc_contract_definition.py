@@ -52,6 +52,8 @@ MAX_IDEMPOTENCY_KEY_LENGTH = 200
 MAX_PROMPT_TOKENS = 1_000_000
 MAX_OUTPUT_TOKENS = 1_000_000
 MAX_TTFT_P95_MS = 60_000.0
+MAX_PERFORMANCE_SAMPLES = 1_000
+MAX_PERFORMANCE_CONCURRENCY = 32
 
 _DEFAULT_MAX_PROPOSALS_PER_POC = 1_024
 _DEFAULT_MAX_KNOWN_PROPOSALS = 32_768
@@ -75,8 +77,9 @@ class InferencePerformanceMetric(str, Enum):
 
 
 class ContractDefinitionOperator(str, Enum):
-    """The only comparison supported by this bounded first vertical."""
+    """Explicit upper-bound comparisons supported by this vertical."""
 
+    LT = "LT"
     LTE = "LTE"
 
 
@@ -198,8 +201,8 @@ class InferencePerformanceCriterionDefinition(_FrozenContractDefinitionModel):
     metric: InferencePerformanceMetric
     operator: ContractDefinitionOperator
     threshold: float = Field(allow_inf_nan=False)
-    minimum_samples: int = Field(ge=1, le=100_000)
-    concurrency: int = Field(ge=1, le=10_000)
+    minimum_samples: int = Field(ge=1, le=MAX_PERFORMANCE_SAMPLES)
+    concurrency: int = Field(ge=1, le=MAX_PERFORMANCE_CONCURRENCY)
     prompt_tokens_min: int = Field(ge=1, le=MAX_PROMPT_TOKENS)
     prompt_tokens_max: int = Field(ge=1, le=MAX_PROMPT_TOKENS)
     output_tokens_min: int = Field(ge=1, le=MAX_OUTPUT_TOKENS)
@@ -218,7 +221,7 @@ class InferencePerformanceCriterionDefinition(_FrozenContractDefinitionModel):
     @classmethod
     def require_exact_operator(cls, value: object) -> ContractDefinitionOperator:
         if type(value) is not ContractDefinitionOperator:
-            raise ValueError("operator must be the supported LTE enum.")
+            raise ValueError("operator must be a supported operator enum.")
         return value
 
     @field_validator("threshold", mode="before")
@@ -242,8 +245,8 @@ class InferencePerformanceCriterionDefinition(_FrozenContractDefinitionModel):
         info: Any,
     ) -> int:
         bounds = {
-            "minimum_samples": (1, 100_000),
-            "concurrency": (1, 10_000),
+            "minimum_samples": (1, MAX_PERFORMANCE_SAMPLES),
+            "concurrency": (1, MAX_PERFORMANCE_CONCURRENCY),
             "prompt_tokens_min": (1, MAX_PROMPT_TOKENS),
             "prompt_tokens_max": (1, MAX_PROMPT_TOKENS),
             "output_tokens_min": (1, MAX_OUTPUT_TOKENS),
@@ -280,17 +283,25 @@ class InferencePerformanceCriterionDefinition(_FrozenContractDefinitionModel):
     def enforce_metric_and_workload_bounds(
         self,
     ) -> "InferencePerformanceCriterionDefinition":
-        if self.operator != ContractDefinitionOperator.LTE:
-            raise ValueError("Only LTE is supported.")
         if self.metric == InferencePerformanceMetric.TTFT_P95_MS:
             if not 0.0 < self.threshold <= MAX_TTFT_P95_MS:
                 raise ValueError(
                     "TTFT_P95_MS threshold must be greater than 0 and at "
                     "most {0}.".format(int(MAX_TTFT_P95_MS))
                 )
-        elif not 0.0 <= self.threshold <= 100.0:
+        elif self.operator == ContractDefinitionOperator.LT:
+            if not 0.0 < self.threshold < 100.0:
+                raise ValueError(
+                    "Strict ERROR_RATE_PERCENT threshold must be greater "
+                    "than 0 and less than 100."
+                )
+        else:
             raise ValueError(
-                "ERROR_RATE_PERCENT threshold must be from 0 through 100."
+                "ERROR_RATE_PERCENT supports only the strict LT operator."
+            )
+        if self.concurrency > self.minimum_samples:
+            raise ValueError(
+                "concurrency cannot exceed minimum_samples."
             )
         if self.prompt_tokens_min > self.prompt_tokens_max:
             raise ValueError(
@@ -396,12 +407,10 @@ class ContractDefinitionReceipt(_FrozenContractDefinitionModel):
     )
     metric: InferencePerformanceMetric
     unit: ContractDefinitionUnit
-    operator: Literal[ContractDefinitionOperator.LTE] = (
-        ContractDefinitionOperator.LTE
-    )
+    operator: ContractDefinitionOperator
     threshold: float = Field(allow_inf_nan=False)
-    minimum_samples: int = Field(ge=1, le=100_000)
-    concurrency: int = Field(ge=1, le=10_000)
+    minimum_samples: int = Field(ge=1, le=MAX_PERFORMANCE_SAMPLES)
+    concurrency: int = Field(ge=1, le=MAX_PERFORMANCE_CONCURRENCY)
     prompt_tokens_min: int = Field(ge=1, le=MAX_PROMPT_TOKENS)
     prompt_tokens_max: int = Field(ge=1, le=MAX_PROMPT_TOKENS)
     output_tokens_min: int = Field(ge=1, le=MAX_OUTPUT_TOKENS)
@@ -435,7 +444,7 @@ class ContractDefinitionReceipt(_FrozenContractDefinitionModel):
     @classmethod
     def require_exact_operator(cls, value: object) -> ContractDefinitionOperator:
         if type(value) is not ContractDefinitionOperator:
-            raise ValueError("operator must be the supported LTE enum.")
+            raise ValueError("operator must be a supported operator enum.")
         return value
 
     @field_validator("threshold", mode="before")
@@ -459,8 +468,8 @@ class ContractDefinitionReceipt(_FrozenContractDefinitionModel):
         info: Any,
     ) -> int:
         bounds = {
-            "minimum_samples": (1, 100_000),
-            "concurrency": (1, 10_000),
+            "minimum_samples": (1, MAX_PERFORMANCE_SAMPLES),
+            "concurrency": (1, MAX_PERFORMANCE_CONCURRENCY),
             "prompt_tokens_min": (1, MAX_PROMPT_TOKENS),
             "prompt_tokens_max": (1, MAX_PROMPT_TOKENS),
             "output_tokens_min": (1, MAX_OUTPUT_TOKENS),
@@ -517,7 +526,7 @@ class ContractDefinitionReceipt(_FrozenContractDefinitionModel):
     def verify_identity_and_bounds(self) -> "ContractDefinitionReceipt":
         criterion = InferencePerformanceCriterionDefinition(
             metric=self.metric,
-            operator=ContractDefinitionOperator.LTE,
+            operator=self.operator,
             threshold=self.threshold,
             minimum_samples=self.minimum_samples,
             concurrency=self.concurrency,
@@ -1114,6 +1123,8 @@ __all__ = [
     "CONTRACT_DEFINITION_ID_PATTERN",
     "MAX_IDEMPOTENCY_KEY_LENGTH",
     "MAX_OUTPUT_TOKENS",
+    "MAX_PERFORMANCE_CONCURRENCY",
+    "MAX_PERFORMANCE_SAMPLES",
     "MAX_PROMPT_TOKENS",
     "MAX_RATIONALE_LENGTH",
     "MAX_REVIEWER_LENGTH",

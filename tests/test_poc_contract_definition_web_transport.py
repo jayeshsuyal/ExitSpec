@@ -143,7 +143,7 @@ def _definition_payload(
     return {
         "proposal_id": proposal_id,
         "metric": metric,
-        "operator": "LTE",
+        "operator": "LT",
         "threshold": threshold,
         "minimum_samples": 100,
         "concurrency": 4,
@@ -223,7 +223,7 @@ def test_kept_proposals_become_two_real_immutable_definitions(tmp_path):
         "TTFT_P95_MS",
         "ERROR_RATE_PERCENT",
     ]
-    assert all(definition["operator"] == "LTE" for definition in definitions)
+    assert all(definition["operator"] == "LT" for definition in definitions)
     assert workspace_after[0] == 200
     assert (
         workspace_after[1]["continue_working"]["next_action_code"]
