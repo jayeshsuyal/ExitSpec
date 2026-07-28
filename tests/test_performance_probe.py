@@ -158,6 +158,14 @@ def test_artifacts_are_deterministic_json_and_never_persist_content_or_key():
     assert SECRET_PROMPT in json.dumps(transport.requests[0].json_body)
 
 
+def test_manifest_hash_uses_shared_rfc8785_number_canonicalization():
+    integer_timeout = build_manifest(config(timeout_seconds=5), prompts())
+    float_timeout = build_manifest(config(timeout_seconds=5.0), prompts())
+
+    assert integer_timeout.manifest_sha256 == float_timeout.manifest_sha256
+    assert manifest_json(integer_timeout) == manifest_json(float_timeout)
+
+
 def test_jsonl_prompt_loading_is_strict_and_does_not_emit_content(tmp_path):
     path = tmp_path / "prompts.jsonl"
     path.write_text(
@@ -193,6 +201,7 @@ def test_jsonl_prompt_loading_is_strict_and_does_not_emit_content(tmp_path):
         {"warmup_count": -1},
         {"timeout_seconds": float("nan")},
         {"max_tokens": 0},
+        {"request_count": 1000, "concurrency": 1, "timeout_seconds": 60},
     ],
 )
 def test_configuration_is_bounded_and_remote_plain_http_is_rejected(changes):

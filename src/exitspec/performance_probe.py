@@ -23,18 +23,21 @@ from pathlib import Path
 from typing import Any, Final, Protocol
 from urllib.parse import urlsplit
 
+from .canonical import canonical_json_bytes
+
 
 PROBE_SCHEMA_VERSION: Final = "exitspec.performance-probe.v1"
 _USER_AGENT: Final = "ExitSpec/0.1 performance-probe"
 _MAX_PROMPTS: Final = 10_000
 _MAX_PROMPT_CHARS: Final = 32_768
 _MAX_PROMPT_FILE_BYTES: Final = 4 * 1024 * 1024
-_MAX_REQUEST_COUNT: Final = 10_000
-_MAX_WARMUP_COUNT: Final = 1_000
-_MAX_CONCURRENCY: Final = 64
-_MAX_TIMEOUT_SECONDS: Final = 300.0
-_MAX_TOKENS: Final = 4_096
-_MAX_STREAM_BYTES: Final = 16 * 1024 * 1024
+_MAX_REQUEST_COUNT: Final = 1_000
+_MAX_WARMUP_COUNT: Final = 100
+_MAX_CONCURRENCY: Final = 32
+_MAX_TIMEOUT_SECONDS: Final = 60.0
+_MAX_TOKENS: Final = 2_048
+_MAX_STREAM_BYTES: Final = 1024 * 1024
+_MAX_WORST_CASE_RUN_SECONDS: Final = 15 * 60
 _PROMPT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _EXECUTION_ID = re.compile(r"run_[0-9a-f]{32}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -152,6 +155,15 @@ class ProbeConfig:
             minimum=1,
             maximum=_MAX_STREAM_BYTES,
         )
+        warmup_batches = math.ceil(self.warmup_count / self.concurrency)
+        measured_batches = math.ceil(self.request_count / self.concurrency)
+        worst_case_seconds = (
+            warmup_batches + measured_batches
+        ) * float(self.timeout_seconds)
+        if worst_case_seconds > _MAX_WORST_CASE_RUN_SECONDS:
+            raise ProbeConfigurationError(
+                "Worst-case run duration exceeds the 15-minute safety budget."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1204,10 +1216,4 @@ def _record_sort_key(record: ProbeRecord) -> tuple[int, int]:
 
 
 def _canonical_json_bytes(value: object) -> bytes:
-    return json.dumps(
-        value,
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
+    return canonical_json_bytes(value)
