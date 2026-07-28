@@ -96,6 +96,11 @@ from .poc_creation import (
     DuplicateDraftPOCId,
     ProcessLocalDraftPOCService,
 )
+from .poc_source_intake import ProcessLocalPOCSourceIntake
+from .poc_source_web_api import (
+    handle_poc_source_web_api_request,
+    is_poc_source_web_api_target,
+)
 from .provider_egress import (
     InMemoryProviderEgressAuthorizer,
     ProviderEgressAcknowledgement,
@@ -2397,6 +2402,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         )
         self._resource_stack = resource_stack
         self.draft_poc_service = ProcessLocalDraftPOCService()
+        self.poc_source_intake = ProcessLocalPOCSourceIntake(
+            draft_lookup=self.draft_poc_service.get,
+        )
         if (
             performance_runtime is not None
             and type(performance_runtime) is not PerformanceWebRuntime
@@ -2579,6 +2587,79 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
         return True
 
+    def _dispatch_poc_source_read(self) -> bool:
+        response = handle_poc_source_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.poc_source_intake,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_source_write(self) -> bool:
+        if not is_poc_source_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_poc_source_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.poc_source_intake,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Source intake request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Source intake request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Source intake request is invalid."},
+            )
+            return True
+        response = handle_poc_source_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            runtime=self.server.poc_source_intake,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
     def send_error(
         self,
         code: int,
@@ -2601,12 +2682,21 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             and self._dispatch_performance_read()
         ):
             return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_poc_source_web_api_target(self.path)
+            and self._dispatch_poc_source_read()
+        ):
+            return
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
         if self._dispatch_source_request():
             return
         if self._dispatch_performance_read():
+            return
+        if self._dispatch_poc_source_read():
             return
         parsed = urlparse(self.path)
         if parsed.path == "/app/pocs/new":
@@ -2724,6 +2814,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_source_request():
             return
         if self._dispatch_performance_write():
+            return
+        if self._dispatch_poc_source_write():
             return
         parsed = urlparse(self.path)
         if parsed.path == "/api/pocs":
@@ -3292,6 +3384,49 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError("Request body must be valid UTF-8 JSON.") from error
         if not isinstance(payload, dict):
+            raise ValueError("Request body must be a JSON object.")
+        return payload
+
+    def _read_poc_source_json(self) -> Dict[str, Any]:
+        """Read strict bounded JSON without accepting duplicate object keys."""
+
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            raise ValueError("Content-Length is required.")
+        try:
+            size = int(content_length)
+        except ValueError as error:
+            raise ValueError("Content-Length must be an integer.") from error
+        if size < 0:
+            raise ValueError("Content-Length must not be negative.")
+        if size > MAX_REQUEST_BYTES:
+            raise OverflowError("Source intake request body is too large.")
+        body = self.rfile.read(size)
+
+        def reject_duplicate_pairs(
+            pairs: List[Tuple[str, Any]],
+        ) -> Dict[str, Any]:
+            parsed_object: Dict[str, Any] = {}
+            for key, value in pairs:
+                if key in parsed_object:
+                    raise ValueError("Duplicate JSON object key.")
+                parsed_object[key] = value
+            return parsed_object
+
+        def reject_nonfinite(_: str) -> Any:
+            raise ValueError("Non-finite JSON number.")
+
+        try:
+            payload = json.loads(
+                body.decode("utf-8"),
+                object_pairs_hook=reject_duplicate_pairs,
+                parse_constant=reject_nonfinite,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError(
+                "Request body must be valid UTF-8 JSON."
+            ) from error
+        if type(payload) is not dict:
             raise ValueError("Request body must be a JSON object.")
         return payload
 
