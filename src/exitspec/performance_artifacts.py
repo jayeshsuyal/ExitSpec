@@ -98,6 +98,7 @@ class PerformanceArtifactInputs:
     confirmation_json: bytes
     workload_json: bytes
     prompt_fixture_jsonl: bytes
+    preflight_json: bytes
     probe_manifest_json: bytes
     records_jsonl: bytes
     receipt_json: bytes
@@ -147,6 +148,10 @@ class VerifiedPerformanceArtifacts:
     @property
     def prompt_fixture_jsonl(self) -> bytes:
         return self.files["prompt-fixture.jsonl"]
+
+    @property
+    def preflight_json(self) -> bytes:
+        return self.files["evidence/preflight.json"]
 
     @property
     def probe_manifest_json(self) -> bytes:
@@ -223,6 +228,14 @@ _SPECS: Final[tuple[_ArtifactSpec, ...]] = (
         "prompt-fixture.jsonl",
         "application/x-ndjson",
         "exact_jsonl",
+    ),
+    _ArtifactSpec(
+        "preflight_json",
+        "evidence-preflight",
+        "endpoint_readiness_probe",
+        "evidence/preflight.json",
+        "application/json",
+        "json",
     ),
     _ArtifactSpec(
         "probe_manifest_json",

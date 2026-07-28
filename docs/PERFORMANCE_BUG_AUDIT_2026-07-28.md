@@ -37,6 +37,10 @@ read-only without confusing run state, agreement state, and evidence verdict.
    the transport refuses to attach the key to any other URL. Remote or
    credentialed execution also requires authorization for the exact
    preflight + warmup + measured request count before reservation.
+7. **Successful preflight evidence disappeared from the completed pack.**
+   The exact sanitized readiness probe is now persisted, hashed, reloaded, and
+   independently checked against the frozen endpoint, model, prompt, limits,
+   and required successful outcome.
 
 ## Required before a paid remote-provider demo
 
@@ -48,9 +52,10 @@ read-only without confusing run state, agreement state, and evidence verdict.
   workload bounds output tokens, but neither proves a provider charge ceiling.
 - Enforce one absolute request deadline across DNS, connection, request write,
   headers, and streamed body.
-- Persist a sanitized preflight fact or remove preflight from the authoritative
-  path. The current preflight is operationally useful but is not part of the
-  successful Evidence Pack.
+- Add a minimal blocked-run incident artifact when operators need durable
+  diagnostics for readiness failures. Completed packs now account for the
+  successful preflight; blocked runs currently retain only the typed ledger
+  reason and expose no customer Evidence Pack.
 
 ## Required before claiming real vLLM performance
 

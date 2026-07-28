@@ -126,7 +126,7 @@ claim against an OpenAI-compatible endpoint:
 ```text
 frozen + customer-confirmed contract
     -> durable pre-network reservation
-    -> one endpoint preflight
+    -> one endpoint preflight, persisted on completed runs
     -> exact warmup and measured request population
     -> sanitized terminal records
     -> deterministic p95 TTFT + error-rate verdict

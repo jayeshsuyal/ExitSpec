@@ -50,6 +50,7 @@ from .performance_probe import (
     ProbeOutcome,
     ProbePhase,
     ProbeRun,
+    build_manifest,
     run_probe,
 )
 from .performance_receipts import (
@@ -64,12 +65,14 @@ from .performance_serialization import (
     parse_performance_receipt,
     parse_performance_verdict_display,
     parse_probe_run,
+    parse_probe_run_envelope,
     recompute_and_compare_performance_verdict,
     serialize_confirmation,
     serialize_contract,
     serialize_performance_receipt,
     serialize_performance_verdict,
     serialize_probe_run,
+    serialize_probe_run_envelope,
 )
 
 
@@ -97,6 +100,7 @@ class PerformanceRunResult:
     replayed: bool
     artifacts: VerifiedPerformanceArtifacts | None = None
     context: ValidatedPerformanceContext | None = None
+    preflight_run: ProbeRun | None = None
     probe_run: ProbeRun | None = None
     decision: AuthorizedPerformanceDecision | None = None
 
@@ -194,7 +198,10 @@ def run_performance_proof(
             ) from error
 
     try:
-        preflight_status = _run_preflight(context, transport)
+        preflight_run, preflight_status = _run_preflight(
+            context,
+            transport,
+        )
         if preflight_status is not None:
             terminal_status, reason = preflight_status
             terminal = ledger.mark_terminal(
@@ -230,6 +237,7 @@ def run_performance_proof(
             operation.run_id,
             context,
             confirmation,
+            preflight_run,
             probe_run,
             receipt,
             decision,
@@ -278,20 +286,13 @@ def run_performance_proof(
 def _run_preflight(
     context: ValidatedPerformanceContext,
     transport: OpenAIHTTPTransport,
-) -> tuple[PerformanceOperationStatus, str] | None:
+) -> tuple[
+    ProbeRun,
+    tuple[PerformanceOperationStatus, str] | None,
+]:
     """Use one bounded request to distinguish unavailable from measured failure."""
 
-    config = context.probe_config
-    preflight_config = ProbeConfig(
-        endpoint=config.endpoint,
-        model=config.model,
-        request_count=1,
-        concurrency=1,
-        warmup_count=0,
-        timeout_seconds=min(float(config.timeout_seconds), 5.0),
-        max_tokens=1,
-        max_stream_bytes=config.max_stream_bytes,
-    )
+    preflight_config = _preflight_config(context)
     preflight = run_probe(
         preflight_config,
         context.prompts[:1],
@@ -304,21 +305,70 @@ def _run_preflight(
     )
     if len(measured) != 1:
         return (
-            PerformanceOperationStatus.NOT_PROVEN,
-            "PREFLIGHT_EVIDENCE_INVALID",
+            preflight,
+            (
+                PerformanceOperationStatus.NOT_PROVEN,
+                "PREFLIGHT_EVIDENCE_INVALID",
+            ),
         )
     outcome = measured[0].outcome
     if outcome is ProbeOutcome.SUCCESS:
-        return None
+        return preflight, None
     if outcome in _EXTERNAL_PREFLIGHT_OUTCOMES:
         return (
-            PerformanceOperationStatus.BLOCKED,
-            "ENDPOINT_PREFLIGHT_FAILED",
+            preflight,
+            (
+                PerformanceOperationStatus.BLOCKED,
+                "ENDPOINT_PREFLIGHT_FAILED",
+            ),
         )
     return (
-        PerformanceOperationStatus.NOT_PROVEN,
-        "PREFLIGHT_NOT_PROVEN",
+        preflight,
+        (
+            PerformanceOperationStatus.NOT_PROVEN,
+            "PREFLIGHT_NOT_PROVEN",
+        ),
     )
+
+
+def _preflight_config(context: ValidatedPerformanceContext) -> ProbeConfig:
+    config = context.probe_config
+    return ProbeConfig(
+        endpoint=config.endpoint,
+        model=config.model,
+        request_count=1,
+        concurrency=1,
+        warmup_count=0,
+        timeout_seconds=min(float(config.timeout_seconds), 5.0),
+        max_tokens=1,
+        max_stream_bytes=config.max_stream_bytes,
+    )
+
+
+def _require_successful_preflight(
+    context: ValidatedPerformanceContext,
+    preflight_run: ProbeRun,
+) -> None:
+    expected_manifest = build_manifest(
+        _preflight_config(context),
+        context.prompts[:1],
+    )
+    if preflight_run.manifest != expected_manifest:
+        raise PerformanceRunnerError(
+            "Persisted preflight does not match the frozen readiness probe."
+        )
+    measured = tuple(
+        record
+        for record in preflight_run.records
+        if record.phase is ProbePhase.MEASURED
+    )
+    if (
+        len(measured) != 1
+        or measured[0].outcome is not ProbeOutcome.SUCCESS
+    ):
+        raise PerformanceRunnerError(
+            "A completed Evidence Pack requires a successful preflight."
+        )
 
 
 def _issue_receipt(
@@ -351,6 +401,7 @@ def _publish_decision(
     run_id: str,
     context: ValidatedPerformanceContext,
     confirmation: ContractConfirmation,
+    preflight_run: ProbeRun,
     probe_run: ProbeRun,
     receipt: PerformanceExecutionReceipt,
     decision: AuthorizedPerformanceDecision,
@@ -371,6 +422,7 @@ def _publish_decision(
             "confirmation.json",
             "workload.json",
             "prompt-fixture.jsonl",
+            "evidence/preflight.json",
             "evidence/probe-manifest.json",
             "evidence/probe-records.jsonl",
             "receipt.json",
@@ -387,6 +439,7 @@ def _publish_decision(
             confirmation_json=serialize_confirmation(confirmation),
             workload_json=context.workload_bytes,
             prompt_fixture_jsonl=context.prompt_bytes,
+            preflight_json=serialize_probe_run_envelope(preflight_run),
             probe_manifest_json=manifest_bytes,
             records_jsonl=records_bytes,
             receipt_json=serialize_performance_receipt(receipt),
@@ -456,6 +509,7 @@ def _replay_completed(
         replayed=replayed,
         artifacts=artifacts,
         context=reconstructed.context,
+        preflight_run=reconstructed.preflight_run,
         probe_run=reconstructed.probe_run,
         decision=reconstructed.decision,
     )
@@ -464,6 +518,7 @@ def _replay_completed(
 @dataclass(frozen=True, slots=True)
 class _ReconstructedDecision:
     context: ValidatedPerformanceContext
+    preflight_run: ProbeRun
     probe_run: ProbeRun
     decision: AuthorizedPerformanceDecision
 
@@ -484,6 +539,10 @@ def _reconstruct_decision(
         artifacts.prompt_fixture_jsonl,
     )
     require_frozen_confirmed(context, confirmation)
+    preflight_run = parse_probe_run_envelope(
+        artifacts.preflight_json
+    )
+    _require_successful_preflight(context, preflight_run)
     receipt = parse_performance_receipt(artifacts.receipt_json)
     probe_run = parse_probe_run(
         artifacts.probe_manifest_json,
@@ -522,6 +581,7 @@ def _reconstruct_decision(
         )
     return _ReconstructedDecision(
         context=context,
+        preflight_run=preflight_run,
         probe_run=probe_run,
         decision=decision,
     )
