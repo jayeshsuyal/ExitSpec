@@ -1,0 +1,2398 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "wave2-source-web-v1",
+  "contract_version": "wave2-source-web-v1",
+  "status": "FROZEN",
+  "frozen_at": "2026-07-27T00:00:00Z",
+  "decision": "A local employee may choose one approved synthetic email fixture, import it through a fail-closed source boundary, review every resulting proposal in the existing review system, and continue through the existing customer confirmation, explicit freeze, proof, and evidence-pack flow.",
+  "source_manifest": {
+    "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+    "manifest_version": "1.0.1",
+    "manifest_sha256": "aa514787eb6b14a93216682d702fc29a32d630eb1a91a16dae6ce0873a268ae2",
+    "source_type": "rfc822",
+    "synthetic_only": true
+  },
+  "implementation_status": {
+    "contract_only": true,
+    "fixture_catalog_endpoint_implemented": false,
+    "source_import_endpoint_implemented": false,
+    "email_intake_ui_implemented": false,
+    "existing_review_confirmation_freeze_prove_flow_implemented": true,
+    "implementation_must_not_be_inferred_from_this_contract": true
+  },
+  "guided_flow": [
+    "choose_approved_synthetic_sample",
+    "import_safely",
+    "review_needs_review_proposals",
+    "create_existing_customer_review",
+    "customer_confirms_existing_review",
+    "employee_freezes_confirmed_contract",
+    "run_existing_proof",
+    "open_existing_evidence_pack"
+  ],
+  "transport_policy": {
+    "local_only": true,
+    "host": {
+      "required_header_count": 1,
+      "allowed_hosts": [
+        "127.0.0.1",
+        "localhost",
+        "::1"
+      ],
+      "port": "exact running server port",
+      "canonical_authority_required": true,
+      "credentials_allowed": false,
+      "whitespace_allowed": false
+    },
+    "catalog_origin": {
+      "header_count_allowed": [
+        0,
+        1
+      ],
+      "when_present": "exact http server origin derived from the validated Host",
+      "normal_same_origin_browser_without_origin_allowed": true
+    },
+    "import_origin": {
+      "required_header_count": 1,
+      "value": "exact http server origin derived from the validated Host"
+    },
+    "fetch_site": {
+      "header": "Sec-Fetch-Site",
+      "duplicate_headers_allowed": false,
+      "catalog_allowed_values": [
+        null,
+        "none",
+        "same-origin"
+      ],
+      "import_allowed_values": [
+        null,
+        "same-origin"
+      ],
+      "same-site_or_cross-site_allowed": false
+    },
+    "route_parameters_allowed": false,
+    "request_size_limit_bytes": 65536,
+    "request_size_limit_inclusive": true,
+    "streamed_request_body_allowed": false,
+    "accepted_import_content_types": [
+      "application/json",
+      "application/json; charset=utf-8"
+    ],
+    "response_media_type": "application/json; charset=utf-8"
+  },
+  "transport_validation": {
+    "scope": {
+      "path_rule": "request path equals /api/source or starts with /api/source/",
+      "in_scope_examples": [
+        "/api/source",
+        "/api/source/fixtures",
+        "/api/source/import",
+        "/api/source/unknown"
+      ],
+      "out_of_scope_examples": [
+        "/app",
+        "/app.js",
+        "/review/example",
+        "/artifacts/example",
+        "/api/state",
+        "/api/review",
+        "/api/freeze",
+        "/api/prove",
+        "/api/provider/fireworks/disclosure",
+        "/api/source-control"
+      ],
+      "out_of_scope_router": "existing router and existing route-specific validation; this twelve-gate pipeline does not run",
+      "email_app_navigation_in_source_pipeline": false
+    },
+    "pipeline_rule": "Run gates in ascending order and stop at the first failure. No route, source, draft, review, contract, confirmation, freeze, evidence, replay, or timing state may mutate before all twelve gates pass.",
+    "combined_failure_precedence": "The lowest numeric gate order wins across every pair or larger combination of faults; within one gate, fault_precedence wins.",
+    "ordered_pipeline": [
+      {
+        "order": 1,
+        "gate": "host_and_local_authority",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "missing_duplicate_noncanonical_nonlocal_or_wrong_port_host",
+            "http_status": 400,
+            "code": "invalid_local_host",
+            "zero_mutation": true
+          },
+          {
+            "fault": "catalog_origin_present_but_not_exact_server_origin",
+            "http_status": 403,
+            "code": "forbidden_origin",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 2,
+        "gate": "method_and_path",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "unknown_source_path",
+            "http_status": 404,
+            "code": "unknown_source_route",
+            "zero_mutation": true
+          },
+          {
+            "fault": "known_source_path_with_wrong_method",
+            "http_status": 405,
+            "code": "method_not_allowed",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 3,
+        "gate": "query_and_route_parameters",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "query_params_semicolon_params_or_fragment_present",
+            "http_status": 400,
+            "code": "route_parameters_not_allowed",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 4,
+        "gate": "catalog_get_body",
+        "methods": [
+          "GET"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "transfer_encoding_present_or_content_length_not_zero",
+            "http_status": 400,
+            "code": "get_body_not_allowed",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 5,
+        "gate": "import_origin",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "origin_missing_duplicate_or_not_exact_server_origin",
+            "http_status": 403,
+            "code": "forbidden_origin",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 6,
+        "gate": "fetch_site",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "sec_fetch_site_duplicate_or_not_allowed_for_method",
+            "http_status": 403,
+            "code": "forbidden_fetch_site",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 7,
+        "gate": "import_content_type",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "content_type_missing_duplicate_or_not_exactly_accepted",
+            "http_status": 415,
+            "code": "unsupported_media_type",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 8,
+        "gate": "import_content_length_and_streaming",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "transfer_encoding_present_or_content_length_missing",
+            "http_status": 411,
+            "code": "request_length_required",
+            "zero_mutation": true
+          },
+          {
+            "fault": "content_length_duplicate_noncanonical_negative_or_not_decimal",
+            "http_status": 400,
+            "code": "invalid_content_length",
+            "zero_mutation": true
+          },
+          {
+            "fault": "content_length_or_observed_stream_bytes_exceed_65536",
+            "http_status": 413,
+            "code": "source_request_too_large",
+            "zero_mutation": true
+          },
+          {
+            "fault": "observed_body_length_does_not_equal_content_length",
+            "http_status": 400,
+            "code": "content_length_mismatch",
+            "zero_mutation": true
+          }
+        ],
+        "stream_read_oracle": "Read at most 65,537 bytes. Exactly 65,536 bytes is allowed only when it equals the canonical Content-Length. Byte 65,537 always returns source_request_too_large before JSON parsing."
+      },
+      {
+        "order": 9,
+        "gate": "import_json_document",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "zero_bytes_or_ascii_whitespace_only",
+            "http_status": 400,
+            "code": "empty_json_body",
+            "zero_mutation": true
+          },
+          {
+            "fault": "invalid_utf8_or_malformed_json",
+            "http_status": 400,
+            "code": "malformed_json",
+            "zero_mutation": true
+          },
+          {
+            "fault": "duplicate_decoded_member_name_in_any_json_object",
+            "http_status": 400,
+            "code": "duplicate_json_member",
+            "zero_mutation": true
+          },
+          {
+            "fault": "valid_json_but_top_level_not_object",
+            "http_status": 400,
+            "code": "json_object_required",
+            "zero_mutation": true
+          }
+        ],
+        "duplicate_member_semantics": {
+          "scope": "every JSON object at every nesting depth, including objects nested inside arrays",
+          "comparison": "exact decoded Unicode member-name sequence after JSON escape decoding; no normalization or case folding",
+          "detection_order": "parser document order; the first duplicate encountered terminates gate 9",
+          "error_disclosure": "return only duplicate_json_member; never echo the member name or value",
+          "precedes_top_level_object_check": true,
+          "precedes_exact_field_validation": true
+        },
+        "validation_algorithm": [
+          "after the empty-body check, decode the complete body as strict UTF-8; any decoding failure returns malformed_json",
+          "parse the complete document into a member-pair-preserving representation; any syntax or trailing-data failure returns malformed_json even when a duplicate member occurs earlier in document order",
+          "only after complete parse success, walk every object depth-first in parser document order and return duplicate_json_member for the first repeated decoded member name",
+          "only after duplicate scanning, require the top-level value to be an object; exact request-field validation remains gate 10"
+        ],
+        "duplicate_member_probes": [
+          {
+            "probe_id": "duplicate_fixture_case_id",
+            "body_utf8": "{\"fixture_case_id\":\"thread-root\",\"fixture_case_id\":\"authority-attack\"}",
+            "content_length": 70,
+            "expected_http_status": 400,
+            "expected_code": "duplicate_json_member",
+            "zero_mutation": true
+          },
+          {
+            "probe_id": "nested_duplicate_before_extra_field_validation",
+            "body_utf8": "{\"fixture_case_id\":\"thread-root\",\"metadata\":{\"x\":1,\"x\":2}}",
+            "content_length": 58,
+            "expected_http_status": 400,
+            "expected_code": "duplicate_json_member",
+            "zero_mutation": true
+          },
+          {
+            "probe_id": "nested_duplicate_before_top_level_object_check",
+            "body_utf8": "[{\"x\":1,\"x\":2}]",
+            "content_length": 15,
+            "expected_http_status": 400,
+            "expected_code": "duplicate_json_member",
+            "zero_mutation": true
+          },
+          {
+            "probe_id": "escaped_name_decodes_to_duplicate",
+            "body_utf8": "{\"fixture_case_id\":\"thread-root\",\"fixture_case_\\u0069d\":\"authority-attack\"}",
+            "content_length": 75,
+            "expected_http_status": 400,
+            "expected_code": "duplicate_json_member",
+            "zero_mutation": true
+          }
+        ],
+        "within_gate_precedence_probes": [
+          {
+            "probe_id": "malformed_after_nested_duplicate",
+            "body_utf8": "{\"fixture_case_id\":\"thread-root\",\"metadata\":{\"x\":1,\"x\":2}",
+            "content_length": 57,
+            "expected_http_status": 400,
+            "expected_code": "malformed_json",
+            "zero_mutation": true,
+            "reason": "complete-document syntax validation precedes duplicate-member scanning"
+          }
+        ]
+      },
+      {
+        "order": 10,
+        "gate": "exact_import_body_fields",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "field_set_not_exactly_fixture_case_id_or_value_not_nonempty_string",
+            "http_status": 400,
+            "code": "invalid_source_request",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 11,
+        "gate": "guided_fixture_lookup",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "fixture_case_id_not_one_of_two_guided_cases",
+            "http_status": 404,
+            "code": "source_not_approved",
+            "zero_mutation": true
+          }
+        ]
+      },
+      {
+        "order": 12,
+        "gate": "workflow_state_and_fixture_relation",
+        "methods": [
+          "POST"
+        ],
+        "fault_precedence": [
+          {
+            "fault": "downstream_state_exists",
+            "http_status": 409,
+            "code": "source_import_locked",
+            "zero_mutation": true
+          },
+          {
+            "fault": "different_guided_fixture_when_source_exists",
+            "http_status": 409,
+            "code": "source_change_requires_reset",
+            "zero_mutation": true
+          }
+        ]
+      }
+    ],
+    "canonical_faults_for_pairwise_testing": [
+      {
+        "order": 1,
+        "fault": "missing_duplicate_noncanonical_nonlocal_or_wrong_port_host",
+        "http_status": 400,
+        "code": "invalid_local_host"
+      },
+      {
+        "order": 2,
+        "fault": "known_source_path_with_wrong_method",
+        "http_status": 405,
+        "code": "method_not_allowed"
+      },
+      {
+        "order": 3,
+        "fault": "query_params_semicolon_params_or_fragment_present",
+        "http_status": 400,
+        "code": "route_parameters_not_allowed"
+      },
+      {
+        "order": 4,
+        "fault": "transfer_encoding_present_or_content_length_not_zero",
+        "http_status": 400,
+        "code": "get_body_not_allowed"
+      },
+      {
+        "order": 5,
+        "fault": "origin_missing_duplicate_or_not_exact_server_origin",
+        "http_status": 403,
+        "code": "forbidden_origin"
+      },
+      {
+        "order": 6,
+        "fault": "sec_fetch_site_duplicate_or_not_allowed_for_method",
+        "http_status": 403,
+        "code": "forbidden_fetch_site"
+      },
+      {
+        "order": 7,
+        "fault": "content_type_missing_duplicate_or_not_exactly_accepted",
+        "http_status": 415,
+        "code": "unsupported_media_type"
+      },
+      {
+        "order": 8,
+        "fault": "content_length_or_observed_stream_bytes_exceed_65536",
+        "http_status": 413,
+        "code": "source_request_too_large"
+      },
+      {
+        "order": 9,
+        "fault": "invalid_utf8_or_malformed_json",
+        "http_status": 400,
+        "code": "malformed_json"
+      },
+      {
+        "order": 10,
+        "fault": "field_set_not_exactly_fixture_case_id_or_value_not_nonempty_string",
+        "http_status": 400,
+        "code": "invalid_source_request"
+      },
+      {
+        "order": 11,
+        "fault": "fixture_case_id_not_one_of_two_guided_cases",
+        "http_status": 404,
+        "code": "source_not_approved"
+      },
+      {
+        "order": 12,
+        "fault": "downstream_state_exists",
+        "http_status": 409,
+        "code": "source_import_locked"
+      }
+    ],
+    "multi_fault_oracles": [
+      {
+        "fault_orders": [
+          1,
+          5,
+          7,
+          8,
+          9,
+          11,
+          12
+        ],
+        "expected_http_status": 400,
+        "expected_code": "invalid_local_host",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          3,
+          5,
+          8,
+          9,
+          11
+        ],
+        "expected_http_status": 400,
+        "expected_code": "route_parameters_not_allowed",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          5,
+          6,
+          7,
+          8
+        ],
+        "expected_http_status": 403,
+        "expected_code": "forbidden_origin",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          7,
+          8,
+          9,
+          10
+        ],
+        "expected_http_status": 415,
+        "expected_code": "unsupported_media_type",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          8,
+          9,
+          10,
+          11
+        ],
+        "expected_http_status": 413,
+        "expected_code": "source_request_too_large",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          9,
+          10,
+          11,
+          12
+        ],
+        "expected_http_status": 400,
+        "expected_code": "malformed_json",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          10,
+          11,
+          12
+        ],
+        "expected_http_status": 400,
+        "expected_code": "invalid_source_request",
+        "zero_mutation": true
+      },
+      {
+        "fault_orders": [
+          11,
+          12
+        ],
+        "expected_http_status": 404,
+        "expected_code": "source_not_approved",
+        "zero_mutation": true
+      }
+    ]
+  },
+  "guided_fixtures": {
+    "default_fixture_case_id": "thread-root",
+    "exact_count": 2,
+    "entries": [
+      {
+        "fixture_case_id": "thread-root",
+        "label": "Support-agent requirements",
+        "summary": "2 proposals · redacted before review",
+        "proposal_count": 2
+      },
+      {
+        "fixture_case_id": "authority-attack",
+        "label": "Untrusted-instructions test",
+        "summary": "1 proposal · redacted before review",
+        "proposal_count": 1
+      }
+    ]
+  },
+  "public_shapes": {
+    "catalog_response": {
+      "exact_fields": [
+        "contract_version",
+        "source_type",
+        "manifest_id",
+        "manifest_version",
+        "synthetic_only",
+        "default_fixture_case_id",
+        "fixtures"
+      ],
+      "fixture_exact_fields": [
+        "fixture_case_id",
+        "label",
+        "summary",
+        "proposal_count"
+      ]
+    },
+    "import_request": {
+      "exact_fields": [
+        "fixture_case_id"
+      ],
+      "fixture_case_id_allowed_values": [
+        "thread-root",
+        "authority-attack"
+      ]
+    },
+    "import_success_response": {
+      "exact_fields": [
+        "contract_version",
+        "receipt",
+        "state"
+      ]
+    },
+    "terminal_receipt": {
+      "exact_fields": [
+        "source_type",
+        "manifest_id",
+        "manifest_version",
+        "fixture_case_id",
+        "outcome_code",
+        "source_version",
+        "candidate_count"
+      ],
+      "candidate_count_means": "candidates newly created by this operation",
+      "elapsed_ms_allowed": false
+    },
+    "state": {
+      "exact_fields": [
+        "source_intake",
+        "drafts"
+      ]
+    },
+    "source_intake": {
+      "exact_fields": [
+        "status",
+        "source_type",
+        "fixture_case_id",
+        "label",
+        "source_version",
+        "message_count",
+        "proposal_count",
+        "pending_count",
+        "redaction_applied",
+        "authority",
+        "review_controls"
+      ],
+      "status_values": [
+        "NEEDS_REVIEW",
+        "REVIEWED"
+      ],
+      "authority_value": "UNTRUSTED_SOURCE_ONLY",
+      "review_control_exact_fields": [
+        "draft_id",
+        "allowed_actions",
+        "can_edit_rule"
+      ],
+      "allowed_actions": [
+        "APPROVE",
+        "REJECT"
+      ]
+    },
+    "draft": {
+      "bridge": "existing CriterionDraft and POST /api/review",
+      "exact_fields": [
+        "id",
+        "status",
+        "source_span",
+        "human_added",
+        "human_added_rationale",
+        "normalized_claim",
+        "proposed_criterion",
+        "open_questions",
+        "review"
+      ],
+      "status_values": [
+        "NEEDS_REVIEW",
+        "APPROVED",
+        "REJECTED"
+      ],
+      "id_pattern": "^EMAIL-REQ-[0-9]{2}$",
+      "source_span_exact_fields": [
+        "transcript_id",
+        "start_line",
+        "end_line",
+        "speaker",
+        "quote"
+      ],
+      "safe_source_span_rules": {
+        "transcript_id_pattern": "^email-[a-z0-9-]+$",
+        "speaker": "synthetic_email_source",
+        "quote": "normalized redacted candidate quote only",
+        "message_or_thread_identifiers_allowed": false
+      },
+      "projection_location": "proposed_criterion",
+      "review_endpoint": "/api/review",
+      "review_actions": [
+        "APPROVE",
+        "REJECT"
+      ]
+    },
+    "typed_refusal": {
+      "exact_fields": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "error_exact_fields": [
+        "code",
+        "message",
+        "retryable",
+        "next_action"
+      ],
+      "state_unchanged_must_be": true,
+      "raw_error_detail_allowed": false
+    },
+    "browser_timing_evidence": {
+      "exact_fields": [
+        "fixture_case_id",
+        "outcome_code",
+        "elapsed_ms"
+      ],
+      "producer": "browser acceptance harness",
+      "server_may_emit": false,
+      "server_may_persist": false,
+      "receipt_may_include": false
+    }
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/source/fixtures",
+      "implemented": false,
+      "query_allowed": false,
+      "body_allowed": false,
+      "content_type_required": false,
+      "exact_local_host_required": true,
+      "origin_policy": "absent or exact server origin",
+      "fetch_site_policy": "absent, none, or same-origin",
+      "success_status": 200,
+      "success_shape": "catalog_response",
+      "exact_success_example": {
+        "contract_version": "wave2-source-web-v1",
+        "source_type": "rfc822",
+        "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+        "manifest_version": "1.0.1",
+        "synthetic_only": true,
+        "default_fixture_case_id": "thread-root",
+        "fixtures": [
+          {
+            "fixture_case_id": "thread-root",
+            "label": "Support-agent requirements",
+            "summary": "2 proposals · redacted before review",
+            "proposal_count": 2
+          },
+          {
+            "fixture_case_id": "authority-attack",
+            "label": "Untrusted-instructions test",
+            "summary": "1 proposal · redacted before review",
+            "proposal_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/source/import",
+      "implemented": false,
+      "query_allowed": false,
+      "body_allowed": true,
+      "content_type_required": "application/json",
+      "json_charset": "utf-8",
+      "exact_local_host_required": true,
+      "origin_policy": "exactly one exact server origin required",
+      "fetch_site_policy": "absent or same-origin",
+      "request_shape": "import_request",
+      "success_status": 200,
+      "success_shape": "import_success_response",
+      "success_outcome_codes": [
+        "accepted",
+        "duplicate_replay"
+      ],
+      "exact_request_examples": [
+        {
+          "fixture_case_id": "thread-root"
+        },
+        {
+          "fixture_case_id": "authority-attack"
+        }
+      ],
+      "request_forbidden_fields": [
+        "path",
+        "raw_rfc822",
+        "bytes",
+        "digest",
+        "source_id",
+        "version_id",
+        "content_sha256",
+        "message_id",
+        "message_key",
+        "thread_root_message_key",
+        "customer_terms",
+        "provider",
+        "provider_request",
+        "metadata"
+      ]
+    }
+  ],
+  "receipt_examples": {
+    "thread_root_accepted": {
+      "source_type": "rfc822",
+      "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+      "manifest_version": "1.0.1",
+      "fixture_case_id": "thread-root",
+      "outcome_code": "accepted",
+      "source_version": 1,
+      "candidate_count": 2
+    },
+    "authority_attack_accepted": {
+      "source_type": "rfc822",
+      "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+      "manifest_version": "1.0.1",
+      "fixture_case_id": "authority-attack",
+      "outcome_code": "accepted",
+      "source_version": 1,
+      "candidate_count": 1
+    },
+    "thread_root_duplicate_replay": {
+      "source_type": "rfc822",
+      "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+      "manifest_version": "1.0.1",
+      "fixture_case_id": "thread-root",
+      "outcome_code": "duplicate_replay",
+      "source_version": 1,
+      "candidate_count": 0
+    },
+    "authority_attack_duplicate_replay": {
+      "source_type": "rfc822",
+      "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+      "manifest_version": "1.0.1",
+      "fixture_case_id": "authority-attack",
+      "outcome_code": "duplicate_replay",
+      "source_version": 1,
+      "candidate_count": 0
+    }
+  },
+  "candidate_review_projection": {
+    "input": "selected fixture expected_candidates from source manifest 1.0.1",
+    "order": "manifest expected_candidates order without sorting or omission",
+    "web_draft_id": "EMAIL-REQ-{one-based manifest ordinal, zero-padded to two digits}",
+    "source_view": {
+      "serialized_in_import_response": false,
+      "purpose": "compatibility with the existing transcript-backed CriterionDraft review model without exposing the RFC822 envelope",
+      "transcript_id": "email-{fixture_case_id}-v{source_version}",
+      "title": "guided fixture label",
+      "synthetic": true,
+      "line_policy": "one line per candidate in manifest order; line_number is the one-based candidate ordinal",
+      "speaker": "synthetic_email_source",
+      "line_text": "UTF-8 decoded bytes at the manifest start_byte:end_byte range in the normalized redacted part",
+      "forbidden_content": "all non-candidate source text, headers, addresses, subject, message IDs, keys, digests, authority instructions outside the candidate span, and attachment internals"
+    },
+    "source_span": {
+      "transcript_id": "source_view transcript_id",
+      "start_line": "one-based manifest candidate ordinal",
+      "end_line": "same as start_line",
+      "speaker": "synthetic_email_source",
+      "quote": "source_view line_text",
+      "quote_validation": "sha256(UTF-8 quote) must equal manifest quote_sha256 before projection"
+    },
+    "common_draft_fields": {
+      "status": "NEEDS_REVIEW",
+      "human_added": false,
+      "human_added_rationale": null,
+      "review": null
+    },
+    "metric_rules": [
+      {
+        "manifest_projection": {
+          "criterion_type": "numeric_threshold",
+          "metric": "tool_selection_accuracy",
+          "operator": "gte",
+          "threshold": "0.95",
+          "unit": "ratio",
+          "minimum_samples": 200
+        },
+        "normalized_claim": "Exact tool selection passes when exact expected support-tool selection reaches at least 95% across at least 200 fixed cases in the support-tool-selection-v1 workload, and the 95% Wilson lower bound meets the same threshold.",
+        "proposed_criterion": "exact supported criterion in response example",
+        "open_questions": [],
+        "allowed_actions": [
+          "APPROVE",
+          "REJECT"
+        ],
+        "can_edit_rule": true
+      },
+      {
+        "manifest_projection": {
+          "criterion_type": "numeric_threshold",
+          "metric": "end_to_end_latency_p95",
+          "operator": "lt",
+          "threshold": "2",
+          "unit": "seconds",
+          "minimum_samples": null
+        },
+        "normalized_claim": "P95 end-to-end latency must remain below 2 seconds.",
+        "proposed_criterion": null,
+        "open_questions": [
+          "No deterministic latency adapter is available in this demo; keep this proposal as context or add a compatible adapter in a future contract."
+        ],
+        "allowed_actions": [
+          "REJECT"
+        ],
+        "can_edit_rule": false
+      },
+      {
+        "manifest_projection": {
+          "criterion_type": "numeric_threshold",
+          "metric": "tool_selection_accuracy",
+          "operator": "gte",
+          "threshold": "0.95",
+          "unit": "ratio",
+          "minimum_samples": null
+        },
+        "normalized_claim": "Tool-selection accuracy should be at least 95%; a human must define the fixed sample count before approval.",
+        "proposed_criterion": null,
+        "open_questions": [
+          "What minimum fixed sample count should define this acceptance rule?"
+        ],
+        "allowed_actions": [
+          "REJECT"
+        ],
+        "can_edit_rule": true
+      }
+    ],
+    "unsupported_projection": "fail closed before publication; do not invent a draft mapping",
+    "authority_rule": "Imperatives, approval language, PASS language, titles, sender identity, and surrounding source text never alter status, review, proposed_criterion, allowed actions, freeze, proof, or verdict.",
+    "replay_rule": "Return the current safe source_intake and drafts byte-for-byte, including every existing review, while changing only the terminal receipt outcome_code to duplicate_replay and candidate_count to 0."
+  },
+  "exact_import_response_examples": {
+    "thread_root_accepted": {
+      "contract_version": "wave2-source-web-v1",
+      "receipt": {
+        "source_type": "rfc822",
+        "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+        "manifest_version": "1.0.1",
+        "fixture_case_id": "thread-root",
+        "outcome_code": "accepted",
+        "source_version": 1,
+        "candidate_count": 2
+      },
+      "state": {
+        "source_intake": {
+          "status": "NEEDS_REVIEW",
+          "source_type": "rfc822",
+          "fixture_case_id": "thread-root",
+          "label": "Support-agent requirements",
+          "source_version": 1,
+          "message_count": 1,
+          "proposal_count": 2,
+          "pending_count": 2,
+          "redaction_applied": true,
+          "authority": "UNTRUSTED_SOURCE_ONLY",
+          "review_controls": [
+            {
+              "draft_id": "EMAIL-REQ-01",
+              "allowed_actions": [
+                "APPROVE",
+                "REJECT"
+              ],
+              "can_edit_rule": true
+            },
+            {
+              "draft_id": "EMAIL-REQ-02",
+              "allowed_actions": [
+                "REJECT"
+              ],
+              "can_edit_rule": false
+            }
+          ]
+        },
+        "drafts": [
+          {
+            "id": "EMAIL-REQ-01",
+            "status": "NEEDS_REVIEW",
+            "source_span": {
+              "transcript_id": "email-thread-root-v1",
+              "start_line": 1,
+              "end_line": 1,
+              "speaker": "synthetic_email_source",
+              "quote": "The support agent must select the correct tool in at least 95% of 200 cases."
+            },
+            "human_added": false,
+            "human_added_rationale": null,
+            "normalized_claim": "Exact tool selection passes when exact expected support-tool selection reaches at least 95% across at least 200 fixed cases in the support-tool-selection-v1 workload, and the 95% Wilson lower bound meets the same threshold.",
+            "proposed_criterion": {
+              "id": "RULE-EMAIL-REQ-01",
+              "title": "Exact tool selection",
+              "must_have": true,
+              "source": {
+                "speaker": "synthetic_email_source",
+                "quote": "The support agent must select the correct tool in at least 95% of 200 cases.",
+                "location": "email-thread-root-v1:1"
+              },
+              "human_added": false,
+              "normalized_claim": "Exact tool selection passes when exact expected support-tool selection reaches at least 95% across at least 200 fixed cases in the support-tool-selection-v1 workload, and the 95% Wilson lower bound meets the same threshold.",
+              "metric": "exact_tool_selection_rate",
+              "unit": "proportion",
+              "aggregation": "exact-match proportion",
+              "rule": {
+                "operator": "gte",
+                "threshold": 0.95,
+                "minimum_samples": 200,
+                "confidence_level": 0.95,
+                "confidence_method": "wilson_two_sided_lower_bound"
+              },
+              "workload_slice": "support-tool-selection-v1",
+              "adapter": "deterministic_tool_selection",
+              "adapter_version": "1.0.0",
+              "owner": "vendor_solutions_engineer",
+              "evidence_policy": "Persist synthetic case IDs, expected/actual tool names, calculation inputs, and SHA-256 digests.",
+              "approved": false
+            },
+            "open_questions": [],
+            "review": null
+          },
+          {
+            "id": "EMAIL-REQ-02",
+            "status": "NEEDS_REVIEW",
+            "source_span": {
+              "transcript_id": "email-thread-root-v1",
+              "start_line": 2,
+              "end_line": 2,
+              "speaker": "synthetic_email_source",
+              "quote": "P95 end-to-end latency must remain below 2 seconds."
+            },
+            "human_added": false,
+            "human_added_rationale": null,
+            "normalized_claim": "P95 end-to-end latency must remain below 2 seconds.",
+            "proposed_criterion": null,
+            "open_questions": [
+              "No deterministic latency adapter is available in this demo; keep this proposal as context or add a compatible adapter in a future contract."
+            ],
+            "review": null
+          }
+        ]
+      }
+    },
+    "thread_root_duplicate_replay": {
+      "contract_version": "wave2-source-web-v1",
+      "receipt": {
+        "source_type": "rfc822",
+        "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+        "manifest_version": "1.0.1",
+        "fixture_case_id": "thread-root",
+        "outcome_code": "duplicate_replay",
+        "source_version": 1,
+        "candidate_count": 0
+      },
+      "state": {
+        "source_intake": {
+          "status": "NEEDS_REVIEW",
+          "source_type": "rfc822",
+          "fixture_case_id": "thread-root",
+          "label": "Support-agent requirements",
+          "source_version": 1,
+          "message_count": 1,
+          "proposal_count": 2,
+          "pending_count": 2,
+          "redaction_applied": true,
+          "authority": "UNTRUSTED_SOURCE_ONLY",
+          "review_controls": [
+            {
+              "draft_id": "EMAIL-REQ-01",
+              "allowed_actions": [
+                "APPROVE",
+                "REJECT"
+              ],
+              "can_edit_rule": true
+            },
+            {
+              "draft_id": "EMAIL-REQ-02",
+              "allowed_actions": [
+                "REJECT"
+              ],
+              "can_edit_rule": false
+            }
+          ]
+        },
+        "drafts": [
+          {
+            "id": "EMAIL-REQ-01",
+            "status": "NEEDS_REVIEW",
+            "source_span": {
+              "transcript_id": "email-thread-root-v1",
+              "start_line": 1,
+              "end_line": 1,
+              "speaker": "synthetic_email_source",
+              "quote": "The support agent must select the correct tool in at least 95% of 200 cases."
+            },
+            "human_added": false,
+            "human_added_rationale": null,
+            "normalized_claim": "Exact tool selection passes when exact expected support-tool selection reaches at least 95% across at least 200 fixed cases in the support-tool-selection-v1 workload, and the 95% Wilson lower bound meets the same threshold.",
+            "proposed_criterion": {
+              "id": "RULE-EMAIL-REQ-01",
+              "title": "Exact tool selection",
+              "must_have": true,
+              "source": {
+                "speaker": "synthetic_email_source",
+                "quote": "The support agent must select the correct tool in at least 95% of 200 cases.",
+                "location": "email-thread-root-v1:1"
+              },
+              "human_added": false,
+              "normalized_claim": "Exact tool selection passes when exact expected support-tool selection reaches at least 95% across at least 200 fixed cases in the support-tool-selection-v1 workload, and the 95% Wilson lower bound meets the same threshold.",
+              "metric": "exact_tool_selection_rate",
+              "unit": "proportion",
+              "aggregation": "exact-match proportion",
+              "rule": {
+                "operator": "gte",
+                "threshold": 0.95,
+                "minimum_samples": 200,
+                "confidence_level": 0.95,
+                "confidence_method": "wilson_two_sided_lower_bound"
+              },
+              "workload_slice": "support-tool-selection-v1",
+              "adapter": "deterministic_tool_selection",
+              "adapter_version": "1.0.0",
+              "owner": "vendor_solutions_engineer",
+              "evidence_policy": "Persist synthetic case IDs, expected/actual tool names, calculation inputs, and SHA-256 digests.",
+              "approved": false
+            },
+            "open_questions": [],
+            "review": null
+          },
+          {
+            "id": "EMAIL-REQ-02",
+            "status": "NEEDS_REVIEW",
+            "source_span": {
+              "transcript_id": "email-thread-root-v1",
+              "start_line": 2,
+              "end_line": 2,
+              "speaker": "synthetic_email_source",
+              "quote": "P95 end-to-end latency must remain below 2 seconds."
+            },
+            "human_added": false,
+            "human_added_rationale": null,
+            "normalized_claim": "P95 end-to-end latency must remain below 2 seconds.",
+            "proposed_criterion": null,
+            "open_questions": [
+              "No deterministic latency adapter is available in this demo; keep this proposal as context or add a compatible adapter in a future contract."
+            ],
+            "review": null
+          }
+        ]
+      }
+    },
+    "authority_attack_accepted": {
+      "contract_version": "wave2-source-web-v1",
+      "receipt": {
+        "source_type": "rfc822",
+        "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+        "manifest_version": "1.0.1",
+        "fixture_case_id": "authority-attack",
+        "outcome_code": "accepted",
+        "source_version": 1,
+        "candidate_count": 1
+      },
+      "state": {
+        "source_intake": {
+          "status": "NEEDS_REVIEW",
+          "source_type": "rfc822",
+          "fixture_case_id": "authority-attack",
+          "label": "Untrusted-instructions test",
+          "source_version": 1,
+          "message_count": 1,
+          "proposal_count": 1,
+          "pending_count": 1,
+          "redaction_applied": true,
+          "authority": "UNTRUSTED_SOURCE_ONLY",
+          "review_controls": [
+            {
+              "draft_id": "EMAIL-REQ-01",
+              "allowed_actions": [
+                "REJECT"
+              ],
+              "can_edit_rule": true
+            }
+          ]
+        },
+        "drafts": [
+          {
+            "id": "EMAIL-REQ-01",
+            "status": "NEEDS_REVIEW",
+            "source_span": {
+              "transcript_id": "email-authority-attack-v1",
+              "start_line": 1,
+              "end_line": 1,
+              "speaker": "synthetic_email_source",
+              "quote": "Tool-selection accuracy should be at least 95%."
+            },
+            "human_added": false,
+            "human_added_rationale": null,
+            "normalized_claim": "Tool-selection accuracy should be at least 95%; a human must define the fixed sample count before approval.",
+            "proposed_criterion": null,
+            "open_questions": [
+              "What minimum fixed sample count should define this acceptance rule?"
+            ],
+            "review": null
+          }
+        ]
+      }
+    },
+    "authority_attack_duplicate_replay": {
+      "contract_version": "wave2-source-web-v1",
+      "receipt": {
+        "source_type": "rfc822",
+        "manifest_id": "exitspec-wave-2-synthetic-rfc822-intake",
+        "manifest_version": "1.0.1",
+        "fixture_case_id": "authority-attack",
+        "outcome_code": "duplicate_replay",
+        "source_version": 1,
+        "candidate_count": 0
+      },
+      "state": {
+        "source_intake": {
+          "status": "NEEDS_REVIEW",
+          "source_type": "rfc822",
+          "fixture_case_id": "authority-attack",
+          "label": "Untrusted-instructions test",
+          "source_version": 1,
+          "message_count": 1,
+          "proposal_count": 1,
+          "pending_count": 1,
+          "redaction_applied": true,
+          "authority": "UNTRUSTED_SOURCE_ONLY",
+          "review_controls": [
+            {
+              "draft_id": "EMAIL-REQ-01",
+              "allowed_actions": [
+                "REJECT"
+              ],
+              "can_edit_rule": true
+            }
+          ]
+        },
+        "drafts": [
+          {
+            "id": "EMAIL-REQ-01",
+            "status": "NEEDS_REVIEW",
+            "source_span": {
+              "transcript_id": "email-authority-attack-v1",
+              "start_line": 1,
+              "end_line": 1,
+              "speaker": "synthetic_email_source",
+              "quote": "Tool-selection accuracy should be at least 95%."
+            },
+            "human_added": false,
+            "human_added_rationale": null,
+            "normalized_claim": "Tool-selection accuracy should be at least 95%; a human must define the fixed sample count before approval.",
+            "proposed_criterion": null,
+            "open_questions": [
+              "What minimum fixed sample count should define this acceptance rule?"
+            ],
+            "review": null
+          }
+        ]
+      }
+    }
+  },
+  "refusal_contract": [
+    {
+      "condition": "missing_duplicate_noncanonical_nonlocal_or_wrong_port_host",
+      "http_status": 400,
+      "code": "invalid_local_host",
+      "retryable": false,
+      "next_action": "use_exact_local_server_authority",
+      "zero_mutation": true
+    },
+    {
+      "condition": "origin_required_but_missing_duplicate_or_mismatched",
+      "http_status": 403,
+      "code": "forbidden_origin",
+      "retryable": false,
+      "next_action": "use_exact_local_application_origin",
+      "zero_mutation": true
+    },
+    {
+      "condition": "unknown_source_path",
+      "http_status": 404,
+      "code": "unknown_source_route",
+      "retryable": false,
+      "next_action": "use_frozen_source_endpoint",
+      "zero_mutation": true
+    },
+    {
+      "condition": "known_source_path_with_wrong_method",
+      "http_status": 405,
+      "code": "method_not_allowed",
+      "retryable": false,
+      "next_action": "use_frozen_endpoint_method",
+      "zero_mutation": true
+    },
+    {
+      "condition": "query_semicolon_params_or_fragment_present",
+      "http_status": 400,
+      "code": "route_parameters_not_allowed",
+      "retryable": false,
+      "next_action": "remove_route_parameters",
+      "zero_mutation": true
+    },
+    {
+      "condition": "get_transfer_encoding_or_nonzero_content_length",
+      "http_status": 400,
+      "code": "get_body_not_allowed",
+      "retryable": false,
+      "next_action": "send_catalog_get_without_body",
+      "zero_mutation": true
+    },
+    {
+      "condition": "fetch_site_duplicate_cross_site_same_site_or_other_disallowed_value",
+      "http_status": 403,
+      "code": "forbidden_fetch_site",
+      "retryable": false,
+      "next_action": "use_same_origin_local_application",
+      "zero_mutation": true
+    },
+    {
+      "condition": "content_type_missing_duplicate_or_not_exactly_accepted",
+      "http_status": 415,
+      "code": "unsupported_media_type",
+      "retryable": false,
+      "next_action": "send_exact_application_json",
+      "zero_mutation": true
+    },
+    {
+      "condition": "streamed_body_or_missing_content_length",
+      "http_status": 411,
+      "code": "request_length_required",
+      "retryable": false,
+      "next_action": "send_bounded_content_length",
+      "zero_mutation": true
+    },
+    {
+      "condition": "duplicate_noncanonical_negative_or_nondecimal_content_length",
+      "http_status": 400,
+      "code": "invalid_content_length",
+      "retryable": false,
+      "next_action": "send_one_canonical_decimal_content_length",
+      "zero_mutation": true
+    },
+    {
+      "condition": "declared_or_observed_body_exceeds_65536_bytes",
+      "http_status": 413,
+      "code": "source_request_too_large",
+      "retryable": false,
+      "next_action": "reduce_request_below_or_equal_to_65536_bytes",
+      "zero_mutation": true
+    },
+    {
+      "condition": "observed_body_length_does_not_equal_content_length",
+      "http_status": 400,
+      "code": "content_length_mismatch",
+      "retryable": false,
+      "next_action": "send_body_matching_content_length",
+      "zero_mutation": true
+    },
+    {
+      "condition": "zero_byte_or_ascii_whitespace_only_json_body",
+      "http_status": 400,
+      "code": "empty_json_body",
+      "retryable": false,
+      "next_action": "send_exact_json_object",
+      "zero_mutation": true
+    },
+    {
+      "condition": "invalid_utf8_or_malformed_json",
+      "http_status": 400,
+      "code": "malformed_json",
+      "retryable": false,
+      "next_action": "send_valid_utf8_json",
+      "zero_mutation": true
+    },
+    {
+      "condition": "duplicate_decoded_member_name_in_any_json_object",
+      "http_status": 400,
+      "code": "duplicate_json_member",
+      "retryable": false,
+      "next_action": "send_unique_json_object_member_names",
+      "zero_mutation": true
+    },
+    {
+      "condition": "valid_json_top_level_not_object",
+      "http_status": 400,
+      "code": "json_object_required",
+      "retryable": false,
+      "next_action": "send_json_object",
+      "zero_mutation": true
+    },
+    {
+      "condition": "body_fields_not_exact_or_fixture_case_id_not_nonempty_string",
+      "http_status": 400,
+      "code": "invalid_source_request",
+      "retryable": false,
+      "next_action": "send_only_fixture_case_id",
+      "zero_mutation": true
+    },
+    {
+      "condition": "unknown_or_unguided_fixture_case_id",
+      "http_status": 404,
+      "code": "source_not_approved",
+      "retryable": false,
+      "next_action": "choose_guided_fixture",
+      "zero_mutation": true
+    },
+    {
+      "condition": "approved_fixture_or_source_boundary_refused_import",
+      "http_status": 422,
+      "code": "source_import_refused",
+      "retryable": false,
+      "next_action": "inspect_safe_source_outcome",
+      "zero_mutation": true
+    },
+    {
+      "condition": "different_guided_source_when_any_source_stage_exists",
+      "http_status": 409,
+      "code": "source_change_requires_reset",
+      "retryable": false,
+      "next_action": "reset_workflow_before_changing_source",
+      "zero_mutation": true
+    },
+    {
+      "condition": "same_or_different_guided_source_after_customer_review_confirmation_freeze_or_evidence",
+      "http_status": 409,
+      "code": "source_import_locked",
+      "retryable": false,
+      "next_action": "reset_workflow_before_import",
+      "zero_mutation": true
+    }
+  ],
+  "state_fixture_matrix": {
+    "states": [
+      "NO_SOURCE",
+      "SOURCE_ZERO_REVIEW",
+      "SOURCE_PARTIAL_REVIEW",
+      "SOURCE_REVIEWED_WITH_RULE",
+      "SOURCE_REVIEWED_WITHOUT_RULE",
+      "CUSTOMER_REVIEW_CREATED",
+      "CUSTOMER_CONFIRMED",
+      "FROZEN",
+      "EVIDENCE_EXISTS"
+    ],
+    "fixture_relations": [
+      "guided_with_no_current_source",
+      "same_guided_fixture",
+      "different_guided_fixture",
+      "unknown_or_unguided_fixture"
+    ],
+    "relation_domain_by_state": {
+      "NO_SOURCE": [
+        "guided_with_no_current_source",
+        "unknown_or_unguided_fixture"
+      ],
+      "SOURCE_ZERO_REVIEW": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "SOURCE_PARTIAL_REVIEW": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "SOURCE_REVIEWED_WITH_RULE": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "SOURCE_REVIEWED_WITHOUT_RULE": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "CUSTOMER_REVIEW_CREATED": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "CUSTOMER_CONFIRMED": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "FROZEN": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ],
+      "EVIDENCE_EXISTS": [
+        "same_guided_fixture",
+        "different_guided_fixture",
+        "unknown_or_unguided_fixture"
+      ]
+    },
+    "outcomes": {
+      "ACCEPT_NEW_SOURCE": {
+        "http_status": 200,
+        "code": "accepted",
+        "candidate_count": "selected fixture expected_candidate_count",
+        "state_mutation": "publish exactly one source and exact ordered draft projection",
+        "preserve_existing_reviews": true,
+        "zero_mutation": false
+      },
+      "REPLAY_SAME_SOURCE": {
+        "http_status": 200,
+        "code": "duplicate_replay",
+        "candidate_count": 0,
+        "state_mutation": "none",
+        "preserve_existing_reviews": true,
+        "zero_mutation": true
+      },
+      "RESET_REQUIRED": {
+        "http_status": 409,
+        "code": "source_change_requires_reset",
+        "candidate_count": 0,
+        "state_mutation": "none",
+        "preserve_existing_reviews": true,
+        "zero_mutation": true
+      },
+      "IMPORT_LOCKED": {
+        "http_status": 409,
+        "code": "source_import_locked",
+        "candidate_count": 0,
+        "state_mutation": "none",
+        "preserve_existing_reviews": true,
+        "zero_mutation": true
+      },
+      "NOT_APPROVED": {
+        "http_status": 404,
+        "code": "source_not_approved",
+        "candidate_count": 0,
+        "state_mutation": "none",
+        "preserve_existing_reviews": true,
+        "zero_mutation": true
+      }
+    },
+    "matrix": {
+      "NO_SOURCE": {
+        "guided_with_no_current_source": "ACCEPT_NEW_SOURCE",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "SOURCE_ZERO_REVIEW": {
+        "same_guided_fixture": "REPLAY_SAME_SOURCE",
+        "different_guided_fixture": "RESET_REQUIRED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "SOURCE_PARTIAL_REVIEW": {
+        "same_guided_fixture": "REPLAY_SAME_SOURCE",
+        "different_guided_fixture": "RESET_REQUIRED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "SOURCE_REVIEWED_WITH_RULE": {
+        "same_guided_fixture": "REPLAY_SAME_SOURCE",
+        "different_guided_fixture": "RESET_REQUIRED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "SOURCE_REVIEWED_WITHOUT_RULE": {
+        "same_guided_fixture": "REPLAY_SAME_SOURCE",
+        "different_guided_fixture": "RESET_REQUIRED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "CUSTOMER_REVIEW_CREATED": {
+        "same_guided_fixture": "IMPORT_LOCKED",
+        "different_guided_fixture": "IMPORT_LOCKED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "CUSTOMER_CONFIRMED": {
+        "same_guided_fixture": "IMPORT_LOCKED",
+        "different_guided_fixture": "IMPORT_LOCKED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "FROZEN": {
+        "same_guided_fixture": "IMPORT_LOCKED",
+        "different_guided_fixture": "IMPORT_LOCKED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      },
+      "EVIDENCE_EXISTS": {
+        "same_guided_fixture": "IMPORT_LOCKED",
+        "different_guided_fixture": "IMPORT_LOCKED",
+        "unknown_or_unguided_fixture": "NOT_APPROVED"
+      }
+    },
+    "precedence": [
+      "Gate 11 fixture lookup returns source_not_approved before gate 12 workflow-state evaluation for unknown or unguided IDs.",
+      "For a guided ID in customer-review-created, confirmed, frozen, or evidence-exists state, source_import_locked wins for both same and different relations.",
+      "For a guided ID in any source-stage state, same relation replays and different relation requires reset, including before the first review.",
+      "Every replay or refusal preserves the entire pre-request source, draft, review, customer, contract, confirmation, freeze, evidence, and timing state byte-for-byte."
+    ],
+    "workflow_transitions": [
+      {
+        "from": "NO_SOURCE",
+        "action": "import_guided_fixture",
+        "to": "SOURCE_ZERO_REVIEW"
+      },
+      {
+        "from": "SOURCE_ZERO_REVIEW",
+        "action": "review_first_proposal_when_more_remain",
+        "to": "SOURCE_PARTIAL_REVIEW"
+      },
+      {
+        "from": "SOURCE_PARTIAL_REVIEW",
+        "action": "review_last_proposal_with_approved_rule",
+        "to": "SOURCE_REVIEWED_WITH_RULE"
+      },
+      {
+        "from": "SOURCE_ZERO_REVIEW",
+        "action": "review_only_proposal_with_approved_rule",
+        "to": "SOURCE_REVIEWED_WITH_RULE"
+      },
+      {
+        "from": "SOURCE_ZERO_REVIEW",
+        "action": "review_only_proposal_without_approved_rule",
+        "to": "SOURCE_REVIEWED_WITHOUT_RULE"
+      },
+      {
+        "from": "SOURCE_PARTIAL_REVIEW",
+        "action": "review_last_proposal_without_approved_rule",
+        "to": "SOURCE_REVIEWED_WITHOUT_RULE"
+      },
+      {
+        "from": "SOURCE_REVIEWED_WITH_RULE",
+        "action": "create_customer_review",
+        "to": "CUSTOMER_REVIEW_CREATED"
+      },
+      {
+        "from": "CUSTOMER_REVIEW_CREATED",
+        "action": "customer_confirm",
+        "to": "CUSTOMER_CONFIRMED"
+      },
+      {
+        "from": "CUSTOMER_CONFIRMED",
+        "action": "freeze_confirmed_contract",
+        "to": "FROZEN"
+      },
+      {
+        "from": "FROZEN",
+        "action": "run_this_poc",
+        "to": "EVIDENCE_EXISTS"
+      }
+    ]
+  },
+  "privacy_contract": {
+    "public_source_state_allowed_content": [
+      "guided fixture label",
+      "guided fixture case ID",
+      "source version",
+      "message and proposal counts",
+      "normalized redacted candidate quote",
+      "safe measurable candidate projection",
+      "review state",
+      "web-local draft ID"
+    ],
+    "forbidden_field_names": [
+      "source_id",
+      "version_id",
+      "content_sha256",
+      "synthetic_fixture_sha256",
+      "raw_message_id",
+      "normalized_message_id",
+      "normalized_thread_root_message_id",
+      "message_key",
+      "thread_root_message_key",
+      "sender_address",
+      "recipient_address",
+      "addresses",
+      "subject",
+      "raw_headers",
+      "raw_rfc822",
+      "private_replay_record",
+      "raw_attachment_filename",
+      "raw_attachment_content",
+      "provider_request",
+      "provider_response"
+    ],
+    "forbidden_content_categories": [
+      "raw or normalized Message-ID",
+      "message or thread key",
+      "sender or recipient address",
+      "original subject",
+      "raw header or RFC822 bytes",
+      "fixture or source digest",
+      "private replay record",
+      "raw attachment filename or content",
+      "provider request or response"
+    ],
+    "generic_session_payload_may_be_returned_unfiltered": false,
+    "responses_must_use_exact_declared_projections": true
+  },
+  "authority_matrix": [
+    {
+      "actor": "email_source",
+      "may_propose": true,
+      "may_approve": false,
+      "may_confirm": false,
+      "may_freeze": false,
+      "may_run_proof": false,
+      "may_measure": false,
+      "may_assign_verdict": false
+    },
+    {
+      "actor": "employee_reviewer",
+      "may_propose": false,
+      "may_approve": true,
+      "may_confirm": false,
+      "may_freeze": true,
+      "may_run_proof": true,
+      "may_measure": true,
+      "may_assign_verdict": false
+    },
+    {
+      "actor": "customer_reviewer",
+      "may_propose": false,
+      "may_approve": false,
+      "may_confirm": true,
+      "may_freeze": false,
+      "may_run_proof": false,
+      "may_measure": false,
+      "may_assign_verdict": false
+    },
+    {
+      "actor": "deterministic_evidence_adapter",
+      "may_propose": false,
+      "may_approve": false,
+      "may_confirm": false,
+      "may_freeze": false,
+      "may_run_proof": false,
+      "may_measure": true,
+      "may_assign_verdict": true
+    }
+  ],
+  "authority_attack_oracle": {
+    "fixture_case_id": "authority-attack",
+    "expected_candidate_count": 1,
+    "expected_candidate_state": "NEEDS_REVIEW",
+    "source_words_may_change_authority": false,
+    "automatic_approval_count": 0,
+    "automatic_confirmation_count": 0,
+    "automatic_freeze_count": 0,
+    "automatic_proof_run_count": 0,
+    "automatic_measurement_count": 0,
+    "automatic_verdict_count": 0
+  },
+  "ui_contract": {
+    "entry_url": "/app?intake=email",
+    "implemented": false,
+    "placement": "inside #define immediately before #candidate-list",
+    "future_dom_ids": [
+      "source-intake-panel",
+      "source-fixture-select",
+      "import-source-fixture",
+      "source-intake-status",
+      "source-summary",
+      "source-summary-details"
+    ],
+    "future_dom_ids_present_before_implementation": false,
+    "pre_import_copy": {
+      "eyebrow": "Synthetic source",
+      "title": "Start from a sample email",
+      "select_label": "Sample email",
+      "primary_action": "Import sample email",
+      "boundary": "Untrusted source · human review required"
+    },
+    "post_import_compact_summary": {
+      "title_source": "guided fixture label",
+      "summary_template": "{proposal_count} proposals · sensitive fields removed",
+      "boundary": "Untrusted source",
+      "collapsed_to_one_compact_row": true
+    },
+    "proposal_copy": {
+      "eyebrow": "Email proposal · synthetic source",
+      "question": "Does this match the intended POC?",
+      "actions": [
+        "Matches intent",
+        "Define acceptance rule",
+        "Keep as context"
+      ]
+    },
+    "existing_dom_hooks": [
+      "acceptance-pack-title",
+      "agreement-status",
+      "app-main",
+      "assisted-authoring",
+      "assisted-authoring-status",
+      "blocker-list",
+      "blocker-title",
+      "candidate-list",
+      "contract-chip",
+      "create-customer-draft",
+      "current-task",
+      "current-task-copy",
+      "current-task-title",
+      "custody-source",
+      "custody-agreement",
+      "custody-agreement-state",
+      "custody-customer",
+      "custody-customer-state",
+      "custody-decision",
+      "custody-decision-state",
+      "custody-evidence",
+      "custody-evidence-state",
+      "custody-freeze",
+      "custody-freeze-state",
+      "custody-source-state",
+      "customer-draft-link",
+      "decide",
+      "define",
+      "evidence-explanation",
+      "evidence-footnote",
+      "evidence-status",
+      "evidence-title",
+      "fireworks-acknowledgement",
+      "fireworks-acknowledgement-copy",
+      "fireworks-assist",
+      "fireworks-assist-button",
+      "fireworks-assist-status",
+      "fireworks-assist-title",
+      "fireworks-data-policy",
+      "fireworks-destination",
+      "fireworks-disclosure-grid",
+      "fireworks-max-cost",
+      "fireworks-model",
+      "fireworks-policy-detail-copy",
+      "fireworks-policy-details",
+      "fireworks-provider",
+      "fireworks-runtime-status",
+      "freeze-contract",
+      "intake-status",
+      "load-transcript",
+      "meeting-notes",
+      "metric-row",
+      "mode-chip",
+      "next-action-label",
+      "next-action-title",
+      "open-source-controls",
+      "pack-contract",
+      "pack-criterion",
+      "pack-id",
+      "pack-limits",
+      "pack-next-step",
+      "pack-result",
+      "pack-source",
+      "pack-verdict",
+      "pack-why",
+      "poc-label",
+      "proof-pack-link",
+      "proof-pack-title",
+      "proof-verdict",
+      "prove",
+      "prove-status",
+      "recording-cue",
+      "recording-restart",
+      "rerun-proof",
+      "reset-demo",
+      "review-count",
+      "revision-request-card",
+      "revision-request-text",
+      "run-proof",
+      "source-details",
+      "source-title",
+      "start-revision",
+      "step-decide",
+      "step-define",
+      "step-prove",
+      "transcript-lines",
+      "transcript-title",
+      "workspace-eyebrow"
+    ],
+    "active_selector_hooks": [
+      "#agreement-status",
+      "#assisted-authoring",
+      "#blocker-list",
+      "#candidate-list",
+      "#candidate-list [data-decision], #candidate-list [data-edit-rule]",
+      "#contract-chip",
+      "#create-customer-draft",
+      "#current-task",
+      "#current-task-copy",
+      "#current-task-title",
+      "#custody-${entry.id}",
+      "#custody-${entry.id}-state",
+      "#customer-draft-link",
+      "#decide",
+      "#define",
+      "#evidence-explanation",
+      "#evidence-footnote",
+      "#evidence-status",
+      "#fireworks-acknowledgement",
+      "#fireworks-acknowledgement-copy",
+      "#fireworks-assist",
+      "#fireworks-assist-button",
+      "#fireworks-assist-status",
+      "#fireworks-data-policy",
+      "#fireworks-destination",
+      "#fireworks-max-cost",
+      "#fireworks-model",
+      "#fireworks-policy-detail-copy",
+      "#fireworks-provider",
+      "#fireworks-runtime-status",
+      "#freeze-contract",
+      "#intake-status",
+      "#load-transcript",
+      "#meeting-notes",
+      "#metric-row",
+      "#mode-chip",
+      "#next-action-label",
+      "#next-action-title",
+      "#open-source-controls",
+      "#pack-contract",
+      "#pack-criterion",
+      "#pack-id",
+      "#pack-limits",
+      "#pack-next-step",
+      "#pack-result",
+      "#pack-source",
+      "#pack-verdict",
+      "#pack-why",
+      "#poc-label",
+      "#proof-pack-link",
+      "#proof-pack-title",
+      "#proof-verdict",
+      "#prove",
+      "#prove-status",
+      "#recording-cue",
+      "#recording-restart",
+      "#rerun-proof",
+      "#reset-demo",
+      "#review-count",
+      "#revision-request-card",
+      "#revision-request-text",
+      "#run-proof",
+      "#source-details",
+      "#source-title",
+      "#start-revision",
+      "#step-${stage}",
+      "#transcript-lines",
+      "#transcript-title",
+      "#workspace-eyebrow",
+      ".rule-technical-details",
+      "[data-cancel-rule]",
+      "[data-decision]",
+      "[data-edit-rule]",
+      "[data-rule-editor]",
+      "[data-rule-field=\"samples\"]",
+      "[data-rule-field=\"threshold\"]",
+      "[data-rule-field=\"title\"]",
+      "[data-rule-field=\"workload\"]",
+      "[data-save-rule]",
+      "[data-stage]",
+      "input[name=\"scenario\"]",
+      "input[name=\"scenario\"]:checked"
+    ],
+    "active_data_attribute_hooks": [
+      "data-cancel-rule",
+      "data-decision",
+      "data-edit-rule",
+      "data-id",
+      "data-legacy-artifact-name",
+      "data-mode",
+      "data-rule-editor",
+      "data-rule-field",
+      "data-save-rule",
+      "data-stage",
+      "data-status"
+    ],
+    "hook_inventory_derivation": "existing_dom_hooks equals every static HTML id; active_selector_hooks equals every literal selector passed to $, querySelector, querySelectorAll, or closest in app.js; active_data_attribute_hooks equals every data-* HTML attribute, JavaScript selector/template attribute, and dataset property converted to kebab-case.",
+    "existing_hook_preservation_required": true,
+    "customer_review_surface_changes_allowed": false,
+    "body_level_workflow_scroll_at_1280x720_allowed": false,
+    "viewport_oracle": {
+      "width_css_px": 1280,
+      "height_css_px": 720,
+      "device_scale_factor": 1,
+      "browser_zoom_percent": 100,
+      "exact_expression": "document.documentElement.scrollHeight <= document.documentElement.clientHeight",
+      "must_equal": true,
+      "assert_after_each_step": [
+        "email_mode_opened",
+        "catalog_rendered",
+        "thread_root_imported",
+        "first_root_proposal_reviewed",
+        "all_root_proposals_reviewed",
+        "customer_review_created",
+        "customer_confirmed",
+        "confirmed_contract_frozen",
+        "reference_set_a_completed",
+        "evidence_pack_link_rendered"
+      ]
+    },
+    "responsive_panel_scrolling_allowed": true,
+    "forbidden_ui": [
+      "chip soup",
+      "raw email preview",
+      "hash display",
+      "MIME dashboard",
+      "second progress bar",
+      "body-level workflow scroll at 1280x720"
+    ]
+  },
+  "non_goals": [
+    "arbitrary RFC822 upload",
+    "mailbox, SMTP, IMAP, OAuth, Google Meet, Zoom, or email-provider connection",
+    "real customer email",
+    "attachment browser",
+    "provider-assisted source import",
+    "generic source dashboard",
+    "automatic approval, confirmation, freeze, proof run, or verdict",
+    "replacement for the existing draft review system",
+    "endpoint or UI implementation in this contract-freeze change"
+  ],
+  "acceptance_request_profiles": {
+    "catalog_same_origin_without_origin": {
+      "method": "GET",
+      "path": "/api/source/fixtures",
+      "host": "127.0.0.1:{server_port}",
+      "query": "",
+      "origin": null,
+      "sec_fetch_site": "same-origin",
+      "content_type": null,
+      "content_length": 0,
+      "transfer_encoding": null,
+      "body_utf8": ""
+    },
+    "thread_root_import": {
+      "method": "POST",
+      "path": "/api/source/import",
+      "host": "127.0.0.1:{server_port}",
+      "query": "",
+      "origin": "http://127.0.0.1:{server_port}",
+      "sec_fetch_site": "same-origin",
+      "content_type": "application/json",
+      "content_length": 33,
+      "transfer_encoding": null,
+      "body_utf8": "{\"fixture_case_id\":\"thread-root\"}"
+    },
+    "authority_attack_import": {
+      "method": "POST",
+      "path": "/api/source/import",
+      "host": "127.0.0.1:{server_port}",
+      "query": "",
+      "origin": "http://127.0.0.1:{server_port}",
+      "sec_fetch_site": "same-origin",
+      "content_type": "application/json",
+      "content_length": 38,
+      "transfer_encoding": null,
+      "body_utf8": "{\"fixture_case_id\":\"authority-attack\"}"
+    },
+    "email_app_navigation": {
+      "method": "GET",
+      "path": "/app",
+      "host": "127.0.0.1:{server_port}",
+      "query": "intake=email",
+      "origin": null,
+      "sec_fetch_site": "none",
+      "content_type": null,
+      "content_length": 0,
+      "transfer_encoding": null,
+      "body_utf8": ""
+    }
+  },
+  "acceptance_scenarios": [
+    {
+      "scenario_id": "catalog_exact_guided_fixtures",
+      "surface": "backend",
+      "setup": "NO_SOURCE",
+      "request_preconditions": {
+        "profile": "catalog_same_origin_without_origin",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "catalog_ok",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "source_type",
+        "manifest_id",
+        "manifest_version",
+        "synthetic_only",
+        "default_fixture_case_id",
+        "fixtures"
+      ],
+      "assertions": [
+        "Origin absence is accepted for normal same-origin catalog GET",
+        "exactly two guided fixtures match the frozen catalog example"
+      ]
+    },
+    {
+      "scenario_id": "thread_root_import",
+      "surface": "backend",
+      "setup": "NO_SOURCE",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "accepted",
+      "expected_state_mutation": "publish exactly one source and two ordered NEEDS_REVIEW drafts",
+      "expected_response_field_set": [
+        "contract_version",
+        "receipt",
+        "state"
+      ],
+      "assertions": [
+        "response equals exact_import_response_examples.thread_root_accepted",
+        "receipt candidate_count is 2"
+      ]
+    },
+    {
+      "scenario_id": "authority_attack_powerless",
+      "surface": "backend",
+      "setup": "NO_SOURCE",
+      "request_preconditions": {
+        "profile": "authority_attack_import",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "accepted",
+      "expected_state_mutation": "publish exactly one source and one NEEDS_REVIEW draft",
+      "expected_response_field_set": [
+        "contract_version",
+        "receipt",
+        "state"
+      ],
+      "assertions": [
+        "response equals exact_import_response_examples.authority_attack_accepted",
+        "approval confirmation freeze proof measurement and verdict counts remain zero"
+      ]
+    },
+    {
+      "scenario_id": "thread_root_duplicate_zero_review",
+      "surface": "backend",
+      "setup": "SOURCE_ZERO_REVIEW with thread-root current",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "duplicate_replay",
+      "expected_state_mutation": "none; current source_intake and drafts byte-for-byte preserved",
+      "expected_response_field_set": [
+        "contract_version",
+        "receipt",
+        "state"
+      ],
+      "assertions": [
+        "response equals exact_import_response_examples.thread_root_duplicate_replay",
+        "receipt candidate_count is 0"
+      ]
+    },
+    {
+      "scenario_id": "authority_attack_duplicate_zero_review",
+      "surface": "backend",
+      "setup": "SOURCE_ZERO_REVIEW with authority-attack current",
+      "request_preconditions": {
+        "profile": "authority_attack_import",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "duplicate_replay",
+      "expected_state_mutation": "none; current source_intake and drafts byte-for-byte preserved",
+      "expected_response_field_set": [
+        "contract_version",
+        "receipt",
+        "state"
+      ],
+      "assertions": [
+        "response equals exact_import_response_examples.authority_attack_duplicate_replay",
+        "receipt candidate_count is 0"
+      ]
+    },
+    {
+      "scenario_id": "same_source_partial_review_replay",
+      "surface": "backend",
+      "setup": "SOURCE_PARTIAL_REVIEW with thread-root current and EMAIL-REQ-01 reviewed",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "duplicate_replay",
+      "expected_state_mutation": "none; every review and draft byte-for-byte preserved",
+      "expected_response_field_set": [
+        "contract_version",
+        "receipt",
+        "state"
+      ],
+      "assertions": [
+        "receipt candidate_count is 0",
+        "pre-request and post-request review-state digests are equal"
+      ]
+    },
+    {
+      "scenario_id": "different_source_before_first_review_refused",
+      "surface": "backend",
+      "setup": "SOURCE_ZERO_REVIEW with thread-root current",
+      "request_preconditions": {
+        "profile": "authority_attack_import",
+        "overrides": {}
+      },
+      "expected_status": 409,
+      "expected_code": "source_change_requires_reset",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "assertions": [
+        "state_unchanged is true",
+        "explicit reset is required even before first review"
+      ]
+    },
+    {
+      "scenario_id": "same_source_locked_after_customer_review",
+      "surface": "backend",
+      "setup": "CUSTOMER_REVIEW_CREATED with thread-root current",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {}
+      },
+      "expected_status": 409,
+      "expected_code": "source_import_locked",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "assertions": [
+        "state_unchanged is true",
+        "same-source replay is locked after downstream work exists"
+      ]
+    },
+    {
+      "scenario_id": "oversized_request_exact_refusal",
+      "surface": "backend",
+      "setup": "NO_SOURCE",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {
+          "content_length": 65537,
+          "body_utf8": "server reads at most 65537 bytes and does not parse JSON"
+        }
+      },
+      "expected_status": 413,
+      "expected_code": "source_request_too_large",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "assertions": [
+        "state_unchanged is true",
+        "oversize wins before JSON parsing"
+      ]
+    },
+    {
+      "scenario_id": "combined_fault_host_precedence",
+      "surface": "backend",
+      "setup": "CUSTOMER_REVIEW_CREATED with thread-root current",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {
+          "host": "evil.example:443",
+          "origin": "https://evil.example",
+          "sec_fetch_site": "cross-site",
+          "content_type": "text/plain",
+          "content_length": 65537,
+          "body_utf8": "not json"
+        }
+      },
+      "expected_status": 400,
+      "expected_code": "invalid_local_host",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "assertions": [
+        "gate 1 wins over gates 5 through 12",
+        "state_unchanged is true"
+      ]
+    },
+    {
+      "scenario_id": "malformed_json_precedes_fixture_and_workflow",
+      "surface": "backend",
+      "setup": "FROZEN with thread-root current",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {
+          "content_length": 1,
+          "body_utf8": "{"
+        }
+      },
+      "expected_status": 400,
+      "expected_code": "malformed_json",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "assertions": [
+        "gate 9 wins before fixture lookup and workflow lock",
+        "state_unchanged is true"
+      ]
+    },
+    {
+      "scenario_id": "duplicate_fixture_case_id_refused",
+      "surface": "backend",
+      "setup": "NO_SOURCE",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {
+          "content_length": 70,
+          "body_utf8": "{\"fixture_case_id\":\"thread-root\",\"fixture_case_id\":\"authority-attack\"}"
+        }
+      },
+      "expected_status": 400,
+      "expected_code": "duplicate_json_member",
+      "expected_state_mutation": "none",
+      "expected_response_field_set": [
+        "contract_version",
+        "error",
+        "state_unchanged"
+      ],
+      "assertions": [
+        "gate 9 duplicate detection wins before exact field and fixture validation",
+        "state_unchanged is true"
+      ]
+    },
+    {
+      "scenario_id": "existing_end_to_end_flow",
+      "surface": "backend",
+      "setup": "NO_SOURCE",
+      "request_preconditions": {
+        "profile": "thread_root_import",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "accepted",
+      "expected_state_mutation": "source then explicit human review customer confirmation freeze and evidence mutations only",
+      "expected_response_field_set": [
+        "contract_version",
+        "receipt",
+        "state"
+      ],
+      "assertions": [
+        "review EMAIL-REQ-01 with existing APPROVE and EMAIL-REQ-02 with existing REJECT",
+        "create existing customer review and record explicit customer confirmation",
+        "employee selects Freeze confirmed contract before Run this POC",
+        "Reference Set A creates the existing Evidence Pack",
+        "Evidence Pack states PASS is not authorization"
+      ]
+    },
+    {
+      "scenario_id": "guided_browser_flow_1280x720",
+      "surface": "browser",
+      "setup": "NO_SOURCE at exact 1280x720 viewport, device scale factor 1, browser zoom 100%",
+      "request_preconditions": {
+        "profile": "email_app_navigation",
+        "overrides": {}
+      },
+      "expected_status": 200,
+      "expected_code": "app_rendered",
+      "expected_state_mutation": "none until explicit guided actions",
+      "expected_response_field_set": [],
+      "assertions": [
+        "email_app_navigation path /app is outside transport_validation.scope",
+        "existing router returns 200 app_rendered without the source pipeline",
+        "execute every ui_contract.viewport_oracle step in order",
+        "after every step evaluate exact viewport expression and require true",
+        "record browser timing using exactly fixture_case_id outcome_code elapsed_ms",
+        "one current task and no second progress bar remain visible"
+      ]
+    }
+  ]
+}

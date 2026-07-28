@@ -17,8 +17,11 @@ import pytest
 from exitspec.demo_data import (
     SupportAgentEmailPaths,
     SupportAgentEmailResourceError,
+    SupportAgentSourceWebContract,
+    SupportAgentSourceWebContractError,
     support_agent_demo_paths,
     support_agent_email_paths,
+    support_agent_source_web_contract,
 )
 
 
@@ -45,6 +48,10 @@ EXPECTED_RESOURCES = {
 EMAIL_MANIFEST_NAME = "wave-2-acceptance-v1.json"
 EXPECTED_EMAIL_MANIFEST_SHA256 = (
     "aa514787eb6b14a93216682d702fc29a32d630eb1a91a16dae6ce0873a268ae2"
+)
+SOURCE_WEB_CONTRACT_NAME = "wave-2-source-web-v1.json"
+EXPECTED_SOURCE_WEB_CONTRACT_SHA256 = (
+    "f89825510155b1d579814da0f6e3a639c1b03d3111deba170556654eaca35ffd"
 )
 EXPECTED_EMAIL_CASES = {
     "allowed-text-attachment": (
@@ -83,6 +90,7 @@ EXPECTED_EMAIL_CASES = {
 }
 EXPECTED_EMAIL_RESOURCES = {
     EMAIL_MANIFEST_NAME: EXPECTED_EMAIL_MANIFEST_SHA256,
+    SOURCE_WEB_CONTRACT_NAME: EXPECTED_SOURCE_WEB_CONTRACT_SHA256,
     **{
         f"{case_id}.eml": expected_sha256
         for case_id, expected_sha256 in EXPECTED_EMAIL_CASES.items()
@@ -132,11 +140,15 @@ def test_bundled_demo_inputs_exactly_match_the_authoritative_examples():
 
 
 def test_bundled_email_inputs_exactly_match_the_frozen_authoritative_examples():
-    with support_agent_email_paths() as bundled:
+    with (
+        support_agent_email_paths() as bundled,
+        support_agent_source_web_contract() as web_contract,
+    ):
         assert bundled.case_ids == tuple(sorted(EXPECTED_EMAIL_CASES))
         assert tuple(bundled.fixtures) == bundled.case_ids
         bundled_by_filename = {
             EMAIL_MANIFEST_NAME: bundled.manifest,
+            SOURCE_WEB_CONTRACT_NAME: web_contract.path,
             **{
                 f"{case_id}.eml": bundled.fixture_for(case_id)
                 for case_id in bundled.case_ids
@@ -164,6 +176,11 @@ def test_bundled_email_inputs_exactly_match_the_frozen_authoritative_examples():
         assert str(unknown_case.value) == (
             "'Wave-2 email case ID is not manifest-approved.'"
         )
+        assert web_contract.payload == web_contract.path.read_bytes()
+        assert (
+            web_contract.contract["contract_version"]
+            == "wave2-source-web-v1"
+        )
 
 
 def test_email_resource_paths_cannot_be_constructed_without_validation(
@@ -175,6 +192,42 @@ def test_email_resource_paths_cannot_be_constructed_without_validation(
             manifest=tmp_path / EMAIL_MANIFEST_NAME,
             fixtures={"not-approved": tmp_path / "arbitrary.eml"},
         )
+
+
+def test_source_web_contract_cannot_be_constructed_without_validation(tmp_path):
+    with pytest.raises(TypeError, match="must be created through from_path"):
+        SupportAgentSourceWebContract(
+            path=tmp_path / SOURCE_WEB_CONTRACT_NAME,
+            payload=b"{}",
+            contract={},
+        )
+
+    invalid = tmp_path / SOURCE_WEB_CONTRACT_NAME
+    invalid.write_bytes(b"{}")
+    with pytest.raises(SupportAgentSourceWebContractError):
+        SupportAgentSourceWebContract.from_path(invalid)
+
+
+@pytest.mark.parametrize("web_contract_state", ["missing", "invalid"])
+def test_email_fixture_loading_is_independent_of_web_contract_validity(
+    tmp_path, web_contract_state
+):
+    resource_root = tmp_path / web_contract_state / "email"
+    shutil.copytree(SUPPORT_AGENT_EMAIL_EXAMPLES, resource_root)
+    web_contract_path = resource_root / SOURCE_WEB_CONTRACT_NAME
+    if web_contract_state == "missing":
+        web_contract_path.unlink()
+    else:
+        web_contract_path.write_bytes(b'{"status":"INVALID"}\n')
+
+    bundled = SupportAgentEmailPaths.from_root(resource_root)
+    assert bundled.case_ids == tuple(sorted(EXPECTED_EMAIL_CASES))
+    assert _sha256(bundled.fixture_for("thread-root").read_bytes()) == (
+        EXPECTED_EMAIL_CASES["thread-root"]
+    )
+
+    with pytest.raises(SupportAgentSourceWebContractError):
+        SupportAgentSourceWebContract.from_path(web_contract_path)
 
 
 def test_email_resource_paths_anchor_a_relative_root_before_return(
@@ -393,7 +446,11 @@ import json
 from pathlib import Path
 import exitspec
 from exitspec.authoring import load_contract_seed, load_discovery_pack, load_review_plan
-from exitspec.demo_data import support_agent_demo_paths, support_agent_email_paths
+from exitspec.demo_data import (
+    support_agent_demo_paths,
+    support_agent_email_paths,
+    support_agent_source_web_contract,
+)
 from exitspec.web import DemoSession
 
 with support_agent_demo_paths() as data:
@@ -421,6 +478,11 @@ with support_agent_email_paths() as email:
         case_id: hashlib.sha256(path.read_bytes()).hexdigest()
         for case_id, path in email.fixtures.items()
     }
+with support_agent_source_web_contract() as source_web:
+    payload["source_web_contract_root"] = str(source_web.path.parent)
+    payload["source_web_contract_sha256"] = hashlib.sha256(
+        source_web.payload
+    ).hexdigest()
 print(json.dumps(payload))
 """
     probe_stdout = _run(
@@ -439,3 +501,10 @@ print(json.dumps(payload))
     )
     assert probe["email_manifest_sha256"] == EXPECTED_EMAIL_MANIFEST_SHA256
     assert probe["email_fixture_sha256"] == EXPECTED_EMAIL_CASES
+    assert Path(probe["source_web_contract_root"]).is_relative_to(
+        installed_site_packages
+    )
+    assert (
+        probe["source_web_contract_sha256"]
+        == EXPECTED_SOURCE_WEB_CONTRACT_SHA256
+    )
