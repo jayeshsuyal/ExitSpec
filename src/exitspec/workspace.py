@@ -39,6 +39,7 @@ class WorkspaceSourceType(str, Enum):
     MEETING_TRANSCRIPT = "meeting_transcript"
     NOTE = "note"
     DOCUMENT = "document"
+    EXISTING_CONTRACT = "existing_contract"
 
 
 class DashboardFilter(str, Enum):
@@ -591,6 +592,7 @@ def _source_type_label(source_type: WorkspaceSourceType) -> str:
         WorkspaceSourceType.MEETING_TRANSCRIPT: "Meeting transcript",
         WorkspaceSourceType.NOTE: "Note",
         WorkspaceSourceType.DOCUMENT: "Document",
+        WorkspaceSourceType.EXISTING_CONTRACT: "Existing contract",
     }[source_type]
 
 
