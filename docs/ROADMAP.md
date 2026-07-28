@@ -114,16 +114,18 @@ Post-implementation status is recorded separately in
 The product direction is frozen in
 [POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and
 [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
-The contract remains `contract_only` for the complete workspace. The first
-implementation slice—the read-only registry and deterministic projection—is
-implemented behind the current workbench; no dashboard UI claim is made yet.
+The contract remains `contract_only` for the complete workspace. The read-only
+registry, deterministic projection, POC dashboard, route split, and
+graphite/orange visual contract are implemented; creation and multi-source
+mutation remain unimplemented.
 
 Build the local synthetic/demo track in this order:
 
 1. **Complete:** read-only POC registry and deterministic next-action
    projection, integrated into `/api/state.workspace` for the one seeded POC;
-2. `/app` dashboard with one **New POC** action, one bounded POC list, at most
-   one continue card, and three filters;
+2. **Complete:** `/app` read-only dashboard with no dead destinations or
+   unavailable actions, one non-duplicative bounded POC list, at most one
+   **Next up** card, and three deterministic filters;
 3. `/app/pocs/new` local draft creation with zero authority side effects;
 4. source chooser with honest availability;
 5. bridge the existing manifest-approved synthetic email loop into one seeded
@@ -133,7 +135,8 @@ Build the local synthetic/demo track in this order:
 7. enforce new agreement versions and new customer decisions for material
    multi-source changes;
 8. add the Evidence Pack library projection;
-9. restore the graphite/orange visual contract; and
+9. **Complete ahead of sequence:** restore the graphite/orange visual contract
+   across the dashboard, employee workbench, and existing customer review; and
 10. publish adversarial implementation evidence for every frozen workspace gate.
 
 This local train does not authorize real email, live meetings, raw audio,

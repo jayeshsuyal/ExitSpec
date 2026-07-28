@@ -112,6 +112,10 @@ run_gate \
   node --check src/exitspec/static/app.js
 
 run_gate \
+  "POC dashboard JavaScript syntax" \
+  node --check src/exitspec/static/dashboard.js
+
+run_gate \
   "Customer review JavaScript syntax" \
   node --check src/exitspec/static/review.js
 

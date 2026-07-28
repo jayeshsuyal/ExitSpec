@@ -13,17 +13,19 @@ def _sources() -> tuple[str, str, str]:
     )
 
 
-def test_active_palette_is_the_frozen_ink_charcoal_system():
+def test_active_palette_is_the_frozen_graphite_orange_system():
     _, css, _ = _sources()
     root = css.split(":root {", 1)[1].split("}", 1)[0].lower()
     expected = {
-        "--canvas": "#0e141b",
-        "--mast": "#121a23",
-        "--sheet": "#18222d",
-        "--raised": "#1d2936",
-        "--rule": "#2a3747",
-        "--primary": "#f1f4f7",
-        "--muted": "#9aa8b8",
+        "--canvas": "#0b0d0c",
+        "--mast": "#101310",
+        "--sheet": "#151815",
+        "--raised": "#1b1f1b",
+        "--rule": "#30362f",
+        "--primary": "#f2f0e8",
+        "--muted": "#858d84",
+        "--signal": "#ff6b3d",
+        "--success": "#78d6a3",
     }
     for token, value in expected.items():
         assert re.search(rf"{re.escape(token)}:\s*{value}\s*;", root)

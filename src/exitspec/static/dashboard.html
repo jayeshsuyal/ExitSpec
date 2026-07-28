@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="ExitSpec keeps every customer POC, agreement, next action, and Evidence Pack in one decision workspace."
+    />
+    <title>ExitSpec — POCs</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#dashboard-main">Skip to POCs</a>
+
+    <div class="dashboard-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app" aria-current="page">POCs</a>
+        </nav>
+
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="dashboard-main" id="dashboard-main">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Customer POCs</p>
+            <h1>POCs</h1>
+            <p>Pick up the customer decision that needs you.</p>
+          </div>
+        </header>
+
+        <section
+          class="continue-region"
+          id="continue-region"
+          aria-labelledby="continue-heading"
+          aria-live="polite"
+        >
+          <div class="section-heading">
+            <h2 id="continue-heading">Next up</h2>
+            <span>Highest-priority active POC</span>
+          </div>
+          <div class="continue-card" id="continue-card" aria-busy="true">
+            <p class="loading-copy">Loading the next action…</p>
+          </div>
+        </section>
+
+        <section
+          class="poc-region"
+          id="poc-region"
+          aria-labelledby="poc-list-heading"
+        >
+          <header class="list-header">
+            <div>
+              <h2 id="poc-list-heading">All POCs</h2>
+              <p id="list-summary" aria-live="polite">Loading active POCs…</p>
+            </div>
+            <div class="filter-group" role="group" aria-label="Filter POCs">
+              <button type="button" data-filter="Active" aria-pressed="true">
+                Active
+              </button>
+              <button
+                type="button"
+                data-filter="Needs attention"
+                aria-pressed="false"
+              >
+                Needs attention
+              </button>
+              <button type="button" data-filter="Completed" aria-pressed="false">
+                Completed
+              </button>
+            </div>
+          </header>
+
+          <div class="list-labels" id="list-labels" aria-hidden="true">
+            <span>POC / customer</span>
+            <span>Phase</span>
+            <span>Next action</span>
+            <span>Owner</span>
+            <span>Evidence</span>
+          </div>
+
+          <div class="poc-list-panel" id="poc-list-panel">
+            <ul class="poc-list" id="poc-list" aria-busy="true">
+              <li class="loading-row">Loading workspace…</li>
+            </ul>
+            <div class="empty-state" id="empty-state" hidden>
+              <strong id="empty-title">No POCs match this view.</strong>
+              <p id="empty-copy">Choose Active to return to current customer work.</p>
+              <button type="button" id="show-active">Show active POCs</button>
+            </div>
+          </div>
+        </section>
+
+        <p class="workspace-error" id="workspace-error" role="alert" hidden></p>
+      </main>
+    </div>
+
+    <script src="/dashboard.js"></script>
+  </body>
+</html>

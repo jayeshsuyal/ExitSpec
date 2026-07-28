@@ -28,6 +28,18 @@ from exitspec.demo_data import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUPPORT_AGENT_EXAMPLES = PROJECT_ROOT / "examples" / "support-agent"
 SUPPORT_AGENT_EMAIL_EXAMPLES = SUPPORT_AGENT_EXAMPLES / "email"
+STATIC_ROOT = PROJECT_ROOT / "src" / "exitspec" / "static"
+EXPECTED_STATIC_RESOURCES = {
+    "app.js",
+    "dashboard.css",
+    "dashboard.html",
+    "dashboard.js",
+    "index.html",
+    "review.css",
+    "review.html",
+    "review.js",
+    "styles.css",
+}
 EXPECTED_RESOURCES = {
     "authoring/discovery-pack-v1.json": (
         "33ebc4f9e0e8eec1e3bbfaf1b2942b548c8934991a30d47be7f2e92871eb32ed"
@@ -350,6 +362,10 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
 
     with zipfile.ZipFile(wheel) as archive:
         members = set(archive.namelist())
+        for filename in EXPECTED_STATIC_RESOURCES:
+            member = "exitspec/static/{0}".format(filename)
+            assert member in members
+            assert archive.read(member) == (STATIC_ROOT / filename).read_bytes()
         for relative_path, expected_sha256 in EXPECTED_RESOURCES.items():
             member = "exitspec/demo_data/support_agent/{0}".format(relative_path)
             assert member in members
