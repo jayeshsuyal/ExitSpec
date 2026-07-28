@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 from itertools import combinations
 import json
@@ -47,6 +48,7 @@ SOURCE_MANIFEST_PATH = (
 INDEX_PATH = PROJECT_ROOT / "src" / "exitspec" / "static" / "index.html"
 APP_JS_PATH = PROJECT_ROOT / "src" / "exitspec" / "static" / "app.js"
 WEB_PATH = PROJECT_ROOT / "src" / "exitspec" / "web.py"
+SOURCE_WEB_PATH = PROJECT_ROOT / "src" / "exitspec" / "source_web.py"
 EXPECTED_CONTRACT_SHA256 = (
     "f89825510155b1d579814da0f6e3a639c1b03d3111deba170556654eaca35ffd"
 )
@@ -195,6 +197,36 @@ def _parse_json_rejecting_duplicate_members(payload: str) -> object:
 
 def _is_source_pipeline_path(path: str) -> bool:
     return path == "/api/source" or path.startswith("/api/source/")
+
+
+def _executable_test_count(paths: list[Path]) -> int:
+    count = 0
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module_skipped = any(
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "pytestmark"
+                for target in node.targets
+            )
+            and any(
+                isinstance(child, ast.Attribute)
+                and child.attr in {"skip", "skipif"}
+                for child in ast.walk(node.value)
+            )
+            for node in tree.body
+        )
+        if module_skipped:
+            continue
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not node.name.startswith("test_"):
+                continue
+            decorators = " ".join(ast.unparse(item) for item in node.decorator_list)
+            if "pytest.mark.skip" not in decorators:
+                count += 1
+    return count
 
 
 def _candidate_quotes(case_id: str) -> list[str]:
@@ -1116,23 +1148,98 @@ def test_ui_contract_pins_short_copy_and_current_existing_hooks():
     }
 
 
-def test_future_ui_ids_and_source_endpoints_are_not_falsely_claimed():
+def test_frozen_contract_records_its_preimplementation_snapshot():
     contract = _load()
     ui = contract["ui_contract"]
-    parser = _IdParser()
-    parser.feed(INDEX_PATH.read_text(encoding="utf-8"))
-    web_source = WEB_PATH.read_text(encoding="utf-8")
-    app_source = APP_JS_PATH.read_text(encoding="utf-8")
+    implementation = contract["implementation_status"]
 
+    assert implementation["contract_only"] is True
+    assert implementation["fixture_catalog_endpoint_implemented"] is False
+    assert implementation["source_import_endpoint_implemented"] is False
+    assert implementation["email_intake_ui_implemented"] is False
+    assert implementation["implementation_must_not_be_inferred_from_this_contract"]
     assert ui["implemented"] is False
     assert ui["future_dom_ids_present_before_implementation"] is False
     assert len(ui["future_dom_ids"]) == 6
-    assert set(ui["future_dom_ids"]).isdisjoint(parser.ids)
-    assert "/api/source/fixtures" not in web_source
-    assert "/api/source/import" not in web_source
-    assert "/api/source/fixtures" not in app_source
-    assert "/api/source/import" not in app_source
     assert all(endpoint["implemented"] is False for endpoint in contract["endpoints"])
+
+
+def test_executable_implementation_test_discovery_rejects_placeholders(tmp_path):
+    empty = tmp_path / "test_empty.py"
+    empty.write_text("", encoding="utf-8")
+    module_skipped = tmp_path / "test_module_skipped.py"
+    module_skipped.write_text(
+        "import pytest\n"
+        "pytestmark = pytest.mark.skip\n"
+        "def test_placeholder():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    function_skipped = tmp_path / "test_function_skipped.py"
+    function_skipped.write_text(
+        "import pytest\n"
+        "@pytest.mark.skip\n"
+        "def test_placeholder():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    executable = tmp_path / "test_executable.py"
+    executable.write_text(
+        "def test_contract_behavior():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    assert _executable_test_count(
+        [empty, module_skipped, function_skipped]
+    ) == 0
+    assert _executable_test_count(
+        [empty, module_skipped, function_skipped, executable]
+    ) == 1
+
+
+def test_current_implementation_requires_dedicated_executable_contract_tests():
+    contract = _load()
+    parser = _IdParser()
+    parser.feed(INDEX_PATH.read_text(encoding="utf-8"))
+
+    future_ids = set(contract["ui_contract"]["future_dom_ids"])
+    present_ids = future_ids.intersection(parser.ids)
+    assert present_ids in (set(), future_ids)
+    if present_ids:
+        ui_tests = sorted(
+            (PROJECT_ROOT / "tests").glob("test_source_ui_*.py")
+        )
+        assert (
+            PROJECT_ROOT / "tests" / "test_source_ui_contract.py"
+        ) in ui_tests
+        assert _executable_test_count(ui_tests) > 0
+
+    source_code = WEB_PATH.read_text(encoding="utf-8")
+    if SOURCE_WEB_PATH.is_file():
+        source_code += SOURCE_WEB_PATH.read_text(encoding="utf-8")
+    endpoint_paths = {endpoint["path"] for endpoint in contract["endpoints"]}
+    present_paths = {path for path in endpoint_paths if path in source_code}
+    assert present_paths in (set(), endpoint_paths)
+    if present_paths:
+        backend_tests = sorted(
+            (PROJECT_ROOT / "tests").glob("test_source_web_*.py")
+        )
+        assert (
+            PROJECT_ROOT / "tests" / "test_source_web_transport.py"
+        ) in backend_tests
+        assert len(backend_tests) >= 2
+        assert _executable_test_count(backend_tests) > 0
+        backend_test_source = "\n".join(
+            path.read_text(encoding="utf-8") for path in backend_tests
+        )
+        assert endpoint_paths.issubset(
+            {
+                path
+                for path in endpoint_paths
+                if path in backend_test_source
+            }
+        )
 
 
 def test_acceptance_scenarios_are_executable_and_cover_the_frozen_risks():
