@@ -247,16 +247,25 @@
             were created in <strong id="review-state">NEEDS_REVIEW</strong>.
           </p>
           <p>
-            No proposal was approved automatically. Continue when the review
-            workspace is wired to this draft.
+            No proposal was approved automatically. Review only decides what
+            may move into later contract definition.
           </p>
-          <a
-            class="capture-next-action"
-            id="add-another-source"
-            hidden
-          >
-            Add another source
-          </a>
+          <div class="capture-actions">
+            <a
+              class="capture-next-action capture-next-primary"
+              id="review-proposals"
+              hidden
+            >
+              Review proposals
+            </a>
+            <a
+              class="capture-next-action"
+              id="add-another-source"
+              hidden
+            >
+              Add another source
+            </a>
+          </div>
         </section>
 
         <p class="intake-error" id="intake-error" role="alert" hidden></p>

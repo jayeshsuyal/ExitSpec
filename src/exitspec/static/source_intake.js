@@ -391,6 +391,12 @@
     document.querySelector("#proposal-count").textContent =
       `${payload.proposal_count} ${payload.proposal_count === 1 ? "proposal" : "proposals"}`;
     document.querySelector("#review-state").textContent = "NEEDS_REVIEW";
+    const reviewProposals = document.querySelector("#review-proposals");
+    reviewProposals.setAttribute(
+      "href",
+      `/app/pocs/${pocId}/review`
+    );
+    reviewProposals.hidden = false;
     const addAnotherSource = document.querySelector("#add-another-source");
     addAnotherSource.setAttribute(
       "href",

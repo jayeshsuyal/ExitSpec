@@ -71,6 +71,8 @@ def test_source_intake_is_one_accessible_bounded_task():
     assert 'role="alert"' in html
     assert 'id="add-another-source"' in html
     assert "Add another source" in html
+    assert 'id="review-proposals"' in html
+    assert "Review proposals" in html
     assert {"header", "nav", "main", "section"}.issubset(parser.landmarks)
 
 
@@ -206,6 +208,8 @@ def test_source_content_is_never_persisted_logged_or_added_to_navigation_state()
     assert "currentTask.hidden = true;" in success
     assert "`/app/pocs/${pocId}/sources/new`" in success
     assert "addAnotherSource.hidden = false;" in success
+    assert "`/app/pocs/${pocId}/review`" in success
+    assert "reviewProposals.hidden = false;" in success
     assert "innerHTML" not in javascript
 
 
@@ -286,7 +290,7 @@ def test_draft_and_source_list_are_loaded_read_only_before_controls_unlock():
     assert "chooser.disabled = disabled;" in javascript
 
 
-def test_success_is_a_review_handoff_without_a_fake_review_link():
+def test_success_is_a_real_review_handoff_with_no_authority_claim():
     html = _asset(HTML_PATH)
     result = html.split('id="capture-result"', 1)[1].split(
         'id="intake-error"', 1
@@ -298,8 +302,13 @@ def test_success_is_a_review_handoff_without_a_fake_review_link():
     assert 'id="review-state"' in result
     assert "NEEDS_REVIEW" in result
     assert "No proposal was approved automatically" in result
-    assert "<a " not in result
-    assert "href=" not in result
+    assert 'id="review-proposals"' in result
+    assert "Review proposals" in result
+    assert "contract definition" in result
+    assert "approve" not in result.lower().replace(
+        "no proposal was approved automatically",
+        "",
+    )
 
 
 def test_graphite_orange_layout_is_finite_at_demo_size_and_reflows_at_320px():

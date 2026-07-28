@@ -439,6 +439,21 @@
   text-decoration: none;
 }
 
+.capture-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.capture-next-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #17130f;
+  font-weight: 800;
+}
+
 .capture-next-action:hover,
 .capture-next-action:focus-visible {
   border-color: var(--text);

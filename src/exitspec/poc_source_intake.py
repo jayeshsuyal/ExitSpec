@@ -35,6 +35,7 @@ from .intake import (
 from .models import ContractStatus, FrozenExitSpecModel, POCContract
 from .poc_creation import DraftPOCSnapshot, POC_ID_PATTERN
 from .poc_proposal_review import (
+    ProposalReviewProposalUnavailable,
     SourceBoundProposal,
     derive_proposal_id,
 )
@@ -424,7 +425,12 @@ class ProcessLocalPOCSourceIntake:
     ) -> Tuple[SourceBoundProposal, ...]:
         """Project only redacted source-bound candidates for human triage."""
 
-        self.list_receipts(poc_id)
+        try:
+            self.list_receipts(poc_id)
+        except POCSourceIntakeInvalid as error:
+            raise ProposalReviewProposalUnavailable(
+                "The draft POC is unavailable in this process."
+            ) from error
         proposals = []
         for source in self._source_service.snapshots(poc_id):
             source_receipt_id = _receipt_id(source.source_id)
