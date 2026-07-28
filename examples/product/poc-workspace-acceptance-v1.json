@@ -1,0 +1,360 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "poc-workspace-acceptance-v1",
+  "contract_version": "1.0.0",
+  "status": "FROZEN",
+  "frozen_at": "2026-07-27T00:00:00Z",
+  "decision": "ExitSpec presents POCs as the primary product objects and treats email, meeting transcripts, notes, and documents as review-only sources attached to one POC; named human additions remain explicit requirement provenance rather than imported source.",
+  "authority": {
+    "workspace_phase_is_projection_only": true,
+    "source_can_approve": false,
+    "source_can_confirm": false,
+    "source_can_freeze": false,
+    "source_can_measure": false,
+    "source_can_assign_verdict": false,
+    "dashboard_can_advance_domain_state_by_rendering": false,
+    "latest_result_can_rewrite_historical_verdict": false,
+    "pass_is_production_authorization": false
+  },
+  "aggregate": {
+    "root": "POC",
+    "channel_specific_poc_types_allowed": false,
+    "supported_source_type_names": [
+      "email",
+      "meeting_transcript",
+      "note",
+      "document"
+    ],
+    "human_addition_is_source_type": false,
+    "human_added_requirement_requires_named_author_and_rationale": true,
+    "many_sources_per_poc": true,
+    "many_agreement_versions_per_poc": true,
+    "active_draft_or_review_versions_maximum": 1,
+    "many_runs_per_frozen_contract": true,
+    "one_evidence_pack_per_consistency_checked_run": true,
+    "agreement_and_evidence_status_are_distinct": true
+  },
+  "workspace_projection": {
+    "required_fields": [
+      "poc_id",
+      "display_name",
+      "customer_label",
+      "use_case",
+      "owner",
+      "created_at",
+      "updated_at",
+      "archive_state",
+      "active_contract_id",
+      "active_contract_version",
+      "source_summary",
+      "derived_phase",
+      "next_human_action",
+      "blockers",
+      "latest_evidence_summary"
+    ],
+    "derived_phase_values": [
+      "DEFINE",
+      "PROVE",
+      "DECIDE"
+    ],
+    "derived_phase_is_stored_authority": false,
+    "inconsistent_underlying_state_outcome": "visible_blocker"
+  },
+  "dashboard": {
+    "path": "/app",
+    "primary_object_label": "POCs",
+    "persistent_primary_action": "New POC",
+    "ordered_regions": [
+      "compact_page_header",
+      "continue_working",
+      "poc_list",
+      "bounded_filters"
+    ],
+    "continue_working_maximum": 1,
+    "filters": [
+      "Active",
+      "Needs attention",
+      "Completed"
+    ],
+    "poc_list_fields": [
+      "poc_and_customer",
+      "derived_phase",
+      "next_action_or_blocker",
+      "owner",
+      "updated_at",
+      "latest_evidence_result"
+    ],
+    "excluded_regions": [
+      "vanity_metrics",
+      "charts",
+      "leaderboards",
+      "provider_spend",
+      "token_counts",
+      "conversion_funnels",
+      "activity_feed",
+      "decorative_status_cards"
+    ],
+    "attention_order": [
+      "current_user_ownership",
+      "needs_attention",
+      "oldest_unresolved_action",
+      "stable_poc_id"
+    ],
+    "model_ranked_priority_allowed": false,
+    "infinite_body_scroll_allowed": false
+  },
+  "create_flow": {
+    "path": "/app/pocs/new",
+    "steps": [
+      "identify_poc",
+      "choose_starting_source",
+      "bring_in_source",
+      "review_proposals",
+      "continue_existing_agreement_spine"
+    ],
+    "required_identity_fields": [
+      "display_name",
+      "customer_label",
+      "use_case",
+      "owner"
+    ],
+    "source_choices": [
+      "Email",
+      "Meeting or transcript",
+      "Notes or document",
+      "Start manually"
+    ],
+    "unimplemented_choices_must_be_visibly_unavailable": true,
+    "draft_creation_side_effects_forbidden": [
+      "customer_confirmation",
+      "contract_freeze",
+      "measurement",
+      "evidence",
+      "provider_authorization"
+    ]
+  },
+  "multi_source": {
+    "exact_replay": "idempotent",
+    "same_identity_conflicting_content": "fail_closed",
+    "new_source_default_output": "NEEDS_REVIEW candidates",
+    "new_source_may_edit_agreement_directly": false,
+    "pending_review_material_change": "new_agreement_version_and_old_capability_invalidation",
+    "confirmed_material_change": "new_agreement_version_and_new_customer_decision",
+    "frozen_material_change": "successor_agreement_version_in_same_poc",
+    "conflicting_source_statements": "visible_and_unresolved",
+    "source_may_mutate_frozen_contract": false,
+    "material_fields": [
+      "requirement_wording",
+      "threshold",
+      "minimum_samples",
+      "workload",
+      "adapter_policy",
+      "owners",
+      "non_goals",
+      "retention_terms"
+    ]
+  },
+  "routes": {
+    "target": [
+      {
+        "path": "/app",
+        "purpose": "POC dashboard"
+      },
+      {
+        "path": "/app/pocs/new",
+        "purpose": "Create a POC"
+      },
+      {
+        "path": "/app/pocs/{poc_id}",
+        "purpose": "Guided POC workbench"
+      },
+      {
+        "path": "/app/pocs/{poc_id}/sources",
+        "purpose": "Source history and add-source entry"
+      },
+      {
+        "path": "/review/{token}",
+        "purpose": "Exact-version customer review"
+      },
+      {
+        "path": "/artifacts/{run_path}",
+        "purpose": "Static Evidence Pack and artifacts"
+      }
+    ],
+    "compatibility": {
+      "/app?intake=email": "preserve_until_new_creation_flow_parity",
+      "/app?mode=recording": "preserve_prepared_deterministic_take",
+      "existing_review_urls": "preserve",
+      "existing_artifact_urls": "preserve"
+    },
+    "identity_conflation_forbidden": [
+      "poc_id_and_contract_id",
+      "poc_id_and_run_path",
+      "contract_id_and_customer_review_token"
+    ]
+  },
+  "workbench": {
+    "top_level_progress": [
+      "Define",
+      "Prove",
+      "Decide"
+    ],
+    "chain_of_custody": [
+      "Source",
+      "Agreement",
+      "Customer",
+      "Freeze",
+      "Evidence",
+      "Handoff"
+    ],
+    "current_tasks_emphasized_maximum": 1,
+    "primary_action_location_consistent": true,
+    "technical_details_visually_secondary": true,
+    "customer_review_separate": true,
+    "evidence_pack_separate": true
+  },
+  "visual_contract": {
+    "color_scheme": "graphite_orange",
+    "tokens": {
+      "canvas": "#0B0D0C",
+      "navigation": "#101310",
+      "panel": "#151815",
+      "raised": "#1B1F1B",
+      "primary_text": "#F2F0E8",
+      "secondary_text": "#BEC4BA",
+      "muted_text": "#858D84",
+      "border": "#30362F",
+      "strong_border": "#4A5248",
+      "action_orange": "#FF6B3D",
+      "success_green": "#78D6A3"
+    },
+    "pure_black_allowed": false,
+    "blue_or_periwinkle_primary_accent_allowed": false,
+    "orange_is_success_color": false,
+    "gradient_allowed": false,
+    "glassmorphism_allowed": false,
+    "neon_allowed": false,
+    "giant_landing_hero_allowed": false,
+    "chip_soup_allowed": false,
+    "decorative_dashboard_clutter_allowed": false
+  },
+  "layout_accessibility": {
+    "desktop_oracle": {
+      "viewport_css_pixels": {
+        "width": 1280,
+        "height": 720
+      },
+      "zoom_percent": 100,
+      "normal_seeded_dashboard_body_scroll": false,
+      "normal_seeded_workbench_step_body_scroll": false
+    },
+    "minimum_width_css_pixels": 320,
+    "horizontal_body_overflow_at_minimum_width": false,
+    "body_scroll_may_reenable_for_accessibility": true,
+    "finite_panel_scroll_allowed": true,
+    "visible_keyboard_focus_required": true,
+    "color_only_status_allowed": false
+  },
+  "acceptance_gates": [
+    {
+      "gate_id": "WS-01",
+      "claim": "A first-time tester identifies POCs as the primary product objects and email and meetings as sources.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-02",
+      "claim": "The dashboard exposes one primary New POC action, at most one continue card, one bounded POC list, and exactly three filters.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-03",
+      "claim": "A tester identifies the exact next action or blocker for a seeded POC without opening it.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-04",
+      "claim": "Creating a local draft POC creates no agreement, confirmation, freeze, measurement, evidence, or provider authorization.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-05",
+      "claim": "The existing manifest-approved synthetic email path runs inside one POC without weakening either frozen Wave 2 contract.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-06",
+      "claim": "A synthetic meeting transcript can be added to that same POC without creating a second POC or using raw audio.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-07",
+      "claim": "Adding material source information after review, confirmation, or freeze cannot mutate the bound version and requires the specified new-version path.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-08",
+      "claim": "Agreement lifecycle and evidence verdict are simultaneously visible and cannot be mistaken for one status.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-09",
+      "claim": "The dashboard and workbench use the frozen graphite/orange tokens, with orange reserved from PASS semantics.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-10",
+      "claim": "The normal seeded dashboard and every normal seeded workbench step meet the 1280 by 720 no-body-scroll oracle.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-11",
+      "claim": "At 320 CSS pixels the product has no horizontal body overflow, retains visible focus, and does not rely on color alone.",
+      "required": true
+    },
+    {
+      "gate_id": "WS-12",
+      "claim": "Existing recording, review, and artifact URLs remain compatible through the workspace migration.",
+      "required": true
+    }
+  ],
+  "implementation_sequence": [
+    "workspace_contract_and_fixtures",
+    "dashboard_projection",
+    "dashboard_shell",
+    "create_poc_identity",
+    "source_chooser",
+    "existing_email_bridge",
+    "synthetic_transcript_source",
+    "multi_source_versioning",
+    "evidence_pack_library",
+    "visual_accessibility_restoration",
+    "hardening_and_implementation_evidence"
+  ],
+  "non_goals": [
+    "live mailbox integration",
+    "live meeting integration",
+    "speech-to-text",
+    "raw customer audio",
+    "authenticated hosted identity",
+    "durable production POC storage",
+    "CRM replacement",
+    "autonomous POC creation",
+    "autonomous customer confirmation",
+    "arbitrary metric execution",
+    "model-ranked customer priority",
+    "hosted measurement",
+    "automatic email delivery",
+    "production deployment authorization"
+  ],
+  "implementation_status": {
+    "contract_only": true,
+    "dashboard_implemented": false,
+    "poc_registry_implemented": false,
+    "create_flow_implemented": false,
+    "multi_source_workspace_implemented": false,
+    "synthetic_email_spine_already_implemented": true,
+    "synthetic_meeting_transcript_source_implemented": false,
+    "graphite_orange_restoration_implemented": false,
+    "implementation_must_not_be_inferred_from_this_contract": true
+  }
+}

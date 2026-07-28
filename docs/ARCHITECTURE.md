@@ -40,6 +40,55 @@ POC Acceptance Evidence Pack
 Missing, invalid, or insufficient evidence never becomes `PASS`. Agreement,
 measurement, verdict, and business authorization are separate authorities.
 
+## Accepted POC workspace target
+
+The implemented local product still owns one process-scoped demo session. The
+next architecture target is accepted in
+[POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and frozen in
+[`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
+It is contract-only and must not be described as implemented.
+
+The target introduces a POC aggregate above the existing source, agreement, run,
+and evidence services:
+
+```text
+POC workspace projection
+        |
+        +-- POC identity and ownership metadata
+        +-- zero or more provider-neutral sources
+        +-- one active draft or review agreement version
+        +-- immutable historical agreement versions
+        +-- proof runs bound to exact frozen versions
+        +-- run-scoped Evidence Packs
+```
+
+The POC ID is stable across source additions, agreement revisions, proof reruns,
+and verdict changes. It is not a contract ID, review token, or run path.
+
+`Define`, `Prove`, and `Decide` are derived workspace phases. The projection
+calculates phase, next human action, blockers, source summary, and latest
+evidence summary from underlying state. It has no write authority. Inconsistent
+state produces a visible blocker rather than a guessed phase.
+
+The target route ownership is:
+
+```text
+/app                         POC dashboard
+/app/pocs/new                local draft creation
+/app/pocs/{poc_id}           one POC workbench
+/app/pocs/{poc_id}/sources   source history and add-source entry
+/review/{token}              existing exact-version customer review
+/artifacts/{run_path}        existing static evidence boundary
+```
+
+`/app?intake=email` and `/app?mode=recording` remain compatibility entries until
+the new dashboard and creation paths meet their acceptance contract. The route
+migration must preserve current review and artifact URLs.
+
+The first registry may remain explicitly local and process-scoped. Durable POC
+storage, authenticated workspace identity, tenant isolation, and real-customer
+source remain behind the real-customer trust gate.
+
 ## Authority boundaries
 
 | Boundary | Authority | Explicitly excluded |
@@ -101,7 +150,7 @@ status is not inferred by rewriting a frozen contract.
 
 ## Browser authoring
 
-The browser has two synthetic-only entry paths. The guided email path above
+The currently implemented browser has two synthetic-only entry paths. The guided email path above
 projects manifest-pinned source-linked proposals. The existing pasted-notes path
 handles raw text transiently, redacts it before parsing, and replaces it with
 redacted source plus safe summary metadata. Source lines become unresolved
@@ -396,6 +445,16 @@ on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 - a wheel build/install/run from outside the repository.
 
 ## Deliberate limits and scale path
+
+The accepted POC workspace, dashboard, create flow, multi-source navigation,
+synthetic meeting-transcript source, and graphite/orange restoration are not yet
+implemented. Their frozen contract records planned behavior without rewriting
+the current single-session truth.
+
+The workspace implementation must reuse the existing source, review,
+confirmation, freeze, measurement, verdict, and artifact authorities. A
+dashboard projection or POC registry may coordinate identifiers and navigation;
+it may not become a parallel contract or verdict engine.
 
 The current system is one local process with filesystem artifacts and in-memory
 review state. It has no speech-to-text, live endpoint adapter, hosted identity,

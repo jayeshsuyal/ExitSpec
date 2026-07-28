@@ -835,6 +835,43 @@ text disagreement, redaction failure, and assisted-authoring provider failure.
 Inbox automation, OAuth, remote mailbox access, webhook delivery, and sending
 mail are non-goals for this wave.
 
+### Wave 2.5 — POC workspace and multi-source shell
+
+The frozen V1 decision contract is
+[`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json),
+with its human-readable product contract in
+[`POC_WORKSPACE_SPEC.md`](POC_WORKSPACE_SPEC.md). Freezing these documents
+authorizes implementation against their gates; it does not prove the workspace
+has been implemented.
+
+Entry requirements:
+
+- POC as the stable aggregate root;
+- source channels modeled as children rather than POC types;
+- read-only derived `Define`, `Prove`, and `Decide` phases;
+- explicit route and compatibility ownership;
+- material-change versioning rules;
+- the graphite/orange visual token contract; and
+- machine-readable dashboard, creation, multi-source, responsive, and authority
+  gates.
+
+Exit gate:
+
+```text
+A first-time tester can create or resume one local POC, identify its exact next
+action, bring the existing synthetic email and one synthetic meeting transcript
+into that same POC, and continue through the existing agreement-to-evidence
+spine. Source additions cannot mutate reviewed, confirmed, or frozen agreement
+versions. Agreement status and evidence verdict remain distinct. Existing demo,
+review, and artifact routes remain compatible. Every 1280x720, narrow-width,
+keyboard, no-infinite-scroll, and graphite/orange rule in the frozen contract
+passes.
+```
+
+Real mailbox, live meeting, raw audio, authenticated identity, tenant
+authorization, and durable production storage remain outside this synthetic
+wave.
+
 ### Wave 3 — Source-linked authoring quality
 
 Exit gate:
@@ -1210,10 +1247,9 @@ can freeze normally.
 **Evidence:** regression test, ledger inspection, full confirmation suite, and no
 mutation of the version-1 record.
 
-## Immediate implementation sequence for this playbook
+## Immediate implementation sequence for this playbook — completed
 
-This document is the source of truth. The next engineering-system PRs should make
-it operational:
+The original engineering-system sequence made this playbook operational:
 
 1. Add a pull-request template implementing the required PR contract.
 2. Add a structured bug-report template implementing severity, invariant,
@@ -1227,3 +1263,9 @@ it operational:
 Those PRs should remain separate where each is independently reviewable and
 reversible. The automation must encode this playbook; it must not create a second,
 conflicting definition of done.
+
+The current product-contract sequence now begins with Wave 2.5. Its contract and
+acceptance manifest must land before any dashboard implementation PR. The local
+workspace train may proceed on synthetic data while production identity,
+customer-bound delivery, live connectors, and raw audio remain behind their
+later trust gates.
