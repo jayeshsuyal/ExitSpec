@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Capture one bounded customer source into an ExitSpec draft for human review."
+    />
+    <title>ExitSpec — Add source</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/source_intake.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#source-intake-main">Skip to source intake</a>
+
+    <div class="dashboard-shell source-intake-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app" aria-current="page">POCs</a>
+          <a href="/app/pocs/new">New POC</a>
+        </nav>
+
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="source-intake-main" id="source-intake-main">
+        <header class="object-header">
+          <div class="object-heading">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Draft POC · add source</p>
+            <h1 id="poc-title">Loading draft…</h1>
+            <p id="poc-context">Validating the local draft before intake.</p>
+          </div>
+
+          <div class="authority-boundary" aria-label="Source authority boundary">
+            <span>Source boundary</span>
+            <strong>Capture → human review</strong>
+          </div>
+        </header>
+
+        <section
+          class="current-task"
+          id="source-current-task"
+          aria-labelledby="current-task-heading"
+          aria-busy="true"
+        >
+          <header class="task-heading">
+            <div>
+              <p class="eyebrow">Current task</p>
+              <h2 id="current-task-heading">Capture one customer source</h2>
+              <p id="task-guidance">
+                The original starting choice will be selected first. You may
+                choose another source without changing the POC type.
+              </p>
+            </div>
+            <p class="existing-source-count" id="existing-source-count">
+              Checking existing sources…
+            </p>
+          </header>
+
+          <form class="intake-layout" id="source-intake-form" novalidate>
+            <fieldset
+              class="source-chooser"
+              id="source-chooser"
+              aria-describedby="source-choice-help"
+              disabled
+            >
+              <legend>Choose the source</legend>
+              <p id="source-choice-help">
+                The starting choice is a recommendation, not a POC type.
+              </p>
+
+              <label class="source-choice" data-source-option="EMAIL">
+                <input type="radio" name="source_kind" value="EMAIL" />
+                <span>
+                  <strong>Email</strong>
+                  <small>Approved synthetic fixtures only</small>
+                  <em class="starting-choice" hidden>Starting choice</em>
+                </span>
+              </label>
+
+              <label class="source-choice" data-source-option="MEETING">
+                <input type="radio" name="source_kind" value="MEETING" />
+                <span>
+                  <strong>Meeting</strong>
+                  <small>Paste a redacted transcript</small>
+                  <em class="starting-choice" hidden>Starting choice</em>
+                </span>
+              </label>
+
+              <label class="source-choice" data-source-option="DOCUMENT">
+                <input type="radio" name="source_kind" value="DOCUMENT" />
+                <span>
+                  <strong>Notes or document</strong>
+                  <small>Paste bounded text or notes</small>
+                  <em class="starting-choice" hidden>Starting choice</em>
+                </span>
+              </label>
+
+              <label
+                class="source-choice"
+                data-source-option="EXISTING_CONTRACT"
+              >
+                <input
+                  type="radio"
+                  name="source_kind"
+                  value="EXISTING_CONTRACT"
+                />
+                <span>
+                  <strong>Existing contract</strong>
+                  <small>Paste one strict JSON object</small>
+                  <em class="starting-choice" hidden>Starting choice</em>
+                </span>
+              </label>
+            </fieldset>
+
+            <section
+              class="source-work"
+              id="source-work"
+              aria-labelledby="source-work-heading"
+            >
+              <header class="source-work-header">
+                <div>
+                  <p class="eyebrow">Selected source</p>
+                  <h3 id="source-work-heading">Waiting for the draft</h3>
+                </div>
+                <p id="preferred-source-copy">No source selected</p>
+              </header>
+
+              <div class="source-entry" id="email-entry" hidden>
+                <label for="email-fixture">Synthetic email fixture</label>
+                <select id="email-fixture" required disabled>
+                  <option value="">Choose a frozen fixture</option>
+                  <option value="thread-root">Customer thread</option>
+                  <option value="authority-attack">Authority attack</option>
+                </select>
+                <p>
+                  Mailbox import is not connected. This local demo uses only
+                  approved synthetic email fixtures.
+                </p>
+              </div>
+
+              <div class="source-entry" id="meeting-entry" hidden>
+                <label for="meeting-transcript">Redacted transcript text</label>
+                <textarea
+                  id="meeting-transcript"
+                  maxlength="20000"
+                  rows="8"
+                  placeholder="Paste the redacted customer discussion here…"
+                  autocomplete="off"
+                  spellcheck="true"
+                  required
+                  disabled
+                ></textarea>
+                <p>
+                  Paste text only. Audio, STT, Zoom, and Google Meet are not
+                  connected in this local version; there is no recording or
+                  upload step.
+                </p>
+              </div>
+
+              <div class="source-entry" id="document-entry" hidden>
+                <label for="document-text">Bounded notes or document text</label>
+                <textarea
+                  id="document-text"
+                  maxlength="20000"
+                  rows="8"
+                  placeholder="Paste customer notes or document text here…"
+                  autocomplete="off"
+                  spellcheck="true"
+                  required
+                  disabled
+                ></textarea>
+                <p>
+                  Paste text only, up to 20,000 characters. PDF and DOCX parsing
+                  are not connected in this local version.
+                </p>
+              </div>
+
+              <div class="source-entry" id="contract-entry" hidden>
+                <label for="contract-json">ExitSpec contract JSON</label>
+                <textarea
+                  id="contract-json"
+                  maxlength="40000"
+                  rows="8"
+                  placeholder='{"schema_version":"…"}'
+                  autocomplete="off"
+                  spellcheck="false"
+                  required
+                  disabled
+                ></textarea>
+                <p>
+                  Paste one JSON object. The server must validate the exact
+                  contract schema; no file chooser or automatic acceptance is
+                  implied.
+                </p>
+              </div>
+
+              <div class="source-empty" id="source-empty">
+                <strong>Intake is locked while the draft is validated.</strong>
+                <p>No source request will be sent until the draft is trusted.</p>
+              </div>
+
+              <footer class="source-action">
+                <div>
+                  <p id="source-intake-status" role="status" aria-live="polite">
+                    Loading the draft…
+                  </p>
+                  <small>
+                    Capturing creates review proposals only. It cannot approve,
+                    confirm, freeze, run, or assign a verdict.
+                  </small>
+                </div>
+                <button
+                  class="primary-action"
+                  id="capture-source"
+                  type="submit"
+                  disabled
+                >
+                  Capture source
+                </button>
+              </footer>
+            </section>
+          </form>
+        </section>
+
+        <section
+          class="capture-result"
+          id="capture-result"
+          aria-labelledby="capture-result-heading"
+          tabindex="-1"
+          hidden
+        >
+          <p class="eyebrow">Source captured</p>
+          <h2 id="capture-result-heading">Review the proposals next</h2>
+          <p>
+            <strong id="proposal-count">0 proposals</strong>
+            were created in <strong id="review-state">NEEDS_REVIEW</strong>.
+          </p>
+          <p>
+            No proposal was approved automatically. Continue when the review
+            workspace is wired to this draft.
+          </p>
+          <a
+            class="capture-next-action"
+            id="add-another-source"
+            hidden
+          >
+            Add another source
+          </a>
+        </section>
+
+        <p class="intake-error" id="intake-error" role="alert" hidden></p>
+      </main>
+    </div>
+
+    <script src="/source_intake.js"></script>
+  </body>
+</html>

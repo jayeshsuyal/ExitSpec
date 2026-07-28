@@ -411,8 +411,12 @@ def test_creation_ui_prevents_duplicate_submit_and_does_not_fake_intake():
 
     assert 'id="create-poc"' in html
     assert 'id="created-panel"' in html
+    assert '<a class="return-link" id="add-first-source" hidden>' in html
+    assert 'id="add-first-source" href=' not in html
+    assert "Add first source" in html
     assert "no source is imported or approved" in html
     assert "Nothing has been ingested, approved, confirmed, frozen, executed" in html
+    assert "NEEDS_REVIEW" in html
     assert "inFlight || !selectedSource" in javascript
     assert "createButton.disabled = !canSubmit" in javascript
     assert "idempotencyKey ||=" in javascript
@@ -420,13 +424,18 @@ def test_creation_ui_prevents_duplicate_submit_and_does_not_fake_intake():
     assert "body: JSON.stringify(pendingPayload)" in javascript
     assert "isTrustedDraftResponse(result)" in javascript
     assert "source_ingestion_state === \"NOT_STARTED\"" in javascript
+    assert 'document.querySelector("#add-first-source")' in javascript
+    assert "`/app/pocs/${payload.poc_id}/sources/new`" in javascript
+    assert 'addFirstSourceLink.setAttribute(\n      "href",' in javascript
+    assert "addFirstSourceLink.hidden = false" in javascript
     assert "payload.error" not in javascript
     assert "error.message" not in javascript
     assert "responseStatus >= 400" in javascript
     assert "responseStatus < 500" in javascript
     assert "innerHTML" not in javascript
     assert "window.location" not in javascript
-    assert "/app/pocs/" not in javascript
+    assert "?source=" not in javascript
+    assert "#source" not in javascript
     assert "height: 100dvh" not in css
     assert "overflow: auto" in css
     assert "@media (max-width: 760px)" in css

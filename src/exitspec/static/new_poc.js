@@ -5,19 +5,19 @@
   const SOURCE_COPY = {
     EMAIL: {
       label: "Email intake",
-      note: "The customer email adapter will be the next bounded step.",
+      note: "Capture one customer email as NEEDS_REVIEW proposals.",
     },
     MEETING: {
       label: "Meeting intake",
-      note: "A redacted transcript will be the next bounded step.",
+      note: "Capture one redacted transcript as NEEDS_REVIEW proposals.",
     },
     DOCUMENT: {
       label: "Notes or document intake",
-      note: "Bounded notes or document text will be the next step.",
+      note: "Capture bounded notes or document text as NEEDS_REVIEW proposals.",
     },
     EXISTING_CONTRACT: {
       label: "Existing contract intake",
-      note: "A strict ExitSpec contract import will be the next step.",
+      note: "Capture one strict contract import as NEEDS_REVIEW proposals.",
     },
   };
 
@@ -30,6 +30,7 @@
   const status = document.querySelector("#form-status");
   const errorPanel = document.querySelector("#creation-error");
   const createdPanel = document.querySelector("#created-panel");
+  const addFirstSourceLink = document.querySelector("#add-first-source");
   const sourceRadios = Array.from(
     document.querySelectorAll('input[name="first_source_choice"]')
   );
@@ -89,7 +90,12 @@
     document.querySelector("#next-intake-note").textContent =
       source
         ? source.note
-        : "The selected source will be handled in a later bounded step.";
+        : "Capture the selected source as NEEDS_REVIEW proposals.";
+    addFirstSourceLink.setAttribute(
+      "href",
+      `/app/pocs/${payload.poc_id}/sources/new`
+    );
+    addFirstSourceLink.hidden = false;
     createdPanel.focus?.();
   }
 

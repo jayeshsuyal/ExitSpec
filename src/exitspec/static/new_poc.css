@@ -355,6 +355,20 @@
   text-decoration: none;
 }
 
+.return-link.secondary-link {
+  margin-left: 8px;
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+}
+
+.return-link:hover,
+.return-link:focus-visible {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--canvas);
+}
+
 .creation-error {
   position: fixed;
   z-index: 30;

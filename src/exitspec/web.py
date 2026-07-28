@@ -2708,6 +2708,30 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return
             self._serve_static(parsed.path)
             return
+        source_intake_poc_id = _source_intake_page_poc_id(parsed.path)
+        if source_intake_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                self.server.draft_poc_service.get(source_intake_poc_id)
+            except ValueError:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+                )
+                return
+            except DraftPOCNotFound:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
         draft_poc_id = _draft_poc_api_id(parsed.path)
         if draft_poc_id is not None:
             if parsed.params or parsed.query or parsed.fragment:
@@ -3439,6 +3463,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             )
         elif request_path == "/app/pocs/new":
             relative = "new_poc.html"
+        elif _source_intake_page_poc_id(request_path) is not None:
+            relative = "source_intake.html"
         elif request_path.strip("/") == (
             "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
         ):
@@ -3648,6 +3674,22 @@ def _draft_poc_api_id(request_path: str) -> Optional[str]:
 
     parts = request_path.strip("/").split("/")
     if len(parts) != 3 or parts[:2] != ["api", "pocs"]:
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _source_intake_page_poc_id(request_path: str) -> Optional[str]:
+    """Return the one POC identity in an exact source-intake page route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 5
+        or parts[:2] != ["app", "pocs"]
+        or parts[3:] != ["sources", "new"]
+    ):
         return None
     poc_id = unquote(parts[2])
     if not poc_id or "/" in poc_id or "\\" in poc_id:

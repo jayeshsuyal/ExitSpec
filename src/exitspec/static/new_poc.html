@@ -190,9 +190,16 @@
           </div>
           <p class="authority-note">
             Nothing has been ingested, approved, confirmed, frozen, executed,
-            or scored. The next source adapter is intentionally a later step.
+            or scored. The next page captures one source as NEEDS_REVIEW
+            proposals only; it cannot approve, confirm, freeze, run, or issue a
+            verdict.
           </p>
-          <a class="return-link" href="/app">Return to POC workspace</a>
+          <a class="return-link" id="add-first-source" hidden>
+            Add first source
+          </a>
+          <a class="return-link secondary-link" href="/app">
+            Return to POC workspace
+          </a>
         </section>
 
         <p class="creation-error" id="creation-error" role="alert" hidden></p>
