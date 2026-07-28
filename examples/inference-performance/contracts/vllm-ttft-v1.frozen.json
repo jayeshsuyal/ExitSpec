@@ -1,0 +1,71 @@
+{
+  "approved_at": "2026-07-28T07:10:00Z",
+  "canonical_hash": "27a91b164cf45a589693efbd5adb9cf59e03a08e31420ff7ca8f67adb9abb661",
+  "confirmation_id": "cnf_bc8a92967265977da39354ed3a06a63626c3343ebf9becd57cd8611e09416071",
+  "created_at": "2026-07-28T07:00:00Z",
+  "criteria": [
+    {
+      "adapter": "vllm_streaming_latency",
+      "adapter_version": "1.0.0",
+      "approved": true,
+      "criterion_type": "inference_performance_v1",
+      "error_rate": {
+        "aggregation": "rate",
+        "method": "failed_attempts_over_total_attempts",
+        "metric": "error_rate",
+        "minimum_attempts": 100,
+        "must_pass": true,
+        "operator": "lt",
+        "threshold": 0.01,
+        "unit": "proportion"
+      },
+      "evidence_policy": "Persist the frozen workload manifest, every sanitized terminal attempt record, calculation inputs, execution identity, and SHA-256 digests.",
+      "human_added": false,
+      "id": "INFERENCE-PERF-01",
+      "must_have": true,
+      "normalized_claim": "Across 100 measured streaming attempts at concurrency four, client-observed p95 time to first non-empty content is below 500 milliseconds and attempted-request error rate is below 1%.",
+      "owner": "vendor_solutions_engineer",
+      "source": {
+        "location": "Synthetic discovery transcript, line 21",
+        "quote": "At concurrency four, p95 time to first token must stay below 500 milliseconds and the request error rate must stay below one percent.",
+        "speaker": "customer_vp_engineering"
+      },
+      "title": "Inference latency and reliability",
+      "ttft_p95": {
+        "aggregation": "p95",
+        "method": "nearest_rank",
+        "metric": "time_to_first_token",
+        "minimum_successful_samples": 95,
+        "must_pass": true,
+        "operator": "lt",
+        "threshold": 500.0,
+        "unit": "milliseconds"
+      },
+      "workload_slice": "inference-latency-demo-v1"
+    }
+  ],
+  "customer": "Synthetic Inference Platform Co.",
+  "evidence_retention_policy": "The approved synthetic prompt fixture may be retained; no secrets, response text, or raw customer data may enter evidence artifacts.",
+  "frozen_at": "2026-07-28T07:25:00Z",
+  "id": "inference-latency-demo",
+  "non_goals": [
+    "This 100-request engineering run does not prove production capacity, GPU execution latency, model quality, or long-duration reliability."
+  ],
+  "owners": [
+    "customer_vp_engineering",
+    "vendor_solutions_engineer"
+  ],
+  "parent_version": null,
+  "status": "FROZEN",
+  "target_system": {
+    "endpoint_class": "openai-compatible-chat-completions",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "provider": "vllm-local"
+  },
+  "use_case": "Prove that one OpenAI-compatible inference endpoint meets the agreed streaming latency and reliability target.",
+  "version": "0.1.0",
+  "workload": {
+    "fixture_path": "examples/inference-performance/workloads/concurrency-4-v1.json",
+    "sha256": "0d830fc837c674d60e337f1c15620234ef9f56c413dcec447e1c6cc5be11073e"
+  }
+}

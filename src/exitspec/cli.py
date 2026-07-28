@@ -10,6 +10,8 @@ from typing import Optional, Sequence
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import run_define_demo
 from .demo_data import support_agent_demo_paths
+from .performance_operations import PerformanceOperationStatus
+from .performance_runner import run_performance_proof
 from .runner import run_demo
 from .web import serve_demo
 
@@ -71,6 +73,59 @@ def build_parser() -> argparse.ArgumentParser:
     define.add_argument("--output-dir", type=Path, default=Path("runs"))
     define.add_argument("--session-id", type=str, default=None)
 
+    performance = subparsers.add_parser(
+        "performance",
+        help=(
+            "Run one frozen inference-performance proof against an "
+            "OpenAI-compatible streaming endpoint."
+        ),
+    )
+    performance.add_argument(
+        "--contract",
+        type=Path,
+        required=True,
+        metavar="PATH",
+        help="Customer-confirmed frozen performance contract JSON.",
+    )
+    performance.add_argument(
+        "--confirmation",
+        type=Path,
+        required=True,
+        metavar="PATH",
+        help="Matching customer confirmation JSON.",
+    )
+    performance.add_argument(
+        "--bundle-root",
+        type=Path,
+        required=True,
+        metavar="PATH",
+        help="Root containing the contract-bound workload and prompts.",
+    )
+    performance.add_argument(
+        "--idempotency-key",
+        type=str,
+        required=True,
+        help="Stable operation key; never persisted in raw form.",
+    )
+    performance.add_argument("--output-dir", type=Path, default=Path("runs"))
+    performance.add_argument(
+        "--operation-db",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Durable SQLite ledger (default: inside output-dir).",
+    )
+    performance.add_argument(
+        "--api-key-env",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "Read an endpoint credential from this environment variable. "
+            "Do not place API keys directly on the command line."
+        ),
+    )
+
     serve = subparsers.add_parser(
         "serve", help="Run the local synthetic Define → Prove → Decide browser demo."
     )
@@ -124,6 +179,47 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
         return 0
+    if args.command == "performance":
+        api_key = (
+            os.environ.get(args.api_key_env)
+            if args.api_key_env is not None
+            else None
+        )
+        if args.api_key_env is not None and api_key is None:
+            raise ValueError(
+                "The requested API key environment variable is not set."
+            )
+        result = run_performance_proof(
+            contract_path=args.contract,
+            confirmation_path=args.confirmation,
+            bundle_root=args.bundle_root,
+            output_root=args.output_dir,
+            operation_database_path=args.operation_db,
+            idempotency_key=args.idempotency_key,
+            api_key=api_key,
+        )
+        del api_key
+        print("Operation: {0}".format(result.operation.run_id))
+        print("Execution status: {0}".format(result.operation.status.value))
+        if result.verdict is not None and result.artifacts is not None:
+            print("Evidence verdict: {0}".format(result.verdict.value))
+            print(
+                "Evidence Pack: {0}".format(
+                    result.artifacts.run_dir / "decision-packet.html"
+                )
+            )
+            return 0 if result.verdict.value == "PASS" else 2
+        if result.operation.status in {
+            PerformanceOperationStatus.BLOCKED,
+            PerformanceOperationStatus.NOT_PROVEN,
+        }:
+            print(
+                "Reason: {0}".format(
+                    result.operation.terminal_reason or "NOT_PROVEN"
+                )
+            )
+            return 3
+        return 4
     if args.command == "serve":
         fireworks_api_key = (
             os.environ.get("FIREWORKS_API_KEY")

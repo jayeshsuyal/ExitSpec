@@ -117,6 +117,31 @@ Required ≥ 95.00% · Observed 197/200 (98.50%)
 deployment, spending, procurement, production traffic, or any other external
 action.
 
+### Inference-performance proof (CLI)
+
+The bounded `exitspec performance` path proves one frozen streaming-latency
+claim against an OpenAI-compatible endpoint:
+
+```text
+frozen + customer-confirmed contract
+    -> durable pre-network reservation
+    -> one endpoint preflight
+    -> exact warmup and measured request population
+    -> sanitized terminal records
+    -> deterministic p95 TTFT + error-rate verdict
+    -> atomic graphite/orange Evidence Pack
+    -> independent reload and recalculation
+```
+
+The v1 example uses 100 measured attempts at concurrency four. It requires
+client-observed nearest-rank p95 TTFT below 500 ms and measured error rate below
+1%. At exactly 100 attempts, zero errors passes that rule and one error fails.
+TTFT includes network, proxy, queueing, and inference time; ExitSpec does not
+label it GPU latency.
+
+This path is intentionally CLI-only until its evidence projection is added to
+the existing `/app` workflow. It does not change the support-agent browser demo.
+
 ## Authority model
 
 | Actor or component | May do | May not do |
@@ -170,6 +195,22 @@ exitspec demo --scenario pass
 exitspec demo --scenario insufficient
 ```
 
+To run the synthetic vLLM-compatible performance example after starting the
+approved endpoint at `127.0.0.1:8000`:
+
+```bash
+exitspec performance \
+  --contract examples/inference-performance/contracts/vllm-ttft-v1.frozen.json \
+  --confirmation examples/inference-performance/contracts/vllm-ttft-v1.confirmation.json \
+  --bundle-root . \
+  --idempotency-key inference-latency-demo-run-v1
+```
+
+Use `--api-key-env NAME` for a remote HTTPS endpoint credential; API keys are
+never accepted directly as command arguments. The command exits `0` on `PASS`,
+`2` on a completed non-pass verdict, `3` on `BLOCKED`/pre-measurement
+`NOT_PROVEN`, and `4` for a safe nonterminal replay.
+
 `--discovery`, `--review-plan`, `--contract-seed`, `--contract`, and `--fixture`
 remain available when explicit inputs are needed. Generated artifacts are written
 under `runs/` by default.
@@ -208,9 +249,11 @@ not erase those safety records, while process restart does. There is no
 speech-to-text or audio ingestion.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
-multi-tenant authorization, a live endpoint measurement adapter, generic metric
-execution, production deployment authorization, a live email connector, mailbox
-OAuth or webhooks, arbitrary email upload, or real-customer-email ingestion.
+multi-tenant authorization, generic metric execution, production deployment
+authorization, a live email connector, mailbox OAuth or webhooks, arbitrary
+email upload, or real-customer-email ingestion. The performance adapter is
+bounded to one synthetic, frozen OpenAI-compatible streaming workload; no real
+vLLM/GPU endpoint result is claimed by the repository yet.
 
 ## Documentation
 
