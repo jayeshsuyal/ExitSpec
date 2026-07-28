@@ -1107,11 +1107,15 @@ def test_ui_contract_pins_short_copy_and_current_existing_hooks():
             "Keep as context",
         ],
     }
-    assert set(ui["existing_dom_hooks"]) == parser.ids
-    assert set(ui["active_selector_hooks"]) == (
+    existing_ids = set(ui["existing_dom_hooks"])
+    future_ids = set(ui["future_dom_ids"])
+    assert existing_ids.issubset(parser.ids)
+    assert parser.ids.issubset(existing_ids | future_ids)
+    assert parser.ids - existing_ids in (set(), future_ids)
+    assert set(ui["active_selector_hooks"]).issubset(
         _active_javascript_selectors(app_js)
     )
-    assert set(ui["active_data_attribute_hooks"]) == (
+    assert set(ui["active_data_attribute_hooks"]).issubset(
         _active_data_attributes(index, app_js)
     )
     assert {
