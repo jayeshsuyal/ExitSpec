@@ -190,7 +190,7 @@ def test_performance_rules_reject_impossible_sample_relationships():
     payload["error_rate"]["operator"] = "lt"
     payload["error_rate"]["threshold"] = 0.0
 
-    with pytest.raises(ValidationError, match="impossible"):
+    with pytest.raises(ValidationError, match="greater than 0"):
         InferencePerformanceCriterion.model_validate(payload)
 
 

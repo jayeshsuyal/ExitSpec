@@ -66,6 +66,7 @@ class ProbeOutcome(StrEnum):
     TIMEOUT = "TIMEOUT"
     PROTOCOL_ERROR = "PROTOCOL_ERROR"
     TRANSPORT_ERROR = "TRANSPORT_ERROR"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
     CANCELLED = "CANCELLED"
 
 
@@ -899,9 +900,12 @@ def _execute_attempt(
     except ProbeProtocolError:
         ended_ns = _clock_value(clock_ns)
         outcome = ProbeOutcome.PROTOCOL_ERROR
-    except Exception:
+    except (OSError, http.client.HTTPException):
         ended_ns = _clock_value(clock_ns)
         outcome = ProbeOutcome.TRANSPORT_ERROR
+    except Exception:
+        ended_ns = _clock_value(clock_ns)
+        outcome = ProbeOutcome.INTERNAL_ERROR
 
     close_failed = False
     if response is not None:
@@ -1117,6 +1121,9 @@ def _validate_terminal_record(record: ProbeRecord) -> None:
     elif record.outcome is ProbeOutcome.TRANSPORT_ERROR:
         if record.http_status is not None and not 200 <= record.http_status <= 299:
             raise ProbeEvidenceError("Transport error record is malformed.")
+    elif record.outcome is ProbeOutcome.INTERNAL_ERROR:
+        if record.http_status is not None and not 200 <= record.http_status <= 299:
+            raise ProbeEvidenceError("Internal error record is malformed.")
     elif record.outcome is ProbeOutcome.CANCELLED:
         if record.http_status is not None:
             raise ProbeEvidenceError("Cancelled record is malformed.")

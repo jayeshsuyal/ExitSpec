@@ -260,6 +260,24 @@ class OutcomeTransport:
         raise AssertionError("unexpected request")
 
 
+class InternalBugTransport:
+    def send(self, request: ProbeRequest) -> StreamResponse:
+        raise AssertionError("synthetic adapter bug")
+
+
+def test_unexpected_internal_bug_is_not_mislabeled_as_customer_failure():
+    result = run_probe(
+        config(),
+        prompts(),
+        transport=InternalBugTransport(),
+        clock_ns=IncrementingClock(),
+    )
+
+    assert result.records[0].outcome is ProbeOutcome.INTERNAL_ERROR
+    assert result.records[0].http_status is None
+    assert result.records[0].ttft_ns is None
+
+
 def test_http_timeout_and_malformed_streams_are_terminal_sanitized_records():
     result = run_probe(
         config(request_count=3, concurrency=1),

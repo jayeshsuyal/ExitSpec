@@ -11,7 +11,7 @@ target_system:
   model: Qwen/Qwen2.5-0.5B-Instruct
 workload:
   fixture_path: examples/inference-performance/workloads/concurrency-4-v1.json
-  sha256: f1c131e7867c488d792f0f4f234805003733684758411fa7b8f5407d39a0f8c0
+  sha256: c135a6bc0b886de9ef17b07d0f484f02975e8db764622821396b5b538b7d4a0e
 criteria:
   - criterion_type: inference_performance_v1
     id: INFERENCE-PERF-01
