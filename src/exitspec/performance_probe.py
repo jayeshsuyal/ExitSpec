@@ -309,11 +309,17 @@ class OpenAIHTTPTransport:
     vLLM process on a loopback host.
     """
 
-    __slots__ = ("__api_key", "__connection_factory")
+    __slots__ = (
+        "__api_key",
+        "__connection_factory",
+        "__credential_endpoint",
+    )
 
     def __init__(
         self,
         api_key: str | None = None,
+        *,
+        credential_endpoint: str | None = None,
     ) -> None:
         if api_key is not None:
             if (
@@ -327,7 +333,17 @@ class OpenAIHTTPTransport:
                 )
             ):
                 raise ProbeConfigurationError("api_key is invalid.")
+            if credential_endpoint is None:
+                raise ProbeConfigurationError(
+                    "credential_endpoint is required when api_key is set."
+                )
+            _validate_endpoint(credential_endpoint)
+        elif credential_endpoint is not None:
+            raise ProbeConfigurationError(
+                "credential_endpoint requires an api_key."
+            )
         self.__api_key = api_key
+        self.__credential_endpoint = credential_endpoint
         self.__connection_factory = None
 
     @classmethod
@@ -335,11 +351,15 @@ class OpenAIHTTPTransport:
         cls,
         api_key: str | None,
         *,
+        credential_endpoint: str | None = None,
         connection_factory: Callable[..., Any],
     ) -> OpenAIHTTPTransport:
         if not callable(connection_factory):
             raise ProbeConfigurationError("connection_factory must be callable.")
-        transport = cls(api_key)
+        transport = cls(
+            api_key,
+            credential_endpoint=credential_endpoint,
+        )
         transport.__connection_factory = connection_factory
         return transport
 
@@ -369,6 +389,10 @@ class OpenAIHTTPTransport:
             "User-Agent": _USER_AGENT,
         }
         if self.__api_key is not None:
+            if request.endpoint != self.__credential_endpoint:
+                raise ProbeConfigurationError(
+                    "Refusing to send a credential to an unbound endpoint."
+                )
             headers["Authorization"] = "Bearer " + self.__api_key
 
         connection: Any | None = None

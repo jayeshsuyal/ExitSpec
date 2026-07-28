@@ -32,15 +32,20 @@ read-only without confusing run state, agreement state, and evidence verdict.
 5. **The Evidence Pack repeated the authorization warning.**
    It now keeps the human authorization boundary once, prominently, in the
    footer.
+6. **A remote credential was not independently bound at transport time.**
+   Credentialed execution now requires the exact frozen endpoint disclosure;
+   the transport refuses to attach the key to any other URL. Remote or
+   credentialed execution also requires authorization for the exact
+   preflight + warmup + measured request count before reservation.
 
 ## Required before a paid remote-provider demo
 
-- Bind each API credential to an explicitly authorized endpoint host, port,
-  path, and safe resolved network range. A frozen endpoint alone is not a
-  credential policy.
-- Require a frozen maximum-call and conservative maximum-cost authorization
-  before a remote reservation. The current workload bounds request and output
-  counts but does not prove a provider charge ceiling.
+- Pin each paid provider to a code-reviewed endpoint and safe resolved network
+  policy. The generic runner now exact-binds the credential URL, but it is not
+  a provider-specific network allowlist.
+- Add a conservative maximum-cost authorization before a paid remote
+  reservation. The runner now requires the exact maximum call count, and the
+  workload bounds output tokens, but neither proves a provider charge ceiling.
 - Enforce one absolute request deadline across DNS, connection, request write,
   headers, and streamed body.
 - Persist a sanitized preflight fact or remove preflight from the authoritative

@@ -208,9 +208,13 @@ exitspec performance \
 ```
 
 Use `--api-key-env NAME` for a remote HTTPS endpoint credential; API keys are
-never accepted directly as command arguments. The command exits `0` on `PASS`,
-`2` on a completed non-pass verdict, `3` on `BLOCKED`/pre-measurement
-`NOT_PROVEN`, and `4` for a safe nonterminal replay.
+never accepted directly as command arguments. Credentialed execution also
+requires `--credential-endpoint` to exactly match the frozen workload endpoint
+and `--authorize-requests` to equal preflight + warmup + measured attempts.
+Credential-free remote execution still requires the exact request
+authorization. The command exits `0` on `PASS`, `2` on a completed non-pass
+verdict, `3` on `BLOCKED`/pre-measurement `NOT_PROVEN`, and `4` for a safe
+nonterminal replay.
 
 `--discovery`, `--review-plan`, `--contract-seed`, `--contract`, and `--fixture`
 remain available when explicit inputs are needed. Generated artifacts are written

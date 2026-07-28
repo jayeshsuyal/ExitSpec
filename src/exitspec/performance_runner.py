@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Final
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -74,6 +75,7 @@ from .performance_serialization import (
 
 PERFORMANCE_RUNNER_VERSION: Final = "exitspec.performance-runner.v1"
 _MAX_CONFIRMATION_BYTES: Final = 1024 * 1024
+_LOOPBACK_HOSTS: Final = frozenset({"127.0.0.1", "::1", "localhost"})
 _EXTERNAL_PREFLIGHT_OUTCOMES: Final = frozenset(
     {
         ProbeOutcome.HTTP_ERROR,
@@ -113,6 +115,8 @@ def run_performance_proof(
     output_root: Path,
     idempotency_key: str,
     api_key: str | None = None,
+    credential_endpoint: str | None = None,
+    authorized_request_count: int | None = None,
     operation_database_path: Path | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> PerformanceRunResult:
@@ -142,7 +146,16 @@ def run_performance_proof(
     # Validate credential shape before creating a durable reservation. A
     # caller can correct local configuration and retry without orphaning a
     # RUNNING operation that never attempted network work.
-    transport = OpenAIHTTPTransport(api_key)
+    transport = OpenAIHTTPTransport(
+        api_key,
+        credential_endpoint=credential_endpoint,
+    )
+    _require_execution_authority(
+        context,
+        api_key=api_key,
+        credential_endpoint=credential_endpoint,
+        authorized_request_count=authorized_request_count,
+    )
 
     output = _prepare_output_root(output_root)
     database_path = (
@@ -604,6 +617,52 @@ def _load_strict_json_object(
             "{0} must contain one JSON object.".format(label)
         )
     return payload
+
+
+def _require_execution_authority(
+    context: ValidatedPerformanceContext,
+    *,
+    api_key: str | None,
+    credential_endpoint: str | None,
+    authorized_request_count: int | None,
+) -> None:
+    """Fail closed before reservation when remote egress is not exact."""
+
+    endpoint = context.workload.endpoint
+    hostname = urlsplit(endpoint).hostname
+    if api_key is not None and credential_endpoint != endpoint:
+        raise PerformanceRunnerError(
+            "The credential endpoint must exactly match the frozen workload."
+        )
+
+    planned_requests = (
+        1
+        + context.workload.warmup_count
+        + context.workload.request_count
+    )
+    requires_request_authority = (
+        api_key is not None or hostname not in _LOOPBACK_HOSTS
+    )
+    if authorized_request_count is not None and (
+        isinstance(authorized_request_count, bool)
+        or not isinstance(authorized_request_count, int)
+    ):
+        raise PerformanceRunnerError(
+            "authorized_request_count must be an integer."
+        )
+    if requires_request_authority:
+        if authorized_request_count != planned_requests:
+            raise PerformanceRunnerError(
+                "Remote or credentialed execution requires authorization for "
+                "the exact planned request count."
+            )
+    elif (
+        authorized_request_count is not None
+        and authorized_request_count != planned_requests
+    ):
+        raise PerformanceRunnerError(
+            "authorized_request_count does not match the frozen workload."
+        )
 
 
 def _read_bound_workload(bundle_root: Path, relative_path: str) -> bytes:

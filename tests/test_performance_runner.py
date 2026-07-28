@@ -224,6 +224,9 @@ def _run(
     contract_path: Path,
     confirmation_path: Path,
 ):
+    endpoint = json.loads(
+        (bundle / "workload.json").read_bytes()
+    )["endpoint"]
     return run_performance_proof(
         contract_path=contract_path,
         confirmation_path=confirmation_path,
@@ -231,6 +234,8 @@ def _run(
         output_root=output,
         idempotency_key=EXECUTION_KEY,
         api_key=API_KEY,
+        credential_endpoint=endpoint,
+        authorized_request_count=111,
         clock=lambda: FIXED_TIME,
     )
 
@@ -369,10 +374,90 @@ def test_invalid_api_key_is_rejected_before_reservation(
                 output_root=output,
                 idempotency_key=EXECUTION_KEY,
                 api_key=" invalid ",
+                credential_endpoint=endpoint,
+                authorized_request_count=111,
                 clock=lambda: FIXED_TIME,
             )
 
     assert state.request_count == 0
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("credential_endpoint", "authorized_request_count", "message"),
+    [
+        (
+            "https://other.example.test/v1/chat/completions",
+            111,
+            "exactly match",
+        ),
+        (None, 111, "credential_endpoint"),
+        ("__FROZEN__", 110, "exact planned request count"),
+    ],
+)
+def test_credentialed_execution_requires_exact_egress_authority_before_network(
+    tmp_path: Path,
+    credential_endpoint: str | None,
+    authorized_request_count: int,
+    message: str,
+):
+    with _endpoint() as (endpoint, state):
+        bundle = tmp_path / "bundle"
+        output = tmp_path / "runs"
+        contract_path, confirmation_path = _write_bundle(
+            bundle,
+            endpoint,
+        )
+        resolved_credential_endpoint = (
+            endpoint
+            if credential_endpoint == "__FROZEN__"
+            else credential_endpoint
+        )
+
+        with pytest.raises(
+            (ValueError, PerformanceRunnerError),
+            match=message,
+        ):
+            run_performance_proof(
+                contract_path=contract_path,
+                confirmation_path=confirmation_path,
+                bundle_root=bundle,
+                output_root=output,
+                idempotency_key=EXECUTION_KEY,
+                api_key=API_KEY,
+                credential_endpoint=resolved_credential_endpoint,
+                authorized_request_count=authorized_request_count,
+                clock=lambda: FIXED_TIME,
+            )
+
+    assert state.request_count == 0
+    assert not output.exists()
+
+
+def test_credential_free_remote_execution_still_requires_exact_request_authority(
+    tmp_path: Path,
+):
+    endpoint = "https://inference.example.test/v1/chat/completions"
+    bundle = tmp_path / "bundle"
+    output = tmp_path / "runs"
+    contract_path, confirmation_path = _write_bundle(
+        bundle,
+        endpoint,
+    )
+
+    with pytest.raises(
+        PerformanceRunnerError,
+        match="exact planned request count",
+    ):
+        run_performance_proof(
+            contract_path=contract_path,
+            confirmation_path=confirmation_path,
+            bundle_root=bundle,
+            output_root=output,
+            idempotency_key=EXECUTION_KEY,
+            clock=lambda: FIXED_TIME,
+        )
+
     assert not output.exists()
 
 
