@@ -1164,6 +1164,40 @@ def test_frozen_contract_records_its_preimplementation_snapshot():
     assert all(endpoint["implemented"] is False for endpoint in contract["endpoints"])
 
 
+def test_executable_implementation_test_discovery_rejects_placeholders(tmp_path):
+    empty = tmp_path / "test_empty.py"
+    empty.write_text("", encoding="utf-8")
+    module_skipped = tmp_path / "test_module_skipped.py"
+    module_skipped.write_text(
+        "import pytest\n"
+        "pytestmark = pytest.mark.skip\n"
+        "def test_placeholder():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    function_skipped = tmp_path / "test_function_skipped.py"
+    function_skipped.write_text(
+        "import pytest\n"
+        "@pytest.mark.skip\n"
+        "def test_placeholder():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    executable = tmp_path / "test_executable.py"
+    executable.write_text(
+        "def test_contract_behavior():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    assert _executable_test_count(
+        [empty, module_skipped, function_skipped]
+    ) == 0
+    assert _executable_test_count(
+        [empty, module_skipped, function_skipped, executable]
+    ) == 1
+
+
 def test_current_implementation_requires_dedicated_executable_contract_tests():
     contract = _load()
     parser = _IdParser()
