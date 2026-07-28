@@ -35,6 +35,9 @@ EXPECTED_STATIC_RESOURCES = {
     "dashboard.html",
     "dashboard.js",
     "index.html",
+    "performance.css",
+    "performance.html",
+    "performance.js",
     "review.css",
     "review.html",
     "review.js",
@@ -482,6 +485,7 @@ from exitspec.demo_data import (
 )
 from exitspec.web import DemoSession
 from exitspec.workspace import DashboardFilter
+from exitspec.performance_workspace import load_performance_demo_bundle
 
 with support_agent_demo_paths() as data:
     discovery = load_discovery_pack(data.discovery_pack)
@@ -503,7 +507,17 @@ with support_agent_demo_paths() as data:
         "workspace_poc_id": workspace["continue_working"]["poc_id"],
         "workspace_next_action": workspace["continue_working"]["next_action_code"],
         "workspace_module_available": DashboardFilter.ACTIVE.value,
+        "workspace_poc_ids": sorted(
+            poc["poc_id"] for poc in workspace["pocs"]
+        ),
     }
+performance = load_performance_demo_bundle()
+payload["performance_contract_hash"] = (
+    performance.context.contract.canonical_hash
+)
+payload["performance_request_count"] = (
+    performance.context.workload.request_count
+)
 with support_agent_email_paths() as email:
     payload["email_resource_root"] = str(email.root)
     payload["email_manifest_sha256"] = hashlib.sha256(
@@ -535,6 +549,14 @@ print(json.dumps(payload))
     assert probe["workspace_poc_id"] == "poc_support_agent_demo"
     assert probe["workspace_next_action"] == "REVIEW_PROPOSALS"
     assert probe["workspace_module_available"] == "Active"
+    assert probe["workspace_poc_ids"] == [
+        "poc_inference_latency_demo",
+        "poc_support_agent_demo",
+    ]
+    assert probe["performance_contract_hash"] == (
+        "88c4f55dd1a0810efa59fac1bd1041a21c3cbe1179ceb3e101e75000eb7d909f"
+    )
+    assert probe["performance_request_count"] == 100
     assert Path(probe["email_resource_root"]).is_relative_to(
         installed_site_packages
     )

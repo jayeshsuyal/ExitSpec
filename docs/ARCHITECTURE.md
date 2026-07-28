@@ -88,27 +88,32 @@ The target route ownership is:
 `/app?intake=email` and `/app?mode=recording` remain compatibility entries that
 open the seeded workbench directly. The dashboard opens the same workbench at
 `/app/pocs/poc_support_agent_demo`; current review and artifact URLs are
-unchanged.
+unchanged. The bundled frozen inference-performance agreement has a separate
+read-only detail route at `/app/pocs/poc_inference_latency_demo`. That route has
+no execution control and exposes `NOT RUN` until verified evidence can be
+projected.
 
 The first registry may remain explicitly local and process-scoped. Durable POC
 storage, authenticated workspace identity, tenant isolation, and real-customer
 source remain behind the real-customer trust gate.
 
-The current `DemoSession` adapts its existing synthetic state into exactly one
-`poc_support_agent_demo` projection under `/api/state.workspace` and the bounded
-`/api/workspace?filter=...` read endpoint. It derives timestamps from existing
-domain records rather than reading the clock, preserves one POC identity when
-the guided source changes from transcript to email, and uses the existing
-contract, confirmation, run, and verdict enums. Missing or contradictory facts
-become typed visible blockers and reset the navigation phase to `Define`; the
-projection and dashboard never repair or advance underlying state.
+The current `DemoSession` adapts its existing synthetic state into the dynamic
+`poc_support_agent_demo` projection. The bounded
+`/api/workspace?filter=...` endpoint combines it with one immutable,
+resource-validated `poc_inference_latency_demo` projection. The support-agent
+projection derives timestamps from existing domain records rather than reading
+the clock and preserves one POC identity when its guided source changes from
+transcript to email. Both projections use the existing contract, confirmation,
+run, and verdict enums. Missing or contradictory facts become typed visible
+blockers and reset the navigation phase to `Define`; the projection and
+dashboard never repair or advance underlying state.
 
 The dashboard has no dead destinations or unavailable actions, at most one
 **Next up** card, one finite list that does not repeat the current POC, and only
 the accepted Active, Needs attention, and Completed filters. **New POC** enters
-the shell only when local creation authority exists. POC creation, registry
-mutation, a second source record, durable persistence, and new authority remain
-excluded.
+the shell only when local creation authority exists. POC creation, user-driven
+registry mutation, a second source record, durable persistence, and new
+authority remain excluded.
 
 ## Authority boundaries
 
@@ -454,9 +459,10 @@ contract state, adapter selection, canonical hashes, or verdicts.
 ## Packaging and runtime
 
 The package uses a `src/` layout. Browser assets, the deterministic support-agent
-inputs, the approved synthetic RFC822 fixtures, and their frozen source
-contracts are package data. Resource contexts resolve those inputs for both
-source installs and installed wheels.
+inputs, the approved synthetic RFC822 fixtures, the validated
+inference-performance workspace bundle, and their frozen contracts are package
+data. Resource contexts resolve those inputs for both source installs and
+installed wheels.
 
 Therefore `exitspec define`, `exitspec demo`, and `exitspec serve` do not depend
 on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
@@ -470,8 +476,8 @@ on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 The create flow, multi-source navigation, and synthetic meeting-transcript
 source addition are not yet implemented. The read-only registry, projection,
 dashboard, route split, and graphite/orange visual contract are implemented
-against the current single-session truth; the frozen overall contract remains
-unchanged.
+against current local process state plus one validated bundled performance
+agreement; the frozen overall contract remains unchanged.
 
 The workspace implementation must reuse the existing source, review,
 confirmation, freeze, measurement, verdict, and artifact authorities. A

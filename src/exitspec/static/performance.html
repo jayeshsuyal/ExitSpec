@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Review the frozen inference-performance agreement, run boundary, and evidence state for one ExitSpec POC."
+    />
+    <title>ExitSpec — Inference-latency POC</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/performance.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#performance-current-task">
+      Skip to the current task
+    </a>
+
+    <div class="dashboard-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app">POCs</a>
+        </nav>
+
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="performance-main" id="performance-main">
+        <header class="object-header">
+          <div class="object-identity">
+            <a class="back-link" href="/app">← All POCs</a>
+            <p class="eyebrow">Inference performance</p>
+            <div class="object-title-row">
+              <h1 id="performance-title">Inference-latency POC</h1>
+              <span class="object-phase" id="performance-phase">PROVE</span>
+            </div>
+            <p>
+              <span id="performance-customer">Loading customer…</span>
+              <span aria-hidden="true"> · </span>
+              <span id="performance-owner">Loading owner…</span>
+            </p>
+          </div>
+
+          <ol class="journey" aria-label="POC journey">
+            <li data-state="complete">
+              <span>1</span>
+              <strong>Define</strong>
+              <small>Complete</small>
+            </li>
+            <li data-state="current">
+              <span>2</span>
+              <strong>Prove</strong>
+              <small>Current</small>
+            </li>
+            <li data-state="locked">
+              <span>3</span>
+              <strong>Decide</strong>
+              <small>After evidence</small>
+            </li>
+          </ol>
+        </header>
+
+        <section
+          class="current-task-card"
+          id="performance-current-task"
+          aria-labelledby="current-task-heading"
+          aria-live="polite"
+        >
+          <div class="task-copy">
+            <p class="task-kicker">Current task · Prove</p>
+            <h2 id="current-task-heading">Run the frozen latency check</h2>
+            <p id="performance-use-case">
+              Loading the approved performance requirement…
+            </p>
+            <a class="primary-action" href="#run-checklist">
+              Review run checklist
+            </a>
+          </div>
+
+          <dl class="state-boundary" aria-label="POC authority states">
+            <div class="agreement-state">
+              <dt>Agreement</dt>
+              <dd id="agreement-status">Loading</dd>
+            </div>
+            <div class="execution-state">
+              <dt>Execution</dt>
+              <dd id="execution-status">Loading</dd>
+            </div>
+            <div class="evidence-state">
+              <dt>Evidence</dt>
+              <dd id="evidence-status">Loading</dd>
+            </div>
+          </dl>
+        </section>
+
+        <div class="performance-grid">
+          <section
+            class="acceptance-panel"
+            aria-labelledby="acceptance-heading"
+          >
+            <header class="panel-heading">
+              <div>
+                <p class="panel-index">01 · Frozen agreement</p>
+                <h2 id="acceptance-heading">Acceptance gate</h2>
+              </div>
+              <span>Both rules must pass</span>
+            </header>
+
+            <ul
+              class="requirement-list"
+              id="requirement-list"
+              aria-busy="true"
+            >
+              <li class="panel-loading">Loading frozen requirements…</li>
+            </ul>
+
+            <p class="agreement-note">
+              Customer status:
+              <strong id="customer-status">Loading</strong>.
+              Changing a threshold requires a new agreement version.
+            </p>
+          </section>
+
+          <div class="right-column">
+            <section
+              class="run-panel"
+              id="run-checklist"
+              aria-labelledby="run-heading"
+            >
+              <header class="panel-heading">
+                <div>
+                  <p class="panel-index">02 · Approved workload</p>
+                  <h2 id="run-heading">Run checklist</h2>
+                </div>
+                <span>CLI-only</span>
+              </header>
+
+              <ol class="run-steps">
+                <li>
+                  <span>1</span>
+                  <p><strong>Start endpoint</strong>Use the approved local model.</p>
+                </li>
+                <li>
+                  <span>2</span>
+                  <p><strong>Run workload</strong>Execute the frozen CLI command.</p>
+                </li>
+                <li>
+                  <span>3</span>
+                  <p><strong>Inspect proof</strong>Open the verified Evidence Pack.</p>
+                </li>
+              </ol>
+
+              <dl class="run-shape">
+                <div>
+                  <dt>Measured</dt>
+                  <dd><span id="measured-requests">—</span> requests</dd>
+                </div>
+                <div>
+                  <dt>Concurrency</dt>
+                  <dd id="configured-concurrency">—</dd>
+                </div>
+                <div>
+                  <dt>Warmups</dt>
+                  <dd id="warmup-requests">—</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section
+              class="evidence-panel"
+              aria-labelledby="evidence-heading"
+            >
+              <div>
+                <p class="panel-index">03 · Customer-facing output</p>
+                <h2 id="evidence-heading">Evidence Pack</h2>
+                <p id="evidence-reason">
+                  Waiting for verified evidence state…
+                </p>
+              </div>
+              <strong class="verdict" id="evidence-verdict">NOT RUN</strong>
+            </section>
+          </div>
+        </div>
+
+        <details class="technical-details">
+          <summary>Technical details</summary>
+          <div class="technical-content">
+            <dl>
+              <div>
+                <dt>Model</dt>
+                <dd id="model-name">—</dd>
+              </div>
+              <div>
+                <dt>Endpoint class</dt>
+                <dd id="endpoint-class">—</dd>
+              </div>
+              <div>
+                <dt>Adapter</dt>
+                <dd id="adapter-identity">—</dd>
+              </div>
+              <div>
+                <dt>Contract</dt>
+                <dd id="contract-identity">—</dd>
+              </div>
+            </dl>
+            <p id="performance-limitation">Loading the approved limitation…</p>
+          </div>
+        </details>
+
+        <p class="workspace-error" id="performance-error" role="alert" hidden></p>
+      </main>
+    </div>
+
+    <script src="/performance.js"></script>
+  </body>
+</html>

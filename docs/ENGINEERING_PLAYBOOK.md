@@ -442,6 +442,7 @@ python3 -m pytest tests/test_distribution.py
 python3 -m pytest --ignore=tests/test_distribution.py
 node --check src/exitspec/static/app.js
 node --check src/exitspec/static/dashboard.js
+node --check src/exitspec/static/performance.js
 node --check src/exitspec/static/review.js
 git diff --check
 ```
