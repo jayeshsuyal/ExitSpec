@@ -56,6 +56,7 @@ from .confirmations import (
 )
 from .contracts import freeze_confirmed_contract, utc_now as contract_utc_now
 from .demo_data import support_agent_demo_paths
+from .draft_workspace import project_draft_dashboard
 from .intake import (
     TranscriptIntakeError,
     TranscriptRedactionSummary,
@@ -147,9 +148,13 @@ from .wave1_runtime import (
 from .workspace import (
     ArchiveState,
     DashboardFilter,
+    DashboardProjection,
     POCRegistryEntry,
+    POCWorkspaceProjection,
     POCWorkflowFacts,
     ReadOnlyPOCRegistry,
+    WorkspaceAction,
+    WorkspaceBlocker,
     WorkspaceSourceType,
     project_dashboard,
 )
@@ -2374,6 +2379,46 @@ def _capture_source_candidates(transcript: DiscoveryTranscript) -> List[Criterio
     ]
 
 
+def _newest_workspace_items_first(
+    items: Sequence[POCWorkspaceProjection],
+) -> Tuple[POCWorkspaceProjection, ...]:
+    """Keep newly created local drafts ahead of older local work."""
+
+    return tuple(
+        sorted(
+            items,
+            key=lambda item: (item.updated_at, item.poc_id),
+            reverse=True,
+        )
+    )
+
+
+def _unavailable_draft_workspace_projection(
+    projected: POCWorkspaceProjection,
+) -> POCWorkspaceProjection:
+    """Replace an unverifiable source summary with one explicit safe blocker."""
+
+    blocker = WorkspaceBlocker(
+        code="draft_source_summary_unavailable",
+        message="Source status is unavailable. Reload before continuing.",
+    )
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "source_summary": {
+                "count": 0,
+                "types": (),
+                "label": "Source status unavailable",
+            },
+            "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+            "next_human_action": blocker.message,
+            "blockers": (blocker,),
+            "attention_required": True,
+        }
+    )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
 class ExitSpecDemoServer(ThreadingHTTPServer):
     """A loopback-only server with one ephemeral DemoSession."""
 
@@ -2422,6 +2467,67 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         self.wave1_provider_execution = configuration
         self.session.configure_wave1_provider_execution(configuration)
         self.static_root = STATIC_ROOT
+
+    def workspace_payload(
+        self,
+        selected_filter: DashboardFilter,
+    ) -> Dict[str, Any]:
+        """Merge local drafts into the seeded read-only dashboard projection."""
+
+        seeded = DashboardProjection.model_validate(
+            self.session.workspace_payload(selected_filter)
+        )
+        drafts = self.draft_poc_service.snapshots()
+        receipts_by_poc_id = {}
+        unavailable = []
+        for draft in drafts:
+            try:
+                receipts_by_poc_id[draft.poc_id] = (
+                    self.poc_source_intake.list_receipts(draft.poc_id)
+                )
+            except Exception:
+                projected = project_draft_dashboard((draft,), {})
+                if projected.continue_working is not None:
+                    unavailable.append(
+                        _unavailable_draft_workspace_projection(
+                            projected.continue_working
+                        )
+                    )
+
+        available_drafts = tuple(
+            draft for draft in drafts if draft.poc_id in receipts_by_poc_id
+        )
+        draft_active = project_draft_dashboard(
+            available_drafts,
+            receipts_by_poc_id,
+            selected_filter=DashboardFilter.ACTIVE,
+        )
+        active_local = _newest_workspace_items_first(
+            (*draft_active.pocs, *unavailable)
+        )
+
+        draft_visible = project_draft_dashboard(
+            available_drafts,
+            receipts_by_poc_id,
+            selected_filter=selected_filter,
+        )
+        visible_local = list(draft_visible.pocs)
+        if selected_filter in {
+            DashboardFilter.ACTIVE,
+            DashboardFilter.NEEDS_ATTENTION,
+        }:
+            visible_local.extend(unavailable)
+        visible_local = list(_newest_workspace_items_first(visible_local))
+
+        dashboard = DashboardProjection(
+            selected_filter=selected_filter,
+            available_filters=seeded.available_filters,
+            continue_working=(
+                active_local[0] if active_local else seeded.continue_working
+            ),
+            pocs=tuple((*visible_local, *seeded.pocs)),
+        )
+        return dashboard.model_dump(mode="json")
 
     def server_close(self) -> None:
         """Release materialized package resources only after the server is closed."""
@@ -2788,7 +2894,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(
                 HTTPStatus.OK,
-                self.server.session.workspace_payload(selected_filter),
+                self.server.workspace_payload(selected_filter),
             )
             return
         if parsed.path == "/api/workspace/pocs/{0}".format(PERFORMANCE_POC_ID):

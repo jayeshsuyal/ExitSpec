@@ -3,6 +3,11 @@
 
   const WORKSPACE_API = "/api/workspace";
   const FILTERS = ["Active", "Needs attention", "Completed"];
+  const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
+  const SEEDED_POC_IDS = new Set([
+    "poc_support_agent_demo",
+    "poc_inference_latency_demo",
+  ]);
   let activeFilter = "Active";
   let requestVersion = 0;
   let selectedPocId = null;
@@ -22,8 +27,22 @@
     return node;
   }
 
-  function workbenchUrl(pocId) {
-    return `/app/pocs/${encodeURIComponent(pocId)}`;
+  function workbenchUrl(poc) {
+    const pocId = poc?.poc_id;
+    if (typeof pocId !== "string" || !POC_ID_PATTERN.test(pocId)) {
+      return null;
+    }
+    const base = `/app/pocs/${encodeURIComponent(pocId)}`;
+    if (SEEDED_POC_IDS.has(pocId)) {
+      return base;
+    }
+    if (poc.next_action_code === "ADD_SOURCE") {
+      return `${base}/sources/new`;
+    }
+    if (poc.next_action_code === "REVIEW_PROPOSALS") {
+      return `${base}/review`;
+    }
+    return base;
   }
 
   function evidenceLabel(status) {
@@ -175,13 +194,20 @@
     );
 
     const footer = element("footer", "preview-footer");
-    const link = element("a", "continue-link", "Open POC");
-    link.href = workbenchUrl(poc.poc_id);
-    link.setAttribute(
-      "aria-label",
-      `Open ${poc.display_name}: ${action.text}`
-    );
-    footer.append(link);
+    const destination = workbenchUrl(poc);
+    if (destination) {
+      const link = element("a", "continue-link", "Open POC");
+      link.href = destination;
+      link.setAttribute(
+        "aria-label",
+        `Open ${poc.display_name}: ${action.text}`
+      );
+      footer.append(link);
+    } else {
+      footer.append(
+        element("span", "continue-link is-unavailable", "POC unavailable")
+      );
+    }
 
     card.append(identity, current, boundaries, meta, footer);
   }

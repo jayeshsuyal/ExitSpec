@@ -65,7 +65,13 @@ def test_dashboard_has_one_compact_create_action_and_safe_rendering():
     assert "<canvas" not in html
     assert "<svg" not in html
     assert javascript.count('"Open POC"') == 1
-    assert "workbenchUrl(poc.poc_id)" in javascript
+    assert "workbenchUrl(poc)" in javascript
+    assert "POC_ID_PATTERN.test(pocId)" in javascript
+    assert 'poc.next_action_code === "ADD_SOURCE"' in javascript
+    assert 'return `${base}/sources/new`;' in javascript
+    assert 'poc.next_action_code === "REVIEW_PROPOSALS"' in javascript
+    assert 'return `${base}/review`;' in javascript
+    assert "SEEDED_POC_IDS.has(pocId)" in javascript
     assert "innerHTML" not in javascript
     assert ".textContent =" in javascript
     assert "replaceChildren" in javascript
