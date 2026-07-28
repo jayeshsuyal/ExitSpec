@@ -69,9 +69,11 @@ operation, then sends one bounded preflight request. External preflight failure
 is `BLOCKED` and starts no measured workload.
 
 For an available endpoint, the adapter runs the exact frozen warmup and measured
-request counts at the approved concurrency. It records one sanitized terminal
-record per attempt. Prompt and response text, raw API keys, and raw execution
-idempotency keys never enter measurement records or the customer Evidence Pack.
+request counts with the configured client concurrency recorded in the manifest.
+This is a load-generator setting, not proof of achieved request overlap. The
+adapter records one sanitized terminal record per attempt. Prompt and response
+text, raw API keys, and raw execution idempotency keys never enter measurement
+records or the customer Evidence Pack.
 
 The first-token definition is the first non-empty
 `choices[].delta.content` event. A valid `[DONE]` event terminates measurement;
@@ -92,7 +94,7 @@ HTTP errors, timeouts, malformed streams, and transport errors enter the error
 denominator. Cancellation, internal adapter failure, missing records, mixed
 executions, or any integrity mismatch produce `NOT_PROVEN`, never `PASS`.
 
-The v1 example deliberately uses exactly 100 measured attempts and a strict
+The current bounded example deliberately uses exactly 100 measured attempts and a strict
 error-rate threshold below 1%. Therefore zero errors passes that rule and one
 error fails it.
 

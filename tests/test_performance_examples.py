@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from exitspec.confirmations import ContractConfirmation
+from exitspec.contracts import verify_contract_digest
 from exitspec.performance_evidence import (
     require_frozen_confirmed,
     validate_performance_context,
@@ -16,16 +17,16 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_ROOT = REPOSITORY_ROOT / "examples" / "inference-performance"
 
 
-def test_frozen_performance_example_is_exact_and_execution_authorized():
+def test_frozen_performance_v2_is_exact_and_execution_authorized():
     contract = load_contract(
-        EXAMPLE_ROOT / "contracts" / "vllm-ttft-v1.frozen.json"
+        EXAMPLE_ROOT / "contracts" / "vllm-ttft-v2.frozen.json"
     )
     confirmation = ContractConfirmation.model_validate(
         json.loads(
             (
                 EXAMPLE_ROOT
                 / "contracts"
-                / "vllm-ttft-v1.confirmation.json"
+                / "vllm-ttft-v2.confirmation.json"
             ).read_bytes()
         )
     )
@@ -38,11 +39,14 @@ def test_frozen_performance_example_is_exact_and_execution_authorized():
 
     assert (
         contract.canonical_hash
-        == "27a91b164cf45a589693efbd5adb9cf59e03a08e31420ff7ca8f67adb9abb661"
+        == "88c4f55dd1a0810efa59fac1bd1041a21c3cbe1179ceb3e101e75000eb7d909f"
     )
     assert require_frozen_confirmed(context, confirmation) is context
     assert context.workload.request_count == 100
     assert context.workload.concurrency == 4
+    assert "configured client concurrency set to four" in (
+        context.criterion.normalized_claim
+    )
     assert context.workload.synthetic_prompts is True
     assert context.expected_manifest.model == (
         "Qwen/Qwen2.5-0.5B-Instruct"
@@ -55,3 +59,14 @@ def test_frozen_performance_example_is_exact_and_execution_authorized():
     )
     assert reconstructed.expected_manifest == context.expected_manifest
     assert reconstructed.workload_sha256 == context.workload_sha256
+
+
+def test_frozen_performance_v1_remains_immutable_history():
+    contract = load_contract(
+        EXAMPLE_ROOT / "contracts" / "vllm-ttft-v1.frozen.json"
+    )
+
+    assert contract.canonical_hash == (
+        "27a91b164cf45a589693efbd5adb9cf59e03a08e31420ff7ca8f67adb9abb661"
+    )
+    assert verify_contract_digest(contract)

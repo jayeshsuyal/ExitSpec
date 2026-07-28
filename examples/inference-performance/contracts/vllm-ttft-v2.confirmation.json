@@ -1,0 +1,12 @@
+{
+  "agreement_acknowledged": true,
+  "confirmation_id": "cnf_ab5313ffc9c0e4947817f8ab05232826fd3941f9a625cdd1ceeb0618e5dd040c",
+  "confirmer_identity": "synthetic-customer-vp-engineering",
+  "contract_fingerprint": "cddb5c75dd5c16b217e65c95a92beadb2e553fffd93927615b8fd6a60a20a519",
+  "contract_id": "inference-latency-demo",
+  "contract_version": "0.2.0",
+  "decided_at": "2026-07-28T09:20:00Z",
+  "decision": "CONFIRM",
+  "idempotency_key": "inference-latency-demo-confirm-v2",
+  "rationale": "The synthetic customer confirms configured client concurrency, the exact latency workload, and the acceptance thresholds for this demo."
+}
