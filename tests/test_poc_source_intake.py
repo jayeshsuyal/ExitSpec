@@ -13,6 +13,7 @@ from exitspec.poc_creation import (
     FirstSourceChoice,
     ProcessLocalDraftPOCService,
 )
+from exitspec.poc_proposal_review import ProposalReviewProposalUnavailable
 from exitspec.poc_source_intake import (
     CONTRACT_INPUT_LIMIT,
     DOCUMENT_INPUT_LIMIT,
@@ -106,6 +107,23 @@ def test_receipt_is_frozen_and_has_only_the_six_safe_ui_fields():
     assert RECEIPT_ID.fullmatch(receipt.source_receipt_id)
     with pytest.raises(Exception):
         receipt.proposal_count = 99
+
+
+def test_archived_draft_hides_existing_sources_and_proposal_inputs():
+    runtime, drafts = _runtime("poc_archived_source")
+    runtime.capture_document(
+        poc_id="poc_archived_source",
+        document_text="P95 latency must remain below 500 ms.",
+        idempotency_key="archived-source",
+    )
+    drafts.archive("poc_archived_source")
+
+    with pytest.raises(POCSourceIntakeInvalid, match="unavailable"):
+        runtime.list_receipts("poc_archived_source")
+    with pytest.raises(ProposalReviewProposalUnavailable) as caught:
+        runtime.proposal_inputs("poc_archived_source")
+
+    assert "P95 latency" not in str(caught.value)
 
 
 @pytest.mark.parametrize(

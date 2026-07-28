@@ -149,6 +149,47 @@ def test_source_to_human_decision_is_one_real_process_local_round_trip(tmp_path)
         assert forbidden not in serialized
 
 
+def test_archived_poc_refuses_proposal_reads_and_decisions(tmp_path):
+    with _running_server(tmp_path) as server:
+        poc_id = _create_draft(server)
+        _capture_source(server, poc_id)
+        root = f"/api/pocs/{poc_id}/proposals"
+        listed = _request(
+            server,
+            "GET",
+            root,
+            content_type=None,
+            origin=None,
+        )[1]
+        assert isinstance(listed, dict)
+        proposal_id = listed["proposals"][0]["proposal_id"]
+        server.draft_poc_service.archive(poc_id)
+
+        archived_list = _request(
+            server,
+            "GET",
+            root,
+            content_type=None,
+            origin=None,
+        )
+        archived_decision = _request(
+            server,
+            "POST",
+            f"{root}/{proposal_id}/decision",
+            payload={
+                "decision": "KEEP_FOR_CONTRACT",
+                "reviewer": "Jayesh",
+                "rationale": "This must not be accepted after archive.",
+                "idempotency_key": "archived-proposal-decision",
+            },
+        )
+
+    assert archived_list[:2] == archived_decision[:2] == (
+        404,
+        {"error": "Proposal was not found."},
+    )
+
+
 @pytest.mark.parametrize(
     ("content_type", "origin", "expected_status", "message"),
     (

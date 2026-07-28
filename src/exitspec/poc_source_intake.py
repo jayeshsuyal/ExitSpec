@@ -33,7 +33,11 @@ from .intake import (
     redact_and_parse_pasted_transcript,
 )
 from .models import ContractStatus, FrozenExitSpecModel, POCContract
-from .poc_creation import DraftPOCSnapshot, POC_ID_PATTERN
+from .poc_creation import (
+    DraftPOCArchiveState,
+    DraftPOCSnapshot,
+    POC_ID_PATTERN,
+)
 from .poc_proposal_review import (
     ProposalReviewProposalUnavailable,
     SourceBoundProposal,
@@ -400,6 +404,7 @@ class ProcessLocalPOCSourceIntake:
             unavailable = (
                 not isinstance(draft, DraftPOCSnapshot)
                 or draft.poc_id != poc_id
+                or draft.archive_state != DraftPOCArchiveState.ACTIVE
             )
         except Exception:
             unavailable = True
