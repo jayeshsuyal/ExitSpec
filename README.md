@@ -167,6 +167,10 @@ also requires SQLite 3.37.0 or newer because it uses `STRICT` tables. Running
 the complete engineering gate also requires Node.js for browser JavaScript
 syntax checks.
 
+The implementation order and authority boundaries for the complete local
+source-to-proof product loop are frozen in the
+[local E2E product contract](docs/LOCAL_E2E_CONTRACT.md).
+
 ```bash
 python3 -m pip install -e '.[dev]'
 ./scripts/engineering_gate.sh
