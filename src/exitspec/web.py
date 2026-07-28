@@ -14,6 +14,7 @@ import math
 import mimetypes
 import tempfile
 import threading
+import time
 import uuid
 import webbrowser
 from contextlib import ExitStack
@@ -93,6 +94,16 @@ from .synthetic_assisted_authoring import (
     SyntheticAssistedAuthoringExecutor,
     safe_receipt_facts,
 )
+from .source_web import (
+    SourceIntakeRecord,
+    SourceWebRefusal,
+    SourceWebRequest,
+    SourceWebRuntime,
+    SourceWebRuntimeError,
+    handle_source_web_request,
+    is_source_pipeline_target,
+    source_import_success_payload,
+)
 from .wave1_execution import (
     WAVE1_FIREWORKS_ADAPTER,
     WAVE1_FIREWORKS_ADAPTER_VERSION,
@@ -115,6 +126,7 @@ DEFAULT_FIXTURE_PATH = EXAMPLE_ROOT / "fixtures" / "tool-selection-200.json"
 DEFAULT_RUNS_ROOT = PROJECT_ROOT / "runs"
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
+SOURCE_SURPLUS_GRACE_SECONDS = 0.02
 JSON_MEDIA_TYPE = "application/json"
 LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_WAVE1_PROVIDER_AUTHORIZATION_OPERATIONS = 64
@@ -396,6 +408,24 @@ class DemoSession:
     authoring_adapter: str = "source_candidate_capture"
     authoring_adapter_version: str = "1"
     authoring_receipt: Optional[Dict[str, Any]] = None
+    _source_runtime: SourceWebRuntime = field(
+        default_factory=SourceWebRuntime,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _source_intake: Optional[SourceIntakeRecord] = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _source_receipt: Optional[Dict[str, Any]] = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     _wave1_provider_authorization: Optional[_Wave1ProviderAuthorization] = field(
         default=None,
         init=False,
@@ -485,6 +515,93 @@ class DemoSession:
             self._sample_contract_seed = self.contract_seed.model_copy(deep=True)
         if self._sample_fixture_path is None:
             self._sample_fixture_path = self.fixture_path
+
+    def _clear_guided_source_boundary(self) -> None:
+        """Atomically replace every private and public guided-source fact."""
+
+        self._source_runtime.reset()
+        self._source_intake = None
+        self._source_receipt = None
+
+    def _guided_source_import_locked(self) -> bool:
+        """Return whether customer/downstream work already owns the workflow."""
+
+        return any(
+            value is not None
+            for value in (
+                self.customer_review_invitation,
+                self.customer_review_token,
+                self.customer_confirmation,
+                self.frozen_contract,
+                self.last_run,
+                self.customer_draft_path,
+                self.revision_request,
+                self.revision_parent_version,
+            )
+        )
+
+    @_serialized_session
+    def guided_source_catalog_payload(self) -> Dict[str, Any]:
+        """Return the exact frozen catalog without exposing resource locations."""
+
+        try:
+            return self._source_runtime.catalog_payload()
+        except SourceWebRuntimeError:
+            raise SourceWebRefusal("source_import_refused") from None
+
+    @_serialized_session
+    def import_guided_source_fixture(
+        self,
+        fixture_case_id: str,
+    ) -> Dict[str, Any]:
+        """Publish one reviewed source projection under the session transaction."""
+
+        if self._guided_source_import_locked():
+            raise SourceWebRefusal("source_import_locked")
+
+        current = self._source_intake
+        if current is not None:
+            if current.fixture_case_id != fixture_case_id:
+                raise SourceWebRefusal("source_change_requires_reset")
+            try:
+                receipt = self._source_runtime.replay(fixture_case_id)
+                return source_import_success_payload(
+                    receipt=receipt,
+                    intake=current,
+                    drafts=self.reviewed_drafts,
+                )
+            except SourceWebRuntimeError:
+                raise SourceWebRefusal("source_import_refused") from None
+
+        try:
+            publication = self._source_runtime.import_new(fixture_case_id)
+        except SourceWebRuntimeError:
+            raise SourceWebRefusal("source_import_refused") from None
+
+        # Every fallible parser/model/projection/store operation completed before
+        # these assignments. The session lock makes the publication indivisible.
+        self.discovery_pack = publication.discovery_pack
+        self.reviewed_drafts = list(publication.discovery_pack.drafts)
+        self.revision_request = None
+        self.revision_parent_version = None
+        self.revision_edit_applied_ids.clear()
+        self._invalidate_customer_agreement()
+        self.transcript_redaction = None
+        self.transcript_notice = (
+            "Approved synthetic email was redacted before intake. Every "
+            "proposal remains untrusted until explicit human review."
+        )
+        self.authoring_mode = "deterministic"
+        self.authoring_adapter = "synthetic_email_source"
+        self.authoring_adapter_version = "wave2-source-web-v1"
+        self.authoring_receipt = None
+        self._source_intake = publication.intake
+        self._source_receipt = publication.receipt.to_dict()
+        return source_import_success_payload(
+            receipt=publication.receipt,
+            intake=publication.intake,
+            drafts=self.reviewed_drafts,
+        )
 
     def _clear_wave1_provider_authorization(self) -> None:
         """Drop active authority without erasing replay or spend tombstones."""
@@ -610,6 +727,14 @@ class DemoSession:
             "authoring_adapter": self.authoring_adapter,
             "authoring_adapter_version": self.authoring_adapter_version,
             "authoring_receipt": self.authoring_receipt,
+            "source_intake": (
+                None
+                if self._source_intake is None
+                else self._source_intake.public_payload(
+                    self.reviewed_drafts
+                )
+            ),
+            "source_receipt": self._source_receipt,
         }
         encoded = json.dumps(
             payload,
@@ -1000,6 +1125,7 @@ class DemoSession:
 
             if authored is not None:
                 proposals_created = len(authored.discovery_pack.drafts)
+                self._clear_guided_source_boundary()
                 self.discovery_pack = authored.discovery_pack
                 self.reviewed_drafts = list(authored.discovery_pack.drafts)
                 self.revision_request = None
@@ -1262,6 +1388,14 @@ class DemoSession:
     ) -> CriterionDraft:
         """Define or correct the currently supported deterministic rule."""
 
+        if (
+            self._source_intake is not None
+            and not self._source_intake.can_edit_rule(draft_id)
+        ):
+            raise DemoStateError(
+                "This source proposal must remain context until a compatible "
+                "measurement adapter exists."
+            )
         return self._apply_structured_rule(
             draft_id=draft_id,
             title=title,
@@ -1301,7 +1435,12 @@ class DemoSession:
 
         transcript = intake.transcript
         candidates = _capture_source_candidates(transcript)
-        self.discovery_pack = DiscoveryPack(transcript=transcript, drafts=candidates)
+        discovery_pack = DiscoveryPack(
+            transcript=transcript,
+            drafts=candidates,
+        )
+        self._clear_guided_source_boundary()
+        self.discovery_pack = discovery_pack
         self.reviewed_drafts = list(candidates)
         self.revision_request = None
         self.revision_parent_version = None
@@ -1355,6 +1494,7 @@ class DemoSession:
         finally:
             del pasted_text
 
+        self._clear_guided_source_boundary()
         self.discovery_pack = authored.discovery_pack
         self.reviewed_drafts = list(authored.discovery_pack.drafts)
         self.revision_request = None
@@ -1382,9 +1522,13 @@ class DemoSession:
             or self._sample_fixture_path is None
         ):
             raise DemoStateError("The bundled sample is unavailable for reset.")
-        self.discovery_pack = self._sample_discovery_pack.model_copy(deep=True)
-        self.contract_seed = self._sample_contract_seed.model_copy(deep=True)
-        self.fixture_path = self._sample_fixture_path
+        discovery_pack = self._sample_discovery_pack.model_copy(deep=True)
+        contract_seed = self._sample_contract_seed.model_copy(deep=True)
+        fixture_path = self._sample_fixture_path
+        self._clear_guided_source_boundary()
+        self.discovery_pack = discovery_pack
+        self.contract_seed = contract_seed
+        self.fixture_path = fixture_path
         self.reviewed_drafts = list(self.discovery_pack.drafts)
         self.revision_request = None
         self.revision_parent_version = None
@@ -1877,6 +2021,18 @@ class DemoSession:
                 "adapter_version": self.authoring_adapter_version,
                 "receipt": self.authoring_receipt,
             },
+            "source_intake": (
+                None
+                if self._source_intake is None
+                else self._source_intake.public_payload(
+                    self.reviewed_drafts
+                )
+            ),
+            "source_receipt": (
+                None
+                if self._source_receipt is None
+                else dict(self._source_receipt)
+            ),
             "transcript": self.discovery_pack.transcript.model_dump(mode="json"),
             "drafts": [draft.model_dump(mode="json") for draft in self.reviewed_drafts],
             "contract": None if contract is None else contract.model_dump(mode="json"),
@@ -2091,7 +2247,114 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
 class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
     server: ExitSpecDemoServer
 
+    def _source_header_values(self, name: str) -> Sequence[str]:
+        return tuple(self.headers.get_all(name) or ())
+
+    def _read_bounded_source_body(
+        self,
+        declared_length: int,
+        maximum_observed_bytes: int,
+    ) -> bytes:
+        """Read under fixed deadlines and reject promptly pipelined surplus."""
+
+        body = b""
+        previous_timeout = self.connection.gettimeout()
+        deadline = time.monotonic() + 0.5
+        try:
+            while len(body) < declared_length:
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0:
+                    break
+                self.connection.settimeout(remaining_seconds)
+                try:
+                    chunk = self.rfile.read1(
+                        min(declared_length - len(body), 8192)
+                    )
+                except (TimeoutError, OSError, ValueError):
+                    break
+                if not chunk:
+                    break
+                body += chunk
+
+            if len(body) >= maximum_observed_bytes:
+                return bytes(body[:maximum_observed_bytes])
+
+            # A tiny bounded grace catches a pipelined request arriving just
+            # after the declared body. Source connections close after one
+            # response, so waiting longer would add latency without granting
+            # any additional request-smuggling protection.
+            if len(body) == declared_length:
+                self.connection.settimeout(SOURCE_SURPLUS_GRACE_SECONDS)
+                try:
+                    extra = self.rfile.read1(
+                        maximum_observed_bytes - len(body)
+                    )
+                except (TimeoutError, OSError, ValueError):
+                    extra = b""
+                if extra:
+                    body += extra
+
+            self.connection.setblocking(False)
+            while len(body) < maximum_observed_bytes:
+                try:
+                    extra = self.rfile.read1(
+                        maximum_observed_bytes - len(body)
+                    )
+                except (BlockingIOError, OSError, ValueError):
+                    break
+                if not extra:
+                    break
+                body += extra
+        finally:
+            self.connection.settimeout(previous_timeout)
+        return bytes(body)
+
+    def _dispatch_source_request(self) -> bool:
+        if not is_source_pipeline_target(self.path):
+            return False
+        # Source requests never share a connection with unread or surplus bytes.
+        self.close_connection = True
+        request = SourceWebRequest(
+            method=self.command,
+            target=self.path,
+            server_port=self.server.server_port,
+            header_values=self._source_header_values,
+            read_body=self._read_bounded_source_body,
+        )
+        response = handle_source_web_request(
+            request,
+            catalog_payload=(
+                self.server.session.guided_source_catalog_payload
+            ),
+            import_fixture=(
+                self.server.session.import_guided_source_fixture
+            ),
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def send_error(
+        self,
+        code: int,
+        message: str | None = None,
+        explain: str | None = None,
+    ) -> None:
+        """Route arbitrary parsed method tokens through the source gates."""
+
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_source_pipeline_target(self.path)
+            and self._dispatch_source_request()
+        ):
+            return
+        super().send_error(code, message, explain)
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+        if self._dispatch_source_request():
+            return
         parsed = urlparse(self.path)
         if parsed.path == "/api/provider/fireworks/disclosure":
             if parsed.params or parsed.query or parsed.fragment:
@@ -2131,6 +2394,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._serve_static(parsed.path)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+        if self._dispatch_source_request():
+            return
         parsed = urlparse(self.path)
         is_provider_authority_action = parsed.path in {
             "/api/provider/fireworks/authorization",
@@ -2416,6 +2681,35 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             self._send_json(status, {"error": str(error)})
         except ValueError as error:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+
+    def _unsupported_method(self) -> None:
+        if self._dispatch_source_request():
+            return
+        self.send_error(
+            HTTPStatus.NOT_IMPLEMENTED,
+            "Unsupported method ({0!r})".format(self.command),
+        )
+
+    def do_DELETE(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
+
+    def do_CONNECT(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
+
+    def do_HEAD(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
+
+    def do_PATCH(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
+
+    def do_PUT(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
+
+    def do_TRACE(self) -> None:  # noqa: N802 - stdlib request handler API
+        self._unsupported_method()
 
     def _has_json_media_type(self) -> bool:
         content_types = self.headers.get_all("Content-Type") or []
