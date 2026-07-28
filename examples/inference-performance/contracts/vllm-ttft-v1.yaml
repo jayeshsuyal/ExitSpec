@@ -1,0 +1,55 @@
+id: inference-latency-demo
+version: "0.1.0"
+status: APPROVED
+created_at: "2026-07-28T07:00:00Z"
+approved_at: "2026-07-28T07:10:00Z"
+customer: "Synthetic Inference Platform Co."
+use_case: "Prove that one OpenAI-compatible inference endpoint meets the agreed streaming latency and reliability target."
+target_system:
+  provider: vllm-local
+  endpoint_class: openai-compatible-chat-completions
+  model: Qwen/Qwen2.5-0.5B-Instruct
+workload:
+  fixture_path: examples/inference-performance/workloads/concurrency-4-v1.json
+  sha256: f1c131e7867c488d792f0f4f234805003733684758411fa7b8f5407d39a0f8c0
+criteria:
+  - criterion_type: inference_performance_v1
+    id: INFERENCE-PERF-01
+    title: "Inference latency and reliability"
+    must_have: true
+    source:
+      speaker: customer_vp_engineering
+      quote: "At concurrency four, p95 time to first token must stay below 500 milliseconds and the request error rate must stay below one percent."
+      location: "Synthetic discovery transcript, line 21"
+    human_added: false
+    normalized_claim: "Across 100 measured streaming attempts at concurrency four, client-observed p95 time to first non-empty content is below 500 milliseconds and attempted-request error rate is below 1%."
+    ttft_p95:
+      metric: time_to_first_token
+      aggregation: p95
+      unit: milliseconds
+      operator: lt
+      threshold: 500.0
+      method: nearest_rank
+      minimum_successful_samples: 95
+      must_pass: true
+    error_rate:
+      metric: error_rate
+      aggregation: rate
+      unit: proportion
+      operator: lt
+      threshold: 0.01
+      method: failed_attempts_over_total_attempts
+      minimum_attempts: 100
+      must_pass: true
+    workload_slice: inference-latency-demo-v1
+    adapter: vllm_streaming_latency
+    adapter_version: "1.0.0"
+    owner: vendor_solutions_engineer
+    evidence_policy: "Persist the frozen workload manifest, every sanitized terminal attempt record, calculation inputs, execution identity, and SHA-256 digests."
+    approved: true
+owners:
+  - customer_vp_engineering
+  - vendor_solutions_engineer
+non_goals:
+  - "This 100-request engineering run does not prove production capacity, GPU execution latency, model quality, or long-duration reliability."
+evidence_retention_policy: "Synthetic prompts only; no secrets, prompt text, response text, or raw customer data in evidence artifacts."
