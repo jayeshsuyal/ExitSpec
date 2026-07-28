@@ -396,6 +396,7 @@ class OpenAIHTTPTransport:
             headers["Authorization"] = "Bearer " + self.__api_key
 
         connection: Any | None = None
+        response: Any | None = None
         deadline_monotonic = time.monotonic() + request.timeout_seconds
         try:
             connection = connection_factory(
@@ -403,13 +404,28 @@ class OpenAIHTTPTransport:
                 port,
                 timeout=request.timeout_seconds,
             )
+            connect = getattr(connection, "connect", None)
+            if callable(connect):
+                connect()
+            _set_remaining_socket_timeout(
+                connection,
+                deadline_monotonic,
+            )
             connection.request(
                 "POST",
                 path,
                 body=body,
                 headers=headers,
             )
+            _set_remaining_socket_timeout(
+                connection,
+                deadline_monotonic,
+            )
             response = connection.getresponse()
+            _set_remaining_socket_timeout(
+                connection,
+                deadline_monotonic,
+            )
             status = response.status
             if (
                 isinstance(status, bool)
@@ -418,6 +434,11 @@ class OpenAIHTTPTransport:
             ):
                 raise ProbeProtocolError("HTTP status is invalid.")
         except Exception:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
             if connection is not None:
                 try:
                     connection.close()
@@ -469,13 +490,10 @@ class _HTTPResponseOwner:
         if not callable(read_chunk):
             read_chunk = self.__response.read
         while True:
-            remaining = self.__deadline_monotonic - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError
-            socket = getattr(self.__connection, "sock", None)
-            set_timeout = getattr(socket, "settimeout", None)
-            if callable(set_timeout):
-                set_timeout(remaining)
+            _set_remaining_socket_timeout(
+                self.__connection,
+                self.__deadline_monotonic,
+            )
             chunk = read_chunk(4096)
             if not chunk:
                 break
@@ -497,6 +515,22 @@ class _HTTPResponseOwner:
             pending_error = pending_error or error
         if pending_error is not None:
             raise pending_error
+
+
+def _set_remaining_socket_timeout(
+    connection: Any,
+    deadline_monotonic: float,
+) -> float:
+    """Apply one absolute network deadline before every blocking phase."""
+
+    remaining = deadline_monotonic - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError
+    socket = getattr(connection, "sock", None)
+    set_timeout = getattr(socket, "settimeout", None)
+    if callable(set_timeout):
+        set_timeout(remaining)
+    return remaining
 
 
 def load_prompts_jsonl(path: str | Path) -> tuple[SyntheticPrompt, ...]:

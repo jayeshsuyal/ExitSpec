@@ -41,6 +41,9 @@ read-only without confusing run state, agreement state, and evidence verdict.
    The exact sanitized readiness probe is now persisted, hashed, reloaded, and
    independently checked against the frozen endpoint, model, prompt, limits,
    and required successful outcome.
+8. **The request timeout could reset across network phases.**
+   The transport now carries one monotonic absolute deadline across connection,
+   request write, response headers, and every streamed body read.
 
 ## Required before a paid remote-provider demo
 
@@ -50,8 +53,6 @@ read-only without confusing run state, agreement state, and evidence verdict.
 - Add a conservative maximum-cost authorization before a paid remote
   reservation. The runner now requires the exact maximum call count, and the
   workload bounds output tokens, but neither proves a provider charge ceiling.
-- Enforce one absolute request deadline across DNS, connection, request write,
-  headers, and streamed body.
 - Add a minimal blocked-run incident artifact when operators need durable
   diagnostics for readiness failures. Completed packs now account for the
   successful preflight; blocked runs currently retain only the typed ledger
