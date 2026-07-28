@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 from itertools import combinations
 import json
@@ -196,6 +197,36 @@ def _parse_json_rejecting_duplicate_members(payload: str) -> object:
 
 def _is_source_pipeline_path(path: str) -> bool:
     return path == "/api/source" or path.startswith("/api/source/")
+
+
+def _executable_test_count(paths: list[Path]) -> int:
+    count = 0
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module_skipped = any(
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "pytestmark"
+                for target in node.targets
+            )
+            and any(
+                isinstance(child, ast.Attribute)
+                and child.attr in {"skip", "skipif"}
+                for child in ast.walk(node.value)
+            )
+            for node in tree.body
+        )
+        if module_skipped:
+            continue
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not node.name.startswith("test_"):
+                continue
+            decorators = " ".join(ast.unparse(item) for item in node.decorator_list)
+            if "pytest.mark.skip" not in decorators:
+                count += 1
+    return count
 
 
 def _candidate_quotes(case_id: str) -> list[str]:
@@ -1142,7 +1173,13 @@ def test_current_implementation_requires_dedicated_executable_contract_tests():
     present_ids = future_ids.intersection(parser.ids)
     assert present_ids in (set(), future_ids)
     if present_ids:
-        assert (PROJECT_ROOT / "tests" / "test_source_ui_contract.py").is_file()
+        ui_tests = sorted(
+            (PROJECT_ROOT / "tests").glob("test_source_ui_*.py")
+        )
+        assert (
+            PROJECT_ROOT / "tests" / "test_source_ui_contract.py"
+        ) in ui_tests
+        assert _executable_test_count(ui_tests) > 0
 
     source_code = WEB_PATH.read_text(encoding="utf-8")
     if SOURCE_WEB_PATH.is_file():
@@ -1151,8 +1188,24 @@ def test_current_implementation_requires_dedicated_executable_contract_tests():
     present_paths = {path for path in endpoint_paths if path in source_code}
     assert present_paths in (set(), endpoint_paths)
     if present_paths:
-        assert (PROJECT_ROOT / "tests" / "test_source_web_api.py").is_file()
-        assert (PROJECT_ROOT / "tests" / "test_source_web_transport.py").is_file()
+        backend_tests = sorted(
+            (PROJECT_ROOT / "tests").glob("test_source_web_*.py")
+        )
+        assert (
+            PROJECT_ROOT / "tests" / "test_source_web_transport.py"
+        ) in backend_tests
+        assert len(backend_tests) >= 2
+        assert _executable_test_count(backend_tests) > 0
+        backend_test_source = "\n".join(
+            path.read_text(encoding="utf-8") for path in backend_tests
+        )
+        assert endpoint_paths.issubset(
+            {
+                path
+                for path in endpoint_paths
+                if path in backend_test_source
+            }
+        )
 
 
 def test_acceptance_scenarios_are_executable_and_cover_the_frozen_risks():
