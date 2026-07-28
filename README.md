@@ -22,20 +22,28 @@ The local browser workbench implements one complete **Define → Prove → Decid
 loop for a synthetic support-agent POC:
 
 ```text
-synthetic source notes
-    -> human-defined exact tool-selection rule
-    -> internal review
+employee-selected synthetic sample email
+    -> deterministic normalization and redaction
+    -> source-linked NEEDS_REVIEW proposals
+    -> named employee decisions
     -> exact-version customer review
     -> explicit customer acknowledgement
     -> immutable frozen contract
-    -> deterministic measurement
-    -> typed verdict
+    -> deterministic Reference A/B/C measurement and typed verdict
     -> POC Acceptance Evidence Pack
 ```
 
 ### Define
 
-- The prepared sample contains one measurable requirement and one vague request.
+- `/app?intake=email` offers exactly two manifest-approved synthetic samples:
+  **Support-agent requirements** and **Untrusted-instructions test**.
+- The primary sample produces one executable 95%/200 exact-tool-selection
+  proposal and one latency proposal. The latency sentence remains context
+  because the current product has no latency adapter.
+- Import deterministically normalizes and redacts the selected RFC822 fixture
+  before it publishes source-linked proposals. Every proposal starts
+  `NEEDS_REVIEW`; email has no approval, confirmation, freeze, measurement, or
+  verdict authority.
 - A human can also paste synthetic notes. ExitSpec redacts them before intake and
   creates unresolved source-linked candidates.
 - An explicit **Draft with assisted authoring** action can run the same redacted
@@ -46,6 +54,23 @@ synthetic source notes
 - The customer-facing claim is generated from those structured fields. The
   browser cannot submit a contradictory free-text claim or pretend an arbitrary
   metric is executable.
+
+The guided browser uses two narrow loopback routes:
+
+- `GET /api/source/fixtures` returns only the two approved sample labels and safe
+  metadata.
+- `POST /api/source/import` accepts only the selected fixture ID through a strict
+  same-origin, exact-JSON boundary.
+
+Imports are replay- and reset-aware. A replay preserves existing human review;
+choosing another sample requires an explicit reset; and import locks after
+customer review or any later agreement/evidence state.
+
+Both frozen Wave 2 machine contracts remain unchanged; the source-web contract
+therefore still carries its historical pre-implementation status fields.
+Current implementation status is recorded separately at
+`examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; ExitSpec
+does not rewrite a frozen contract to claim completion.
 
 ### Confirm
 
@@ -111,6 +136,10 @@ The workbench is served at `http://127.0.0.1:8765/app`. For a clean recording,
 open `http://127.0.0.1:8765/app?mode=recording` and click **Restart** before the
 take.
 
+For the guided Wave 2 email demo, open
+`http://127.0.0.1:8765/app?intake=email` from a clean server and follow the
+[90-second runbook](docs/WAVE2_EMAIL_DEMO_RUNBOOK.md).
+
 The optional Wave-1 Fireworks authoring action is disabled by default. To expose
 it, set `FIREWORKS_API_KEY` in the server environment and start:
 
@@ -166,11 +195,12 @@ tests. No successful real-account Fireworks smoke evidence is claimed yet.
 Authorization, idempotency tombstones, provider-call history, and spend
 reservations are in-memory process state; reset drops active authority but does
 not erase those safety records, while process restart does. There is no
-speech-to-text ingestion.
+speech-to-text or audio ingestion.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, a live endpoint measurement adapter, generic metric
-execution, or production deployment authorization.
+execution, production deployment authorization, a live email connector, mailbox
+OAuth or webhooks, arbitrary email upload, or real-customer-email ingestion.
 
 ## Documentation
 
@@ -183,6 +213,9 @@ execution, or production deployment authorization.
 - [Measurement specification](docs/MEASUREMENT_SPEC.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
+- [Wave 2 source specification](docs/SOURCE_SPEC.md)
+- [Wave 2 source web contract](docs/SOURCE_WEB_CONTRACT.md)
+- [Wave 2 email demo runbook](docs/WAVE2_EMAIL_DEMO_RUNBOOK.md)
 
 ## License
 

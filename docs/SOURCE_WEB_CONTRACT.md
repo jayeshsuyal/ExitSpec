@@ -1,12 +1,20 @@
 # Wave 2 source web contract
 
-Status: **frozen before implementation**
+Historical contract status: **frozen before implementation**
+
+Current product status: **implemented at main commit `5b4c837`**
 
 The machine-readable authority for this boundary is
 [`wave-2-source-web-v1.json`](../examples/support-agent/email/wave-2-source-web-v1.json).
-It pins the browser/API contract that later backend and UI changes must implement.
-Neither `/api/source/fixtures`, `/api/source/import`, nor the six email-intake DOM
-hooks exists in this change.
+It pins the browser/API contract that the backend and UI implementation consume.
+Its pre-implementation `contract_only`/`implemented=false` fields are immutable
+historical facts and intentionally remain unchanged.
+
+Post-implementation product status belongs in the separate
+[`wave-2-implementation-evidence-v1.json`](../examples/support-agent/evidence/wave-2-implementation-evidence-v1.json)
+record. The current product includes `/api/source/fixtures`,
+`/api/source/import`, the six email-intake DOM hooks, and the guided browser
+flow described below.
 
 ## Product slice
 
@@ -110,7 +118,7 @@ separately after the required rendered frame using exactly
 
 ## UI integration
 
-The future guided entry is `/app?intake=email`. One compact source panel belongs
+The guided entry is `/app?intake=email`. One compact source panel appears
 inside `#define`, immediately before `#candidate-list`. Its frozen copy is:
 
 - Synthetic source
@@ -124,18 +132,26 @@ candidate card becomes the current task. The proposal asks, “Does this match
 the intended POC?” and uses the existing human actions: **Matches intent**,
 **Define acceptance rule**, and **Keep as context**.
 
-The machine contract lists every existing DOM and selector hook that must
-survive implementation, including every active `data-*` hook generated inside
-`app.js`. It also marks the six new IDs as future, so contract tests do not
-pretend that the UI already exists. At every guided step in the normal 1280×720,
-100%-zoom flow, the browser must prove:
+The machine contract lists every prior DOM and selector hook that had to survive
+implementation, including every active `data-*` hook generated inside `app.js`.
+At freeze time it marked six new IDs as future; the product now implements those
+IDs without rewriting the historical contract. The frozen acceptance requirement
+still applies this oracle at every guided step in the normal 1280×720,
+100%-zoom flow:
 
 ```js
 document.documentElement.scrollHeight <=
-  document.documentElement.clientHeight
+document.documentElement.clientHeight
 ```
 
-Smaller layouts may use bounded panel scrolling.
+The post-implementation manual record captures six representative task states at
+that viewport. Those observations are acceptance evidence for the recorded
+states, not an exhaustive observation of every possible guided state and not CI
+browser automation. This narrower evidence statement does not weaken the frozen
+every-step requirement. Smaller layouts may use bounded panel scrolling.
+
+The Evidence Pack stays on its existing separate customer-facing surface; email
+intake does not turn it into another workbench panel.
 
 ## Packaged resources
 
@@ -146,7 +162,12 @@ packaged and authoritative web contracts remain byte-identical and hash-pinned.
 
 ## Exit condition
 
-Implementation is acceptable only when every executable backend and browser
-scenario in the machine contract passes, including exact projection scans,
-zero-mutation refusals, replay preservation, the powerless authority attack,
-and the complete existing confirmation → freeze → prove → Evidence Pack path.
+The implementation remains acceptable only while every executable backend and
+browser scenario in the machine contract passes, including exact projection
+scans, zero-mutation refusals, replay preservation, the powerless authority
+attack, and the complete confirmation → freeze → prove → Evidence Pack path.
+
+The separate implementation-evidence record identifies the six representative
+real-browser observations and distinguishes them from CI automation. Those
+observations support the recorded states; the frozen machine contract continues
+to require the oracle at every guided step.

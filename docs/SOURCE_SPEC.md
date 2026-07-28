@@ -2,8 +2,8 @@
 
 ## Status
 
-This document freezes the provider-neutral source boundary for Wave 2. The
-authoritative executable contract is
+This document records the provider-neutral source boundary frozen before Wave 2
+implementation. The authoritative executable contract is
 [`wave-2-acceptance-v1.json`](../examples/support-agent/email/wave-2-acceptance-v1.json).
 That manifest is `FROZEN` at version `1.0.1`.
 
@@ -16,9 +16,18 @@ semantics, and browser timing ownership. Version `1.0.1` freezes those details.
 It changes no fixture bytes, fixture-set digest, behavioral outcome, fault
 count, or timing threshold.
 
-Freezing the contract authorizes implementation against its fixtures and gates.
-It does not claim that the parser, workflow, browser flow, or Wave 2 exit gate
-already exists.
+The companion frozen source-web contract intentionally retains its historical
+`contract_only`/`implemented=false` status. Freezing these contracts authorized
+implementation against their fixtures and gates; those fields were never meant
+to be rewritten afterward.
+
+At the product baseline represented by main commit `5b4c837`, the synthetic
+RFC822 adapter, immutable source models, atomic source store, strict loopback
+source API, and guided `/app?intake=email` flow are implemented. Their
+post-implementation evidence is kept separately in
+[`wave-2-implementation-evidence-v1.json`](../examples/support-agent/evidence/wave-2-implementation-evidence-v1.json).
+That evidence record—not a mutation of this frozen contract—is the product
+status source.
 
 The first adapter accepts only employee-selected, manifest-approved synthetic
 RFC822 fixtures. It does not authorize real email, arbitrary upload, mailbox

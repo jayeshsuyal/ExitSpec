@@ -5,20 +5,19 @@
 ExitSpec owns the agreement and evidence chain around an AI infrastructure POC.
 The current implementation deliberately proves one vertical slice: an exact
 support-tool-selection proportion rule over a fixed 200-case synthetic fixture.
+Wave 2 adds a bounded synthetic-email source path to that slice; it does not add
+a mailbox integration or another measurement type.
 
 ```text
-synthetic customer source
+employee-selected manifest-approved synthetic email
         |
         v
-redaction-first intake
+deterministic validation, normalization, and redaction
         |
         v
-unresolved source candidate
+immutable source envelope + source-linked NEEDS_REVIEW proposals
         |
-        +-- human defines the supported structured rule
-        v
-named internal review
-        |
+        +-- named employee approves, rejects, or defines the supported rule
         v
 canonical customer-visible agreement
         |
@@ -57,12 +56,57 @@ The domain core does not import a frontend framework or provider SDK. The browse
 calls a loopback HTTP boundary, and the server delegates to the same typed domain
 services used by the CLI.
 
+## Guided synthetic email boundary
+
+The guided entry point is `/app?intake=email`. It offers exactly two
+manifest-approved fixtures:
+
+- **Support-agent requirements**, containing the measurable 95%/200
+  tool-selection request and a latency sentence; and
+- **Untrusted-instructions test**, proving that approval, freeze, and PASS words
+  inside source text cannot advance workflow state.
+
+The browser retrieves the bounded catalog from `GET /api/source/fixtures` and
+submits only `{"fixture_case_id":"..."}` to `POST /api/source/import`. The source
+router is loopback-only and fail-closed: it validates local authority, method,
+path, route parameters, same-origin metadata, media type, canonical length,
+strict JSON, exact body fields, the approved fixture, and workflow state in a
+fixed order. Its success response is a narrow source-intake projection rather
+than the generic session object.
+
+For an accepted fixture, the RFC822 adapter works in request-local memory,
+validates identity and MIME limits, normalizes and redacts allowed text, builds
+an immutable prepared envelope, then finalizes the source version and its
+current-version candidates in one atomic store transaction. Browser state
+contains only a guided label, source version and counts, redacted candidate
+quotes, safe proposal fields, and review controls. It excludes raw RFC822,
+addresses, subjects, message identifiers, digests, private replay data, and
+surrounding instructions.
+
+Exact replay creates no source version or candidate and preserves all review
+state. A different sample requires an explicit reset. Once customer review,
+confirmation, freeze, or evidence exists, every import is locked. Source import,
+customer review, reset, and proof transitions serialize against one session
+boundary so a race cannot publish a hybrid state.
+
+Email has zero methods or fields for employee approval, customer confirmation,
+freeze, measurement, proof, or verdict. Those transitions remain explicit
+actions in the existing agreement spine.
+
+The Wave 2 machine manifests remain immutable historical contracts; the
+source-web contract therefore retains its pre-implementation status fields. The
+separate post-implementation record is
+`examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; product
+status is not inferred by rewriting a frozen contract.
+
 ## Browser authoring
 
-The browser accepts only synthetic pasted notes. Raw text is handled transiently,
-redacted before parsing, and replaced by redacted source plus safe summary
-metadata. Source lines become unresolved candidates; intake does not manufacture a
-metric, threshold, workload, or approval.
+The browser has two synthetic-only entry paths. The guided email path above
+projects manifest-pinned source-linked proposals. The existing pasted-notes path
+handles raw text transiently, redacts it before parsing, and replaces it with
+redacted source plus safe summary metadata. Source lines become unresolved
+candidates; intake does not manufacture a metric, threshold, workload, or
+approval.
 
 An explicit optional action runs those already-redacted notes through
 `SyntheticAssistedAuthoringExecutor`. This deterministic local adapter implements
@@ -143,6 +187,12 @@ The employee can then:
 Recording mode is query-driven at `/app?mode=recording`. `Restart` restores the
 bundled source, draft state, Reference A selection, closed drawers, and empty
 downstream state deterministically.
+
+The guided email path is query-driven at `/app?intake=email`. At 1280×720 and
+100% zoom, each normal guided step stays within the application shell without
+workflow-length body scrolling. Smaller or zoomed layouts reflow and use bounded
+panel scrolling. The Evidence Pack remains a distinct customer-facing artifact,
+not another workbench panel.
 
 ## Contract and run lifecycle
 
@@ -333,10 +383,10 @@ contract state, adapter selection, canonical hashes, or verdicts.
 
 ## Packaging and runtime
 
-The package uses a `src/` layout. Browser assets and deterministic support-agent
-inputs are package data. A resource context resolves the discovery pack, review
-plan, contract seed, frozen contract, and fixture for both source installs and
-installed wheels.
+The package uses a `src/` layout. Browser assets, the deterministic support-agent
+inputs, the approved synthetic RFC822 fixtures, and their frozen source
+contracts are package data. Resource contexts resolve those inputs for both
+source installs and installed wheels.
 
 Therefore `exitspec define`, `exitspec demo`, and `exitspec serve` do not depend
 on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
@@ -350,7 +400,8 @@ on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 The current system is one local process with filesystem artifacts and in-memory
 review state. It has no speech-to-text, live endpoint adapter, hosted identity,
 durable confirmation store, queue, object store, generic metric engine, or
-multi-tenant authorization.
+multi-tenant authorization. It also has no live email connector, mailbox OAuth,
+webhook, arbitrary upload, or real-customer-email path.
 
 If the product earns hosted use, the next boundaries are authenticated identity,
 append-only durable decisions, PostgreSQL metadata, object storage, isolated

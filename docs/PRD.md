@@ -57,6 +57,12 @@ Required ≥ 95.00% · Observed 197/200 (98.50%)
 
 The browser does not claim that arbitrary pasted metrics are executable.
 
+The primary guided entry, `/app?intake=email`, starts from one of exactly two
+manifest-approved synthetic samples. **Support-agent requirements** produces the
+executable 95%/200 proposal plus a latency sentence that remains context because
+no latency adapter exists. **Untrusted-instructions test** proves that source
+language cannot approve, confirm, freeze, measure, or assign a verdict.
+
 ## Product principles
 
 ### Agreement before evidence
@@ -96,6 +102,17 @@ deployment, spend, procurement, production traffic, or policy exceptions.
 
 - Ship a deterministic prepared synthetic source and allow pasted synthetic
   notes.
+- At `/app?intake=email`, list only **Support-agent requirements** and
+  **Untrusted-instructions test** from the manifest-approved catalog.
+- Import a selected synthetic RFC822 fixture through deterministic validation,
+  normalization, redaction, immutable source finalization, and source-linked
+  `NEEDS_REVIEW` proposal projection.
+- Expose the catalog through `GET /api/source/fixtures`; accept imports only
+  through strict loopback same-origin `POST /api/source/import` exact JSON.
+- Preserve reviews on exact replay, require reset before changing samples, and
+  lock import after customer review or any later downstream state.
+- Return only safe source state and content-free receipts; never expose raw
+  RFC822, identities, surrounding instructions, private digests, or replay data.
 - Redact pasted notes before they enter returned browser state.
 - Create unresolved, source-linked candidates without inventing a measurement
   rule.
@@ -110,6 +127,8 @@ deployment, spend, procurement, production traffic, or policy exceptions.
   text.
 - Permit only one executable rule in the current product; preserve other asks as
   context.
+- Give email zero authority to approve or reject a proposal, confirm an
+  agreement, freeze a contract, create measurement, run proof, or set a verdict.
 
 ### R2. Internal review
 
@@ -171,6 +190,8 @@ deployment, spend, procurement, production traffic, or policy exceptions.
 - Provide a query-driven recording mode and deterministic `Restart`.
 - Keep the desktop workbench usable at 1280×720 without workflow-length body
   scroll.
+- Reflow smaller and zoomed layouts into bounded panel scrolling, and keep the
+  customer-facing Evidence Pack separate from the employee workbench.
 - Bundle all deterministic demo inputs and browser assets in the wheel.
 - Make `exitspec define`, `exitspec demo`, and `exitspec serve` operate outside
   the source checkout.
@@ -198,7 +219,12 @@ multi-criterion aggregation claim is made.
 
 The product is accepted when:
 
-- the 75-second primary script is repeatable from `Restart`;
+- the default public guided synthetic-email script is repeatable from a clean
+  server in about 90 seconds;
+- the secondary prepared-notes 75-second script remains repeatable from
+  `Restart`;
+- exact replay preserves review state and the hostile-email sample cannot advance
+  any authority-bearing state;
 - the optional revision script preserves 95%/200 and ends in a legitimate
   Reference A `PASS`;
 - direct confirmation without acknowledgement is rejected;
@@ -206,11 +232,14 @@ The product is accepted when:
 - all four verdict classes and exact reasons are tested;
 - all six pack links resolve and every artifact listed in the hash manifest
   verifies;
-- a built wheel runs outside the repository; and
+- a built wheel runs outside the repository;
 - public copy distinguishes the disabled-by-default, synthetic-only Fireworks
   action from successful live-provider evidence and never implies
   speech-to-text, authenticated customer identity, arbitrary metric execution,
-  or production authorization.
+  live email connectivity, or production authorization; and
+- frozen Wave 2 contract status is kept separate from post-implementation
+  evidence in
+  `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`.
 
 ## Non-goals for the current product
 
@@ -219,6 +248,8 @@ The product is accepted when:
 - Successful real-account Fireworks evidence until the separately approved,
   funded smoke gate passes.
 - Speech-to-text or real customer call ingestion.
+- Live email connectors, Gmail/Outlook/IMAP access, mailbox OAuth, webhooks,
+  arbitrary upload, sending/replying, or real customer email.
 - Generic metrics, multi-criterion contracts, latency or cost execution.
 - Hosted endpoint measurement or load testing.
 - Authenticated customer identity, durable signatures, or durable review storage.
