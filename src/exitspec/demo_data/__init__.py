@@ -31,14 +31,31 @@ _EMAIL_FIXTURE_SET_DOMAIN = b"exitspec-wave2-fixture-set-v1"
 _EMAIL_RESOURCE_ERROR = (
     "ExitSpec's bundled Wave-2 email resources failed validation."
 )
+_SOURCE_WEB_CONTRACT_FILENAME = "wave-2-source-web-v1.json"
+_SOURCE_WEB_CONTRACT_ID = "wave2-source-web-v1"
+_SOURCE_WEB_CONTRACT_VERSION = "wave2-source-web-v1"
+_SOURCE_WEB_CONTRACT_SHA256 = (
+    "f89825510155b1d579814da0f6e3a639c1b03d3111deba170556654eaca35ffd"
+)
+_SOURCE_WEB_CONTRACT_ERROR = (
+    "ExitSpec's bundled Wave-2 source web contract failed validation."
+)
 
 
 class SupportAgentEmailResourceError(RuntimeError):
     """The frozen bundled Wave-2 email resource set is unusable."""
 
 
+class SupportAgentSourceWebContractError(RuntimeError):
+    """The frozen bundled Wave-2 browser/API contract is unusable."""
+
+
 def _invalid_email_resources() -> SupportAgentEmailResourceError:
     return SupportAgentEmailResourceError(_EMAIL_RESOURCE_ERROR)
+
+
+def _invalid_source_web_contract() -> SupportAgentSourceWebContractError:
+    return SupportAgentSourceWebContractError(_SOURCE_WEB_CONTRACT_ERROR)
 
 
 def _canonical_json_bytes(value: object) -> bytes:
@@ -60,6 +77,16 @@ def _valid_case_id(value: object) -> bool:
     return all(
         part and part.isascii() and part.isalnum() for part in value.split("-")
     )
+
+
+def _freeze_json(value: object) -> object:
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {key: _freeze_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -105,6 +132,86 @@ class SupportAgentDemoPaths:
                 )
             )
         return resolved
+
+
+@dataclass(frozen=True, init=False)
+class SupportAgentSourceWebContract:
+    """Validated immutable access to the frozen Wave-2 browser/API contract."""
+
+    path: Path
+    payload: bytes
+    contract: Mapping[str, object]
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "SupportAgentSourceWebContract must be created through from_path()."
+        )
+
+    @classmethod
+    def _create(
+        cls,
+        *,
+        path: Path,
+        payload: bytes,
+        contract: Mapping[str, object],
+    ) -> "SupportAgentSourceWebContract":
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "path", path)
+        object.__setattr__(instance, "payload", bytes(payload))
+        object.__setattr__(instance, "contract", _freeze_json(dict(contract)))
+        return instance
+
+    @classmethod
+    def from_path(cls, path: Path) -> "SupportAgentSourceWebContract":
+        """Read and pin one ordinary, non-symlink contract file."""
+
+        try:
+            if path.is_symlink():
+                raise _invalid_source_web_contract()
+            path = path.resolve(strict=True)
+            if not path.is_file():
+                raise _invalid_source_web_contract()
+            payload = path.read_bytes()
+            if _sha256(payload) != _SOURCE_WEB_CONTRACT_SHA256:
+                raise _invalid_source_web_contract()
+            contract = json.loads(payload)
+            source_manifest = contract.get("source_manifest")
+            implementation_status = contract.get("implementation_status")
+            if (
+                not isinstance(contract, dict)
+                or contract.get("contract_id") != _SOURCE_WEB_CONTRACT_ID
+                or contract.get("contract_version")
+                != _SOURCE_WEB_CONTRACT_VERSION
+                or contract.get("status") != "FROZEN"
+                or not isinstance(source_manifest, dict)
+                or source_manifest.get("manifest_id") != _EMAIL_MANIFEST_ID
+                or source_manifest.get("manifest_version")
+                != _EMAIL_MANIFEST_VERSION
+                or source_manifest.get("manifest_sha256")
+                != _EMAIL_MANIFEST_SHA256
+                or not isinstance(implementation_status, dict)
+                or implementation_status.get("contract_only") is not True
+                or implementation_status.get(
+                    "fixture_catalog_endpoint_implemented"
+                )
+                is not False
+                or implementation_status.get(
+                    "source_import_endpoint_implemented"
+                )
+                is not False
+                or implementation_status.get("email_intake_ui_implemented")
+                is not False
+            ):
+                raise _invalid_source_web_contract()
+            return cls._create(
+                path=path,
+                payload=payload,
+                contract=contract,
+            )
+        except SupportAgentSourceWebContractError:
+            raise
+        except (AttributeError, KeyError, OSError, TypeError, UnicodeError, ValueError):
+            raise _invalid_source_web_contract() from None
 
 
 @dataclass(frozen=True, init=False)
@@ -257,16 +364,19 @@ class SupportAgentEmailPaths:
             )
 
         entries = tuple(root.iterdir())
-        expected_names = {_EMAIL_MANIFEST_FILENAME, *seen_filenames}
+        required_names = {_EMAIL_MANIFEST_FILENAME, *seen_filenames}
+        allowed_names = {*required_names, _SOURCE_WEB_CONTRACT_FILENAME}
         actual_names = {entry.name for entry in entries}
         if (
             len(actual_names) != len(entries)
-            or actual_names != expected_names
+            or not required_names.issubset(actual_names)
+            or not actual_names.issubset(allowed_names)
             or any(
                 entry.is_symlink()
                 or not entry.is_file()
                 or entry.suffix not in {".json", ".eml"}
                 for entry in entries
+                if entry.name in required_names
             )
         ):
             raise _invalid_email_resources()
@@ -324,10 +434,28 @@ def support_agent_email_paths() -> Iterator[SupportAgentEmailPaths]:
         yield SupportAgentEmailPaths.from_root(materialized_root)
 
 
+@contextmanager
+def support_agent_source_web_contract(
+) -> Iterator[SupportAgentSourceWebContract]:
+    """Materialize and validate the frozen Wave-2 browser/API contract."""
+
+    resource = (
+        files(__package__)
+        .joinpath("support_agent")
+        .joinpath("email")
+        .joinpath(_SOURCE_WEB_CONTRACT_FILENAME)
+    )
+    with as_file(resource) as materialized_path:
+        yield SupportAgentSourceWebContract.from_path(materialized_path)
+
+
 __all__ = [
     "SupportAgentDemoPaths",
     "SupportAgentEmailPaths",
     "SupportAgentEmailResourceError",
+    "SupportAgentSourceWebContract",
+    "SupportAgentSourceWebContractError",
     "support_agent_demo_paths",
     "support_agent_email_paths",
+    "support_agent_source_web_contract",
 ]
