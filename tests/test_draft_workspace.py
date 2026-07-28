@@ -154,6 +154,39 @@ def test_reviewed_proposals_advance_without_inventing_a_contract():
     assert projected.latest_evidence_summary.status == "NOT_RUN"
 
 
+def test_kept_proposals_advance_from_definition_to_agreement_preparation():
+    service = _drafts("poc_workspace_alpha")
+    receipt = _receipt("poc_workspace_alpha", proposal_count=2)
+
+    needs_definition = project_draft_dashboard(
+        service.snapshots(),
+        {"poc_workspace_alpha": (receipt,)},
+        pending_proposal_counts_by_poc_id={"poc_workspace_alpha": 0},
+        kept_proposal_counts_by_poc_id={"poc_workspace_alpha": 2},
+        defined_criterion_counts_by_poc_id={"poc_workspace_alpha": 1},
+    ).pocs[0]
+    ready_for_agreement = project_draft_dashboard(
+        service.snapshots(),
+        {"poc_workspace_alpha": (receipt,)},
+        pending_proposal_counts_by_poc_id={"poc_workspace_alpha": 0},
+        kept_proposal_counts_by_poc_id={"poc_workspace_alpha": 2},
+        defined_criterion_counts_by_poc_id={"poc_workspace_alpha": 2},
+    ).pocs[0]
+
+    assert needs_definition.next_action_code == WorkspaceAction.DEFINE_CRITERIA
+    assert needs_definition.next_human_action == (
+        "Define acceptance criteria for 1 kept proposal."
+    )
+    assert (
+        ready_for_agreement.next_action_code
+        == WorkspaceAction.PREPARE_AGREEMENT
+    )
+    assert ready_for_agreement.next_human_action == (
+        "Prepare an agreement from 2 defined acceptance criteria."
+    )
+    assert ready_for_agreement.active_contract_id is None
+
+
 @pytest.mark.parametrize("pending_count", (-1, 3, True))
 def test_pending_proposal_override_is_bounded_by_source_total(pending_count):
     service = _drafts("poc_workspace_alpha")
@@ -230,4 +263,49 @@ def test_cross_poc_receipts_and_unknown_receipt_maps_fail_closed():
             pending_proposal_counts_by_poc_id={
                 "poc_workspace_unknown": 0,
             },
+        )
+    with pytest.raises(ValueError, match="unknown"):
+        project_draft_dashboard(
+            service.snapshots(),
+            {},
+            kept_proposal_counts_by_poc_id={
+                "poc_workspace_unknown": 0,
+            },
+        )
+    with pytest.raises(ValueError, match="unknown"):
+        project_draft_dashboard(
+            service.snapshots(),
+            {},
+            defined_criterion_counts_by_poc_id={
+                "poc_workspace_unknown": 0,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("pending_count", "kept_count", "defined_count", "message"),
+    (
+        (0, 3, 0, "Kept proposal"),
+        (1, 2, 0, "Kept proposal"),
+        (0, 1, 2, "Defined criterion"),
+        (0, True, 0, "Kept proposal"),
+        (0, 1, True, "Defined criterion"),
+    ),
+)
+def test_review_and_definition_counts_are_bounded(
+    pending_count,
+    kept_count,
+    defined_count,
+    message,
+):
+    service = _drafts("poc_workspace_alpha")
+    receipt = _receipt("poc_workspace_alpha", proposal_count=2)
+
+    with pytest.raises(ValueError, match=message):
+        draft_workspace_record_and_facts(
+            service.get("poc_workspace_alpha"),
+            (receipt,),
+            pending_proposal_count=pending_count,
+            kept_proposal_count=kept_count,
+            defined_criterion_count=defined_count,
         )

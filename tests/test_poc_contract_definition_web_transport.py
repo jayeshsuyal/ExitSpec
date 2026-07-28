@@ -168,6 +168,13 @@ def test_kept_proposals_become_two_real_immutable_definitions(tmp_path):
             content_type=None,
             origin=None,
         )
+        workspace_before = _request(
+            server,
+            "GET",
+            "/api/workspace",
+            content_type=None,
+            origin=None,
+        )
         first_payload = _definition_payload(proposals[0]["proposal_id"])
         first = _request(server, "POST", root, payload=first_payload)
         replay = _request(server, "POST", root, payload=first_payload)
@@ -189,9 +196,21 @@ def test_kept_proposals_become_two_real_immutable_definitions(tmp_path):
             content_type=None,
             origin=None,
         )
+        workspace_after = _request(
+            server,
+            "GET",
+            "/api/workspace",
+            content_type=None,
+            origin=None,
+        )
 
     assert before[0] == 200
     assert all(item["definition"] is None for item in before[1]["proposals"])
+    assert workspace_before[0] == 200
+    assert (
+        workspace_before[1]["continue_working"]["next_action_code"]
+        == "DEFINE_CRITERIA"
+    )
     assert first[0] == 201
     assert first[1]["disposition"] == "CREATED"
     assert replay[0] == 200
@@ -205,6 +224,14 @@ def test_kept_proposals_become_two_real_immutable_definitions(tmp_path):
         "ERROR_RATE_PERCENT",
     ]
     assert all(definition["operator"] == "LTE" for definition in definitions)
+    assert workspace_after[0] == 200
+    assert (
+        workspace_after[1]["continue_working"]["next_action_code"]
+        == "PREPARE_AGREEMENT"
+    )
+    assert workspace_after[1]["continue_working"]["next_human_action"] == (
+        "Prepare an agreement from 2 defined acceptance criteria."
+    )
     serialized = json.dumps((first, second, after)).lower()
     for forbidden in ("approved", "confirmation", "freeze", "verdict", "pass"):
         assert forbidden not in serialized

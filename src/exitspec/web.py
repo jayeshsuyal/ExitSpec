@@ -2523,6 +2523,8 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         drafts = self.draft_poc_service.snapshots()
         receipts_by_poc_id = {}
         pending_proposal_counts_by_poc_id = {}
+        kept_proposal_counts_by_poc_id = {}
+        defined_criterion_counts_by_poc_id = {}
         unavailable = []
         for draft in drafts:
             try:
@@ -2539,10 +2541,22 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                     )
                 continue
             try:
+                proposal_items = self.proposal_review_service.list_proposals(
+                    draft.poc_id
+                )
                 pending_proposal_counts_by_poc_id[draft.poc_id] = sum(
                     item.review_state == ProposalReviewState.NEEDS_REVIEW
-                    for item in self.proposal_review_service.list_proposals(
-                        draft.poc_id
+                    for item in proposal_items
+                )
+                kept_proposal_counts_by_poc_id[draft.poc_id] = sum(
+                    item.review_state
+                    == ProposalReviewState.KEEP_FOR_CONTRACT
+                    for item in proposal_items
+                )
+                defined_criterion_counts_by_poc_id[draft.poc_id] = sum(
+                    definition.poc_id == draft.poc_id
+                    for definition in (
+                        self.contract_definition_service.definitions()
                     )
                 )
             except Exception:
@@ -2551,6 +2565,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                     {draft.poc_id: receipts_by_poc_id[draft.poc_id]},
                 )
                 receipts_by_poc_id.pop(draft.poc_id, None)
+                pending_proposal_counts_by_poc_id.pop(draft.poc_id, None)
+                kept_proposal_counts_by_poc_id.pop(draft.poc_id, None)
+                defined_criterion_counts_by_poc_id.pop(draft.poc_id, None)
                 if projected.continue_working is not None:
                     unavailable.append(
                         _unavailable_review_workspace_projection(
@@ -2564,6 +2581,8 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             if (
                 draft.poc_id in receipts_by_poc_id
                 and draft.poc_id in pending_proposal_counts_by_poc_id
+                and draft.poc_id in kept_proposal_counts_by_poc_id
+                and draft.poc_id in defined_criterion_counts_by_poc_id
             )
         )
         draft_active = project_draft_dashboard(
@@ -2571,6 +2590,12 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             receipts_by_poc_id,
             pending_proposal_counts_by_poc_id=(
                 pending_proposal_counts_by_poc_id
+            ),
+            kept_proposal_counts_by_poc_id=(
+                kept_proposal_counts_by_poc_id
+            ),
+            defined_criterion_counts_by_poc_id=(
+                defined_criterion_counts_by_poc_id
             ),
             selected_filter=DashboardFilter.ACTIVE,
         )
@@ -2583,6 +2608,12 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             receipts_by_poc_id,
             pending_proposal_counts_by_poc_id=(
                 pending_proposal_counts_by_poc_id
+            ),
+            kept_proposal_counts_by_poc_id=(
+                kept_proposal_counts_by_poc_id
+            ),
+            defined_criterion_counts_by_poc_id=(
+                defined_criterion_counts_by_poc_id
             ),
             selected_filter=selected_filter,
         )

@@ -35,6 +35,8 @@ def draft_workspace_record_and_facts(
     receipts: Sequence[POCSourceReceipt],
     *,
     pending_proposal_count: int | None = None,
+    kept_proposal_count: int | None = None,
+    defined_criterion_count: int | None = None,
 ) -> tuple[POCRegistryEntry, POCWorkflowFacts]:
     """Project one draft and safe source receipts without mutating either."""
 
@@ -59,6 +61,27 @@ def draft_workspace_record_and_facts(
     ):
         raise ValueError(
             "Pending proposal count must be between zero and the source total."
+        )
+    resolved_kept_count = (
+        0 if kept_proposal_count is None else kept_proposal_count
+    )
+    if (
+        type(resolved_kept_count) is not int
+        or not 0 <= resolved_kept_count <= total_proposals
+        or resolved_pending_count + resolved_kept_count > total_proposals
+    ):
+        raise ValueError(
+            "Kept proposal count must fit within the reviewed source total."
+        )
+    resolved_definition_count = (
+        0 if defined_criterion_count is None else defined_criterion_count
+    )
+    if (
+        type(resolved_definition_count) is not int
+        or not 0 <= resolved_definition_count <= resolved_kept_count
+    ):
+        raise ValueError(
+            "Defined criterion count must be between zero and the kept total."
         )
 
     archive_state = (
@@ -89,6 +112,8 @@ def draft_workspace_record_and_facts(
         source_count=len(validated_receipts),
         source_types=source_types,
         pending_draft_count=resolved_pending_count,
+        kept_proposal_count=resolved_kept_count,
+        defined_criterion_count=resolved_definition_count,
         action_since=draft.updated_at,
     )
     return record, facts
@@ -99,6 +124,8 @@ def project_draft_dashboard(
     receipts_by_poc_id: Mapping[str, Sequence[POCSourceReceipt]],
     *,
     pending_proposal_counts_by_poc_id: Mapping[str, int] | None = None,
+    kept_proposal_counts_by_poc_id: Mapping[str, int] | None = None,
+    defined_criterion_counts_by_poc_id: Mapping[str, int] | None = None,
     selected_filter: DashboardFilter = DashboardFilter.ACTIVE,
 ) -> DashboardProjection:
     """Project all current process-local drafts into the standard dashboard."""
@@ -130,6 +157,32 @@ def project_draft_dashboard(
                 ", ".join(unknown_pending_ids)
             )
         )
+    resolved_kept_counts = (
+        {}
+        if kept_proposal_counts_by_poc_id is None
+        else dict(kept_proposal_counts_by_poc_id)
+    )
+    unknown_kept_ids = sorted(set(resolved_kept_counts).difference(draft_ids))
+    if unknown_kept_ids:
+        raise ValueError(
+            "Kept proposal counts reference unknown draft POCs: {0}".format(
+                ", ".join(unknown_kept_ids)
+            )
+        )
+    resolved_definition_counts = (
+        {}
+        if defined_criterion_counts_by_poc_id is None
+        else dict(defined_criterion_counts_by_poc_id)
+    )
+    unknown_definition_ids = sorted(
+        set(resolved_definition_counts).difference(draft_ids)
+    )
+    if unknown_definition_ids:
+        raise ValueError(
+            "Defined criterion counts reference unknown draft POCs: {0}".format(
+                ", ".join(unknown_definition_ids)
+            )
+        )
 
     records = []
     facts_by_poc_id = {}
@@ -138,6 +191,10 @@ def project_draft_dashboard(
             draft,
             receipts_by_poc_id.get(draft.poc_id, ()),
             pending_proposal_count=resolved_pending_counts.get(draft.poc_id),
+            kept_proposal_count=resolved_kept_counts.get(draft.poc_id),
+            defined_criterion_count=resolved_definition_counts.get(
+                draft.poc_id
+            ),
         )
         records.append(record)
         facts_by_poc_id[draft.poc_id] = facts

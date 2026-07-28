@@ -51,6 +51,7 @@ class DashboardFilter(str, Enum):
 class WorkspaceAction(str, Enum):
     ADD_SOURCE = "ADD_SOURCE"
     REVIEW_PROPOSALS = "REVIEW_PROPOSALS"
+    DEFINE_CRITERIA = "DEFINE_CRITERIA"
     PREPARE_AGREEMENT = "PREPARE_AGREEMENT"
     CREATE_CUSTOMER_REVIEW = "CREATE_CUSTOMER_REVIEW"
     WAIT_FOR_CUSTOMER = "WAIT_FOR_CUSTOMER"
@@ -105,6 +106,8 @@ class POCWorkflowFacts(FrozenExitSpecModel):
     source_count: int = Field(default=0, ge=0)
     source_types: Tuple[WorkspaceSourceType, ...] = Field(default_factory=tuple)
     pending_draft_count: int = Field(default=0, ge=0)
+    kept_proposal_count: int = Field(default=0, ge=0)
+    defined_criterion_count: int = Field(default=0, ge=0)
     approved_criterion_count: int = Field(default=0, ge=0)
     active_contract_id: Optional[str] = Field(
         default=None,
@@ -148,6 +151,16 @@ class POCWorkflowFacts(FrozenExitSpecModel):
         ):
             raise ValueError("action_since must be timezone-aware.")
         return value
+
+    @model_validator(mode="after")
+    def require_definition_counts_to_follow_review(
+        self,
+    ) -> "POCWorkflowFacts":
+        if self.defined_criterion_count > self.kept_proposal_count:
+            raise ValueError(
+                "Defined criterion count cannot exceed kept proposal count."
+            )
+        return self
 
 
 class SourceSummary(FrozenExitSpecModel):
@@ -677,6 +690,19 @@ def _derive_action(
             ),
         )
 
+    undefined_kept_count = (
+        facts.kept_proposal_count - facts.defined_criterion_count
+    )
+    if undefined_kept_count > 0:
+        return (
+            WorkspacePhase.DEFINE,
+            WorkspaceAction.DEFINE_CRITERIA,
+            "Define acceptance criteria for {0} kept proposal{1}.".format(
+                undefined_kept_count,
+                "" if undefined_kept_count == 1 else "s",
+            ),
+        )
+
     if facts.contract_status in {ContractStatus.DRAFT, ContractStatus.IN_REVIEW}:
         return (
             WorkspacePhase.DEFINE,
@@ -689,6 +715,20 @@ def _derive_action(
             WorkspacePhase.DEFINE,
             WorkspaceAction.PREPARE_AGREEMENT,
             "Prepare the customer-visible agreement.",
+        )
+
+    if facts.defined_criterion_count > 0:
+        return (
+            WorkspacePhase.DEFINE,
+            WorkspaceAction.PREPARE_AGREEMENT,
+            "Prepare an agreement from {0} defined acceptance {1}.".format(
+                facts.defined_criterion_count,
+                (
+                    "criterion"
+                    if facts.defined_criterion_count == 1
+                    else "criteria"
+                ),
+            ),
         )
 
     if facts.source_count > 0:

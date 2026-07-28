@@ -313,9 +313,9 @@ def test_workspace_advances_after_all_source_proposals_are_triaged(
         poc for poc in after["pocs"] if poc["poc_id"] == draft.poc_id
     )
     assert projected_before["next_action_code"] == "REVIEW_PROPOSALS"
-    assert projected_after["next_action_code"] == "PREPARE_AGREEMENT"
+    assert projected_after["next_action_code"] == "DEFINE_CRITERIA"
     assert projected_after["next_human_action"] == (
-        "Define an executable requirement from the reviewed source."
+        "Define acceptance criteria for 1 kept proposal."
     )
     assert projected_after["active_contract_id"] is None
 
