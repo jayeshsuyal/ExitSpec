@@ -76,6 +76,8 @@ idempotency keys never enter measurement records or the customer Evidence Pack.
 The first-token definition is the first non-empty
 `choices[].delta.content` event. A valid `[DONE]` event terminates measurement;
 the client does not wait for the server to close a persistent SSE connection.
+One monotonic absolute timeout covers connection setup, request write, response
+headers, and the streamed body; later phases receive only the remaining time.
 
 The current composite criterion is:
 

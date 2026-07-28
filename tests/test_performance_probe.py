@@ -4,10 +4,12 @@ import json
 import threading
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+import exitspec.performance_probe as performance_probe_module
 from exitspec.performance_probe import (
     OpenAIHTTPTransport,
     ProbeConfig,
@@ -578,6 +580,47 @@ class FakeConnectionFactory:
         return self.connection
 
 
+class ManualMonotonic:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
+class FakeSocket:
+    def __init__(self) -> None:
+        self.timeouts: list[float] = []
+
+    def settimeout(self, timeout: float) -> None:
+        self.timeouts.append(timeout)
+
+
+class DeadlineHTTPConnection(FakeHTTPConnection):
+    def __init__(
+        self,
+        response: FakeHTTPResponse,
+        clock: ManualMonotonic,
+    ) -> None:
+        super().__init__(response)
+        self.clock = clock
+        self.sock = FakeSocket()
+
+    def connect(self) -> None:
+        self.clock.advance(2)
+
+    def request(self, *args, **kwargs) -> None:
+        super().request(*args, **kwargs)
+        self.clock.advance(2)
+
+    def getresponse(self) -> FakeHTTPResponse:
+        self.clock.advance(2)
+        return super().getresponse()
+
+
 def test_stdlib_transport_posts_streaming_body_without_following_redirects():
     response = FakeHTTPResponse()
     connection = FakeHTTPConnection(response)
@@ -605,6 +648,42 @@ def test_stdlib_transport_posts_streaming_body_without_following_redirects():
     request_body = json.loads(request_options["body"])
     assert request_body["stream"] is True
     assert request_body["messages"][0]["content"] == SECRET_PROMPT
+    assert response.close_calls == 1
+    assert connection.close_calls == 1
+
+
+def test_stdlib_transport_enforces_one_deadline_across_network_phases(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    clock = ManualMonotonic()
+    response = FakeHTTPResponse()
+    connection = DeadlineHTTPConnection(response, clock)
+    factory = FakeConnectionFactory(connection)
+    transport = OpenAIHTTPTransport._for_testing(
+        API_KEY,
+        credential_endpoint=REMOTE_ENDPOINT,
+        connection_factory=factory,
+    )
+    monkeypatch.setattr(
+        performance_probe_module,
+        "time",
+        SimpleNamespace(monotonic=clock),
+    )
+
+    with pytest.raises(TimeoutError):
+        transport.send(
+            ProbeRequest(
+                request_id="absolute-deadline",
+                endpoint=REMOTE_ENDPOINT,
+                json_body={"stream": True},
+                timeout_seconds=5,
+            )
+        )
+
+    assert factory.calls == [
+        (("inference.example.test", 443), {"timeout": 5})
+    ]
+    assert connection.sock.timeouts == [3.0, 1.0]
     assert response.close_calls == 1
     assert connection.close_calls == 1
 
