@@ -1,0 +1,4 @@
+{"id":"latency-001","content":"In one sentence, explain why bounded retries matter in a production API."}
+{"id":"latency-002","content":"Return a JSON object with keys status and reason for a healthy synthetic service."}
+{"id":"latency-003","content":"Summarize the difference between throughput and latency in two short bullets."}
+{"id":"latency-004","content":"Name three measurements needed to evaluate a streaming inference endpoint."}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -197,6 +197,76 @@ class Criterion(FrozenExitSpecModel):
         return self
 
 
+class TTFTP95Rule(FrozenExitSpecModel):
+    """The required client-observed time-to-first-token acceptance rule."""
+
+    metric: Literal["time_to_first_token"]
+    aggregation: Literal["p95"]
+    unit: Literal["milliseconds"]
+    operator: Literal["lt", "lte"]
+    threshold: float = Field(gt=0.0, le=60_000.0, allow_inf_nan=False)
+    method: Literal["nearest_rank"]
+    minimum_successful_samples: int = Field(gt=0, le=1_000)
+    must_pass: Literal[True]
+
+
+class ErrorRateRule(FrozenExitSpecModel):
+    """The required attempted-request error-rate acceptance rule."""
+
+    metric: Literal["error_rate"]
+    aggregation: Literal["rate"]
+    unit: Literal["proportion"]
+    operator: Literal["lt", "lte"]
+    threshold: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    method: Literal["failed_attempts_over_total_attempts"]
+    minimum_attempts: int = Field(gt=0, le=1_000)
+    must_pass: Literal[True]
+
+    @model_validator(mode="after")
+    def reject_impossible_strict_zero_threshold(self) -> "ErrorRateRule":
+        if self.operator == "lt" and self.threshold == 0.0:
+            raise ValueError("A strict error-rate threshold below zero is impossible.")
+        return self
+
+
+class InferencePerformanceCriterion(FrozenExitSpecModel):
+    """One must-have criterion composed of non-compensating performance rules."""
+
+    criterion_type: Literal["inference_performance_v1"]
+    id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
+    title: str = Field(min_length=1)
+    must_have: Literal[True] = True
+    source: Optional[SourceReference] = None
+    human_added: bool = False
+    normalized_claim: str = Field(min_length=1)
+    ttft_p95: TTFTP95Rule
+    error_rate: ErrorRateRule
+    workload_slice: str = Field(min_length=1)
+    adapter: str = Field(min_length=1)
+    adapter_version: str = Field(min_length=1)
+    owner: str = Field(min_length=1)
+    evidence_policy: str = Field(min_length=1)
+    approved: bool = False
+
+    @model_validator(mode="after")
+    def require_traceable_origin(self) -> "InferencePerformanceCriterion":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A criterion needs a source reference or must be explicitly human-added."
+            )
+        if (
+            self.ttft_p95.minimum_successful_samples
+            > self.error_rate.minimum_attempts
+        ):
+            raise ValueError(
+                "TTFT successful samples cannot exceed total attempted samples."
+            )
+        return self
+
+
+ContractCriterion = Union[Criterion, InferencePerformanceCriterion]
+
+
 class CriterionReview(ExitSpecModel):
     """An explicit human decision on a proposed criterion."""
 
@@ -377,7 +447,7 @@ class POCContract(FrozenExitSpecModel):
     use_case: str = Field(min_length=1)
     target_system: TargetSystem
     workload: WorkloadReference
-    criteria: Tuple[Criterion, ...] = Field(min_length=1)
+    criteria: Tuple[ContractCriterion, ...] = Field(min_length=1)
     owners: Tuple[str, ...] = Field(min_length=1)
     non_goals: Tuple[str, ...] = Field(default_factory=tuple)
     evidence_retention_policy: str = Field(min_length=1)
@@ -391,8 +461,8 @@ class POCContract(FrozenExitSpecModel):
     @field_validator("criteria")
     @classmethod
     def require_unique_criterion_ids(
-        cls, criteria: Tuple[Criterion, ...]
-    ) -> Tuple[Criterion, ...]:
+        cls, criteria: Tuple[ContractCriterion, ...]
+    ) -> Tuple[ContractCriterion, ...]:
         ids = [criterion.id for criterion in criteria]
         if len(ids) != len(set(ids)):
             raise ValueError("Criterion IDs must be unique within a contract version.")
