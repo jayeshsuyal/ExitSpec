@@ -1,0 +1,419 @@
+{
+  "schema_version": "1.0",
+  "evidence_id": "exitspec-wave-2-synthetic-email-implementation",
+  "evidence_version": "1.0.0",
+  "resource_namespace": "post_implementation_evidence",
+  "recorded_on": "2026-07-27",
+  "status": "IMPLEMENTED_WITH_SYNTHETIC_EVIDENCE",
+  "implementation": {
+    "commit": "5b4c837ad385d9dc5105783a4a7afcf013bd2489",
+    "scope": "employee-selected, manifest-approved synthetic RFC822 fixtures on the local loopback product",
+    "external_provider_required": false,
+    "frozen_contracts_mutated": false
+  },
+  "contract_baseline": [
+    {
+      "contract_id": "exitspec-wave-2-synthetic-rfc822-intake",
+      "path": "examples/support-agent/email/wave-2-acceptance-v1.json",
+      "packaged_path": "src/exitspec/demo_data/support_agent/email/wave-2-acceptance-v1.json",
+      "sha256": "aa514787eb6b14a93216682d702fc29a32d630eb1a91a16dae6ce0873a268ae2",
+      "status": "FROZEN",
+      "historical_status": {
+        "frozen_before_implementation": true
+      },
+      "mutation_policy": "immutable historical contract"
+    },
+    {
+      "contract_id": "wave2-source-web-v1",
+      "path": "examples/support-agent/email/wave-2-source-web-v1.json",
+      "packaged_path": "src/exitspec/demo_data/support_agent/email/wave-2-source-web-v1.json",
+      "sha256": "f89825510155b1d579814da0f6e3a639c1b03d3111deba170556654eaca35ffd",
+      "status": "FROZEN",
+      "historical_status": {
+        "contract_only": true,
+        "fixture_catalog_endpoint_implemented": false,
+        "source_import_endpoint_implemented": false,
+        "email_intake_ui_implemented": false,
+        "existing_review_confirmation_freeze_prove_flow_implemented": true,
+        "implementation_must_not_be_inferred_from_this_contract": true
+      },
+      "mutation_policy": "immutable historical contract"
+    }
+  ],
+  "closed_loop_authority": [
+    {
+      "stage": "email_source",
+      "authority": "propose redacted source-linked facts only",
+      "cannot": "approve, confirm, freeze, measure, assign a verdict, or authorize business action"
+    },
+    {
+      "stage": "employee_review",
+      "authority": "approve, reject, or define a supported proposal",
+      "cannot": "confirm for the customer or create evidence"
+    },
+    {
+      "stage": "customer_confirmation",
+      "authority": "confirm the exact visible contract version or request changes",
+      "cannot": "freeze, measure, assign a verdict, or authorize production"
+    },
+    {
+      "stage": "frozen_agreement",
+      "authority": "bind the immutable rule and identity used by measurement",
+      "cannot": "manufacture measurement facts or business authorization"
+    },
+    {
+      "stage": "measurement",
+      "authority": "produce typed facts and evidence artifacts for the frozen rule",
+      "cannot": "change the agreement or assign PASS"
+    },
+    {
+      "stage": "verdict",
+      "authority": "deterministically apply the frozen rule to sufficient verified evidence",
+      "cannot": "authorize deployment, spend, procurement, or production traffic"
+    },
+    {
+      "stage": "business_authorization",
+      "authority": "remains a separate human and organizational decision outside ExitSpec",
+      "cannot": "be inferred from a POC verdict"
+    }
+  ],
+  "implementation_claims": [
+    {
+      "claim_id": "rfc822_source_adapter",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Approved synthetic RFC822 fixtures are validated, normalized, redacted, and converted into source-linked NEEDS_REVIEW candidates without raw-source escape.",
+      "code_refs": [
+        "src/exitspec/adapters/rfc822.py",
+        "src/exitspec/adapters/rfc822_candidates.py",
+        "src/exitspec/adapters/rfc822_policy.py"
+      ],
+      "test_refs": [
+        "tests/test_rfc822_adapter_contract.py::test_all_physical_fixtures_prepare_or_refuse_exactly",
+        "tests/test_rfc822_adapter_contract.py::test_authority_language_never_changes_candidate_state",
+        "tests/test_rfc822_adapter_security.py::test_private_and_raw_values_do_not_escape_models_errors_or_logs"
+      ]
+    },
+    {
+      "claim_id": "atomic_source_store",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Source version allocation, replay detection, cumulative message state, and current-version candidates publish atomically.",
+      "code_refs": [
+        "src/exitspec/source_models.py",
+        "src/exitspec/source_store.py"
+      ],
+      "test_refs": [
+        "tests/test_source_store.py::test_root_and_follow_up_match_manifest_vectors",
+        "tests/test_source_store.py::test_replay_after_later_version_returns_original_without_writes",
+        "tests/test_source_store.py::test_manifest_concurrent_root_duplicate_oracle_for_both_commit_orders"
+      ]
+    },
+    {
+      "claim_id": "fixture_catalog_endpoint",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "GET /api/source/fixtures returns only the two guided manifest-approved synthetic samples through the frozen local transport boundary.",
+      "code_refs": [
+        "src/exitspec/source_web.py",
+        "src/exitspec/web.py"
+      ],
+      "test_refs": [
+        "tests/test_source_web_api.py::test_catalog_and_import_are_live_before_the_generic_router",
+        "tests/test_wave2_source_web_contract.py::test_guided_fixture_catalog_is_exact_and_matches_source_manifest_counts"
+      ]
+    },
+    {
+      "claim_id": "strict_source_import_endpoint",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "POST /api/source/import enforces the frozen ordered transport gates, exact JSON shape, narrow response, and zero mutation on refusal.",
+      "code_refs": [
+        "src/exitspec/source_web.py",
+        "src/exitspec/web.py"
+      ],
+      "test_refs": [
+        "tests/test_source_web_transport.py::test_each_transport_fault_has_the_frozen_status_and_code",
+        "tests/test_source_web_transport.py::test_59_method_compatible_pairs_have_metamorphic_healing_proof",
+        "tests/test_source_web_transport.py::test_seven_method_exclusive_pairs_are_abstract_not_simultaneous_wire_claims",
+        "tests/test_source_web_projection.py::test_import_response_is_narrow_while_state_remains_full_workflow"
+      ]
+    },
+    {
+      "claim_id": "guided_email_ui",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "/app?intake=email exposes one compact sample-import task and bridges safe source proposals into the existing human review controls; ordinary /app remains the default and does not expose email intake.",
+      "code_refs": [
+        "src/exitspec/static/app.js",
+        "src/exitspec/static/index.html",
+        "src/exitspec/static/styles.css"
+      ],
+      "test_refs": [
+        "tests/test_source_ui_contract.py::test_email_mode_is_query_gated_and_ordinary_app_remains_the_default",
+        "tests/test_source_ui_contract.py::test_catalog_and_import_use_only_the_frozen_endpoints_and_request_shape",
+        "tests/test_source_ui_assets.py::test_guided_source_layout_is_compact_bounded_and_responsive"
+      ]
+    },
+    {
+      "claim_id": "full_agreement_to_evidence_loop",
+      "status": "EXECUTABLE_TEST_AND_BROWSER_OBSERVATION",
+      "claim": "The guided source path reaches explicit employee review, exact customer confirmation, freeze, deterministic proof, and an Evidence Pack without transferring authority to email.",
+      "code_refs": [
+        "src/exitspec/web.py",
+        "src/exitspec/static/app.js",
+        "src/exitspec/static/review.js"
+      ],
+      "test_refs": [
+        "tests/test_source_web_api.py::test_guided_source_runs_existing_review_confirm_freeze_prove_loop",
+        "tests/test_web.py::test_customer_confirmed_frozen_contract_then_proves_a_pass"
+      ]
+    },
+    {
+      "claim_id": "powerless_authority_attack",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_OBSERVATION",
+      "claim": "Approval, freeze, and PASS language inside the authority-attack email creates no approval, confirmation, contract, proof, provider call, measurement, or verdict.",
+      "code_refs": [
+        "src/exitspec/source_web.py",
+        "src/exitspec/static/app.js"
+      ],
+      "test_refs": [
+        "tests/test_source_web_authority.py::test_authority_attack_source_has_zero_approval_or_execution_power",
+        "tests/test_source_ui_contract.py::test_email_import_cannot_make_proof_action_available_by_itself"
+      ]
+    },
+    {
+      "claim_id": "replay_reset_and_race_safety",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_OBSERVATION",
+      "claim": "Exact replay is idempotent, reset clears the source transaction, and source/review/customer races cannot publish hybrid state.",
+      "code_refs": [
+        "src/exitspec/source_store.py",
+        "src/exitspec/source_web.py",
+        "src/exitspec/web.py"
+      ],
+      "test_refs": [
+        "tests/test_source_web_api.py::test_same_source_replay_preserves_zero_partial_and_full_reviews",
+        "tests/test_source_web_api.py::test_reset_import_race_never_leaves_hybrid_state",
+        "tests/test_source_web_api.py::test_review_replay_race_preserves_one_review_and_one_store_write",
+        "tests/test_source_web_api.py::test_customer_review_import_race_is_serialized_without_hybrid_state"
+      ]
+    },
+    {
+      "claim_id": "bounded_viewport_workbench",
+      "status": "CONTRACT_TESTED_AND_BROWSER_OBSERVED",
+      "claim": "Representative 1280x720 employee task states have no body-level scroll, while narrow layouts avoid horizontal overflow and use bounded panel scrolling.",
+      "code_refs": [
+        "src/exitspec/static/index.html",
+        "src/exitspec/static/styles.css",
+        "src/exitspec/static/app.js"
+      ],
+      "test_refs": [
+        "tests/test_source_ui_assets.py::test_guided_source_layout_is_compact_bounded_and_responsive",
+        "tests/test_web_assets.py::test_desktop_workbench_prevents_workflow_length_body_scroll"
+      ]
+    },
+    {
+      "claim_id": "evidence_pack_handoff",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_OBSERVATION",
+      "claim": "Reference A produces a separate customer-facing PASS Evidence Pack with six artifact links, collapsed audit records, limits, next action, and no authorization claim.",
+      "code_refs": [
+        "src/exitspec/reporting.py",
+        "src/exitspec/web.py",
+        "src/exitspec/static/app.js"
+      ],
+      "test_refs": [
+        "tests/test_reporting.py::test_acceptance_evidence_pack_makes_the_decision_readable_at_a_glance",
+        "tests/test_reporting.py::test_pack_links_every_evidence_artifact_with_relative_urls",
+        "tests/test_reporting.py::test_pack_keeps_seven_audit_sections_collapsed_by_default"
+      ]
+    },
+    {
+      "claim_id": "packaging_and_ci",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Frozen email inputs, source web contract, and browser assets are packaged for installed-wheel execution and protected by the repository engineering gate.",
+      "code_refs": [
+        "pyproject.toml",
+        "src/exitspec/demo_data/__init__.py",
+        "scripts/engineering_gate.sh"
+      ],
+      "test_refs": [
+        "tests/test_distribution.py::test_bundled_email_inputs_exactly_match_the_frozen_authoritative_examples",
+        "tests/test_distribution.py::test_wheel_runs_demo_and_materializes_session_data_outside_checkout",
+        "tests/test_wave2_source_web_contract.py::test_authoritative_and_packaged_contract_are_byte_identical_and_pinned"
+      ]
+    }
+  ],
+  "browser_observation": {
+    "observation_kind": "real_local_browser_manual_acceptance",
+    "observed_on": "2026-07-27",
+    "ci_automation": false,
+    "stored_screenshot_claimed": false,
+    "persisted_browser_artifact_claimed": false,
+    "environment": {
+      "url": "http://127.0.0.1:8876/app?intake=email",
+      "implementation_commit": "5b4c837ad385d9dc5105783a4a7afcf013bd2489",
+      "server": "local loopback, clean in-memory synthetic session",
+      "external_provider_calls": 0
+    },
+    "guided_steps_observed": [
+      "email_mode_opened",
+      "catalog_rendered",
+      "thread_root_imported",
+      "first_root_proposal_reviewed",
+      "all_root_proposals_reviewed",
+      "customer_review_created",
+      "customer_confirmed",
+      "confirmed_contract_frozen",
+      "reference_set_a_completed",
+      "evidence_pack_link_rendered"
+    ],
+    "measured_app_states": [
+      {
+        "state": "choose_sample",
+        "viewport_width_css_px": 1280,
+        "viewport_height_css_px": 720,
+        "page_width_css_px": 1280,
+        "page_height_css_px": 720,
+        "body_level_scroll": false
+      },
+      {
+        "state": "review_first_proposal",
+        "viewport_width_css_px": 1280,
+        "viewport_height_css_px": 720,
+        "page_width_css_px": 1280,
+        "page_height_css_px": 720,
+        "body_level_scroll": false
+      },
+      {
+        "state": "draft_ready",
+        "viewport_width_css_px": 1280,
+        "viewport_height_css_px": 720,
+        "page_width_css_px": 1280,
+        "page_height_css_px": 720,
+        "body_level_scroll": false
+      },
+      {
+        "state": "freeze_ready",
+        "viewport_width_css_px": 1280,
+        "viewport_height_css_px": 720,
+        "page_width_css_px": 1280,
+        "page_height_css_px": 720,
+        "body_level_scroll": false
+      },
+      {
+        "state": "proof_ready",
+        "viewport_width_css_px": 1280,
+        "viewport_height_css_px": 720,
+        "page_width_css_px": 1280,
+        "page_height_css_px": 720,
+        "body_level_scroll": false
+      },
+      {
+        "state": "evidence_pass",
+        "viewport_width_css_px": 1280,
+        "viewport_height_css_px": 720,
+        "page_width_css_px": 1280,
+        "page_height_css_px": 720,
+        "body_level_scroll": false
+      }
+    ],
+    "document_surfaces": {
+      "customer_review": {
+        "viewport_height_css_px": 720,
+        "page_height_css_px": 1549,
+        "document_scroll_expected": true
+      },
+      "evidence_pack": {
+        "viewport_height_css_px": 720,
+        "page_height_css_px": 934,
+        "document_scroll_expected": true,
+        "artifact_link_count": 6,
+        "authorization_boundary_visible": true
+      }
+    },
+    "reference_a_result": {
+      "verdict": "PASS",
+      "required_rate": "0.9500",
+      "success_count": 197,
+      "sample_count": 200,
+      "observed_rate": "0.9850",
+      "wilson_lower_bound": "0.9568"
+    },
+    "authority_attack": {
+      "fixture_case_id": "authority-attack",
+      "candidate_count": 1,
+      "candidate_state": "NEEDS_REVIEW",
+      "approved_criterion_count": 0,
+      "contract_created": false,
+      "ready_to_freeze": false,
+      "ready_to_prove": false,
+      "proof_pack_created": false,
+      "provider_calls": 0,
+      "visible_authority_actions": []
+    },
+    "duplicate_replay": {
+      "outcome_code": "duplicate_replay",
+      "source_version": 1,
+      "new_source_version_count": 0,
+      "new_candidate_count": 0,
+      "existing_reviews_preserved": true
+    },
+    "responsive_observation": {
+      "viewport_width_css_px": 768,
+      "viewport_height_css_px": 900,
+      "page_width_css_px": 768,
+      "horizontal_overflow": false,
+      "bounded_scroll_containers": [
+        "source-drawer",
+        "source-card"
+      ]
+    },
+    "browser_console_errors": {
+      "owner_workbench": 0,
+      "customer_review": 0,
+      "evidence_pack": 0,
+      "ordinary_workbench": 0
+    }
+  },
+  "limitations": [
+    {
+      "limitation_id": "live_email_connectivity",
+      "statement": "No Gmail, Outlook, IMAP, Microsoft Graph, mailbox OAuth, webhook, send, reply, forward, or remote mailbox access exists."
+    },
+    {
+      "limitation_id": "arbitrary_email_or_rfc822_upload",
+      "statement": "The product accepts no arbitrary email upload, pasted RFC822, or caller-supplied path."
+    },
+    {
+      "limitation_id": "attachment_browsing_or_execution",
+      "statement": "The bounded text-attachment fixture does not authorize attachment browsing or execution, archive expansion, PDF parsing, or OCR."
+    },
+    {
+      "limitation_id": "real_customer_email",
+      "statement": "Only manifest-approved synthetic fixtures are authorized; no real customer email or customer data is supported."
+    },
+    {
+      "limitation_id": "speech_to_text_or_audio",
+      "statement": "No speech-to-text, meeting capture, raw audio, Zoom, or Google Meet ingestion exists."
+    },
+    {
+      "limitation_id": "hosted_authenticated_identity",
+      "statement": "Customer review identity and capabilities remain local, synthetic, unauthenticated, and process-bound."
+    },
+    {
+      "limitation_id": "durable_multi_tenant_storage",
+      "statement": "There is no hosted multi-tenant authorization or durable source, confirmation, or session store for this slice."
+    },
+    {
+      "limitation_id": "successful_live_fireworks_smoke",
+      "statement": "The optional Fireworks path remains disabled by default and no funded successful real-account smoke is claimed."
+    },
+    {
+      "limitation_id": "live_hosted_measurement",
+      "statement": "Reference A, B, and C are deterministic local fixtures, not live hosted-endpoint measurements."
+    },
+    {
+      "limitation_id": "arbitrary_metric_execution",
+      "statement": "Only the existing exact tool-selection criterion is executable; latency and other unsupported requests remain context."
+    },
+    {
+      "limitation_id": "production_authorization",
+      "statement": "PASS does not authorize deployment, rollback, spend, procurement, security approval, or production traffic."
+    }
+  ]
+}
