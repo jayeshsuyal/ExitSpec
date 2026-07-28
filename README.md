@@ -134,11 +134,12 @@ frozen + customer-confirmed contract
     -> independent reload and recalculation
 ```
 
-The v1 example uses 100 measured attempts at concurrency four. It requires
-client-observed nearest-rank p95 TTFT below 500 ms and measured error rate below
-1%. At exactly 100 attempts, zero errors passes that rule and one error fails.
-TTFT includes network, proxy, queueing, and inference time; ExitSpec does not
-label it GPU latency.
+The current v2 example uses 100 measured attempts with configured client
+concurrency set to four. It requires client-observed nearest-rank p95 TTFT below
+500 ms and measured error rate below 1%. At exactly 100 attempts, zero errors
+passes that rule and one error fails. It does not claim four-way request
+overlap. TTFT includes network, proxy, queueing, and inference time; ExitSpec
+does not label it GPU latency.
 
 This path is intentionally CLI-only until its evidence projection is added to
 the existing `/app` workflow. It does not change the support-agent browser demo.
@@ -201,10 +202,10 @@ approved endpoint at `127.0.0.1:8000`:
 
 ```bash
 exitspec performance \
-  --contract examples/inference-performance/contracts/vllm-ttft-v1.frozen.json \
-  --confirmation examples/inference-performance/contracts/vllm-ttft-v1.confirmation.json \
+  --contract examples/inference-performance/contracts/vllm-ttft-v2.frozen.json \
+  --confirmation examples/inference-performance/contracts/vllm-ttft-v2.confirmation.json \
   --bundle-root . \
-  --idempotency-key inference-latency-demo-run-v1
+  --idempotency-key inference-latency-demo-run-v2
 ```
 
 Use `--api-key-env NAME` for a remote HTTPS endpoint credential; API keys are

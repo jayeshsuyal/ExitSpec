@@ -1,7 +1,8 @@
 # Inference-performance post-merge bug audit
 
 Date: 2026-07-28
-Scope: the performance evidence train merged through PRs #46 and #47.
+Scope: the performance evidence train merged through PRs #46–#51, plus the
+post-fix configured-concurrency contract revision.
 
 ## Release decision
 
@@ -44,6 +45,10 @@ read-only without confusing run state, agreement state, and evidence verdict.
 8. **The request timeout could reset across network phases.**
    The transport now carries one monotonic absolute deadline across connection,
    request write, response headers, and every streamed body read.
+9. **The v1 claim could be read as achieved four-way overlap.**
+   Frozen v1 remains immutable history. The current v2 example explicitly
+   claims configured client concurrency set to four and states that the run
+   does not prove achieved four-way request overlap.
 
 ## Required before a paid remote-provider demo
 
@@ -63,8 +68,9 @@ read-only without confusing run state, agreement state, and evidence verdict.
 - Run against a real vLLM endpoint.
 - Pin and capture model revision, vLLM version, launch flags, GPU model,
   driver/CUDA versions, and relevant environment configuration.
-- Describe the workload as **configured concurrency** unless achieved overlap
-  is persisted and independently verifiable.
+- If a future claim requires achieved overlap, persist request timing offsets
+  and independently verify the required number of simultaneous in-flight
+  attempts. The current v2 example claims configured concurrency only.
 - Preserve the current wording that TTFT is client-observed and includes
   network, proxy, queueing, and inference time.
 

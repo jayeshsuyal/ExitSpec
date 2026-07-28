@@ -47,7 +47,7 @@ from exitspec.runner import load_contract
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = (
     PROJECT_ROOT
-    / "examples/inference-performance/contracts/vllm-ttft-v1.yaml"
+    / "examples/inference-performance/contracts/vllm-ttft-v2.yaml"
 )
 WORKLOAD_PATH = (
     PROJECT_ROOT
