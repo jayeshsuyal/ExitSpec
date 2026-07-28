@@ -5,6 +5,9 @@
   const FILTERS = ["Active", "Needs attention", "Completed"];
   let activeFilter = "Active";
   let requestVersion = 0;
+  let selectedPocId = null;
+  let visiblePocs = [];
+  let nextUpPocId = null;
 
   const $ = (selector) => document.querySelector(selector);
 
@@ -65,61 +68,156 @@
     };
   }
 
-  function renderContinue(poc) {
+  function agreementSummary(poc) {
+    if (!poc.active_contract_id) {
+      return {
+        value: "Not created",
+        detail: "Agreement is still being defined.",
+      };
+    }
+    return {
+      value: poc.active_contract_version
+        ? `Contract v${poc.active_contract_version}`
+        : "Contract recorded",
+      detail: poc.active_contract_id,
+    };
+  }
+
+  function evidenceSummary(poc) {
+    const summary = poc.latest_evidence_summary || {};
+    return {
+      status: summary.status || "NOT_RUN",
+      detail: summary.reason || "No Evidence Pack has been recorded.",
+    };
+  }
+
+  function detailRow(label, value) {
+    const row = element("div", "preview-meta-row");
+    row.append(
+      element("dt", "", label),
+      element("dd", "", value)
+    );
+    return row;
+  }
+
+  function renderPreview(poc) {
     const card = $("#continue-card");
     card.replaceChildren();
     card.setAttribute("aria-busy", "false");
 
     if (!poc) {
-      const copy = element(
-        "p",
-        "loading-copy",
-        "No active POC is waiting for work."
+      const empty = element("div", "preview-empty");
+      empty.append(
+        element("strong", "", "No POC selected"),
+        element(
+          "p",
+          "",
+          "Choose a POC from the current work queue to review its next decision."
+        )
       );
-      card.append(copy);
+      card.append(empty);
       return;
     }
 
-    const identity = element("div", "continue-identity");
-    const name = element("h3", "", poc.display_name);
+    const action = nextAction(poc);
+    const agreement = agreementSummary(poc);
+    const evidence = evidenceSummary(poc);
+
+    const identity = element("header", "preview-identity");
+    const identityCopy = element("div");
+    const priority = element(
+      "p",
+      "preview-priority",
+      poc.poc_id === nextUpPocId ? "Next up" : "Selected"
+    );
+    const title = element("h3", "", poc.display_name);
     const customer = element(
       "p",
-      "continue-customer",
+      "preview-customer",
       `${poc.customer_label} · ${poc.source_summary.label}`
     );
-    identity.append(name, customer);
+    identityCopy.append(priority, title, customer);
+    const phase = element("span", "preview-phase", poc.derived_phase);
+    phase.dataset.phase = poc.derived_phase;
+    identity.append(identityCopy, phase);
 
-    const action = nextAction(poc);
-    const actionBlock = element("div", "continue-action");
-    const actionLabel = element(
-      "span",
-      "",
-      action.blocked ? "Blocker" : `${poc.derived_phase} · Next action`
+    const current = element(
+      "section",
+      `preview-action${action.blocked ? " is-blocked" : ""}`
     );
-    const actionText = element("p", "", action.text);
-    actionBlock.append(actionLabel, actionText);
+    current.append(
+      element("p", "preview-label", action.blocked ? "Blocker" : "Current action"),
+      element("strong", "", action.text)
+    );
 
+    const boundaries = element("div", "decision-boundaries");
+
+    const agreementBlock = element("section", "boundary-card agreement-boundary");
+    agreementBlock.append(
+      element("p", "preview-label", "Agreement"),
+      element("strong", "", agreement.value),
+      element("small", "", agreement.detail)
+    );
+
+    const evidenceBlock = element("section", "boundary-card evidence-boundary");
+    evidenceBlock.dataset.evidence = evidence.status;
+    evidenceBlock.append(
+      element("p", "preview-label", "Evidence"),
+      element("strong", "", evidenceLabel(evidence.status)),
+      element("small", "", evidence.detail)
+    );
+    boundaries.append(agreementBlock, evidenceBlock);
+
+    const meta = element("dl", "preview-meta");
+    meta.append(
+      detailRow("Owner", compactOwner(poc.owner)),
+      detailRow("Updated", updatedLabel(poc.updated_at))
+    );
+
+    const footer = element("footer", "preview-footer");
     const link = element("a", "continue-link", "Open POC");
     link.href = workbenchUrl(poc.poc_id);
     link.setAttribute(
       "aria-label",
       `Open ${poc.display_name}: ${action.text}`
     );
+    footer.append(link);
 
-    card.append(identity, actionBlock, link);
+    card.append(identity, current, boundaries, meta, footer);
+  }
+
+  function updateSelectedRow() {
+    document.querySelectorAll(".poc-row").forEach((button) => {
+      const selected = button.dataset.pocId === selectedPocId;
+      button.setAttribute("aria-pressed", String(selected));
+      button.closest("li")?.classList.toggle("is-selected", selected);
+    });
+  }
+
+  function selectPoc(pocId) {
+    const selected = visiblePocs.find((poc) => poc.poc_id === pocId);
+    if (!selected) {
+      return;
+    }
+    selectedPocId = selected.poc_id;
+    updateSelectedRow();
+    renderPreview(selected);
   }
 
   function renderRow(poc) {
-    const item = element("li");
-    const link = element("a", "poc-row");
+    const item = element("li", "poc-list-item");
+    const button = element("button", "poc-row");
+    button.type = "button";
+    button.dataset.pocId = poc.poc_id;
+    button.setAttribute("aria-pressed", "false");
+
     const action = nextAction(poc);
-    link.href = workbenchUrl(poc.poc_id);
-    link.setAttribute(
+    button.setAttribute(
       "aria-label",
-      `${poc.display_name}, ${poc.customer_label} — ${action.text}`
+      `Select ${poc.display_name}, ${poc.customer_label}: ${action.text}`
     );
 
-    const name = element("div", "poc-name");
+    const name = element("span", "poc-name");
     name.append(
       element("strong", "", poc.display_name),
       element("span", "", `${poc.customer_label} · ${poc.source_summary.label}`)
@@ -128,63 +226,72 @@
     const phase = element("span", "phase-value", poc.derived_phase);
     phase.dataset.phase = poc.derived_phase;
 
-    const actionValue = element(
-      "span",
-      `next-action-value${action.blocked ? " is-blocked" : ""}`,
-      action.text
-    );
-    const owner = element("span", "owner-value", compactOwner(poc.owner));
-
     const evidenceStatus = poc.latest_evidence_summary?.status || "NOT_RUN";
-    const rowMeta = element("span", "row-meta");
     const evidence = element(
       "span",
       "evidence-value",
       evidenceLabel(evidenceStatus)
     );
     evidence.dataset.evidence = evidenceStatus;
-    const updated = element(
-      "span",
-      "updated-value",
-      updatedLabel(poc.updated_at)
-    );
-    rowMeta.append(evidence, updated);
 
-    link.append(name, phase, actionValue, owner, rowMeta);
-    item.append(link);
+    const actionValue = element(
+      "span",
+      `row-next-action${action.blocked ? " is-blocked" : ""}`,
+      action.text
+    );
+
+    button.append(name, phase, evidence, actionValue);
+    button.addEventListener("click", () => selectPoc(poc.poc_id));
+    item.append(button);
     return item;
+  }
+
+  function prioritizedPocs(pocs, preferredId) {
+    const preferred = pocs.find((poc) => poc.poc_id === preferredId);
+    if (!preferred) {
+      return pocs;
+    }
+    return [preferred, ...pocs.filter((poc) => poc.poc_id !== preferredId)];
   }
 
   function renderWorkspace(workspace) {
     const pocs = Array.isArray(workspace.pocs) ? workspace.pocs : [];
-    const currentPocId = workspace.continue_working?.poc_id;
-    const listedPocs = activeFilter === "Active" && currentPocId
-      ? pocs.filter((poc) => poc.poc_id !== currentPocId)
-      : pocs;
+    nextUpPocId = workspace.continue_working?.poc_id || null;
+    visiblePocs = prioritizedPocs(pocs, nextUpPocId);
+
     const list = $("#poc-list");
     const empty = $("#empty-state");
     list.replaceChildren();
     list.setAttribute("aria-busy", "false");
-    empty.hidden = listedPocs.length > 0;
-    $("#list-labels").hidden = listedPocs.length === 0;
+    empty.hidden = visiblePocs.length > 0;
+    $("#list-labels").hidden = visiblePocs.length === 0;
 
-    listedPocs.forEach((poc) => list.append(renderRow(poc)));
-    $("#list-summary").textContent = pocs.length === 1
-      ? `1 ${activeFilter.toLowerCase()} POC total`
-      : `${pocs.length} ${activeFilter.toLowerCase()} POCs total`;
-    $("#poc-list-heading").textContent = activeFilter === "Active"
-      ? "Other active POCs"
-      : activeFilter;
-    if (activeFilter === "Active" && pocs.length > 0 && listedPocs.length === 0) {
-      $("#empty-title").textContent = "No other active POCs.";
-      $("#empty-copy").textContent = "Your current work is shown above.";
-      $("#show-active").hidden = true;
-    } else {
-      $("#empty-title").textContent = "No POCs match this view.";
-      $("#empty-copy").textContent = "Choose Active to return to current customer work.";
+    visiblePocs.forEach((poc) => list.append(renderRow(poc)));
+    $("#list-summary").textContent = visiblePocs.length === 1
+      ? `1 ${activeFilter.toLowerCase()} POC`
+      : `${visiblePocs.length} ${activeFilter.toLowerCase()} POCs`;
+
+    if (visiblePocs.length === 0) {
+      selectedPocId = null;
+      $("#empty-title").textContent = activeFilter === "Active"
+        ? "No other active POCs."
+        : "No POCs match this view.";
+      $("#empty-copy").textContent = activeFilter === "Active"
+        ? "There is no current customer work in this local workspace."
+        : "Choose Active to return to current customer work.";
       $("#show-active").hidden = activeFilter === "Active";
+      renderPreview(null);
+      return;
     }
-    renderContinue(workspace.continue_working);
+
+    $("#show-active").hidden = true;
+    const retainedSelection = visiblePocs.find(
+      (poc) => poc.poc_id === selectedPocId
+    );
+    const initialSelection = retainedSelection
+      || visiblePocs.find((poc) => poc.poc_id === nextUpPocId)
+      || visiblePocs[0];
+    selectPoc(initialSelection.poc_id);
   }
 
   function setFilter(filter) {
@@ -204,8 +311,12 @@
   }
 
   function renderUnavailable() {
+    visiblePocs = [];
+    selectedPocId = null;
+    nextUpPocId = null;
     $("#poc-region").hidden = false;
     $("#list-labels").hidden = true;
+
     const card = $("#continue-card");
     card.replaceChildren(
       element(
