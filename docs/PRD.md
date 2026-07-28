@@ -84,9 +84,11 @@ POC
 ```
 
 Email and meetings are source types inside one POC, not separate POC products.
-The target `/app` surface is a bounded POC dashboard with one **New POC**
-action, at most one **Continue working** task, one POC list, and the three
-filters **Active**, **Needs attention**, and **Completed**. The current
+The target `/app` surface is a bounded POC dashboard with at most one **Next
+up** task, one non-duplicative POC list, and the three filters **Active**,
+**Needs attention**, and **Completed**. Unimplemented destinations and actions
+remain absent instead of appearing as disabled product promises. **New POC**
+becomes the persistent primary action when local creation authority lands. The current
 `/app?intake=email` and `/app?mode=recording` entries remain compatibility paths
 until the dashboard and create flow reach parity.
 

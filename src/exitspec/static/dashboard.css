@@ -140,8 +140,7 @@ p {
   padding-left: 26px;
 }
 
-.global-nav a,
-.global-nav span {
+.global-nav a {
   display: inline-flex;
   align-items: center;
   height: 100%;
@@ -154,10 +153,6 @@ p {
 .global-nav a[aria-current="page"] {
   border-bottom: 2px solid var(--orange);
   color: var(--text);
-}
-
-.global-nav span[aria-disabled="true"] {
-  cursor: not-allowed;
 }
 
 .local-identity {
@@ -190,13 +185,6 @@ p {
   padding: 26px 30px 28px;
 }
 
-.page-header {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 28px;
-}
-
 .eyebrow {
   margin-bottom: 5px;
   color: var(--orange);
@@ -220,37 +208,6 @@ p {
   margin-bottom: 0;
   color: var(--muted);
   font-size: 12px;
-}
-
-.new-poc-control {
-  display: grid;
-  justify-items: end;
-  gap: 5px;
-}
-
-.primary-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  border: 1px solid var(--orange);
-  padding: 8px 15px;
-  background: var(--orange);
-  color: var(--canvas);
-  font-size: 12px;
-  font-weight: 820;
-}
-
-.primary-action:disabled {
-  border-color: var(--border-strong);
-  background: var(--raised);
-  color: var(--muted);
-}
-
-.new-poc-control > span {
-  color: var(--muted);
-  font-size: 9px;
 }
 
 .continue-region,
@@ -366,6 +323,9 @@ p {
 .poc-region {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+  align-self: start;
+  width: 100%;
+  max-height: min(330px, 42vh);
   min-height: 0;
   border: 1px solid var(--border);
   background: var(--panel);
@@ -692,28 +652,6 @@ p {
 }
 
 @media (max-width: 520px) {
-  .global-nav span {
-    display: none;
-  }
-
-  .page-header {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .new-poc-control {
-    justify-items: stretch;
-  }
-
-  .primary-action {
-    width: 100%;
-  }
-
-  .new-poc-control > span {
-    text-align: center;
-  }
-
   .section-heading > span {
     display: none;
   }

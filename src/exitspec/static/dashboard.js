@@ -99,11 +99,11 @@
     const actionText = element("p", "", action.text);
     actionBlock.append(actionLabel, actionText);
 
-    const link = element("a", "continue-link", "Continue POC");
+    const link = element("a", "continue-link", "Open POC");
     link.href = workbenchUrl(poc.poc_id);
     link.setAttribute(
       "aria-label",
-      `Continue ${poc.display_name}: ${action.text}`
+      `Open ${poc.display_name}: ${action.text}`
     );
 
     card.append(identity, actionBlock, link);
@@ -157,16 +157,33 @@
 
   function renderWorkspace(workspace) {
     const pocs = Array.isArray(workspace.pocs) ? workspace.pocs : [];
+    const currentPocId = workspace.continue_working?.poc_id;
+    const listedPocs = activeFilter === "Active" && currentPocId
+      ? pocs.filter((poc) => poc.poc_id !== currentPocId)
+      : pocs;
     const list = $("#poc-list");
     const empty = $("#empty-state");
     list.replaceChildren();
     list.setAttribute("aria-busy", "false");
-    empty.hidden = pocs.length > 0;
+    empty.hidden = listedPocs.length > 0;
+    $("#list-labels").hidden = listedPocs.length === 0;
 
-    pocs.forEach((poc) => list.append(renderRow(poc)));
+    listedPocs.forEach((poc) => list.append(renderRow(poc)));
     $("#list-summary").textContent = pocs.length === 1
-      ? `1 ${activeFilter.toLowerCase()} POC`
-      : `${pocs.length} ${activeFilter.toLowerCase()} POCs`;
+      ? `1 ${activeFilter.toLowerCase()} POC total`
+      : `${pocs.length} ${activeFilter.toLowerCase()} POCs total`;
+    $("#poc-list-heading").textContent = activeFilter === "Active"
+      ? "Other active POCs"
+      : activeFilter;
+    if (activeFilter === "Active" && pocs.length > 0 && listedPocs.length === 0) {
+      $("#empty-title").textContent = "No other active POCs.";
+      $("#empty-copy").textContent = "Your current work is shown above.";
+      $("#show-active").hidden = true;
+    } else {
+      $("#empty-title").textContent = "No POCs match this view.";
+      $("#empty-copy").textContent = "Choose Active to return to current customer work.";
+      $("#show-active").hidden = activeFilter === "Active";
+    }
     renderContinue(workspace.continue_working);
   }
 
@@ -187,6 +204,8 @@
   }
 
   function renderUnavailable() {
+    $("#poc-region").hidden = false;
+    $("#list-labels").hidden = true;
     const card = $("#continue-card");
     card.replaceChildren(
       element(

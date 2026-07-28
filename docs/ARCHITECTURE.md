@@ -103,10 +103,12 @@ contract, confirmation, run, and verdict enums. Missing or contradictory facts
 become typed visible blockers and reset the navigation phase to `Define`; the
 projection and dashboard never repair or advance underlying state.
 
-The dashboard has one visibly unavailable **New POC** control, at most one
-continue card, one finite list, and only the accepted Active, Needs attention,
-and Completed filters. POC creation, registry mutation, a second source record,
-durable persistence, and new authority remain excluded.
+The dashboard has no dead destinations or unavailable actions, at most one
+**Next up** card, one finite list that does not repeat the current POC, and only
+the accepted Active, Needs attention, and Completed filters. **New POC** enters
+the shell only when local creation authority exists. POC creation, registry
+mutation, a second source record, durable persistence, and new authority remain
+excluded.
 
 ## Authority boundaries
 

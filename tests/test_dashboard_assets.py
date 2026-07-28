@@ -49,12 +49,11 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
     assert len(parser.ids) == len(set(parser.ids))
     for phrase in (
         "POCs",
-        "New POC",
-        "Continue working",
+        "Customer POCs",
+        "Next up",
         "Active",
         "Needs attention",
         "Completed",
-        "Evidence Packs",
         "Local demo",
     ):
         assert phrase in html
@@ -65,6 +64,9 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
         "Leaderboard",
         "<canvas",
         "gradient",
+        "New POC",
+        "Evidence Packs",
+        "Available in the next build",
     ):
         assert excluded not in html
     assert javascript.count("WORKSPACE_API") >= 2
@@ -100,21 +102,18 @@ def test_dashboard_palette_matches_the_frozen_graphite_orange_contract():
     assert "backdrop-filter" not in css
 
 
-def test_dashboard_has_one_primary_action_and_three_bounded_filters():
+def test_dashboard_has_no_dead_primary_action_and_three_bounded_filters():
     html, _, javascript = _sources()
 
-    assert html.count('class="primary-action"') == 1
-    assert html.count("New POC") == 1
+    assert 'class="primary-action"' not in html
+    assert "New POC" not in html
     assert html.count('data-filter="') == 3
     assert (
         'const FILTERS = ["Active", "Needs attention", "Completed"];'
         in javascript
     )
-    assert 'aria-describedby="new-poc-note"' in html
-    assert "disabled" in html.split('class="primary-action"', 1)[1].split(
-        ">",
-        1,
-    )[0]
+    assert "Open POC" in javascript
+    assert "No other active POCs." in javascript
 
 
 def test_dashboard_desktop_is_fixed_and_narrow_layout_reenables_body_scroll():

@@ -22,9 +22,6 @@
 
         <nav class="global-nav" aria-label="ExitSpec">
           <a href="/app" aria-current="page">POCs</a>
-          <span aria-disabled="true" title="Evidence Pack library is coming next">
-            Evidence Packs
-          </span>
         </nav>
 
         <div class="local-identity">
@@ -36,21 +33,9 @@
       <main class="dashboard-main" id="dashboard-main">
         <header class="page-header">
           <div>
-            <p class="eyebrow">Decision workspace</p>
+            <p class="eyebrow">Customer POCs</p>
             <h1>POCs</h1>
-            <p>Continue the exact customer action that needs you.</p>
-          </div>
-          <div class="new-poc-control">
-            <button
-              class="primary-action"
-              type="button"
-              disabled
-              aria-describedby="new-poc-note"
-            >
-              <span aria-hidden="true">+</span>
-              New POC
-            </button>
-            <span id="new-poc-note">Available in the next build</span>
+            <p>Pick up the customer decision that needs you.</p>
           </div>
         </header>
 
@@ -61,7 +46,7 @@
           aria-live="polite"
         >
           <div class="section-heading">
-            <h2 id="continue-heading">Continue working</h2>
+            <h2 id="continue-heading">Next up</h2>
             <span>Highest-priority active POC</span>
           </div>
           <div class="continue-card" id="continue-card" aria-busy="true">
@@ -69,7 +54,11 @@
           </div>
         </section>
 
-        <section class="poc-region" aria-labelledby="poc-list-heading">
+        <section
+          class="poc-region"
+          id="poc-region"
+          aria-labelledby="poc-list-heading"
+        >
           <header class="list-header">
             <div>
               <h2 id="poc-list-heading">All POCs</h2>
@@ -92,7 +81,7 @@
             </div>
           </header>
 
-          <div class="list-labels" aria-hidden="true">
+          <div class="list-labels" id="list-labels" aria-hidden="true">
             <span>POC / customer</span>
             <span>Phase</span>
             <span>Next action</span>
@@ -105,8 +94,8 @@
               <li class="loading-row">Loading workspace…</li>
             </ul>
             <div class="empty-state" id="empty-state" hidden>
-              <strong>No POCs match this view.</strong>
-              <p>Choose Active to return to current customer work.</p>
+              <strong id="empty-title">No POCs match this view.</strong>
+              <p id="empty-copy">Choose Active to return to current customer work.</p>
               <button type="button" id="show-active">Show active POCs</button>
             </div>
           </div>

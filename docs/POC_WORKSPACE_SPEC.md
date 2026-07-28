@@ -144,10 +144,13 @@ The global navigation contains:
 
 - ExitSpec;
 - POCs;
-- Evidence Packs; and
 - the current user or local-demo identity.
 
-`New POC` is the one persistent primary action.
+Destinations and actions appear only when their underlying product authority
+exists. The read-only demo therefore does not show a dead **Evidence Packs**
+destination or unavailable **New POC** control. Once local POC creation lands,
+**New POC** becomes the one persistent primary action. Once an Evidence Pack
+library exists, its destination may enter the global navigation.
 
 Templates, integrations, activity feeds, billing, CRM, model catalogs, and
 organization administration are excluded from the first dashboard.
@@ -156,10 +159,14 @@ organization administration are excluded from the first dashboard.
 
 The normal `/app` dashboard contains, in this order:
 
-1. a compact page header with **POCs** and **New POC**;
-2. at most one **Continue working** card for the highest-priority active POC;
+1. a compact page header with **POCs**;
+2. at most one **Next up** card for the highest-priority active POC;
 3. one POC list; and
 4. three bounded filters: **Active**, **Needs attention**, and **Completed**.
+
+The current POC is not repeated in the default active list. The list is for
+other matching POCs; its total still includes the current POC so the dashboard
+does not conceal workspace state.
 
 The POC list exposes only:
 
@@ -191,7 +198,8 @@ No model ranks or silently reprioritizes customer work.
 
 ### Empty and failure states
 
-- No POCs: show one sentence and **New POC**.
+- No POCs: show one sentence. Offer **New POC** only when local creation
+  authority is implemented.
 - Filter has no matches: preserve the filter and offer **Show active POCs**.
 - POC summary unavailable: show a bounded error row and no invented status.
 - Evidence unavailable: show `Not run` or the exact non-`PASS` state, never a

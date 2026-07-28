@@ -123,9 +123,9 @@ Build the local synthetic/demo track in this order:
 
 1. **Complete:** read-only POC registry and deterministic next-action
    projection, integrated into `/api/state.workspace` for the one seeded POC;
-2. **Complete:** `/app` read-only dashboard with one visibly unavailable
-   **New POC** control, one bounded POC list, at most one continue card, and
-   three deterministic filters;
+2. **Complete:** `/app` read-only dashboard with no dead destinations or
+   unavailable actions, one non-duplicative bounded POC list, at most one
+   **Next up** card, and three deterministic filters;
 3. `/app/pocs/new` local draft creation with zero authority side effects;
 4. source chooser with honest availability;
 5. bridge the existing manifest-approved synthetic email loop into one seeded
