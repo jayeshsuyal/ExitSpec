@@ -278,6 +278,39 @@ def test_unexpected_internal_bug_is_not_mislabeled_as_customer_failure():
     assert result.records[0].ttft_ns is None
 
 
+@pytest.mark.parametrize(
+    ("close_error", "expected_outcome"),
+    [
+        (OSError("synthetic socket close failure"), ProbeOutcome.TRANSPORT_ERROR),
+        (RuntimeError("synthetic cleanup bug"), ProbeOutcome.INTERNAL_ERROR),
+    ],
+)
+def test_response_close_failure_preserves_external_vs_internal_attribution(
+    close_error,
+    expected_outcome,
+):
+    def fail_close() -> None:
+        raise close_error
+
+    class CloseFailureTransport:
+        def send(self, request: ProbeRequest) -> StreamResponse:
+            return StreamResponse(
+                status_code=200,
+                chunks=[sse(content_event("ok"))],
+                _closer=fail_close,
+            )
+
+    result = run_probe(
+        config(),
+        prompts(),
+        transport=CloseFailureTransport(),
+        clock_ns=IncrementingClock(),
+    )
+
+    assert result.records[0].outcome is expected_outcome
+    assert result.records[0].ttft_ns is None
+
+
 def test_http_timeout_and_malformed_streams_are_terminal_sanitized_records():
     result = run_probe(
         config(request_count=3, concurrency=1),
@@ -307,7 +340,6 @@ def test_http_timeout_and_malformed_streams_are_terminal_sanitized_records():
         sse(content_event("hello"), done=False),
         b"event: message\ndata: {}\n\n",
         b"data: \xff\n\n",
-        b"data: [DONE]\n\ndata: {}\n\n",
     ],
 )
 def test_malformed_sse_fails_closed_as_protocol_error(body):
@@ -321,6 +353,49 @@ def test_malformed_sse_fails_closed_as_protocol_error(body):
     record = result.records[0]
     assert record.outcome is ProbeOutcome.PROTOCOL_ERROR
     assert record.ttft_ns is None
+
+
+def test_done_event_ends_measurement_without_waiting_for_connection_close():
+    def keep_alive_stream():
+        yield sse(content_event("complete"))
+        raise TimeoutError("a persistent SSE connection stayed open")
+
+    class KeepAliveTransport:
+        def send(self, request: ProbeRequest) -> StreamResponse:
+            return StreamResponse(
+                status_code=200,
+                chunks=keep_alive_stream(),
+            )
+
+    result = run_probe(
+        config(),
+        prompts(),
+        transport=KeepAliveTransport(),
+        clock_ns=IncrementingClock(),
+    )
+
+    assert result.records[0].outcome is ProbeOutcome.SUCCESS
+    assert result.records[0].ttft_ns is not None
+
+
+def test_successful_http_response_requires_event_stream_content_type():
+    class WrongContentTypeTransport:
+        def send(self, request: ProbeRequest) -> StreamResponse:
+            return StreamResponse(
+                status_code=200,
+                chunks=[sse(content_event("ok"))],
+                content_type="application/json",
+            )
+
+    result = run_probe(
+        config(),
+        prompts(),
+        transport=WrongContentTypeTransport(),
+        clock_ns=IncrementingClock(),
+    )
+
+    assert result.records[0].outcome is ProbeOutcome.PROTOCOL_ERROR
+    assert result.records[0].ttft_ns is None
 
 
 def test_validator_rejects_duplicate_missing_extra_and_malformed_records():
@@ -465,6 +540,10 @@ class FakeHTTPResponse:
     def read1(self, amount: int) -> bytes:
         assert amount == 4096
         return self.reads.pop(0)
+
+    def getheader(self, name: str) -> str | None:
+        assert name == "Content-Type"
+        return "text/event-stream; charset=utf-8"
 
     def close(self) -> None:
         self.close_calls += 1

@@ -11,7 +11,7 @@ target_system:
   model: Qwen/Qwen2.5-0.5B-Instruct
 workload:
   fixture_path: examples/inference-performance/workloads/concurrency-4-v1.json
-  sha256: c135a6bc0b886de9ef17b07d0f484f02975e8db764622821396b5b538b7d4a0e
+  sha256: 0d830fc837c674d60e337f1c15620234ef9f56c413dcec447e1c6cc5be11073e
 criteria:
   - criterion_type: inference_performance_v1
     id: INFERENCE-PERF-01
@@ -52,4 +52,4 @@ owners:
   - vendor_solutions_engineer
 non_goals:
   - "This 100-request engineering run does not prove production capacity, GPU execution latency, model quality, or long-duration reliability."
-evidence_retention_policy: "Synthetic prompts only; no secrets, prompt text, response text, or raw customer data in evidence artifacts."
+evidence_retention_policy: "The approved synthetic prompt fixture may be retained; no secrets, response text, or raw customer data may enter evidence artifacts."

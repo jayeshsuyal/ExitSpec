@@ -13,6 +13,7 @@
   "max_stream_bytes": 1048576,
   "first_token_definition": "first_nonempty_choices_delta_content_v1",
   "warmup_included_in_measurement": false,
+  "synthetic_prompts": true,
   "prompt_fixture_path": "examples/inference-performance/prompts/synthetic-latency-v1.jsonl",
   "prompt_fixture_sha256": "02e74b208c03d103a7f11ed4a70f987cc41a4689e099ee41178746ba42cbccd4",
   "retries": 0

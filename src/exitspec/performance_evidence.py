@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Final, Literal
 
-from pydantic import Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError
+from pydantic import Field, StrictFloat, StrictInt, StrictStr, ValidationError
 
 from .confirmations import ContractConfirmation, require_affirmative_confirmation
 from .contracts import verify_contract_digest
@@ -66,6 +66,7 @@ class PerformanceWorkloadV1(FrozenExitSpecModel):
     max_stream_bytes: StrictInt = Field(gt=0)
     first_token_definition: Literal["first_nonempty_choices_delta_content_v1"]
     warmup_included_in_measurement: Literal[False]
+    synthetic_prompts: Literal[True]
     prompt_fixture_path: StrictStr = Field(min_length=1, max_length=_MAX_PATH_LENGTH)
     prompt_fixture_sha256: Sha256String
     retries: StrictInt = Field(ge=0)
@@ -136,6 +137,72 @@ def validate_performance_context(
         label="Performance workload",
         maximum_bytes=_MAX_WORKLOAD_BYTES,
     )
+    workload = parse_performance_workload(exact_workload_bytes)
+    prompt_path = _resolve_beneath_root(
+        root,
+        workload.prompt_fixture_path,
+        label="Prompt fixture path",
+    )
+    prompt_bytes = _read_bounded_file(
+        prompt_path,
+        label="Prompt fixture",
+        maximum_bytes=_MAX_PROMPT_BYTES,
+    )
+    return _build_validated_context(
+        contract,
+        exact_workload_bytes,
+        prompt_bytes,
+        prompt_path=prompt_path,
+        criterion_id=criterion_id,
+    )
+
+
+def validate_performance_context_bytes(
+    contract: POCContract,
+    workload_bytes: bytes,
+    prompt_bytes: bytes,
+    *,
+    criterion_id: str | None = None,
+) -> ValidatedPerformanceContext:
+    """Reconstruct a context from exact persisted bytes without filesystem I/O."""
+
+    if type(contract) is not POCContract:
+        raise PerformanceEvidenceError("contract must be a POCContract.")
+    if contract.status not in {ContractStatus.APPROVED, ContractStatus.FROZEN}:
+        raise PerformanceEvidenceError(
+            "Performance context requires an approved or frozen contract."
+        )
+    _validate_relative_path(
+        contract.workload.fixture_path,
+        label="Contract workload fixture path",
+    )
+    exact_workload_bytes = _require_exact_bytes(
+        workload_bytes,
+        label="Performance workload",
+        maximum_bytes=_MAX_WORKLOAD_BYTES,
+    )
+    workload = parse_performance_workload(exact_workload_bytes)
+    logical_prompt_path = _validate_relative_path(
+        workload.prompt_fixture_path,
+        label="Prompt fixture path",
+    )
+    return _build_validated_context(
+        contract,
+        exact_workload_bytes,
+        prompt_bytes,
+        prompt_path=Path(*logical_prompt_path.parts),
+        criterion_id=criterion_id,
+    )
+
+
+def _build_validated_context(
+    contract: POCContract,
+    exact_workload_bytes: bytes,
+    prompt_bytes: bytes,
+    *,
+    prompt_path: Path,
+    criterion_id: str | None,
+) -> ValidatedPerformanceContext:
     workload_sha256 = hashlib.sha256(exact_workload_bytes).hexdigest()
     if workload_sha256 != contract.workload.sha256:
         raise PerformanceEvidenceError(
@@ -144,14 +211,8 @@ def validate_performance_context(
     workload = parse_performance_workload(exact_workload_bytes)
     criterion = _select_performance_criterion(contract, criterion_id)
     _validate_alignment(contract, criterion, workload)
-
-    prompt_path = _resolve_beneath_root(
-        root,
-        workload.prompt_fixture_path,
-        label="Prompt fixture path",
-    )
-    prompt_bytes = _read_bounded_file(
-        prompt_path,
+    prompt_bytes = _require_exact_bytes(
+        prompt_bytes,
         label="Prompt fixture",
         maximum_bytes=_MAX_PROMPT_BYTES,
     )
