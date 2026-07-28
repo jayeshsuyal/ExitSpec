@@ -2,8 +2,8 @@
 
 ## Completed local product
 
-The current `codex/demo-loop` product closes one deterministic agreement-to-proof
-loop.
+The current local product closes one deterministic agreement-to-proof loop and
+adds one bounded synthetic-email path into that same spine.
 
 ### Truth kernel
 
@@ -22,6 +22,33 @@ loop.
 - Server-generated normalized claim from title, threshold, sample count, and
   workload label.
 - Named internal approval or rejection; unrelated asks remain context.
+
+### Wave 2 guided synthetic email intake
+
+- `/app?intake=email` exposes exactly two manifest-approved samples:
+  **Support-agent requirements** and **Untrusted-instructions test**.
+- `GET /api/source/fixtures` returns the bounded catalog;
+  `POST /api/source/import` accepts only one approved fixture ID through a
+  loopback same-origin, exact-JSON boundary.
+- RFC822 bytes are deterministically validated, normalized, redacted, and
+  finalized into immutable provider-neutral source records before source-linked
+  proposals enter the existing `NEEDS_REVIEW` flow.
+- The primary sample yields a measurable 95%/200 exact-tool-selection proposal
+  and a latency sentence that remains context because no latency adapter exists.
+- Employee decisions, customer acknowledgement and confirmation, explicit
+  freeze, Reference A/B/C proof, and the Evidence Pack reuse the existing
+  agreement spine without granting email any control-plane authority.
+- Replays preserve review state, changing samples requires reset, and source
+  imports lock once customer review or later downstream state exists.
+- The normal 1280×720 shell has no workflow-length body scroll. Narrower layouts
+  reflow and bound scrolling inside panels; the customer-facing Evidence Pack
+  remains a separate surface.
+
+The frozen Wave 2 acceptance and web manifests remain immutable historical
+contracts. The source-web contract's pre-implementation
+`contract_only`/`implemented=false` fields are intentionally unchanged.
+Post-implementation status is recorded separately in
+`examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`.
 
 ### Customer agreement boundary
 
@@ -235,12 +262,20 @@ No current product or roadmap statement should imply that STT already exists.
 A release candidate is demo-ready when a fresh operator can:
 
 1. start the product in five minutes;
-2. run the exact 75-second primary script from `Restart`;
+2. run the guided synthetic-email script from a clean server in about 90 seconds;
 3. complete the optional versioned revision script without changing 95%/200;
 4. explain why 197/200 passes the approved Wilson rule;
 5. show all six evidence artifacts;
-6. demonstrate one precise non-`PASS` reason and rerun; and
-7. state the remaining human decision and product limits without notes.
+6. demonstrate the hostile-email, replay, and reset safety path;
+7. demonstrate one precise non-`PASS` reason and rerun; and
+8. state the remaining human decision and product limits without notes.
+
+The exact operator sequence is maintained in
+[the Wave 2 email demo runbook](WAVE2_EMAIL_DEMO_RUNBOOK.md). Manual
+real-browser observations cover six representative task states; they are
+acceptance evidence for those states, not exhaustive every-state coverage or CI
+browser automation. The frozen no-scroll oracle still applies at every guided
+step.
 
 ## Decisions requiring explicit approval
 
