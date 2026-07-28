@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, unquote, urlparse
 
 import yaml
+from pydantic import ValidationError
 
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import (
@@ -78,6 +79,14 @@ from .performance_workspace import (
     PERFORMANCE_POC_ID,
     performance_poc_detail_payload,
     performance_workspace_record_and_facts,
+)
+from .poc_creation import (
+    DraftPOCCapacityExceeded,
+    DraftPOCCreateRequest,
+    DraftPOCIdempotencyConflict,
+    DraftPOCNotFound,
+    DuplicateDraftPOCId,
+    ProcessLocalDraftPOCService,
 )
 from .provider_egress import (
     InMemoryProviderEgressAuthorizer,
@@ -154,6 +163,17 @@ PROVIDER_ROUTE_PARAMETERS_ERROR = (
 WORKSPACE_FILTER_ERROR = (
     "Workspace filter must be exactly Active, Needs attention, or Completed."
 )
+DRAFT_POC_ROUTE_PARAMETERS_ERROR = (
+    "Draft POC routes do not accept URL parameters."
+)
+DRAFT_POC_INVALID_REQUEST_ERROR = "Draft POC request is invalid."
+DRAFT_POC_CONFLICT_ERROR = (
+    "That idempotency key is already bound to a different draft POC request."
+)
+DRAFT_POC_CAPACITY_ERROR = (
+    "Draft POC creation is temporarily unavailable in this local process."
+)
+DRAFT_POC_NOT_FOUND_ERROR = "Draft POC was not found in this local process."
 SUPPORTED_RULE_TEMPLATE = {
     "metric": Metric.EXACT_TOOL_SELECTION_RATE.value,
     "metric_label": "Exact expected support-tool selection",
@@ -2367,6 +2387,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 "Wave-1 provider execution configuration is invalid."
             )
         self._resource_stack = resource_stack
+        self.draft_poc_service = ProcessLocalDraftPOCService()
         super().__init__(address, ExitSpecDemoRequestHandler)
         self.session = session
         self.wave1_provider_execution = configuration
@@ -2497,6 +2518,42 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_source_request():
             return
         parsed = urlparse(self.path)
+        if parsed.path == "/app/pocs/new":
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        draft_poc_id = _draft_poc_api_id(parsed.path)
+        if draft_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                draft = self.server.draft_poc_service.get(draft_poc_id)
+            except ValueError:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+                )
+                return
+            except DraftPOCNotFound:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                draft.model_dump(mode="json"),
+            )
+            return
         if parsed.path == "/api/provider/fireworks/disclosure":
             if parsed.params or parsed.query or parsed.fragment:
                 self._send_json(
@@ -2576,6 +2633,9 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_source_request():
             return
         parsed = urlparse(self.path)
+        if parsed.path == "/api/pocs":
+            self._create_draft_poc(parsed)
+            return
         is_provider_authority_action = parsed.path in {
             "/api/provider/fireworks/authorization",
             "/api/provider/fireworks/execution",
@@ -2861,6 +2921,88 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
+    def _create_draft_poc(self, parsed: Any) -> None:
+        """Create identity only; this route owns no workflow authority."""
+
+        if parsed.params or parsed.query or parsed.fragment:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+            )
+            return
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return
+
+        try:
+            payload = self._read_json()
+            _require_only_fields(
+                payload,
+                {
+                    "display_name",
+                    "customer_label",
+                    "use_case",
+                    "owner",
+                    "first_source_choice",
+                    "idempotency_key",
+                },
+            )
+            idempotency_key = self._idempotency_key(payload)
+            request = DraftPOCCreateRequest.model_validate(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "idempotency_key"
+                }
+            )
+            result = self.server.draft_poc_service.create(
+                request,
+                idempotency_key=idempotency_key,
+            )
+        except DraftPOCIdempotencyConflict:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": DRAFT_POC_CONFLICT_ERROR},
+            )
+            return
+        except DuplicateDraftPOCId:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "Draft POC identity is already in use."},
+            )
+            return
+        except DraftPOCCapacityExceeded:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": DRAFT_POC_CAPACITY_ERROR},
+            )
+            return
+        except (TypeError, ValueError, ValidationError):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+            )
+            return
+
+        response = result.draft.model_dump(mode="json")
+        response["idempotent_replay"] = result.idempotent_replay
+        self._send_json(
+            HTTPStatus.OK if result.idempotent_replay else HTTPStatus.CREATED,
+            response,
+        )
+
     def _unsupported_method(self) -> None:
         if self._dispatch_source_request():
             return
@@ -3067,6 +3209,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 if _is_compatibility_workbench_query(query)
                 else "dashboard.html"
             )
+        elif request_path == "/app/pocs/new":
+            relative = "new_poc.html"
         elif request_path.strip("/") == (
             "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
         ):
@@ -3269,6 +3413,18 @@ def _customer_review_decision_token(request_path: str) -> Optional[str]:
     if not token or "/" in token or "\\" in token:
         return None
     return token
+
+
+def _draft_poc_api_id(request_path: str) -> Optional[str]:
+    """Return one decoded POC identity without accepting nested path authority."""
+
+    parts = request_path.strip("/").split("/")
+    if len(parts) != 3 or parts[:2] != ["api", "pocs"]:
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
 
 
 def serve_demo(

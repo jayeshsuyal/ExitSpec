@@ -64,7 +64,6 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
         "Leaderboard",
         "<canvas",
         "gradient",
-        "New POC",
         "Evidence Packs",
         "Available in the next build",
     ):
@@ -102,11 +101,13 @@ def test_dashboard_palette_matches_the_frozen_graphite_orange_contract():
     assert "backdrop-filter" not in css
 
 
-def test_dashboard_has_no_dead_primary_action_and_three_bounded_filters():
+def test_dashboard_has_one_real_create_action_and_three_bounded_filters():
     html, _, javascript = _sources()
 
     assert 'class="primary-action"' not in html
-    assert "New POC" not in html
+    assert html.count('class="new-poc-link"') == 1
+    assert html.count('href="/app/pocs/new"') == 1
+    assert html.count("New POC") == 1
     assert html.count('data-filter="') == 3
     assert (
         'const FILTERS = ["Active", "Needs attention", "Completed"];'

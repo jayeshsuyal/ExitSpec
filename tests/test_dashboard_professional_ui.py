@@ -56,10 +56,12 @@ def test_dashboard_is_a_master_detail_work_queue():
     assert "button.addEventListener(\"click\"" in javascript
 
 
-def test_dashboard_has_one_real_primary_action_and_safe_rendering():
+def test_dashboard_has_one_compact_create_action_and_safe_rendering():
     html, _, javascript = _sources()
 
-    assert "New POC" not in html
+    assert html.count('href="/app/pocs/new"') == 1
+    assert html.count("New POC") == 1
+    assert 'class="new-poc-link"' in html
     assert "<canvas" not in html
     assert "<svg" not in html
     assert javascript.count('"Open POC"') == 1

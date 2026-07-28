@@ -219,6 +219,12 @@ p {
   font-size: 11px;
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .priority-note {
   display: flex;
   align-items: center;
@@ -233,6 +239,26 @@ p {
   width: 6px;
   height: 6px;
   background: var(--orange);
+}
+
+.new-poc-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid var(--orange);
+  padding: 7px 13px;
+  background: var(--orange);
+  color: var(--canvas);
+  font-size: 10px;
+  font-weight: 820;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.new-poc-link:hover {
+  border-color: var(--text);
+  background: var(--text);
 }
 
 .workspace-layout {
@@ -805,6 +831,12 @@ p {
 
   .page-header {
     align-items: start;
+  }
+
+  .page-actions {
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 7px;
   }
 
   .priority-note {
