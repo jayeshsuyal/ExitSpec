@@ -24,6 +24,7 @@ from decimal import Decimal
 from functools import wraps
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, unquote, urlparse
@@ -103,6 +104,14 @@ from .poc_creation import (
     DuplicateDraftPOCId,
     ProcessLocalDraftPOCService,
 )
+from .poc_performance_lifecycle import (
+    PerformanceLifecycleSnapshot,
+    ProcessLocalPerformanceLifecycleService,
+)
+from .poc_performance_lifecycle_web_api import (
+    handle_performance_lifecycle_web_api_request,
+    is_performance_lifecycle_web_api_target,
+)
 from .poc_proposal_review import (
     ProcessLocalProposalReviewService,
     ProposalReviewState,
@@ -169,6 +178,7 @@ from .workspace import (
     ReadOnlyPOCRegistry,
     WorkspaceAction,
     WorkspaceBlocker,
+    WorkspacePhase,
     WorkspaceSourceType,
     project_dashboard,
 )
@@ -2454,6 +2464,62 @@ def _unavailable_review_workspace_projection(
     return POCWorkspaceProjection.model_validate(payload)
 
 
+def _agreement_aware_workspace_projection(
+    projected: POCWorkspaceProjection,
+    snapshot: PerformanceLifecycleSnapshot,
+) -> POCWorkspaceProjection:
+    """Project the exact local agreement lifecycle onto one dashboard row."""
+
+    preparation = snapshot.preparation
+    if preparation is None:
+        return projected
+
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "active_contract_id": preparation.draft_id,
+            "active_contract_version": None,
+            "derived_phase": WorkspacePhase.DEFINE,
+            "next_action_code": WorkspaceAction.CREATE_CUSTOMER_REVIEW,
+            "next_human_action": (
+                "Review and record customer confirmation for this agreement."
+            ),
+            "action_since": preparation.prepared_at,
+            "updated_at": max(projected.updated_at, preparation.prepared_at),
+        }
+    )
+    if snapshot.confirmation is not None:
+        payload.update(
+            {
+                "next_action_code": (
+                    WorkspaceAction.FREEZE_CONFIRMED_CONTRACT
+                ),
+                "next_human_action": "Freeze confirmed contract.",
+                "action_since": snapshot.confirmation.decided_at,
+                "updated_at": max(
+                    projected.updated_at,
+                    snapshot.confirmation.decided_at,
+                ),
+            }
+        )
+    if snapshot.frozen_contract is not None:
+        frozen = snapshot.frozen_contract
+        payload.update(
+            {
+                "active_contract_id": frozen.id,
+                "active_contract_version": str(frozen.version),
+                "derived_phase": WorkspacePhase.PROVE,
+                "next_action_code": WorkspaceAction.RUN_POC,
+                "next_human_action": (
+                    "Bind and run this POC against the frozen agreement."
+                ),
+                "action_since": frozen.frozen_at,
+                "updated_at": max(projected.updated_at, frozen.frozen_at),
+            }
+        )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
 class ExitSpecDemoServer(ThreadingHTTPServer):
     """A loopback-only server with one ephemeral DemoSession."""
 
@@ -2493,6 +2559,23 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 proposal_lookup=self.proposal_review_service.list_proposals,
             )
         )
+        performance_prompt_bytes = (
+            files("exitspec.demo_data")
+            .joinpath(
+                "inference_performance",
+                "prompts",
+                "synthetic-latency-v1.jsonl",
+            )
+            .read_bytes()
+        )
+        self.performance_lifecycle_service = (
+            ProcessLocalPerformanceLifecycleService(
+                draft_lookup=self.draft_poc_service.get,
+                proposal_lookup=self.proposal_review_service.list_proposals,
+                definition_lookup=self.contract_definition_service.definitions,
+                prompt_bytes=performance_prompt_bytes,
+            )
+        )
         if (
             performance_runtime is not None
             and type(performance_runtime) is not PerformanceWebRuntime
@@ -2525,6 +2608,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         pending_proposal_counts_by_poc_id = {}
         kept_proposal_counts_by_poc_id = {}
         defined_criterion_counts_by_poc_id = {}
+        agreement_snapshots_by_poc_id = {}
         unavailable = []
         for draft in drafts:
             try:
@@ -2559,6 +2643,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                         self.contract_definition_service.definitions()
                     )
                 )
+                agreement_snapshots_by_poc_id[draft.poc_id] = (
+                    self.performance_lifecycle_service.snapshot(draft.poc_id)
+                )
             except Exception:
                 projected = project_draft_dashboard(
                     (draft,),
@@ -2568,6 +2655,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 pending_proposal_counts_by_poc_id.pop(draft.poc_id, None)
                 kept_proposal_counts_by_poc_id.pop(draft.poc_id, None)
                 defined_criterion_counts_by_poc_id.pop(draft.poc_id, None)
+                agreement_snapshots_by_poc_id.pop(draft.poc_id, None)
                 if projected.continue_working is not None:
                     unavailable.append(
                         _unavailable_review_workspace_projection(
@@ -2583,6 +2671,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 and draft.poc_id in pending_proposal_counts_by_poc_id
                 and draft.poc_id in kept_proposal_counts_by_poc_id
                 and draft.poc_id in defined_criterion_counts_by_poc_id
+                and draft.poc_id in agreement_snapshots_by_poc_id
             )
         )
         draft_active = project_draft_dashboard(
@@ -2600,7 +2689,16 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             selected_filter=DashboardFilter.ACTIVE,
         )
         active_local = _newest_workspace_items_first(
-            (*draft_active.pocs, *unavailable)
+            (
+                *(
+                    _agreement_aware_workspace_projection(
+                        item,
+                        agreement_snapshots_by_poc_id[item.poc_id],
+                    )
+                    for item in draft_active.pocs
+                ),
+                *unavailable,
+            )
         )
 
         draft_visible = project_draft_dashboard(
@@ -2617,7 +2715,13 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             ),
             selected_filter=selected_filter,
         )
-        visible_local = list(draft_visible.pocs)
+        visible_local = [
+            _agreement_aware_workspace_projection(
+                item,
+                agreement_snapshots_by_poc_id[item.poc_id],
+            )
+            for item in draft_visible.pocs
+        ]
         if selected_filter in {
             DashboardFilter.ACTIVE,
             DashboardFilter.NEEDS_ATTENTION,
@@ -3058,6 +3162,124 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _dispatch_performance_agreement_read(self) -> bool:
+        if not is_performance_lifecycle_web_api_target(self.path):
+            return False
+        poc_id = _performance_agreement_api_poc_id(
+            urlparse(self.path).path
+        )
+        if poc_id is not None and not self._allow_active_agreement_poc(
+            poc_id
+        ):
+            return True
+        response = handle_performance_lifecycle_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            lifecycle=self.server.performance_lifecycle_service,
+            proposals=self.server.proposal_review_service,
+            definitions=self.server.contract_definition_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_performance_agreement_write(self) -> bool:
+        if not is_performance_lifecycle_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_performance_lifecycle_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                lifecycle=self.server.performance_lifecycle_service,
+                proposals=self.server.proposal_review_service,
+                definitions=self.server.contract_definition_service,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = _performance_agreement_api_poc_id(parsed.path)
+        if poc_id is not None and not self._allow_active_agreement_poc(
+            poc_id
+        ):
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance agreement request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Performance agreement request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance agreement request is invalid."},
+            )
+            return True
+        response = handle_performance_lifecycle_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            lifecycle=self.server.performance_lifecycle_service,
+            proposals=self.server.proposal_review_service,
+            definitions=self.server.contract_definition_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _allow_active_agreement_poc(self, poc_id: str) -> bool:
+        """Keep archived or unknown local drafts outside agreement routes."""
+
+        try:
+            draft = self.server.draft_poc_service.get(poc_id)
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance agreement request is invalid."},
+            )
+            return False
+        except DraftPOCNotFound:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Performance agreement was not found."},
+            )
+            return False
+        if draft.archive_state != DraftPOCArchiveState.ACTIVE:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Performance agreement was not found."},
+            )
+            return False
+        return True
+
     def send_error(
         self,
         code: int,
@@ -3101,6 +3323,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             and self._dispatch_poc_contract_definition_read()
         ):
             return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_performance_lifecycle_web_api_target(self.path)
+            and self._dispatch_performance_agreement_read()
+        ):
+            return
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
@@ -3113,6 +3342,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_poc_proposal_read():
             return
         if self._dispatch_poc_contract_definition_read():
+            return
+        if self._dispatch_performance_agreement_read():
             return
         parsed = urlparse(self.path)
         if parsed.path == "/app/pocs/new":
@@ -3203,6 +3434,22 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.NOT_FOUND,
                     {"error": DRAFT_POC_NOT_FOUND_ERROR},
                 )
+                return
+            self._serve_static(parsed.path)
+            return
+        performance_agreement_poc_id = _performance_agreement_page_poc_id(
+            parsed.path
+        )
+        if performance_agreement_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            if not self._allow_active_agreement_poc(
+                performance_agreement_poc_id
+            ):
                 return
             self._serve_static(parsed.path)
             return
@@ -3318,6 +3565,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_poc_proposal_write():
             return
         if self._dispatch_poc_contract_definition_write():
+            return
+        if self._dispatch_performance_agreement_write():
             return
         parsed = urlparse(self.path)
         if parsed.path == "/api/pocs":
@@ -3947,6 +4196,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             relative = "proposal_review.html"
         elif _contract_definition_page_poc_id(request_path) is not None:
             relative = "contract_definition.html"
+        elif _performance_agreement_page_poc_id(request_path) is not None:
+            relative = "agreement.html"
         elif request_path.strip("/") == (
             "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
         ):
@@ -4223,6 +4474,43 @@ def _contract_definition_api_poc_id(
         len(parts) != 4
         or parts[:2] != ["api", "pocs"]
         or parts[3] != "definitions"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _performance_agreement_page_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity in one exact agreement workbench route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 4
+        or parts[:2] != ["app", "pocs"]
+        or parts[3] != "agreement"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _performance_agreement_api_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity in an exact agreement lifecycle API route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) not in {4, 5}
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] != "agreement"
+        or (len(parts) == 5 and parts[4] not in {"confirm", "freeze"})
     ):
         return None
     poc_id = unquote(parts[2])

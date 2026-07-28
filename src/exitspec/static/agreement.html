@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Create, confirm, and freeze one customer-reviewed ExitSpec performance agreement."
+    />
+    <title>ExitSpec — Customer agreement</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/agreement.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#agreement-main">Skip to agreement</a>
+
+    <div class="dashboard-shell agreement-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app" aria-current="page">POCs</a>
+          <a href="/app/pocs/new">New POC</a>
+        </nav>
+
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="agreement-main" id="agreement-main">
+        <header class="object-header">
+          <div class="object-heading">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Draft POC · customer agreement</p>
+            <h1 id="poc-title">Loading agreement…</h1>
+            <p id="poc-context">
+              Validating definitions and the current agreement state.
+            </p>
+          </div>
+
+          <div
+            class="authority-boundary"
+            aria-label="Agreement authority boundary"
+          >
+            <span>Agreement boundary</span>
+            <strong>Human confirmation required · no execution yet</strong>
+          </div>
+        </header>
+
+        <section
+          class="agreement-workbench"
+          id="agreement-workbench"
+          aria-labelledby="current-task-heading"
+          aria-busy="true"
+        >
+          <header class="task-heading">
+            <div class="task-copy">
+              <p class="eyebrow">Current task</p>
+              <h2 id="current-task-heading">Prepare the customer agreement</h2>
+              <p id="current-task-copy">
+                Bind the reviewed definitions to one explicit execution target.
+              </p>
+            </div>
+
+            <ol
+              class="lifecycle-progress"
+              id="lifecycle-progress"
+              aria-label="Agreement lifecycle"
+            >
+              <li id="step-draft" aria-current="step">
+                <span>01</span>
+                <strong>Draft</strong>
+              </li>
+              <li id="step-confirm">
+                <span>02</span>
+                <strong>Confirm</strong>
+              </li>
+              <li id="step-freeze">
+                <span>03</span>
+                <strong>Freeze</strong>
+              </li>
+            </ol>
+          </header>
+
+          <div class="agreement-layout">
+            <article
+              class="definition-summary"
+              id="definition-summary"
+              tabindex="-1"
+              aria-labelledby="definition-summary-heading"
+            >
+              <header class="definition-summary-header">
+                <div>
+                  <p class="eyebrow">Agreement source</p>
+                  <h3 id="definition-summary-heading">
+                    Reviewed performance definitions
+                  </h3>
+                </div>
+                <strong id="definition-count">Validating</strong>
+              </header>
+
+              <div
+                class="definition-list"
+                id="definition-list"
+                aria-live="polite"
+              >
+                <p class="empty-copy">Loading bounded definitions…</p>
+              </div>
+
+              <p class="source-boundary">
+                These definitions are the agreement source. This screen cannot
+                edit them, execute a run, or issue a verdict.
+              </p>
+            </article>
+
+            <div class="action-column">
+              <form
+                class="action-panel draft-panel"
+                id="create-draft-form"
+                novalidate
+              >
+                <header>
+                  <p class="eyebrow">Human authoring</p>
+                  <h3>Set the execution target</h3>
+                  <p>
+                    Enter the exact target the frozen agreement will later bind.
+                    No value is inferred.
+                  </p>
+                </header>
+
+                <div class="action-fields">
+                  <div class="target-primary-fields">
+                    <div class="field-group">
+                      <label for="target-provider">Provider</label>
+                      <input
+                        id="target-provider"
+                        name="target_provider"
+                        type="text"
+                        maxlength="160"
+                        autocomplete="off"
+                        placeholder="e.g. Fireworks AI"
+                        required
+                        disabled
+                      />
+                    </div>
+
+                    <div class="field-group">
+                      <label for="model">Model</label>
+                      <input
+                        id="model"
+                        name="model"
+                        type="text"
+                        maxlength="300"
+                        autocomplete="off"
+                        placeholder="Exact deployed model identifier"
+                        required
+                        disabled
+                      />
+                    </div>
+                  </div>
+
+                  <details class="endpoint-fields">
+                    <summary>Endpoint details · required</summary>
+                    <p>
+                      Use the exact endpoint class and HTTP(S) URL intended for
+                      the later run.
+                    </p>
+
+                    <div class="endpoint-field-grid">
+                      <div class="field-group">
+                        <label for="endpoint-class">Endpoint class</label>
+                        <input
+                          id="endpoint-class"
+                          name="endpoint_class"
+                          type="text"
+                          maxlength="160"
+                          autocomplete="off"
+                          placeholder="e.g. OpenAI-compatible chat completions"
+                          required
+                          disabled
+                        />
+                      </div>
+
+                      <div class="field-group">
+                        <label for="endpoint">Endpoint URL</label>
+                        <input
+                          id="endpoint"
+                          name="endpoint"
+                          type="url"
+                          maxlength="2048"
+                          inputmode="url"
+                          autocomplete="off"
+                          spellcheck="false"
+                          placeholder="https://api.example.com/v1/chat/completions"
+                          required
+                          disabled
+                        />
+                        <p class="field-hint">
+                          Exact HTTP(S) URL; credentials, query, and fragment
+                          are not accepted here.
+                        </p>
+                      </div>
+                    </div>
+                  </details>
+
+                  <div class="review-fields">
+                    <div class="field-group">
+                      <label for="draft-reviewer">Reviewer</label>
+                      <input
+                        id="draft-reviewer"
+                        name="reviewer"
+                        type="text"
+                        maxlength="160"
+                        autocomplete="off"
+                        required
+                        disabled
+                      />
+                    </div>
+
+                    <div class="field-group">
+                      <label for="draft-rationale">Rationale</label>
+                      <textarea
+                        id="draft-rationale"
+                        name="rationale"
+                        maxlength="2000"
+                        rows="3"
+                        autocomplete="off"
+                        placeholder="Why are these definitions and this target the right POC agreement?"
+                        required
+                        disabled
+                      ></textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <footer class="action-footer">
+                  <p
+                    class="action-status"
+                    id="draft-status"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Waiting for trusted agreement data.
+                  </p>
+                  <button
+                    class="primary-action"
+                    id="create-customer-draft"
+                    type="submit"
+                    disabled
+                  >
+                    Create customer draft
+                  </button>
+                </footer>
+              </form>
+
+              <section
+                class="action-panel confirmation-panel"
+                id="confirmation-panel"
+                aria-labelledby="confirmation-heading"
+                hidden
+              >
+                <header>
+                  <p class="eyebrow">Customer-facing agreement</p>
+                  <h3 id="confirmation-heading">Review the exact agreement</h3>
+                  <p>
+                    Confirmation binds this target and every listed definition.
+                    It does not start a run.
+                  </p>
+                </header>
+
+                <div class="customer-review-scroll">
+                  <article
+                    class="customer-agreement"
+                    id="customer-agreement"
+                    aria-label="Customer-facing agreement"
+                  >
+                    <div class="customer-agreement-heading">
+                      <span>Customer review copy</span>
+                      <strong>Confirmation required</strong>
+                    </div>
+
+                    <dl class="target-review">
+                      <div>
+                        <dt>Provider</dt>
+                        <dd id="review-target-provider">—</dd>
+                      </div>
+                      <div>
+                        <dt>Model</dt>
+                        <dd id="review-model">—</dd>
+                      </div>
+                      <div>
+                        <dt>Endpoint class</dt>
+                        <dd id="review-endpoint-class">—</dd>
+                      </div>
+                      <div>
+                        <dt>Endpoint URL</dt>
+                        <dd id="review-endpoint">—</dd>
+                      </div>
+                    </dl>
+
+                    <div class="customer-criteria">
+                      <p class="section-label">Acceptance criteria</p>
+                      <div id="customer-criteria-list"></div>
+                    </div>
+                  </article>
+
+                  <form id="confirmation-form" novalidate>
+                    <p class="local-demo-warning">
+                      Local demo: the confirmer name is self-entered by the
+                      employee. It records an explicit acknowledgement but does
+                      not authenticate the customer.
+                    </p>
+                    <div class="confirmation-fields">
+                      <div class="field-group">
+                        <label for="confirmer">Customer confirmer</label>
+                        <input
+                          id="confirmer"
+                          name="confirmer"
+                          type="text"
+                          maxlength="160"
+                          autocomplete="off"
+                          required
+                          disabled
+                        />
+                      </div>
+
+                      <div class="field-group">
+                        <label for="confirmation-rationale">
+                          Confirmation rationale
+                        </label>
+                        <textarea
+                          id="confirmation-rationale"
+                          name="rationale"
+                          maxlength="2000"
+                          rows="2"
+                          autocomplete="off"
+                          placeholder="Record what the customer is confirming."
+                          required
+                          disabled
+                        ></textarea>
+                      </div>
+                    </div>
+
+                    <label class="acknowledgement" for="agreement-acknowledged">
+                      <input
+                        id="agreement-acknowledged"
+                        name="agreement_acknowledged"
+                        type="checkbox"
+                        required
+                        disabled
+                      />
+                      <span>
+                        I confirm that the customer reviewed and agreed to this
+                        exact target and acceptance criteria.
+                      </span>
+                    </label>
+
+                    <footer class="action-footer">
+                      <p
+                        class="action-status"
+                        id="confirmation-status"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        Customer identity and explicit acknowledgement are
+                        required.
+                      </p>
+                      <button
+                        class="primary-action"
+                        id="confirm-agreement"
+                        type="submit"
+                        disabled
+                      >
+                        Confirm agreement
+                      </button>
+                    </footer>
+                  </form>
+                </div>
+              </section>
+
+              <section
+                class="action-panel freeze-panel"
+                id="freeze-panel"
+                aria-labelledby="freeze-heading"
+                hidden
+              >
+                <header>
+                  <p class="eyebrow">Confirmed agreement</p>
+                  <h3 id="freeze-heading">Freeze the confirmed contract</h3>
+                  <p>
+                    The customer confirmation matches the current agreement.
+                    Freeze creates its immutable contract identity.
+                  </p>
+                </header>
+
+                <div class="freeze-summary">
+                  <dl>
+                    <div>
+                      <dt>Confirmed by</dt>
+                      <dd id="confirmed-by">—</dd>
+                    </div>
+                    <div>
+                      <dt>Agreement identity</dt>
+                      <dd id="confirmed-draft-identity">—</dd>
+                    </div>
+                  </dl>
+                  <p>
+                    Freezing still does not run the POC, score evidence, or
+                    produce a verdict.
+                  </p>
+                </div>
+
+                <form id="freeze-form">
+                  <footer class="action-footer">
+                    <p
+                      class="action-status"
+                      id="freeze-status"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      Recorded confirmation matches the exact agreement.
+                    </p>
+                    <button
+                      class="primary-action"
+                      id="freeze-contract"
+                      type="submit"
+                      disabled
+                    >
+                      Freeze confirmed contract
+                    </button>
+                  </footer>
+                </form>
+              </section>
+
+              <section
+                class="agreement-complete"
+                id="agreement-complete"
+                tabindex="-1"
+                aria-labelledby="agreement-complete-heading"
+                hidden
+              >
+                <p class="eyebrow">Agreement frozen</p>
+                <h3 id="agreement-complete-heading">
+                  The confirmed contract is immutable
+                </h3>
+                <p id="frozen-contract-identity">
+                  Validating frozen contract identity.
+                </p>
+                <strong>Run binding is the next step</strong>
+                <p>
+                  No run, evidence score, pass/fail decision, or verdict was
+                  created on this screen.
+                </p>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <p
+          class="agreement-error"
+          id="agreement-error"
+          role="alert"
+          hidden
+        ></p>
+      </main>
+    </div>
+
+    <script src="/agreement.js"></script>
+  </body>
+</html>

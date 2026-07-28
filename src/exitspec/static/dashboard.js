@@ -45,6 +45,17 @@
     if (poc.next_action_code === "DEFINE_CRITERIA") {
       return `${base}/define`;
     }
+    if (
+      [
+        "PREPARE_AGREEMENT",
+        "CREATE_CUSTOMER_REVIEW",
+        "WAIT_FOR_CUSTOMER",
+        "FREEZE_CONFIRMED_CONTRACT",
+        "RUN_POC",
+      ].includes(poc.next_action_code)
+    ) {
+      return `${base}/agreement`;
+    }
     return null;
   }
 
@@ -207,10 +218,7 @@
       );
       footer.append(link);
     } else {
-      const unavailableLabel =
-        poc.next_action_code === "PREPARE_AGREEMENT"
-          ? "Agreement builder is next"
-          : "POC unavailable";
+      const unavailableLabel = "POC unavailable";
       footer.append(
         element("span", "continue-link is-unavailable", unavailableLabel)
       );
