@@ -23,9 +23,12 @@ Adapters are independently versioned and tested. A generated adapter is untruste
 3. Endpoint error/timeout adapter.
 4. Token and estimated-cost adapter.
 5. PII detection/redaction verification adapter.
-6. Performance adapter that wraps a mature load tool such as GuideLLM.
+6. Bounded streaming-performance adapter; larger-scale future versions may
+   wrap a mature load tool such as GuideLLM.
 
-Brick 1 implements a deterministic local exact-tool-selection adapter only.
+The browser Brick 1 flow implements the deterministic local
+exact-tool-selection adapter. The separate `exitspec performance` command
+implements the first bounded OpenAI-compatible streaming-latency adapter.
 
 ## Proportion criteria
 
@@ -58,17 +61,52 @@ For `TOOL-SELECT-01`:
 
 With a two-sided 95% Wilson lower bound and 200 samples, 197/200 is the first passing count for a 95% threshold. This is an intentional teaching example: a high observed percentage can still be insufficient to establish the claim.
 
-## Latency criteria (planned)
+## Inference performance v1
 
-Record complete distributions and report p50, p95, p99, minimum/maximum, successful sample count, errors/timeouts, traffic shape, prompt/output distributions, warm/cold state, and environment metadata.
+The v1 CLI adapter executes one customer-confirmed frozen workload against an
+OpenAI-compatible streaming endpoint. It first reserves a durable idempotency
+operation, then sends one bounded preflight request. External preflight failure
+is `BLOCKED` and starts no measured workload.
 
-The proposed success rule is:
+For an available endpoint, the adapter runs the exact frozen warmup and measured
+request counts at the approved concurrency. It records one sanitized terminal
+record per attempt. Prompt and response text, raw API keys, and raw execution
+idempotency keys never enter measurement records or the customer Evidence Pack.
+
+The first-token definition is the first non-empty
+`choices[].delta.content` event. A valid `[DONE]` event terminates measurement;
+the client does not wait for the server to close a persistent SSE connection.
+
+The current composite criterion is:
 
 ```text
-upper bootstrap confidence bound for p95 < approved threshold
+client-observed nearest-rank p95 TTFT < approved threshold
+AND
+measured external-error count / all measured attempts < approved threshold
 ```
 
-Before implementation, the team must approve how timeouts, errors, retries, client cancellations, and partial responses enter the denominator. A fast p95 that omits a high error rate is not a meaningful production conclusion.
+Warmups are excluded. Successful measured requests enter the TTFT distribution.
+HTTP errors, timeouts, malformed streams, and transport errors enter the error
+denominator. Cancellation, internal adapter failure, missing records, mixed
+executions, or any integrity mismatch produce `NOT_PROVEN`, never `PASS`.
+
+The v1 example deliberately uses exactly 100 measured attempts and a strict
+error-rate threshold below 1%. Therefore zero errors passes that rule and one
+error fails it.
+
+TTFT is client-observed. It includes network, proxy, queueing, and inference
+time; it is not presented as GPU execution latency.
+
+The authoritative runner reconstructs the contract, confirmation, workload,
+manifest, records, receipt, calculations, verdict, and static HTML from
+persisted bytes and recalculates the decision before returning it. SQLite binds
+the ledger run, probe execution, receipt, and artifact-registry hash. A crashed
+`RUNNING` operation is never silently rerun or auto-promoted from an orphaned
+directory.
+
+Future performance versions may add complete p50/p95/p99 distributions,
+throughput, output-token distributions, warm/cold state, environment metadata,
+and confidence intervals. Those are not claimed by v1.
 
 ## Cost criteria (planned)
 
