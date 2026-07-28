@@ -408,6 +408,16 @@
     renderCurrentProposal();
   }
 
+  async function reconcileQueueAfterDecision() {
+    const proposalList = await requestJson(proposalsApi);
+    if (!isTrustedProposalList(proposalList)) {
+      throw new SafeRequestError(200, true);
+    }
+    proposals = proposalList.proposals.slice();
+    initialCount = keptCount + discardedCount + proposals.length;
+    renderCurrentProposal();
+  }
+
   function blockReview(message) {
     currentTask.setAttribute("aria-busy", "false");
     setFieldAvailability(false);
@@ -435,6 +445,7 @@
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const proposal = currentProposal();
+    let decisionRecorded = false;
     if (inFlight || !proposal) {
       return;
     }
@@ -499,8 +510,17 @@
       }
       pendingAttempt = null;
       proposals.shift();
-      renderCurrentProposal();
+      decisionRecorded = true;
+      await reconcileQueueAfterDecision();
     } catch (error) {
+      if (decisionRecorded) {
+        proposals = [];
+        pendingAttempt = null;
+        blockReview(
+          "The decision was recorded, but the current proposal queue could not be refreshed. Reload before continuing."
+        );
+        return;
+      }
       if (
         error instanceof SafeRequestError &&
         !error.retrySameAttempt

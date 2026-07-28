@@ -325,6 +325,39 @@ def test_source_content_never_enters_browser_persistence_navigation_or_logs():
     )
 
 
+def test_completion_requires_an_authoritative_queue_refresh():
+    javascript = _asset(JS_PATH)
+    reconcile = _function(
+        javascript,
+        "reconcileQueueAfterDecision",
+        "blockReview",
+    )
+    submit = javascript.split('form.addEventListener("submit"', 1)[1].split(
+        "\n  async function initialise",
+        1,
+    )[0]
+
+    assert "requestJson(proposalsApi)" in reconcile
+    assert "isTrustedProposalList(proposalList)" in reconcile
+    assert "proposals = proposalList.proposals.slice();" in reconcile
+    assert (
+        "initialCount = keptCount + discardedCount + proposals.length;"
+        in reconcile
+    )
+    assert "renderCurrentProposal();" in reconcile
+    assert "decisionRecorded = true;" in submit
+    assert "await reconcileQueueAfterDecision();" in submit
+    assert "if (decisionRecorded)" in submit
+    assert (
+        "The decision was recorded, but the current proposal queue could not "
+        "be refreshed."
+        in submit
+    )
+    assert submit.index("proposals.shift();") < submit.index(
+        "await reconcileQueueAfterDecision();"
+    )
+
+
 def test_completion_is_concise_honest_and_has_no_fake_next_link():
     html = _asset(HTML_PATH)
     javascript = _asset(JS_PATH)
