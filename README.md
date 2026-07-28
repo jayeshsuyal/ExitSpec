@@ -72,6 +72,13 @@ Current implementation status is recorded separately at
 `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; ExitSpec
 does not rewrite a frozen contract to claim completion.
 
+The first POC-workspace implementation slice is also present behind the current
+workbench: an immutable local POC registry snapshot and deterministic read-only
+projection derive source summary, `Define`/`Prove`/`Decide` phase, next action,
+blockers, and latest evidence from existing domain state. `/api/state` exposes
+that one seeded projection under `workspace`. The POC dashboard and creation UI
+are not implemented yet.
+
 ### Confirm
 
 - One canonical customer-visible projection is both rendered and fingerprinted.

@@ -19,6 +19,7 @@ import uuid
 import webbrowser
 from contextlib import ExitStack
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from functools import wraps
 from http import HTTPStatus
@@ -116,6 +117,14 @@ from .wave1_runtime import (
     frozen_wave1_source,
     wave1_provider_disclosure,
 )
+from .workspace import (
+    ArchiveState,
+    POCRegistryEntry,
+    POCWorkflowFacts,
+    ReadOnlyPOCRegistry,
+    WorkspaceSourceType,
+    project_dashboard,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -154,6 +163,7 @@ SUPPORTED_RULE_TEMPLATE = {
         "until a compatible measurement adapter exists."
     ),
 }
+SYNTHETIC_SUPPORT_AGENT_POC_ID = "poc_support_agent_demo"
 
 
 class DemoStateError(ValueError):
@@ -1995,6 +2005,7 @@ class DemoSession:
                 self.customer_confirmation,
             )
         )
+        proof = self._proof_payload()
         return {
             "mode": "local_synthetic_demo",
             "safety": {
@@ -2055,8 +2066,105 @@ class DemoSession:
             ),
             "customer_draft_url": self._customer_draft_url(),
             "customer_review_url": self._customer_review_url(),
-            "proof_pack": self._proof_payload(),
+            "proof_pack": proof,
+            "workspace": self._workspace_projection_payload(contract, proof),
         }
+
+    def _workspace_projection_payload(
+        self,
+        contract: Optional[POCContract],
+        proof: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Project the seeded POC without granting the workspace write authority."""
+
+        source_type = (
+            WorkspaceSourceType.EMAIL
+            if self._source_intake is not None
+            else WorkspaceSourceType.MEETING_TRANSCRIPT
+        )
+        confirmation = self.customer_confirmation
+        updated_at = self._workspace_updated_at(contract)
+        owner = self.contract_seed.owners[-1]
+        sample_seed = self._sample_contract_seed or self.contract_seed
+        record = POCRegistryEntry(
+            poc_id=SYNTHETIC_SUPPORT_AGENT_POC_ID,
+            display_name="Support-agent POC",
+            customer_label=self.contract_seed.customer,
+            use_case=self.contract_seed.use_case,
+            owner=owner,
+            created_at=sample_seed.created_at,
+            updated_at=updated_at,
+            archive_state=ArchiveState.ACTIVE,
+        )
+        facts = POCWorkflowFacts(
+            source_count=1,
+            source_types=(source_type,),
+            pending_draft_count=len(self.pending_drafts),
+            approved_criterion_count=len(self.approved_drafts),
+            active_contract_id=None if contract is None else contract.id,
+            active_contract_version=None if contract is None else contract.version,
+            contract_status=None if contract is None else contract.status,
+            customer_review_issued=self.customer_review_invitation is not None,
+            customer_decision=(
+                None if confirmation is None else confirmation.decision
+            ),
+            confirmation_matches_active_contract=(
+                None
+                if confirmation is None
+                else bool(
+                    contract is not None
+                    and confirmation_matches_contract(contract, confirmation)
+                )
+            ),
+            revision_requested=self.revision_request is not None,
+            run_status=(
+                None if self.last_run is None else self.last_run.manifest.status
+            ),
+            verdict=(
+                None
+                if self.last_run is None
+                else self.last_run.overall_verdict.verdict
+            ),
+            verdict_reason=(
+                None
+                if self.last_run is None
+                else self.last_run.overall_verdict.reason
+            ),
+            evidence_pack_url=(
+                None if proof is None else proof["report_url"]
+            ),
+            action_since=updated_at,
+        )
+        dashboard = project_dashboard(
+            ReadOnlyPOCRegistry((record,)),
+            {record.poc_id: facts},
+            current_owner=owner,
+        )
+        return dashboard.model_dump(mode="json")
+
+    def _workspace_updated_at(
+        self,
+        contract: Optional[POCContract],
+    ) -> datetime:
+        """Return the latest existing domain timestamp without reading the clock."""
+
+        timestamps = [self.contract_seed.created_at]
+        for draft in self.reviewed_drafts:
+            if draft.review is not None:
+                timestamps.append(draft.review.reviewed_at)
+        if contract is not None:
+            timestamps.append(contract.created_at)
+            if contract.approved_at is not None:
+                timestamps.append(contract.approved_at)
+            if contract.frozen_at is not None:
+                timestamps.append(contract.frozen_at)
+        if self.customer_review_invitation is not None:
+            timestamps.append(self.customer_review_invitation.created_at)
+        if self.customer_confirmation is not None:
+            timestamps.append(self.customer_confirmation.decided_at)
+        if self.last_run is not None:
+            timestamps.append(self.last_run.manifest.ended_at)
+        return max(timestamps)
 
     def _confirmation_payload(self) -> Optional[Dict[str, Any]]:
         confirmation = self.customer_confirmation

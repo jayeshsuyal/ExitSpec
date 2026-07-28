@@ -114,12 +114,14 @@ Post-implementation status is recorded separately in
 The product direction is frozen in
 [POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and
 [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
-The contract is accepted and `contract_only`; no dashboard implementation claim
-is made yet.
+The contract remains `contract_only` for the complete workspace. The first
+implementation slice—the read-only registry and deterministic projection—is
+implemented behind the current workbench; no dashboard UI claim is made yet.
 
 Build the local synthetic/demo track in this order:
 
-1. read-only POC registry and deterministic next-action projection;
+1. **Complete:** read-only POC registry and deterministic next-action
+   projection, integrated into `/api/state.workspace` for the one seeded POC;
 2. `/app` dashboard with one **New POC** action, one bounded POC list, at most
    one continue card, and three filters;
 3. `/app/pocs/new` local draft creation with zero authority side effects;

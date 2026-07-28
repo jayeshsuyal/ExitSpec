@@ -46,7 +46,10 @@ The implemented local product still owns one process-scoped demo session. The
 next architecture target is accepted in
 [POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and frozen in
 [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
-It is contract-only and must not be described as implemented.
+The overall workspace remains contract-only. Its first implementation slice is
+now present: `workspace.py` provides immutable registry entries, an immutable
+registry snapshot, strict workflow facts, deterministic POC projections,
+bounded filters, and continue-card ordering. It has no mutation methods.
 
 The target introduces a POC aggregate above the existing source, agreement, run,
 and evidence services:
@@ -88,6 +91,17 @@ migration must preserve current review and artifact URLs.
 The first registry may remain explicitly local and process-scoped. Durable POC
 storage, authenticated workspace identity, tenant isolation, and real-customer
 source remain behind the real-customer trust gate.
+
+The current `DemoSession` adapts its existing synthetic state into exactly one
+`poc_support_agent_demo` projection under `/api/state.workspace`. It derives
+timestamps from existing domain records rather than reading the clock, preserves
+one POC identity when the guided source changes from transcript to email, and
+uses the existing contract, confirmation, run, and verdict enums. Missing or
+contradictory facts become typed visible blockers and reset the navigation phase
+to `Define`; the projection never repairs or advances underlying state.
+
+No dashboard HTML, POC creation route, registry mutation, second source record,
+durable persistence, or new authority is included in this slice.
 
 ## Authority boundaries
 
@@ -446,10 +460,10 @@ on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 
 ## Deliberate limits and scale path
 
-The accepted POC workspace, dashboard, create flow, multi-source navigation,
-synthetic meeting-transcript source, and graphite/orange restoration are not yet
-implemented. Their frozen contract records planned behavior without rewriting
-the current single-session truth.
+The accepted dashboard, create flow, multi-source navigation, synthetic
+meeting-transcript source addition, and graphite/orange restoration are not yet
+implemented. The read-only registry and projection slice is implemented against
+the current single-session truth; the frozen overall contract remains unchanged.
 
 The workspace implementation must reuse the existing source, review,
 confirmation, freeze, measurement, verdict, and artifact authorities. A

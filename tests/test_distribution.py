@@ -465,6 +465,7 @@ from exitspec.demo_data import (
     support_agent_source_web_contract,
 )
 from exitspec.web import DemoSession
+from exitspec.workspace import DashboardFilter
 
 with support_agent_demo_paths() as data:
     discovery = load_discovery_pack(data.discovery_pack)
@@ -475,12 +476,17 @@ with support_agent_demo_paths() as data:
         output_root=Path("session-runs"),
         reviewed_drafts=list(discovery.drafts),
     )
+    workspace = session.state_payload()["workspace"]
     payload = {
         "module": str(Path(exitspec.__file__).resolve()),
         "resource_root": str(data.root),
         "transcript_id": session.state_payload()["transcript"]["id"],
         "review_actions": len(load_review_plan(data.review_plan).actions),
         "fixture_exists": session.fixture_path.is_file(),
+        "workspace_filter": workspace["selected_filter"],
+        "workspace_poc_id": workspace["continue_working"]["poc_id"],
+        "workspace_next_action": workspace["continue_working"]["next_action_code"],
+        "workspace_module_available": DashboardFilter.ACTIVE.value,
     }
 with support_agent_email_paths() as email:
     payload["email_resource_root"] = str(email.root)
@@ -509,6 +515,10 @@ print(json.dumps(payload))
     assert probe["transcript_id"] == "support-discovery-v1"
     assert probe["review_actions"] == 2
     assert probe["fixture_exists"] is True
+    assert probe["workspace_filter"] == "Active"
+    assert probe["workspace_poc_id"] == "poc_support_agent_demo"
+    assert probe["workspace_next_action"] == "REVIEW_PROPOSALS"
+    assert probe["workspace_module_available"] == "Active"
     assert Path(probe["email_resource_root"]).is_relative_to(
         installed_site_packages
     )
