@@ -50,7 +50,9 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
     for phrase in (
         "POCs",
         "Customer POCs",
-        "Next up",
+        "Next required decision",
+        "Continue working",
+        "All POCs",
         "Active",
         "Needs attention",
         "Completed",
@@ -114,7 +116,7 @@ def test_dashboard_has_one_real_create_action_and_three_bounded_filters():
         in javascript
     )
     assert "Open POC" in javascript
-    assert "No other active POCs." in javascript
+    assert "No active POCs." in javascript
 
 
 def test_dashboard_desktop_is_fixed_and_narrow_layout_reenables_body_scroll():

@@ -34,97 +34,91 @@
         <header class="page-header">
           <div>
             <p class="eyebrow">Customer POCs</p>
-            <h1>POC workspace</h1>
-            <p>Resume the customer decision that needs attention.</p>
+            <h1>POCs</h1>
+            <p>Continue customer work from its next required decision.</p>
           </div>
-          <div class="page-actions">
-            <p class="priority-note">
-              <span aria-hidden="true"></span>
-              Next up is selected first
-            </p>
-            <a class="new-poc-link" href="/app/pocs/new">New POC</a>
-          </div>
+          <a class="new-poc-link" href="/app/pocs/new">New POC</a>
         </header>
 
-        <div class="workspace-layout">
-          <section
-            class="poc-region"
-            id="poc-region"
-            aria-labelledby="poc-list-heading"
-          >
-            <header class="list-header">
-              <div>
-                <h2 id="poc-list-heading">POC work queue</h2>
-                <p id="list-summary" aria-live="polite">Loading active POCs…</p>
-              </div>
-              <div class="filter-group" role="group" aria-label="Filter POCs">
-                <button type="button" data-filter="Active" aria-pressed="true">
-                  Active
-                </button>
-                <button
-                  type="button"
-                  data-filter="Needs attention"
-                  aria-pressed="false"
-                >
-                  Needs attention
-                </button>
-                <button
-                  type="button"
-                  data-filter="Completed"
-                  aria-pressed="false"
-                >
-                  Completed
-                </button>
-              </div>
-            </header>
-
-            <div class="list-labels" id="list-labels" aria-hidden="true">
-              <span>POC / customer</span>
-              <span>Stage</span>
-              <span>Evidence</span>
+        <section
+          class="continue-region"
+          id="continue-region"
+          aria-labelledby="continue-heading"
+        >
+          <header class="section-heading continue-heading">
+            <div>
+              <p class="eyebrow">Next required decision</p>
+              <h2 id="continue-heading">Continue working</h2>
             </div>
+            <p>One POC, one next action.</p>
+          </header>
+          <div
+            class="continue-card"
+            id="continue-card"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <p class="loading-copy">Loading the next action…</p>
+          </div>
+        </section>
 
-            <div class="poc-list-panel" id="poc-list-panel">
-              <ul
-                class="poc-list"
-                id="poc-list"
-                aria-label="POC work queue"
-                aria-busy="true"
+        <section
+          class="poc-region"
+          id="poc-region"
+          aria-labelledby="poc-list-heading"
+        >
+          <header class="list-header">
+            <div>
+              <h2 id="poc-list-heading">All POCs</h2>
+              <p id="list-summary" aria-live="polite">Loading active POCs…</p>
+            </div>
+            <div class="filter-group" role="group" aria-label="Filter POCs">
+              <button type="button" data-filter="Active" aria-pressed="true">
+                Active
+              </button>
+              <button
+                type="button"
+                data-filter="Needs attention"
+                aria-pressed="false"
               >
-                <li class="loading-row">Loading workspace…</li>
-              </ul>
-              <div class="empty-state" id="empty-state" hidden>
-                <strong id="empty-title">No POCs match this view.</strong>
-                <p id="empty-copy">
-                  Choose Active to return to current customer work.
-                </p>
-                <button type="button" id="show-active">Show active POCs</button>
-              </div>
+                Needs attention
+              </button>
+              <button
+                type="button"
+                data-filter="Completed"
+                aria-pressed="false"
+              >
+                Completed
+              </button>
             </div>
-          </section>
+          </header>
 
-          <aside
-            class="continue-region"
-            id="continue-region"
-            aria-labelledby="continue-heading"
-          >
-            <header class="preview-heading">
-              <div>
-                <p class="eyebrow">Selected POC</p>
-                <h2 id="continue-heading">Decision preview</h2>
-              </div>
-              <span>Read-only summary</span>
-            </header>
-            <div
-              class="continue-card"
-              id="continue-card"
-              aria-live="polite"
+          <div class="list-labels" id="list-labels" aria-hidden="true">
+            <span>POC / customer</span>
+            <span>Source</span>
+            <span>Next step</span>
+            <span>Evidence</span>
+            <span></span>
+          </div>
+
+          <div class="poc-list-panel" id="poc-list-panel">
+            <ul
+              class="poc-list"
+              id="poc-list"
+              aria-label="All POCs"
               aria-busy="true"
             >
-              <p class="loading-copy">Loading the next action…</p>
+              <li class="loading-row">Loading workspace…</li>
+            </ul>
+            <div class="empty-state" id="empty-state" hidden>
+              <strong id="empty-title">No POCs match this view.</strong>
+              <p id="empty-copy">
+                Choose Active to return to current customer work.
+              </p>
+              <button type="button" id="show-active">Show active POCs</button>
             </div>
-          </aside>
-        </div>
+          </div>
+        </section>
 
         <p class="workspace-error" id="workspace-error" role="alert" hidden></p>
       </main>

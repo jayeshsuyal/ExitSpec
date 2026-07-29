@@ -92,8 +92,8 @@ Compatibility entries remain valid:
 /app?mode=recording
 ```
 
-The dashboard is a read-only projection. Its selected row, phase, blocker,
-next action, and evidence summary never mutate domain state.
+The dashboard is a read-only projection. Its authoritative continuation card,
+POC rows, blocker, next action, and evidence summary never mutate domain state.
 
 ## API contract
 
@@ -165,17 +165,20 @@ and deterministic verdict recomputation.
 At 1280×720, `/app` is one fixed professional application shell:
 
 - compact global navigation;
+- one authoritative **Continue working** card;
 - one finite POC work queue;
-- one selected-POC preview;
+- direct POC navigation with no duplicate selection preview;
+- one visible `Capture -> Review -> Confirm -> Prove -> Decide` position;
 - agreement state distinct from evidence state;
 - one exact next action;
 - one consistently placed primary action; and
 - no giant hero, KPI-card soup, decorative charts, or body-level infinite
   scroll.
 
-“Next up” controls initial deterministic selection and ordering. It is not a
-separate giant card. At narrow widths, the list and preview reflow without
-horizontal body overflow.
+`continue_working` controls the deterministic continuation card. Filters change
+the finite POC table without changing that authoritative next decision. At
+narrow widths, the continuation card and table reflow without horizontal body
+overflow.
 
 ### Source-first creation
 
@@ -211,7 +214,7 @@ Technical identities remain inspectable but secondary.
 
 | PR | Deliverable | Depends on |
 | --- | --- | --- |
-| 1 | Professional master-detail dashboard | Current workspace projection |
+| 1 | Professional continuation dashboard | Current workspace projection |
 | 2 | Typed local draft POC creation service | This contract |
 | 3 | Source-first create UI and API integration | PR 2 |
 | 4 | Unified local source route boundary | PR 2 |
