@@ -335,6 +335,9 @@
         verdict.textContent = "PACK READY";
         reason.textContent =
           "Execution completed and the server verified this Evidence Pack. Open it for the verdict.";
+        window.dispatchEvent(
+          new CustomEvent("exitspec:evidence-updated")
+        );
       } else {
         panel.dataset.state = "NOT_PROVEN";
         $("#evidence-status").textContent = "NOT PROVEN";

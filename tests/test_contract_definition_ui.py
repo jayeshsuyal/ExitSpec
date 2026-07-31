@@ -69,19 +69,23 @@ def test_page_is_one_accessible_bounded_definition_task():
     )
 
 
-def test_page_has_one_consistent_primary_action_and_no_fake_next_link():
+def test_page_has_one_task_button_and_one_validated_completion_handoff():
     html = _asset(HTML_PATH)
+    javascript = _asset(JS_PATH)
     parser = _MarkupInventory()
     parser.feed(html)
 
     assert len(parser.buttons) == 1
     assert parser.buttons[0]["id"] == "save-definition"
     assert parser.buttons[0]["type"] == "submit"
-    assert html.count('class="primary-action"') == 1
+    assert html.count('class="primary-action"') == 2
     assert re.search(r">\s*Save definition\s*</button>", html)
     completion = html.split('id="definition-complete"', 1)[1]
+    assert 'id="prepare-agreement"' in completion
+    assert re.search(r">\s*Prepare agreement\s*</a>", completion)
     assert 'href="' not in completion
-    assert "Next" not in completion
+    assert "`/app/pocs/${pocId}/agreement`" in javascript
+    assert 'prepareAgreement.hidden = false;' in javascript
 
 
 def test_source_quote_and_claim_are_visibly_separate_from_human_form():
@@ -138,10 +142,12 @@ def test_normal_view_is_simple_and_workload_ranges_are_native_details():
     assert "<details open" not in html
 
 
-def test_defaults_are_visible_but_copy_requires_human_verification():
+def test_measurement_defaults_fail_toward_explicit_human_review():
     html = _asset(HTML_PATH)
+    javascript = _asset(JS_PATH)
 
-    assert 'id="threshold"' in html and 'value="500"' in html
+    assert '<option value="" selected>Choose a metric</option>' in html
+    assert 'id="threshold"' in html and 'value=""' in html
     assert 'id="minimum-samples"' in html and 'value="100"' in html
     assert 'id="concurrency"' in html and 'value="4"' in html
     assert 'max="1000"' in html
@@ -149,11 +155,46 @@ def test_defaults_are_visible_but_copy_requires_human_verification():
     for value in ("512", "4096", "64"):
         assert f'value="{value}"' in html
     assert (
-        "Starting values are suggestions only. Verify every value\n"
-        "                  against the reviewed source before saving."
+        "ExitSpec may suggest a metric only when the reviewed claim is\n"
+        "                  unambiguous. A human must verify every value before saving."
     ) in html
+    assert 'id="criterion-suggestion-status"' in html
+    assert "No safe metric and threshold suggestion was found." in javascript
+    assert 'metricInput.value = suggestion.metric || "";' in javascript
+    assert 'thresholdInput.value = "";' in javascript
+    assert "defaultThreshold" not in javascript
     assert "current runner binds a hashed prompt fixture" in html
     assert "does not prove token distributions" in html
+
+
+def test_claim_cues_are_bounded_and_never_auto_approve():
+    javascript = _asset(JS_PATH)
+    suggestion = _function(
+        javascript,
+        "boundedClaimSuggestion",
+        "integerValue",
+    )
+    reset = _function(
+        javascript,
+        "resetFormForProposal",
+        "renderCurrentProposal",
+    )
+
+    assert r"\berror[\s-]*rate\b" in javascript
+    assert "time\\s+to\\s+(?:the\\s+)?first\\s+token" in javascript
+    assert "first[\\s-]*token" in javascript
+    assert "hasErrorRateCue === hasTtftCue" in suggestion
+    assert 'metric: "ERROR_RATE_PERCENT"' in suggestion
+    assert 'metric: "TTFT_P95_MS"' in suggestion
+    assert "threshold <= METRIC_CONFIG.ERROR_RATE_PERCENT.minimum" in suggestion
+    assert "threshold >= METRIC_CONFIG.ERROR_RATE_PERCENT.maximum" in suggestion
+    assert "threshold < METRIC_CONFIG.TTFT_P95_MS.minimum" in suggestion
+    assert "threshold > METRIC_CONFIG.TTFT_P95_MS.maximum" in suggestion
+    assert "matches.length !== 1" in javascript
+    assert "suggestionStatus.textContent = suggestion.message;" in reset
+    assert "proposal.normalized_claim" in reset
+    assert "approved" not in suggestion.lower()
+    assert "confirmed" not in suggestion.lower()
 
 
 def test_reviewer_and_rationale_are_required_and_bounded():
@@ -558,8 +599,8 @@ def test_css_is_graphite_orange_finite_responsive_and_focus_visible():
     assert "@media (max-width: 560px)" in css
     assert ":focus-visible" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
-    assert "--canvas: #0b0d0c;" in dashboard_css
-    assert "--orange: #ff6b3d;" in dashboard_css
+    assert "--canvas: #0e141b;" in dashboard_css
+    assert "--orange: #e87849;" in dashboard_css
 
 
 def test_javascript_parses_with_node():

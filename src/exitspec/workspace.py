@@ -61,6 +61,7 @@ class WorkspaceAction(str, Enum):
     WAIT_FOR_PROOF = "WAIT_FOR_PROOF"
     RERUN_POC = "RERUN_POC"
     REVIEW_EVIDENCE = "REVIEW_EVIDENCE"
+    RECORD_DECISION_HANDOFF = "RECORD_DECISION_HANDOFF"
     RESOLVE_BLOCKER = "RESOLVE_BLOCKER"
     NONE = "NONE"
 
@@ -630,6 +631,13 @@ def _derive_action(
             "This POC is archived.",
         )
 
+    if record.archive_state == ArchiveState.COMPLETED:
+        return (
+            WorkspacePhase.DECIDE,
+            WorkspaceAction.NONE,
+            "POC closed after an explicit human decision and Evidence Pack handoff.",
+        )
+
     if facts.verdict is not None:
         return _verdict_action(facts.verdict)
 
@@ -751,23 +759,35 @@ def _verdict_action(
     if verdict == VerdictStatus.PASS:
         return (
             WorkspacePhase.DECIDE,
-            WorkspaceAction.REVIEW_EVIDENCE,
-            "Review and share the Evidence Pack. PASS is not authorization.",
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
+            (
+                "Record the human decision and complete the Evidence Pack handoff. "
+                "PASS is not authorization."
+            ),
         )
     if verdict == VerdictStatus.FAIL:
         return (
             WorkspacePhase.DECIDE,
-            WorkspaceAction.REVIEW_EVIDENCE,
-            "Review the failed criterion and decide whether to revise or stop.",
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
+            (
+                "Record whether the human handoff is complete or the POC is "
+                "stopped; FAIL is evidence, not authorization."
+            ),
         )
     if verdict == VerdictStatus.BLOCKED:
         return (
             WorkspacePhase.DECIDE,
-            WorkspaceAction.RERUN_POC,
-            "Resolve the external blocker, then rerun the frozen agreement.",
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
+            (
+                "Record the human decision to stop or hand off the BLOCKED "
+                "Evidence Pack; rerunning remains a separate action."
+            ),
         )
     return (
         WorkspacePhase.DECIDE,
-        WorkspaceAction.RERUN_POC,
-        "Collect sufficient valid evidence, then rerun the frozen agreement.",
+        WorkspaceAction.RECORD_DECISION_HANDOFF,
+        (
+            "Record the human decision to stop or hand off the NOT_PROVEN "
+            "Evidence Pack; no success claim is authorized."
+        ),
     )

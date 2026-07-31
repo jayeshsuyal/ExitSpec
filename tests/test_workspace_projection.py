@@ -269,22 +269,22 @@ def test_frozen_agreement_projects_proof_actions(
         (
             VerdictStatus.PASS,
             WorkspaceEvidenceState.PASS,
-            WorkspaceAction.REVIEW_EVIDENCE,
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
         ),
         (
             VerdictStatus.FAIL,
             WorkspaceEvidenceState.FAIL,
-            WorkspaceAction.REVIEW_EVIDENCE,
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
         ),
         (
             VerdictStatus.BLOCKED,
             WorkspaceEvidenceState.BLOCKED,
-            WorkspaceAction.RERUN_POC,
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
         ),
         (
             VerdictStatus.NOT_PROVEN,
             WorkspaceEvidenceState.NOT_PROVEN,
-            WorkspaceAction.RERUN_POC,
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
         ),
     ),
 )
@@ -445,6 +445,24 @@ def test_completed_archive_state_requires_terminal_verdict():
     assert "completed_without_verdict" in {
         blocker.code for blocker in projection.blockers
     }
+
+
+def test_completed_terminal_poc_has_no_remaining_workflow_action():
+    projection = project_poc(
+        _record(archive_state=ArchiveState.COMPLETED),
+        _frozen_facts(
+            run_status=RunStatus.COMPLETED,
+            verdict=VerdictStatus.PASS,
+            verdict_reason="Passed.",
+            evidence_pack_url="/artifacts/pass/decision-packet.html",
+        ),
+    )
+
+    assert projection.archive_state == ArchiveState.COMPLETED
+    assert projection.derived_phase == WorkspacePhase.DECIDE
+    assert projection.next_action_code == WorkspaceAction.NONE
+    assert projection.attention_required is False
+    assert "explicit human decision" in projection.next_human_action
 
 
 def test_action_timestamp_cannot_precede_poc_creation():

@@ -56,6 +56,7 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
         "Active",
         "Needs attention",
         "Completed",
+        "Guided demo",
         "Local demo",
     ):
         assert phrase in html
@@ -108,6 +109,8 @@ def test_dashboard_has_one_real_create_action_and_three_bounded_filters():
 
     assert 'class="primary-action"' not in html
     assert html.count('class="new-poc-link"') == 1
+    assert html.count('class="guided-demo-link"') == 1
+    assert html.count('href="/app?mode=recording"') == 1
     assert html.count('href="/app/pocs/new"') == 1
     assert html.count("New POC") == 1
     assert html.count('data-filter="') == 3
@@ -123,7 +126,7 @@ def test_dashboard_desktop_is_fixed_and_narrow_layout_reenables_body_scroll():
     _, css, _ = _sources()
 
     assert "height: 100dvh" in css
-    assert "body {\n  margin: 0;\n  overflow: hidden;" in css
+    assert "body {\n  margin: 0;\n  overflow: auto;" in css
     assert ".poc-list-panel {" in css
     assert "overflow: auto" in css
     mobile = css.split("@media (max-width: 760px)", 1)[1]

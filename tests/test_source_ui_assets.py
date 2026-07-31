@@ -48,11 +48,12 @@ def test_guided_source_layout_is_compact_bounded_and_responsive():
     assert "body.email-intake-mode .source-details" in css
 
     assert "height: 100dvh" in css
-    assert "body {\n  margin: 0;\n  overflow: hidden;" in css
+    assert "body {\n  margin: 0;\n  overflow: auto;" in css
     assert ".task-view {" in css
     assert "overflow: auto" in css
     mobile = css.split("@media (max-width: 760px)", 1)[1]
-    assert "body {\n    overflow: auto;" in mobile
+    assert ".workspace {\n    display: grid;\n    gap: 14px;\n    overflow: visible;" in mobile
+    assert ".object-header {\n    grid-template-columns: 1fr;" in mobile
     assert ".source-summary-technical," in mobile
     assert "position: static" in mobile
     assert "overflow: visible" in mobile

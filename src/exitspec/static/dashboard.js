@@ -19,7 +19,12 @@
     "WAIT_FOR_PROOF",
     "RERUN_POC",
   ]);
-  let activeFilter = "Active";
+  const requestedFilter = new URLSearchParams(window.location.search).get(
+    "filter"
+  );
+  let activeFilter = FILTERS.includes(requestedFilter)
+    ? requestedFilter
+    : "Active";
   let requestVersion = 0;
 
   const $ = (selector) => document.querySelector(selector);
@@ -58,7 +63,9 @@
     }
     if (
       PROVE_ACTIONS.has(poc.next_action_code) ||
-      poc.next_action_code === "REVIEW_EVIDENCE"
+      poc.next_action_code === "REVIEW_EVIDENCE" ||
+      poc.next_action_code === "RECORD_DECISION_HANDOFF" ||
+      poc.archive_state === "COMPLETED"
     ) {
       return base;
     }
@@ -104,12 +111,15 @@
       return { number: 2, label: "Review" };
     }
     if (CONFIRM_ACTIONS.has(action)) {
-      return { number: 3, label: "Confirm" };
+      return { number: 3, label: "Agree" };
     }
     if (PROVE_ACTIONS.has(action)) {
       return { number: 4, label: "Prove" };
     }
-    if (action === "REVIEW_EVIDENCE" || poc?.derived_phase === "DECIDE") {
+    if (
+      ["REVIEW_EVIDENCE", "RECORD_DECISION_HANDOFF", "NONE"].includes(action) ||
+      poc?.derived_phase === "DECIDE"
+    ) {
       return { number: 5, label: "Decide" };
     }
     return {
@@ -176,6 +186,16 @@
         title: "Review the verified decision.",
         button: "Review evidence",
       },
+      RECORD_DECISION_HANDOFF: {
+        title:
+          poc.next_human_action ||
+          "Record the human decision and complete the Evidence Pack handoff.",
+        button: "Complete decision",
+      },
+      NONE: {
+        title: poc.next_human_action || "This POC is complete.",
+        button: "View completed POC",
+      },
     }[poc?.next_action_code];
     return {
       title:
@@ -198,6 +218,8 @@
     if (
       PROVE_ACTIONS.has(poc.next_action_code) ||
       poc.next_action_code === "REVIEW_EVIDENCE" ||
+      poc.next_action_code === "RECORD_DECISION_HANDOFF" ||
+      poc.archive_state === "COMPLETED" ||
       poc.derived_phase === "PROVE" ||
       poc.derived_phase === "DECIDE"
     ) {

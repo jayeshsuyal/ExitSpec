@@ -843,6 +843,7 @@
       throw new SafeRequestError(200, true);
     }
     agreementState = projection;
+    inFlight = null;
     renderAgreementState();
   }
 

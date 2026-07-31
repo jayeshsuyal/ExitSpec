@@ -66,6 +66,9 @@ def test_dashboard_has_one_compact_create_action_and_safe_direct_navigation():
     assert html.count('href="/app/pocs/new"') == 1
     assert html.count("New POC") == 1
     assert 'class="new-poc-link"' in html
+    assert html.count('href="/app?mode=recording"') == 1
+    assert "Guided demo" in html
+    assert "75 sec" in html
     assert "<canvas" not in html
     assert "<svg" not in html
     assert "workbenchUrl(poc)" in javascript
@@ -119,7 +122,7 @@ def test_agreement_and_evidence_are_distinct_non_invented_boundaries():
 def test_dashboard_exposes_one_five_step_human_journey():
     _, _, javascript = _sources()
 
-    for label in ("Capture", "Review", "Confirm", "Prove", "Decide"):
+    for label in ("Capture", "Review", "Agree", "Prove", "Decide"):
         assert f'label: "{label}"' in javascript
     assert "`Step ${step.number} of 5 · ${step.label}`" in javascript
     assert "`Step ${step.number} · ${step.label}`" in javascript
@@ -137,7 +140,7 @@ def test_dashboard_is_bounded_on_desktop_and_reflows_at_320px():
     narrow = css.split("@media (max-width: 620px)", 1)[1]
 
     assert "height: 100dvh" in desktop
-    assert "body {\n  margin: 0;\n  overflow: hidden;" in desktop
+    assert "body {\n  margin: 0;\n  overflow: auto;" in desktop
     assert ".poc-list-panel {\n  min-height: 0;\n  overflow: auto;" in desktop
     assert "body {\n    overflow: auto;" in mobile
     assert ".poc-list-panel {\n    overflow: visible;" in mobile

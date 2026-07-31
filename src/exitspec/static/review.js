@@ -631,10 +631,14 @@
     elements.terminalReviewer.textContent =
       decision.reviewer_display_name || review.identity.display_name;
     const localReturn = review?.local_demo;
-    const canReturnToLocalApp = localReturn?.return_url === "/app";
+    const safeLocalReturnUrl =
+      localReturn?.return_url === "/app/pocs/poc_support_agent_demo"
+        ? localReturn.return_url
+        : null;
+    const canReturnToLocalApp = Boolean(safeLocalReturnUrl);
     elements.localDemoReturn.hidden = !canReturnToLocalApp;
     if (canReturnToLocalApp) {
-      elements.returnToApp.href = "/app";
+      elements.returnToApp.href = safeLocalReturnUrl;
       elements.localDemoNotice.textContent =
         localReturn.notice ||
         "Local demo only. Hosted customer reviews do not expose an internal workspace shortcut.";

@@ -38,7 +38,7 @@
         <header class="object-header">
           <div class="object-heading">
             <a class="back-link" href="/app">← POC workspace</a>
-            <p class="eyebrow">Draft POC · criterion definition</p>
+            <p class="eyebrow">Step 2 of 5 · Review</p>
             <h1 id="poc-title">Loading draft…</h1>
             <p id="poc-context">
               Validating kept proposals and existing definitions.
@@ -128,8 +128,16 @@
                 <p class="eyebrow">Human definition</p>
                 <h3>Set the measurement boundary</h3>
                 <p>
-                  Starting values are suggestions only. Verify every value
-                  against the reviewed source before saving.
+                  ExitSpec may suggest a metric only when the reviewed claim is
+                  unambiguous. A human must verify every value before saving.
+                </p>
+                <p
+                  class="definition-status"
+                  id="criterion-suggestion-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  Waiting for a reviewed claim.
                 </p>
               </header>
 
@@ -137,7 +145,14 @@
                 <div class="primary-fields">
                   <div class="field-group metric-field">
                     <label for="metric">Metric</label>
-                    <select id="metric" name="metric" required disabled>
+                    <select
+                      id="metric"
+                      name="metric"
+                      aria-describedby="criterion-suggestion-status"
+                      required
+                      disabled
+                    >
+                      <option value="" selected>Choose a metric</option>
                       <option value="TTFT_P95_MS">P95 time to first token</option>
                       <option value="ERROR_RATE_PERCENT">Error rate</option>
                     </select>
@@ -167,11 +182,12 @@
                         max="60000"
                         step="any"
                         inputmode="decimal"
-                        value="500"
+                        value=""
+                        aria-describedby="criterion-suggestion-status"
                         required
                         disabled
                       />
-                      <span class="threshold-unit" id="threshold-unit">ms</span>
+                      <span class="threshold-unit" id="threshold-unit">—</span>
                     </div>
                   </div>
 
@@ -361,6 +377,13 @@
             No contract was created, approved, customer-confirmed, frozen, run,
             scored, or given a verdict.
           </p>
+          <a
+            class="primary-action"
+            id="prepare-agreement"
+            hidden
+          >
+            Prepare agreement
+          </a>
         </section>
 
         <p

@@ -26,7 +26,7 @@
   display: inline-block;
   margin-bottom: 9px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   text-decoration: none;
 }
@@ -58,7 +58,7 @@
   padding: 4px 0 4px 9px;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -113,7 +113,7 @@
   border: 1px solid var(--border-strong);
   color: var(--orange);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -126,7 +126,7 @@
 .panel-heading p {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .source-options {
@@ -193,7 +193,7 @@
 .source-option small {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .identity-fields {
@@ -215,7 +215,7 @@
 
 .identity-fields label > span {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
 }
 
@@ -260,7 +260,7 @@
 .creation-footer p {
   margin: 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 #create-poc {
@@ -270,7 +270,7 @@
   padding: 7px 14px;
   background: var(--orange);
   color: var(--canvas);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
   cursor: pointer;
 }
@@ -321,7 +321,7 @@
 .next-intake span {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 780;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -337,7 +337,7 @@
 .authority-note {
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .return-link {
@@ -350,7 +350,7 @@
   padding: 7px 13px;
   background: var(--orange);
   color: var(--canvas);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
   text-decoration: none;
 }

@@ -175,7 +175,7 @@ def test_existing_review_confirmation_freeze_and_prove_drive_projection(
     session.prove("pass")
     decided = _current_poc(session)
     assert decided["derived_phase"] == "DECIDE"
-    assert decided["next_action_code"] == "REVIEW_EVIDENCE"
+    assert decided["next_action_code"] == "RECORD_DECISION_HANDOFF"
     assert decided["latest_evidence_summary"]["status"] == "PASS"
     assert decided["latest_evidence_summary"]["report_url"].startswith(
         "/artifacts/"

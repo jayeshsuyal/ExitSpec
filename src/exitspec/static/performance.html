@@ -10,6 +10,7 @@
     <title>ExitSpec — Inference-latency POC</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/performance.css" />
+    <link rel="stylesheet" href="/closure.css" />
   </head>
   <body>
     <a class="skip-link" href="#performance-current-task">
@@ -52,16 +53,26 @@
           <ol class="journey" aria-label="POC journey">
             <li data-state="complete">
               <span>1</span>
-              <strong>Define</strong>
+              <strong>Capture</strong>
+              <small>Complete</small>
+            </li>
+            <li data-state="complete">
+              <span>2</span>
+              <strong>Review</strong>
+              <small>Complete</small>
+            </li>
+            <li data-state="complete">
+              <span>3</span>
+              <strong>Agree</strong>
               <small>Complete</small>
             </li>
             <li data-state="current">
-              <span>2</span>
+              <span>4</span>
               <strong>Prove</strong>
               <small>Current</small>
             </li>
             <li data-state="locked">
-              <span>3</span>
+              <span>5</span>
               <strong>Decide</strong>
               <small>After evidence</small>
             </li>
@@ -215,6 +226,106 @@
                   Open Evidence Pack
                 </a>
               </div>
+              <section
+                class="closure-panel"
+                id="closure-panel"
+                aria-labelledby="closure-heading"
+                hidden
+              >
+                <header class="closure-heading">
+                  <div>
+                    <p class="panel-index">Step 5 of 5 · Decide</p>
+                    <h2 id="closure-heading">Complete the POC handoff</h2>
+                  </div>
+                  <p>
+                    Record the human outcome against this exact Evidence Pack.
+                  </p>
+                </header>
+                <form class="closure-form" id="closure-form">
+                  <label>
+                    Outcome
+                    <select id="closure-decision">
+                      <option value="HANDOFF_COMPLETED">Handoff completed</option>
+                      <option value="POC_STOPPED">POC stopped</option>
+                    </select>
+                  </label>
+                  <label>
+                    Reviewer
+                    <input
+                      id="closure-actor"
+                      maxlength="160"
+                      value="field_engineer"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Rationale
+                    <textarea
+                      id="closure-rationale"
+                      maxlength="2000"
+                      rows="2"
+                      placeholder="Evidence Pack reviewed and handed to the customer POC owner."
+                      required
+                    ></textarea>
+                  </label>
+                  <button
+                    class="closure-submit"
+                    id="record-closure"
+                    type="submit"
+                  >
+                    Record final decision
+                  </button>
+                  <p class="closure-boundary">
+                    <strong>Evidence is not authorization.</strong>
+                    Closing the POC never authorizes shipping or deployment.
+                  </p>
+                  <p
+                    class="closure-status"
+                    id="closure-status"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                </form>
+                <article
+                  class="closure-receipt"
+                  id="closure-receipt"
+                  aria-label="Recorded POC closure"
+                  hidden
+                >
+                  <dl>
+                    <div>
+                      <dt>Outcome</dt>
+                      <dd id="closure-receipt-decision">—</dd>
+                    </div>
+                    <div>
+                      <dt>Reviewer</dt>
+                      <dd id="closure-receipt-actor">—</dd>
+                    </div>
+                    <div>
+                      <dt>Recorded</dt>
+                      <dd id="closure-receipt-time">—</dd>
+                    </div>
+                    <div>
+                      <dt>Rationale</dt>
+                      <dd id="closure-receipt-rationale">—</dd>
+                    </div>
+                  </dl>
+                  <div class="closure-receipt-actions">
+                    <a
+                      class="closure-evidence-link"
+                      id="closure-evidence-link"
+                      target="_blank"
+                      rel="noopener"
+                      hidden
+                    >
+                      Evidence Pack
+                    </a>
+                    <a class="closure-dashboard-link" href="/app?filter=Completed">
+                      Completed POCs
+                    </a>
+                  </div>
+                </article>
+              </section>
             </section>
           </div>
         </div>
@@ -249,5 +360,6 @@
     </div>
 
     <script src="/performance.js"></script>
+    <script src="/closure.js"></script>
   </body>
 </html>

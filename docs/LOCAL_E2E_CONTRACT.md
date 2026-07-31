@@ -1,7 +1,7 @@
 # Local end-to-end product contract
 
-Status: implementation contract  
-Scope: local synthetic demonstration  
+Status: implementation contract
+Scope: local synthetic demonstration
 External mailbox and meeting-platform connectors: excluded
 
 ## Outcome
@@ -19,6 +19,8 @@ choose source
   -> run one approved measurement adapter
   -> independently verify the resulting artifacts
   -> show one typed verdict and customer Evidence Pack
+  -> record an evidence-bound human handoff or stop decision
+  -> move the closed POC to Completed
 ```
 
 The browser may coordinate explicit employee actions. It may not become a
@@ -103,6 +105,8 @@ POC rows, blocker, next action, and evidence summary never mutate domain state.
 POST /api/pocs
 GET  /api/pocs/{poc_id}
 GET  /api/workspace?filter={Active|Needs attention|Completed}
+GET  /api/workspace/pocs/{poc_id}/closure
+POST /api/workspace/pocs/{poc_id}/closure
 ```
 
 `POST /api/pocs` accepts only the required draft identity, one supported

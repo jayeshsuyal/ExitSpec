@@ -317,11 +317,14 @@ Inside one POC, the interface keeps the existing chain of custody:
 Source -> Agreement -> Customer -> Freeze -> Evidence -> Handoff
 ```
 
-The top-level progress language remains:
+The user-facing journey language is:
 
 ```text
-Define -> Prove -> Decide
+Capture -> Review -> Agree -> Prove -> Decide
 ```
+
+`Define`, `Prove`, and `Decide` remain the smaller internal projection phases;
+they are not shown as a competing second journey.
 
 Every normal state emphasizes:
 
@@ -342,17 +345,17 @@ The accepted product palette restores the graphite/orange system:
 
 | Token | Value | Use |
 | --- | --- | --- |
-| Canvas | `#0B0D0C` | Application background |
-| Navigation | `#101310` | Global shell and fixed navigation |
-| Panel | `#151815` | Primary work surfaces |
-| Raised | `#1B1F1B` | Selected or elevated bounded surfaces |
-| Primary text | `#F2F0E8` | Main content |
-| Secondary text | `#BEC4BA` | Supporting content |
-| Muted text | `#858D84` | Metadata |
-| Border | `#30362F` | Normal separators |
-| Strong border | `#4A5248` | Focused structure |
-| Action orange | `#FF6B3D` | Current task and primary action |
-| Success green | `#78D6A3` | Proven success only |
+| Canvas | `#0E141B` | Application background |
+| Navigation | `#121A23` | Global shell and fixed navigation |
+| Panel | `#18222D` | Primary work surfaces |
+| Raised | `#1D2936` | Selected or elevated bounded surfaces |
+| Primary text | `#F1F4F7` | Main content |
+| Secondary text | `#C4CED9` | Supporting content |
+| Muted text | `#96A4B4` | Metadata |
+| Border | `#2A3747` | Normal separators |
+| Strong border | `#46576B` | Focused structure |
+| Action orange | `#E87849` | Current task and primary action |
+| Success green | `#73C99C` | Proven success only |
 
 The product uses no pure black, blue/periwinkle primary accent, gradients,
 glassmorphism, neon, giant landing hero, chip soup, or decorative dashboard

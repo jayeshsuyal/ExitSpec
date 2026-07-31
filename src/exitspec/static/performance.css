@@ -26,7 +26,7 @@
   display: inline-block;
   margin-bottom: 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 720;
   text-decoration: none;
 }
@@ -65,7 +65,7 @@
   padding-left: 8px;
   color: var(--orange);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -73,7 +73,7 @@
 .object-identity > p:last-child {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .journey {
@@ -100,16 +100,16 @@
   grid-row: 1 / span 2;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .journey strong {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .journey small {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .journey li[data-state="complete"] {
@@ -145,7 +145,7 @@
   margin-bottom: 5px;
   color: var(--orange);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -167,7 +167,7 @@
 .task-copy .task-guidance {
   min-height: 15px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .task-actions {
@@ -185,7 +185,7 @@
   color: var(--canvas);
   cursor: pointer;
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
   text-decoration: none;
 }
@@ -224,7 +224,7 @@
 
 .state-boundary dt {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -235,7 +235,7 @@
   margin: 0;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -301,7 +301,7 @@
 
 .panel-heading > span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -336,7 +336,7 @@
   grid-row: 1 / span 2;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .requirement-identity strong {
@@ -345,7 +345,7 @@
 
 .requirement-identity small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .requirement-threshold {
@@ -358,7 +358,7 @@
 .agreement-note {
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .agreement-note strong {
@@ -367,7 +367,7 @@
 
 .panel-loading {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .right-column {
@@ -397,14 +397,14 @@
 .operation-summary span,
 .operation-reference {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
 .operation-summary strong {
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .operation-summary > p {
@@ -414,7 +414,7 @@
   border-left: 1px solid var(--border);
   padding: 10px 11px;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .run-shape {
@@ -432,7 +432,7 @@
 
 .run-shape dt {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -440,7 +440,7 @@
   margin: 3px 0 0;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .operation-reference {
@@ -453,7 +453,7 @@
 .operation-reference code {
   margin-left: 5px;
   color: var(--text-secondary);
-  font-size: 8px;
+  font-size: 11px;
   text-transform: none;
 }
 
@@ -469,7 +469,7 @@
 .evidence-panel p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .evidence-action {
@@ -483,7 +483,7 @@
   padding: 7px 9px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.05em;
   white-space: nowrap;
 }
@@ -502,7 +502,7 @@
 
 .evidence-pack-link {
   color: var(--orange);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 780;
   text-underline-offset: 3px;
   white-space: nowrap;
@@ -522,7 +522,7 @@
   cursor: pointer;
   padding: 8px 11px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
 }
 
@@ -550,7 +550,7 @@
 
 .technical-content dt {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -559,7 +559,7 @@
   margin: 2px 0 0;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -567,7 +567,7 @@
 .technical-content > p {
   margin: 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
 

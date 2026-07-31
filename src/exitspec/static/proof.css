@@ -5,7 +5,7 @@
   max-width: 680px;
   margin: 9px 0;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -31,7 +31,7 @@
 
 .requirement-result small {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .requirement-result[data-state="PASS"] small {

@@ -520,6 +520,62 @@ def test_confirmation_and_freeze_visibility_require_authoritative_refresh():
     assert "agreementState.frozen_contract !== null" in renderer
 
 
+def test_authoritative_refresh_unlocks_each_next_state_before_rendering():
+    javascript = _asset(JS_PATH)
+    reconcile = _function(
+        javascript,
+        "reconcileAgreement",
+        "blockAgreement",
+    )
+    renderer = _function(
+        javascript,
+        "renderAgreementState",
+        "reconcileAgreement",
+    )
+    confirmation_controls = _function(
+        javascript,
+        "updateConfirmationControls",
+        "updateFreezeControls",
+    )
+    freeze_controls = _function(
+        javascript,
+        "updateFreezeControls",
+        "definitionRule",
+    )
+    draft_submit = javascript.split(
+        'draftForm.addEventListener("submit"', 1
+    )[1].split(
+        '\n  confirmationForm.addEventListener("submit"', 1
+    )[0]
+    confirmation_submit = javascript.split(
+        'confirmationForm.addEventListener("submit"', 1
+    )[1].split(
+        '\n  freezeForm.addEventListener("submit"', 1
+    )[0]
+
+    assert reconcile.index("agreementState = projection;") < reconcile.index(
+        "inFlight = null;"
+    ) < reconcile.index("renderAgreementState();")
+    assert "await reconcileAgreement();" in draft_submit
+    assert "await reconcileAgreement();" in confirmation_submit
+
+    confirmation_branch = renderer.split(
+        "if (agreementState.draft !== null)", 1
+    )[1].split("showOnly(draftForm);", 1)[0]
+    assert "showOnly(confirmationPanel);" in confirmation_branch
+    assert "updateConfirmationControls();" in confirmation_branch
+    assert "inFlight === null" in confirmation_controls
+
+    freeze_branch = renderer.split(
+        "if (agreementState.confirmation !== null)", 1
+    )[1].split("if (agreementState.draft !== null)", 1)[0]
+    assert "showOnly(freezePanel);" in freeze_branch
+    assert "updateFreezeControls();" in freeze_branch
+    assert "freezeButton.disabled = !available || inFlight !== null;" in (
+        freeze_controls
+    )
+
+
 def test_completion_is_honest_and_links_to_the_real_proof_route():
     html = _asset(HTML_PATH)
     completion = html.split('id="agreement-complete"', 1)[1].split(
@@ -639,8 +695,8 @@ def test_css_uses_established_theme_finite_panels_reflow_and_focus():
     assert "@media (max-width: 620px)" in css
     assert ":focus-visible" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
-    assert "--canvas: #0b0d0c;" in dashboard_css
-    assert "--orange: #ff6b3d;" in dashboard_css
+    assert "--canvas: #0e141b;" in dashboard_css
+    assert "--orange: #e87849;" in dashboard_css
 
 
 def test_javascript_parses_with_node():

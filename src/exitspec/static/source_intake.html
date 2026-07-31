@@ -36,14 +36,14 @@
         <header class="object-header">
           <div class="object-heading">
             <a class="back-link" href="/app">← POC workspace</a>
-            <p class="eyebrow">Draft POC · add source</p>
+            <p class="eyebrow">Step 1 of 5 · Capture</p>
             <h1 id="poc-title">Loading draft…</h1>
             <p id="poc-context">Validating the local draft before intake.</p>
           </div>
 
           <div class="authority-boundary" aria-label="Source authority boundary">
             <span>Source boundary</span>
-            <strong>Capture → human review</strong>
+            <strong>Untrusted source · human review required</strong>
           </div>
         </header>
 
@@ -83,7 +83,7 @@
                 <input type="radio" name="source_kind" value="EMAIL" />
                 <span>
                   <strong>Email</strong>
-                  <small>Approved synthetic fixtures only</small>
+                  <small>Paste bounded customer email text</small>
                   <em class="starting-choice" hidden>Starting choice</em>
                 </span>
               </label>
@@ -137,15 +137,22 @@
               </header>
 
               <div class="source-entry" id="email-entry" hidden>
-                <label for="email-fixture">Synthetic email fixture</label>
-                <select id="email-fixture" required disabled>
-                  <option value="">Choose a frozen fixture</option>
-                  <option value="thread-root">Customer thread</option>
-                  <option value="authority-attack">Authority attack</option>
-                </select>
-                <p>
-                  Mailbox import is not connected. This local demo uses only
-                  approved synthetic email fixtures.
+                <label for="email-text">Customer email text</label>
+                <textarea
+                  id="email-text"
+                  maxlength="20000"
+                  rows="8"
+                  placeholder="Paste the customer’s email here…"
+                  aria-describedby="email-intake-help"
+                  autocomplete="off"
+                  spellcheck="true"
+                  required
+                  disabled
+                ></textarea>
+                <p id="email-intake-help">
+                  Paste the relevant email text. Obvious email addresses and
+                  API tokens are redacted before the source is stored; every
+                  extracted requirement still requires human review.
                 </p>
               </div>
 
@@ -155,13 +162,20 @@
                   id="meeting-transcript"
                   maxlength="20000"
                   rows="8"
-                  placeholder="Paste the redacted customer discussion here…"
+                  placeholder="Customer: P95 first-token latency must be below 500 ms.&#10;Engineer: We will test at concurrency 4."
+                  aria-describedby="meeting-format-help meeting-connection-help"
                   autocomplete="off"
                   spellcheck="true"
                   required
                   disabled
                 ></textarea>
-                <p>
+                <p id="meeting-format-help">
+                  Use <strong>Speaker: message</strong> on each transcript line.
+                  Example: <code>Customer: Error rate must stay below 1%.</code>
+                  A single-speaker natural-text paste is also accepted without
+                  adding an invented speaker label.
+                </p>
+                <p id="meeting-connection-help">
                   Paste text only. Audio, STT, Zoom, and Google Meet are not
                   connected in this local version; there is no recording or
                   upload step.

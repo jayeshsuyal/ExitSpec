@@ -31,16 +31,22 @@
       shortUnit: "ms",
       minimum: 0.001,
       maximum: 60000,
-      defaultThreshold: 500,
     }),
     ERROR_RATE_PERCENT: Object.freeze({
       unit: "PERCENT",
       shortUnit: "%",
       minimum: 0,
       maximum: 100,
-      defaultThreshold: 1,
     }),
   });
+  const ERROR_RATE_CUE = /\berror[\s-]*rate\b/i;
+  const TTFT_CUE =
+    /\b(?:ttft|time\s+to\s+(?:the\s+)?first\s+token|first[\s-]*token(?:\s+latency)?)\b/i;
+  const STRICT_LIMIT =
+    "(?:<|below|under|less\\s+than)";
+  const INCLUSIVE_LIMIT =
+    "(?:<=|≤|at\\s+most|no\\s+more\\s+than|within)";
+  const DECIMAL = "(\\d+(?:\\.\\d+)?)";
   const DISPOSITIONS = Object.freeze([
     "CREATED",
     "IDEMPOTENT_REPLAY",
@@ -94,8 +100,12 @@
   const rationaleInput = document.querySelector("#rationale");
   const saveButton = document.querySelector("#save-definition");
   const definitionStatus = document.querySelector("#definition-status");
+  const suggestionStatus = document.querySelector(
+    "#criterion-suggestion-status"
+  );
   const errorPanel = document.querySelector("#contract-definition-error");
   const completionPanel = document.querySelector("#definition-complete");
+  const prepareAgreement = document.querySelector("#prepare-agreement");
   const formControls = Object.freeze([
     metricInput,
     operatorInput,
@@ -408,6 +418,98 @@
     return Number.isFinite(value) ? value : null;
   }
 
+  function uniqueThresholdMatch(claim, pattern) {
+    const matches = Array.from(claim.matchAll(pattern));
+    if (matches.length !== 1) {
+      return null;
+    }
+    const threshold = Number(matches[0][1]);
+    return Number.isFinite(threshold) ? threshold : null;
+  }
+
+  function boundedClaimSuggestion(claim) {
+    const hasErrorRateCue = ERROR_RATE_CUE.test(claim);
+    const hasTtftCue = TTFT_CUE.test(claim);
+    if (hasErrorRateCue === hasTtftCue) {
+      return {
+        metric: null,
+        operator: null,
+        threshold: null,
+        message: hasErrorRateCue
+          ? "The claim contains conflicting metric cues. Choose the metric and threshold explicitly."
+          : "No safe metric and threshold suggestion was found. Choose both explicitly from the reviewed claim.",
+      };
+    }
+
+    if (hasErrorRateCue) {
+      const threshold = uniqueThresholdMatch(
+        claim,
+        new RegExp(
+          `${STRICT_LIMIT}\\s*${DECIMAL}\\s*(?:%|percent\\b)`,
+          "gi"
+        )
+      );
+      if (
+        threshold === null ||
+        threshold <= METRIC_CONFIG.ERROR_RATE_PERCENT.minimum ||
+        threshold >= METRIC_CONFIG.ERROR_RATE_PERCENT.maximum
+      ) {
+        return {
+          metric: "ERROR_RATE_PERCENT",
+          operator: "LT",
+          threshold: null,
+          message:
+            "Error-rate language was found, but no single strict percentage limit was safe to infer. Enter and verify the threshold.",
+        };
+      }
+      return {
+        metric: "ERROR_RATE_PERCENT",
+        operator: "LT",
+        threshold,
+        message: `Suggested from the claim: error rate < ${threshold}%. Verify it before saving.`,
+      };
+    }
+
+    const strictThreshold = uniqueThresholdMatch(
+      claim,
+      new RegExp(
+        `${STRICT_LIMIT}\\s*${DECIMAL}\\s*(?:ms|milliseconds?\\b)`,
+        "gi"
+      )
+    );
+    const inclusiveThreshold = uniqueThresholdMatch(
+      claim,
+      new RegExp(
+        `${INCLUSIVE_LIMIT}\\s*${DECIMAL}\\s*(?:ms|milliseconds?\\b)`,
+        "gi"
+      )
+    );
+    const hasOneThreshold =
+      (strictThreshold === null) !== (inclusiveThreshold === null);
+    const threshold = strictThreshold ?? inclusiveThreshold;
+    if (
+      !hasOneThreshold ||
+      threshold === null ||
+      threshold < METRIC_CONFIG.TTFT_P95_MS.minimum ||
+      threshold > METRIC_CONFIG.TTFT_P95_MS.maximum
+    ) {
+      return {
+        metric: "TTFT_P95_MS",
+        operator: "LT",
+        threshold: null,
+        message:
+          "First-token language was found, but no single millisecond limit was safe to infer. Enter and verify the threshold.",
+      };
+    }
+    const operator = strictThreshold === null ? "LTE" : "LT";
+    return {
+      metric: "TTFT_P95_MS",
+      operator,
+      threshold,
+      message: `Suggested from the claim: P95 time to first token ${operator === "LT" ? "<" : "≤"} ${threshold} ms. Verify it before saving.`,
+    };
+  }
+
   function integerValue(input, minimum, maximum) {
     const value = numberValue(input);
     return isExactInteger(value, minimum, maximum) ? value : null;
@@ -489,17 +591,17 @@
     });
   }
 
-  function updateMetricBoundary(resetThreshold) {
+  function updateMetricBoundary() {
     const config = METRIC_CONFIG[metricInput.value];
     if (!config) {
+      thresholdInput.removeAttribute("min");
+      thresholdInput.removeAttribute("max");
+      thresholdUnit.textContent = "—";
       return;
     }
     thresholdInput.min = String(config.minimum);
     thresholdInput.max = String(config.maximum);
     thresholdUnit.textContent = config.shortUnit;
-    if (resetThreshold) {
-      thresholdInput.value = String(config.defaultThreshold);
-    }
     const inclusiveOption = operatorInput.querySelector(
       'option[value="LTE"]'
     );
@@ -554,10 +656,19 @@
         : `${Math.round((definedCount / totalCount) * 100)}%`;
   }
 
-  function resetFormForProposal() {
-    metricInput.value = "TTFT_P95_MS";
+  function resetFormForProposal(proposal) {
+    const suggestion = boundedClaimSuggestion(proposal.normalized_claim);
+    metricInput.value = suggestion.metric || "";
     operatorInput.value = "LT";
-    updateMetricBoundary(true);
+    thresholdInput.value = "";
+    if (suggestion.metric) {
+      operatorInput.value = suggestion.operator;
+    }
+    if (suggestion.threshold !== null) {
+      thresholdInput.value = String(suggestion.threshold);
+    }
+    updateMetricBoundary();
+    suggestionStatus.textContent = suggestion.message;
     minimumSamplesInput.value = "100";
     concurrencyInput.value = "4";
     promptTokensMinInput.value = "512";
@@ -587,7 +698,7 @@
     document.querySelector("#normalized-claim").textContent =
       proposal.normalized_claim;
     pendingAttempt = null;
-    resetFormForProposal();
+    resetFormForProposal(proposal);
     clearError();
     renderProgress();
     updateDefinitionControls();
@@ -610,6 +721,16 @@
       totalCount === 0
         ? "There are no kept proposals available for criterion definition."
         : `${definedCount} of ${totalCount} kept proposals have bounded definitions ready for later agreement drafting.`;
+    if (totalCount > 0 && definedCount === totalCount) {
+      prepareAgreement.setAttribute(
+        "href",
+        `/app/pocs/${pocId}/agreement`
+      );
+      prepareAgreement.hidden = false;
+    } else {
+      prepareAgreement.removeAttribute("href");
+      prepareAgreement.hidden = true;
+    }
     const progressBar = document.querySelector("#progress-bar");
     progressBar.setAttribute("aria-valuenow", String(totalCount));
     document.querySelector("#progress-fill").style.width = "100%";
@@ -654,7 +775,10 @@
 
   metricInput.addEventListener("change", () => {
     if (!inFlight && !pendingAttempt) {
-      updateMetricBoundary(true);
+      thresholdInput.value = "";
+      updateMetricBoundary();
+      suggestionStatus.textContent =
+        "Metric changed by the reviewer. Enter and verify its threshold before saving.";
       clearError();
       updateDefinitionControls();
     }

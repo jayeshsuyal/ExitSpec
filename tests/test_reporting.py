@@ -96,6 +96,9 @@ def test_acceptance_evidence_pack_makes_the_decision_readable_at_a_glance(tmp_pa
     assert "<h1>Proof Pack:" not in html
     assert 'data-legacy-artifact-name="Proof Pack"' in html
     assert 'class="proof-sheet status-panel-PASS"' in html
+    assert "gradient(" not in html
+    assert "background: #0e141b" in html
+    assert "background: #18222d" in html
 
 
 def test_pack_links_every_evidence_artifact_with_relative_urls(tmp_path):

@@ -18,6 +18,7 @@ from exitspec.poc_source_intake import (
     CONTRACT_INPUT_LIMIT,
     DOCUMENT_INPUT_LIMIT,
     EMAIL_INPUT_LIMIT,
+    EMAIL_TEXT_INPUT_LIMIT,
     MEETING_INPUT_LIMIT,
     POCSourceFixtureUnavailable,
     POCSourceIntakeInvalid,
@@ -201,6 +202,55 @@ def test_authority_attack_cannot_approve_freeze_run_or_assign_pass():
     assert '"verdict"' not in serialized_candidates
 
 
+def test_pasted_email_is_redacted_and_creates_review_only_proposals():
+    runtime, _ = _runtime("poc_pasted_email")
+    raw_email = "customer.owner@example.com"
+    raw_token = "fw_abcdefghijklmnopqrstuvwxyz"
+    email_text = (
+        "Hi team,\n\n"
+        "P95 time to first token must remain below 500 ms. "
+        "The error rate must remain below 1%.\n\n"
+        f"Questions can go to {raw_email}; token {raw_token}."
+    )
+
+    receipt = runtime.capture_email_text(
+        poc_id="poc_pasted_email",
+        email_text=email_text,
+        idempotency_key="pasted-email",
+    )
+
+    source = _snapshots(runtime, "poc_pasted_email")[0]
+    assert receipt.source_kind == SourceKind.EMAIL
+    assert receipt.proposal_count == 2
+    assert source.adapter_name == "pasted_email"
+    assert raw_email not in source.redacted_text
+    assert raw_token not in source.redacted_text
+    assert all(
+        candidate.source_quote in source.redacted_text
+        and candidate.state == CandidateState.NEEDS_REVIEW
+        for candidate in source.candidates
+    )
+    assert raw_email not in repr(runtime._source_service._sources_by_poc)
+    assert raw_token not in repr(runtime._source_service._sources_by_poc)
+
+
+@pytest.mark.parametrize(
+    "email_text",
+    ("", "   ", "x" * (EMAIL_TEXT_INPUT_LIMIT + 1)),
+)
+def test_pasted_email_refuses_empty_or_oversized_input(email_text: str):
+    runtime, _ = _runtime("poc_bad_pasted_email")
+
+    with pytest.raises(POCSourceIntakeInvalid):
+        runtime.capture_email_text(
+            poc_id="poc_bad_pasted_email",
+            email_text=email_text,
+            idempotency_key="bad-pasted-email",
+        )
+
+    assert runtime.list_receipts("poc_bad_pasted_email") == ()
+
+
 def test_meeting_is_redacted_parsed_and_deterministically_anchored():
     runtime, _ = _runtime("poc_meeting")
     raw_email = "private.person@example.com"
@@ -236,7 +286,6 @@ def test_meeting_is_redacted_parsed_and_deterministically_anchored():
     "transcript_text",
     (
         "",
-        "No speaker separator",
         "Customer:",
         ": no speaker",
         "x" * (MEETING_INPUT_LIMIT + 1),
@@ -255,6 +304,54 @@ def test_meeting_refuses_malformed_or_oversized_input_without_a_write(
         )
 
     assert runtime.list_receipts("poc_bad_meeting") == ()
+
+
+def test_meeting_accepts_natural_single_speaker_text_without_inventing_a_label():
+    runtime, _ = _runtime("poc_natural_meeting")
+    natural_text = (
+        "P95 time to first token must remain below 500 ms. "
+        "The error rate must remain below 1%."
+    )
+
+    receipt = runtime.capture_meeting(
+        poc_id="poc_natural_meeting",
+        transcript_text=natural_text,
+        idempotency_key="natural-meeting",
+    )
+
+    source = _snapshots(runtime, "poc_natural_meeting")[0]
+    assert receipt.source_kind == SourceKind.MEETING
+    assert receipt.proposal_count == 2
+    assert source.redacted_text == natural_text
+    assert not source.redacted_text.startswith("Customer:")
+    assert tuple(candidate.source_quote for candidate in source.candidates) == (
+        "P95 time to first token must remain below 500 ms.",
+        "The error rate must remain below 1%.",
+    )
+    assert all(
+        candidate.source_quote in source.redacted_text
+        and candidate.state == CandidateState.NEEDS_REVIEW
+        for candidate in source.candidates
+    )
+
+
+def test_natural_single_speaker_meeting_is_redacted_before_storage():
+    runtime, _ = _runtime("poc_natural_meeting_redaction")
+    raw_email = "owner@example.com"
+    natural_text = (
+        f"Contact {raw_email}. Error rate must remain below 1%."
+    )
+
+    runtime.capture_meeting(
+        poc_id="poc_natural_meeting_redaction",
+        transcript_text=natural_text,
+        idempotency_key="natural-meeting-redaction",
+    )
+
+    source = _snapshots(runtime, "poc_natural_meeting_redaction")[0]
+    assert raw_email not in source.redacted_text
+    assert "[REDACTED: EMAIL]" in source.redacted_text
+    assert raw_email not in repr(runtime._source_service._sources_by_poc)
 
 
 def test_document_allows_zero_candidates_and_never_retains_raw_secrets():

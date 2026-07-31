@@ -88,10 +88,11 @@ The target route ownership is:
 `/app?intake=email` and `/app?mode=recording` remain compatibility entries that
 open the seeded workbench directly. The dashboard opens the same workbench at
 `/app/pocs/poc_support_agent_demo`; current review and artifact URLs are
-unchanged. The bundled frozen inference-performance agreement has a separate
-read-only detail route at `/app/pocs/poc_inference_latency_demo`. That route has
-no execution control and exposes `NOT RUN` until verified evidence can be
-projected.
+unchanged. The bundled frozen inference-performance agreement has a guided
+detail route at `/app/pocs/poc_inference_latency_demo`. It exposes explicit
+readiness and proof controls only after the agreement gate is satisfied, and
+keeps evidence at `NOT RUN`, `BLOCKED`, or `NOT_PROVEN` until verified state can
+be projected.
 
 The first registry may remain explicitly local and process-scoped. Durable POC
 storage, authenticated workspace identity, tenant isolation, and real-customer
@@ -109,11 +110,10 @@ blockers and reset the navigation phase to `Define`; the projection and
 dashboard never repair or advance underlying state.
 
 The dashboard has no dead destinations or unavailable actions, at most one
-**Next up** card, one finite list that does not repeat the current POC, and only
-the accepted Active, Needs attention, and Completed filters. **New POC** enters
-the shell only when local creation authority exists. POC creation, user-driven
-registry mutation, a second source record, durable persistence, and new
-authority remain excluded.
+**Continue working** card, one finite list, and only the accepted Active, Needs
+attention, and Completed filters. **New POC** creates only a process-local,
+authority-free draft. Durable persistence, authenticated identity, live
+mailbox/meeting connections, and new external authority remain excluded.
 
 ## Authority boundaries
 

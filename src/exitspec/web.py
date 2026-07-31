@@ -74,6 +74,7 @@ from .models import (
     POCContract,
     ProportionRule,
     ReviewDecision,
+    RunStatus,
     TranscriptSpan,
     VerdictStatus,
 )
@@ -192,6 +193,17 @@ from .workspace import (
     WorkspacePhase,
     WorkspaceSourceType,
     project_dashboard,
+)
+from .workspace_closure import (
+    HumanPOCClosureRecord,
+    HumanPOCClosureRequest,
+    POCClosureBindingMismatch,
+    POCClosureCapacityExceeded,
+    POCClosureConflict,
+    POCClosureEvidenceUnavailable,
+    POCClosureIdempotencyConflict,
+    ProcessLocalPOCClosureService,
+    TerminalEvidenceBinding,
 )
 
 
@@ -1829,7 +1841,11 @@ class DemoSession:
                     ),
                 },
                 "local_demo": {
-                    "return_url": "/app",
+                    "return_url": (
+                        "/app/pocs/{0}".format(
+                            SYNTHETIC_SUPPORT_AGENT_POC_ID
+                        )
+                    ),
                     "notice": (
                         "Local loopback demo only. A hosted customer review would "
                         "not expose an internal workspace shortcut."
@@ -2589,11 +2605,13 @@ def _agreement_aware_workspace_projection(
             payload.update(
                 {
                     "derived_phase": WorkspacePhase.DECIDE,
-                    "next_action_code": WorkspaceAction.REVIEW_EVIDENCE,
+                    "next_action_code": (
+                        WorkspaceAction.RECORD_DECISION_HANDOFF
+                    ),
                     "next_human_action": (
-                        "Review the verified {0} Evidence Pack.".format(
-                            verdict.value
-                        )
+                        "Record the human decision and complete the verified "
+                        "{0} Evidence Pack handoff. The verdict does not "
+                        "authorize shipping.".format(verdict.value)
                     ),
                     "latest_evidence_summary": {
                         "status": evidence_state,
@@ -2604,12 +2622,93 @@ def _agreement_aware_workspace_projection(
                         ),
                         "report_url": run_snapshot.evidence_pack_url,
                     },
-                    "attention_required": (
-                        evidence_state is not WorkspaceEvidenceState.PASS
-                    ),
+                    "attention_required": True,
                 }
             )
     return POCWorkspaceProjection.model_validate(payload)
+
+
+def _closure_aware_workspace_projection(
+    projected: POCWorkspaceProjection,
+    closure: Optional[HumanPOCClosureRecord],
+    current_binding: Optional[TerminalEvidenceBinding],
+) -> POCWorkspaceProjection:
+    """Apply one separately recorded closure without mutating workflow state."""
+
+    if closure is None:
+        return projected
+
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "archive_state": ArchiveState.COMPLETED,
+            "updated_at": max(projected.updated_at, closure.recorded_at),
+            "action_since": closure.recorded_at,
+        }
+    )
+    if current_binding != closure.evidence_binding:
+        blocker = WorkspaceBlocker(
+            code="closure_evidence_binding_unverifiable",
+            message=(
+                "The recorded closure no longer matches the current terminal "
+                "Evidence Pack. Review the evidence boundary."
+            ),
+        )
+        payload.update(
+            {
+                "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+                "next_human_action": blocker.message,
+                "blockers": (blocker,),
+                "attention_required": True,
+            }
+        )
+    elif projected.blockers:
+        payload.update(
+            {
+                "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+                "next_human_action": projected.blockers[0].message,
+                "attention_required": True,
+            }
+        )
+    else:
+        payload.update(
+            {
+                "derived_phase": WorkspacePhase.DECIDE,
+                "next_action_code": WorkspaceAction.NONE,
+                "next_human_action": (
+                    "POC closed by {0} after an explicit {1} decision and "
+                    "Evidence Pack handoff. Shipping was not authorized."
+                ).format(
+                    closure.decided_by,
+                    closure.decision.value,
+                ),
+                "blockers": (),
+                "attention_required": False,
+            }
+        )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
+def _workspace_items_for_filter(
+    items: Sequence[POCWorkspaceProjection],
+    selected_filter: DashboardFilter,
+) -> Tuple[POCWorkspaceProjection, ...]:
+    """Apply the dashboard's bounded filters after closure projection."""
+
+    if selected_filter is DashboardFilter.ACTIVE:
+        return tuple(
+            item for item in items if item.archive_state is ArchiveState.ACTIVE
+        )
+    if selected_filter is DashboardFilter.NEEDS_ATTENTION:
+        return tuple(
+            item
+            for item in items
+            if item.archive_state is ArchiveState.ACTIVE
+            and item.attention_required
+        )
+    return tuple(
+        item for item in items if item.archive_state is ArchiveState.COMPLETED
+    )
 
 
 class ExitSpecDemoServer(ThreadingHTTPServer):
@@ -2690,6 +2789,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         )
         super().__init__(address, ExitSpecDemoRequestHandler)
         self.session = session
+        self.poc_closure_service = ProcessLocalPOCClosureService(
+            evidence_resolver=self._terminal_evidence_binding,
+        )
         self.wave1_provider_execution = configuration
         self.session.configure_wave1_provider_execution(configuration)
         self.static_root = STATIC_ROOT
@@ -2700,8 +2802,8 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
     ) -> Dict[str, Any]:
         """Merge local drafts into the seeded read-only dashboard projection."""
 
-        seeded = DashboardProjection.model_validate(
-            self.session.workspace_payload(selected_filter)
+        seeded_active = DashboardProjection.model_validate(
+            self.session.workspace_payload(DashboardFilter.ACTIVE)
         )
         drafts = self.draft_poc_service.snapshots()
         receipts_by_poc_id = {}
@@ -2804,58 +2906,174 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             ),
             selected_filter=DashboardFilter.ACTIVE,
         )
-        active_local = _newest_workspace_items_first(
+        local_items = _newest_workspace_items_first(
             (
                 *(
-                    _agreement_aware_workspace_projection(
-                        item,
-                        agreement_snapshots_by_poc_id[item.poc_id],
-                        performance_run_snapshots_by_poc_id[item.poc_id],
+                    self._project_closure(
+                        _agreement_aware_workspace_projection(
+                            item,
+                            agreement_snapshots_by_poc_id[item.poc_id],
+                            performance_run_snapshots_by_poc_id[item.poc_id],
+                        )
                     )
                     for item in draft_active.pocs
                 ),
                 *unavailable,
             )
         )
-
-        draft_visible = project_draft_dashboard(
-            available_drafts,
-            receipts_by_poc_id,
-            pending_proposal_counts_by_poc_id=(
-                pending_proposal_counts_by_poc_id
-            ),
-            kept_proposal_counts_by_poc_id=(
-                kept_proposal_counts_by_poc_id
-            ),
-            defined_criterion_counts_by_poc_id=(
-                defined_criterion_counts_by_poc_id
-            ),
-            selected_filter=selected_filter,
+        seeded_items = tuple(
+            self._project_closure(item) for item in seeded_active.pocs
         )
-        visible_local = [
-            _agreement_aware_workspace_projection(
-                item,
-                agreement_snapshots_by_poc_id[item.poc_id],
-                performance_run_snapshots_by_poc_id[item.poc_id],
-            )
-            for item in draft_visible.pocs
-        ]
-        if selected_filter in {
+        active_local = _workspace_items_for_filter(
+            local_items,
             DashboardFilter.ACTIVE,
-            DashboardFilter.NEEDS_ATTENTION,
-        }:
-            visible_local.extend(unavailable)
-        visible_local = list(_newest_workspace_items_first(visible_local))
+        )
+        active_seeded = _workspace_items_for_filter(
+            seeded_items,
+            DashboardFilter.ACTIVE,
+        )
+        visible_local = _workspace_items_for_filter(
+            local_items,
+            selected_filter,
+        )
+        visible_seeded = _workspace_items_for_filter(
+            seeded_items,
+            selected_filter,
+        )
 
         dashboard = DashboardProjection(
             selected_filter=selected_filter,
-            available_filters=seeded.available_filters,
+            available_filters=seeded_active.available_filters,
             continue_working=(
-                active_local[0] if active_local else seeded.continue_working
+                active_local[0]
+                if active_local
+                else (active_seeded[0] if active_seeded else None)
             ),
-            pocs=tuple((*visible_local, *seeded.pocs)),
+            pocs=tuple((*visible_local, *visible_seeded)),
         )
         return dashboard.model_dump(mode="json")
+
+    def _project_closure(
+        self,
+        projection: POCWorkspaceProjection,
+    ) -> POCWorkspaceProjection:
+        closure = self.poc_closure_service.get(projection.poc_id)
+        if closure is None:
+            return projection
+        try:
+            current_binding = self._terminal_evidence_binding(projection.poc_id)
+        except Exception:
+            current_binding = None
+        return _closure_aware_workspace_projection(
+            projection,
+            closure,
+            current_binding,
+        )
+
+    def _terminal_evidence_binding(
+        self,
+        poc_id: str,
+    ) -> Optional[TerminalEvidenceBinding]:
+        """Resolve authoritative terminal evidence without trusting a web payload."""
+
+        if poc_id == SYNTHETIC_SUPPORT_AGENT_POC_ID:
+            result = self.session.last_run
+            if (
+                result is None
+                or result.manifest.status
+                not in {
+                    RunStatus.COMPLETED,
+                    RunStatus.BLOCKED,
+                    RunStatus.FAILED_INTERNAL,
+                }
+            ):
+                return None
+            proof = self.session._proof_payload()
+            if proof is None:
+                return None
+            contract_hash = result.contract.canonical_hash
+            if contract_hash is None:
+                return None
+            evidence_url = proof["report_url"]
+            evidence_sha256 = self._evidence_pack_sha256(evidence_url)
+            if evidence_sha256 is None:
+                return None
+            return TerminalEvidenceBinding(
+                poc_id=poc_id,
+                contract_id=result.contract.id,
+                contract_version=result.contract.version,
+                contract_hash=contract_hash,
+                run_id=result.manifest.run_id,
+                verdict=result.overall_verdict.verdict,
+                evidence_pack_url=evidence_url,
+                evidence_pack_sha256=evidence_sha256,
+            )
+
+        if poc_id == PERFORMANCE_POC_ID:
+            return None
+        try:
+            draft = self.draft_poc_service.get(poc_id)
+        except (ValueError, DraftPOCNotFound):
+            return None
+        if draft.archive_state is not DraftPOCArchiveState.ACTIVE:
+            return None
+        try:
+            snapshot = self.poc_performance_run_service.snapshot(poc_id)
+        except Exception:
+            return None
+        if (
+            snapshot.status is not POCPerformanceRunStatus.COMPLETED
+            or snapshot.operation_id is None
+            or snapshot.verdict is None
+            or snapshot.evidence_pack_url is None
+        ):
+            return None
+        evidence_sha256 = self._evidence_pack_sha256(
+            snapshot.evidence_pack_url
+        )
+        if evidence_sha256 is None:
+            return None
+        return TerminalEvidenceBinding(
+            poc_id=poc_id,
+            contract_id=snapshot.contract_id,
+            contract_version=snapshot.contract_version,
+            contract_hash=snapshot.contract_hash,
+            run_id=snapshot.operation_id,
+            verdict=snapshot.verdict,
+            evidence_pack_url=snapshot.evidence_pack_url,
+            evidence_pack_sha256=evidence_sha256,
+        )
+
+    def _evidence_pack_sha256(self, evidence_pack_url: str) -> Optional[str]:
+        if (
+            type(evidence_pack_url) is not str
+            or not evidence_pack_url.startswith("/artifacts/")
+        ):
+            return None
+        relative = evidence_pack_url.removeprefix("/artifacts/")
+        target = _safe_child(self.session.output_root, relative)
+        if (
+            target is None
+            or not target.is_file()
+            or target.name != "decision-packet.html"
+        ):
+            return None
+        try:
+            return hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def known_workspace_poc(self, poc_id: str) -> bool:
+        if poc_id in {
+            SYNTHETIC_SUPPORT_AGENT_POC_ID,
+            PERFORMANCE_POC_ID,
+        }:
+            return True
+        try:
+            self.draft_poc_service.get(poc_id)
+        except (ValueError, DraftPOCNotFound):
+            return False
+        return True
 
     def server_close(self) -> None:
         """Release materialized package resources only after the server is closed."""
@@ -3792,6 +4010,49 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 self.server.workspace_payload(selected_filter),
             )
             return
+        closure_poc_id = _workspace_closure_api_poc_id(parsed.path)
+        if closure_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "POC closure routes do not accept URL parameters."},
+                )
+                return
+            if not self.server.known_workspace_poc(closure_poc_id):
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "POC was not found."},
+                )
+                return
+            closure = self.server.poc_closure_service.get(closure_poc_id)
+            try:
+                binding = self.server._terminal_evidence_binding(
+                    closure_poc_id
+                )
+            except Exception:
+                binding = None
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "poc_id": closure_poc_id,
+                    "closeable": closure is None and binding is not None,
+                    "closure": (
+                        None
+                        if closure is None
+                        else closure.model_dump(mode="json")
+                    ),
+                    "eligible_evidence_binding": (
+                        None
+                        if binding is None
+                        else binding.model_dump(mode="json")
+                    ),
+                    "authorization": (
+                        "This action closes only the POC lifecycle. No verdict, "
+                        "including PASS, authorizes shipping."
+                    ),
+                },
+            )
+            return
         if parsed.path == "/api/workspace/pocs/{0}".format(PERFORMANCE_POC_ID):
             if parsed.params or parsed.query or parsed.fragment:
                 self._send_json(
@@ -3851,6 +4112,10 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_dynamic_performance_run_write():
             return
         parsed = urlparse(self.path)
+        closure_poc_id = _workspace_closure_api_poc_id(parsed.path)
+        if closure_poc_id is not None:
+            self._record_workspace_closure(parsed, closure_poc_id)
+            return
         if parsed.path == "/api/pocs":
             self._create_draft_poc(parsed)
             return
@@ -4219,6 +4484,102 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(
             HTTPStatus.OK if result.idempotent_replay else HTTPStatus.CREATED,
             response,
+        )
+
+    def _record_workspace_closure(self, parsed: Any, poc_id: str) -> None:
+        """Record one exact human terminal action outside read-only projection."""
+
+        if parsed.params or parsed.query or parsed.fragment:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "POC closure routes do not accept URL parameters."},
+            )
+            return
+        if not self.server.known_workspace_poc(poc_id):
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "POC was not found."},
+            )
+            return
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return
+
+        try:
+            payload = self._read_poc_source_json()
+            _require_only_fields(
+                payload,
+                {
+                    "decision",
+                    "decided_by",
+                    "rationale",
+                    "evidence_binding",
+                    "idempotency_key",
+                },
+            )
+            idempotency_key = self._idempotency_key(payload)
+            request = HumanPOCClosureRequest.model_validate(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "idempotency_key"
+                }
+            )
+            result = self.server.poc_closure_service.record(
+                poc_id,
+                request,
+                idempotency_key=idempotency_key,
+            )
+        except POCClosureCapacityExceeded:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "POC closure capacity has been reached."},
+            )
+            return
+        except (
+            POCClosureBindingMismatch,
+            POCClosureConflict,
+            POCClosureEvidenceUnavailable,
+            POCClosureIdempotencyConflict,
+        ) as error:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": str(error)},
+            )
+            return
+        except (TypeError, ValueError, ValidationError):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "POC closure request is invalid."},
+            )
+            return
+
+        self._send_json(
+            (
+                HTTPStatus.OK
+                if result.idempotent_replay
+                else HTTPStatus.CREATED
+            ),
+            {
+                "closure": result.closure.model_dump(mode="json"),
+                "idempotent_replay": result.idempotent_replay,
+                "authorization": (
+                    "POC lifecycle closed. Shipping remains a separate human "
+                    "authorization decision."
+                ),
+            },
         )
 
     def _unsupported_method(self) -> None:
@@ -4693,6 +5054,23 @@ def _draft_poc_api_id(request_path: str) -> Optional[str]:
     if len(parts) != 3 or parts[:2] != ["api", "pocs"]:
         return None
     poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _workspace_closure_api_poc_id(request_path: str) -> Optional[str]:
+    """Return one identity from the exact terminal closure API route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 5
+        or parts[:2] != ["api", "workspace"]
+        or parts[2] != "pocs"
+        or parts[4] != "closure"
+    ):
+        return None
+    poc_id = unquote(parts[3])
     if not poc_id or "/" in poc_id or "\\" in poc_id:
         return None
     return poc_id

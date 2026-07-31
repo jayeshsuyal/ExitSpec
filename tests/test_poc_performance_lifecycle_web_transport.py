@@ -611,6 +611,36 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
                 content_type=None,
                 origin=None,
             )
+            closure_eligibility = _request(
+                server,
+                "GET",
+                f"/api/workspace/pocs/{poc_id}/closure",
+                content_type=None,
+                origin=None,
+            )
+            assert isinstance(closure_eligibility[1], dict)
+            closure_binding = closure_eligibility[1][
+                "eligible_evidence_binding"
+            ]
+            closed = _request(
+                server,
+                "POST",
+                f"/api/workspace/pocs/{poc_id}/closure",
+                payload={
+                    "decision": "HANDOFF_COMPLETED",
+                    "decided_by": "field_engineer",
+                    "rationale": "Performance Evidence Pack handed off.",
+                    "evidence_binding": closure_binding,
+                    "idempotency_key": "close-dynamic-performance-poc",
+                },
+            )
+            completed_workspace = _request(
+                server,
+                "GET",
+                "/api/workspace?filter=Completed",
+                content_type=None,
+                origin=None,
+            )
 
     assert proof_page[0] == proof_css[0] == proof_javascript[0] == 200
     assert proof_page[2].startswith("text/html")
@@ -648,11 +678,25 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
         if item["poc_id"] == poc_id
     )
     assert projected["derived_phase"] == "DECIDE"
-    assert projected["next_action_code"] == "REVIEW_EVIDENCE"
+    assert projected["next_action_code"] == "RECORD_DECISION_HANDOFF"
     assert projected["latest_evidence_summary"]["status"] == "PASS"
     assert projected["latest_evidence_summary"]["report_url"] == (
         latest[1]["evidence_pack_url"]
     )
+    assert closure_eligibility[0] == 200
+    assert closure_eligibility[1]["closeable"] is True
+    assert closure_binding["contract_hash"] == contract_hash
+    assert closure_binding["verdict"] == "PASS"
+    assert closed[0] == 201
+    assert closed[1]["closure"]["shipping_authorized"] is False
+    assert completed_workspace[0] == 200
+    completed_projection = next(
+        item
+        for item in completed_workspace[1]["pocs"]
+        if item["poc_id"] == poc_id
+    )
+    assert completed_projection["archive_state"] == "COMPLETED"
+    assert completed_projection["next_action_code"] == "NONE"
 
 
 def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):

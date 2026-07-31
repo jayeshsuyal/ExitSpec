@@ -26,7 +26,7 @@
   display: inline-block;
   margin-bottom: 7px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   text-decoration: none;
 }
@@ -53,7 +53,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -72,7 +72,7 @@
 .authority-boundary span {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -81,7 +81,7 @@
 .authority-boundary strong {
   margin-top: 2px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .review-current-task {
@@ -119,7 +119,7 @@
 .task-heading p {
   margin-bottom: 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .proposal-progress {
@@ -132,7 +132,7 @@
   margin-bottom: 6px;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.025em;
 }
 
@@ -197,7 +197,7 @@
   padding: 4px 7px;
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 780;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -215,7 +215,7 @@
 .section-label {
   margin-bottom: 7px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.085em;
   text-transform: uppercase;
@@ -253,7 +253,7 @@
   border-top: 1px solid var(--border);
   padding: 8px 18px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .decision-panel {
@@ -273,7 +273,7 @@
 .decision-panel > header > p:last-child {
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -294,7 +294,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 760;
 }
 
@@ -344,7 +344,7 @@
   min-height: 15px;
   margin-bottom: 9px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .decision-actions {
@@ -359,7 +359,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 0;
   padding: 8px 12px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
 }
 
@@ -431,7 +431,7 @@
 
 .review-complete .completion-boundary {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .completion-next {
@@ -441,7 +441,7 @@
   padding: 10px 16px;
   background: var(--orange);
   color: var(--canvas);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 820;
   text-decoration: none;
 }
@@ -462,7 +462,7 @@
   padding: 10px 12px;
   background: var(--raised);
   color: var(--danger);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 @media (max-width: 760px), (max-height: 680px) {

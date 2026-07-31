@@ -24,7 +24,7 @@
     EXISTING_CONTRACT: "contract-entry",
   });
   const SOURCE_INPUT_IDS = Object.freeze({
-    EMAIL: "email-fixture",
+    EMAIL: "email-text",
     MEETING: "meeting-transcript",
     DOCUMENT: "document-text",
     EXISTING_CONTRACT: "contract-json",
@@ -79,7 +79,7 @@
     }
     switch (sourceKind) {
       case "EMAIL":
-        return `${sourcesApi}/email`;
+        return `${sourcesApi}/email-text`;
       case "MEETING":
         return `${sourcesApi}/meeting`;
       case "DOCUMENT":
@@ -280,14 +280,14 @@
       }
       return rawValue;
     }
-    const maximum = sourceKind === "EMAIL" ? 64 : 20000;
+    const maximum = 20000;
     return isSafeBoundedText(input.value, maximum) ? input.value : null;
   }
 
   function buildSourcePayload(sourceKind, value, idempotencyKey) {
     switch (sourceKind) {
       case "EMAIL":
-        return { fixture_case_id: value, idempotency_key: idempotencyKey };
+        return { email_text: value, idempotency_key: idempotencyKey };
       case "MEETING":
         return { transcript_text: value, idempotency_key: idempotencyKey };
       case "DOCUMENT":
@@ -309,6 +309,9 @@
       return "The source could not be captured safely. Retry the same attempt.";
     }
     if (error.statusCode === 400) {
+      if (selectedSource === "MEETING") {
+        return "The transcript was not accepted. Use Speaker: message lines, or paste one natural single-speaker text block.";
+      }
       return "The source was not accepted. Review the selected input and try again.";
     }
     if (error.statusCode === 404) {
@@ -322,6 +325,9 @@
       return "The source request was refused safely. Review the draft and try again.";
     }
     if (error.statusCode === 413 || error.statusCode === 422) {
+      if (selectedSource === "MEETING") {
+        return "The transcript was not accepted. Check the 20,000-character limit and use Speaker: message lines or one natural text block.";
+      }
       return "The selected source was not accepted. Review it and start a new capture attempt.";
     }
     return "The response was interrupted or could not be trusted. Retry uses the same source key.";
@@ -376,10 +382,10 @@
   }
 
   function clearSensitiveInputs() {
+    document.querySelector("#email-text").value = "";
     document.querySelector("#meeting-transcript").value = "";
     document.querySelector("#document-text").value = "";
     document.querySelector("#contract-json").value = "";
-    document.querySelector("#email-fixture").selectedIndex = 0;
   }
 
   function renderSuccess(payload) {

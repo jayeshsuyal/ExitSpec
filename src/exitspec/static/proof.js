@@ -597,6 +597,7 @@
     renderEvidence();
     renderAction();
     main.setAttribute("aria-busy", "false");
+    window.dispatchEvent(new CustomEvent("exitspec:evidence-updated"));
   }
 
   function blockProof(message) {

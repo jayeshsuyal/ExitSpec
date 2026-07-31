@@ -86,6 +86,12 @@ def test_empty_source_list_is_read_only_and_exact():
     ("route", "field", "value", "expected_kind"),
     (
         (
+            "email-text",
+            "email_text",
+            "P95 latency must stay below 500 ms.",
+            "EMAIL",
+        ),
+        (
             "meeting",
             "transcript_text",
             "Customer: p95 latency must stay below 500 ms.",
@@ -165,6 +171,34 @@ def test_exact_retry_replays_without_a_second_source():
     assert listed.payload["sources"][0]["source_receipt_id"] == (
         first.payload["source_receipt_id"]
     )
+
+
+def test_email_fixture_route_remains_exact_and_separate_from_pasted_email():
+    runtime = _runtime()
+
+    pasted = _handle(
+        runtime,
+        "POST",
+        f"{ROOT}/email-text",
+        {
+            "email_text": "The error rate must remain below 1%.",
+            "idempotency_key": "capture-email-text",
+        },
+    )
+    wrong_field = _handle(
+        runtime,
+        "POST",
+        f"{ROOT}/email-text",
+        {
+            "fixture_case_id": "thread-root",
+            "idempotency_key": "capture-email-fixture-wrong-route",
+        },
+    )
+
+    assert pasted.status == HTTPStatus.CREATED
+    assert pasted.payload["source_kind"] == "EMAIL"
+    assert wrong_field.status == HTTPStatus.BAD_REQUEST
+    assert wrong_field.payload == {"error": "Source intake request is invalid."}
 
 
 @pytest.mark.parametrize(

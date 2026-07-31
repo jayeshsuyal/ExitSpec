@@ -39,6 +39,7 @@ _POC_ID_RE = re.compile(POC_ID_PATTERN)
 _SOURCE_ROOT_PREFIX = "/api/pocs/"
 _CAPTURE_ROUTES = {
     "email": ("fixture_case_id", "capture_email"),
+    "email-text": ("email_text", "capture_email_text"),
     "meeting": ("transcript_text", "capture_meeting"),
     "document": ("document_text", "capture_document"),
     "contract": ("contract_json", "capture_contract"),

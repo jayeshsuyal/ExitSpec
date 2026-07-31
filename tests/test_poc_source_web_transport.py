@@ -122,6 +122,45 @@ def test_create_capture_list_is_one_real_process_local_round_trip(tmp_path):
         assert forbidden not in serialized
 
 
+def test_pasted_email_is_redacted_and_review_only_over_real_transport(tmp_path):
+    raw_email = "customer.owner@example.com"
+    raw_token = "fw_abcdefghijklmnopqrstuvwxyz"
+    with _running_server(tmp_path) as server:
+        poc_id = _create_draft(server)
+        root = f"/api/pocs/{poc_id}/sources"
+        created_status, created = _request(
+            server,
+            "POST",
+            root + "/email-text",
+            payload={
+                "email_text": (
+                    "P95 first-token latency must stay below 500 ms. "
+                    "Error rate must remain below 1%. "
+                    f"Contact {raw_email}; token {raw_token}."
+                ),
+                "idempotency_key": "capture-pasted-email-transport",
+            },
+        )
+        list_status, listed = _request(
+            server,
+            "GET",
+            root,
+            content_type=None,
+            origin=None,
+        )
+
+    assert created_status == 201
+    assert list_status == 200
+    assert created["source_kind"] == "EMAIL"
+    assert created["status"] == "NEEDS_REVIEW"
+    assert created["proposal_count"] == 2
+    serialized = json.dumps((created, listed))
+    assert raw_email not in serialized
+    assert raw_token not in serialized
+    for forbidden in ("approved", "confirmation", "freeze", "verdict", "pass"):
+        assert forbidden not in serialized.lower()
+
+
 def test_transport_replay_does_not_create_a_second_source(tmp_path):
     with _running_server(tmp_path) as server:
         poc_id = _create_draft(server)

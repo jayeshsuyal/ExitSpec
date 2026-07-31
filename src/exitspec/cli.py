@@ -147,7 +147,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     serve = subparsers.add_parser(
-        "serve", help="Run the local synthetic Define → Prove → Decide browser demo."
+        "serve",
+        help=(
+            "Run the local synthetic Capture → Review → Agree → Prove → "
+            "Decide browser demo."
+        ),
     )
     serve.add_argument("--host", type=str, default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)

@@ -60,6 +60,7 @@ from .redaction import (
 
 
 EMAIL_INPUT_LIMIT: Final = 64
+EMAIL_TEXT_INPUT_LIMIT: Final = 20_000
 MEETING_INPUT_LIMIT: Final = 20_000
 DOCUMENT_INPUT_LIMIT: Final = 20_000
 CONTRACT_INPUT_LIMIT: Final = 40_000
@@ -85,6 +86,10 @@ _REQUIREMENT_SIGNAL = re.compile(
     r")"
 )
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+_SPEAKER_MESSAGE_LINE = re.compile(r"^[^:\n]{1,80}:\s+\S")
+_MALFORMED_SPEAKER_LINE = re.compile(
+    r"(?:^\s*:|^[^:\n]{1,80}:\s*$)"
+)
 
 
 class POCSourceIntakeError(RuntimeError):
@@ -214,6 +219,17 @@ def _likely_requirement_fragments(
             if len(fragments) == MAX_PROPOSALS:
                 return tuple(fragments)
     return tuple(fragments)
+
+
+def _is_single_speaker_natural_text(value: str) -> bool:
+    """Allow unlabelled prose without reinterpreting malformed dialogue."""
+
+    lines = tuple(line.strip() for line in value.splitlines() if line.strip())
+    return bool(lines) and not any(
+        _MALFORMED_SPEAKER_LINE.match(line)
+        or _SPEAKER_MESSAGE_LINE.match(line)
+        for line in lines
+    )
 
 
 def _receipt_id(source_id: str) -> str:
@@ -560,6 +576,48 @@ class ProcessLocalPOCSourceIntake:
             idempotency_key=idempotency_key,
         )
 
+    def capture_email_text(
+        self,
+        *,
+        poc_id: str,
+        email_text: str,
+        idempotency_key: str,
+    ) -> POCSourceReceipt:
+        """Redact and attach one bounded pasted customer email."""
+
+        bounded = _require_bounded_text(
+            email_text,
+            maximum=EMAIL_TEXT_INPUT_LIMIT,
+        )
+        redacted_text, _ = _redact_for_storage(bounded)
+        fragments = _likely_requirement_fragments(redacted_text)
+        candidates = tuple(
+            _candidate(
+                adapter_label="email",
+                ordinal=ordinal,
+                quote=quote,
+                normalized_claim=" ".join(quote.split()),
+            )
+            for ordinal, quote in enumerate(fragments, start=1)
+        )
+        observed_at = self._observed_at(idempotency_key)
+        prepared = PreparedPOCSource(
+            kind=SourceKind.EMAIL,
+            external_id=_external_identity("email.paste", redacted_text),
+            redacted_text=redacted_text,
+            content_sha256=_content_sha256(redacted_text),
+            candidates=candidates,
+            adapter_name="pasted_email",
+            adapter_version=_ADAPTER_VERSION,
+            redaction_policy_version=_REDACTION_VERSION,
+            observed_at=observed_at,
+        )
+        return self._attach(
+            poc_id=poc_id,
+            prepared_source=prepared,
+            idempotency_key=idempotency_key,
+        )
+
     def capture_meeting(
         self,
         *,
@@ -567,13 +625,12 @@ class ProcessLocalPOCSourceIntake:
         transcript_text: str,
         idempotency_key: str,
     ) -> POCSourceReceipt:
-        """Redact and attach one bounded pasted ``Speaker: message`` transcript."""
+        """Attach labelled dialogue or one unlabelled single-speaker paste."""
 
         bounded = _require_bounded_text(
             transcript_text,
             maximum=MEETING_INPUT_LIMIT,
         )
-        invalid_transcript = False
         intake: Any = None
         try:
             intake = redact_and_parse_pasted_transcript(
@@ -582,21 +639,28 @@ class ProcessLocalPOCSourceIntake:
                 title="Pasted meeting transcript",
             )
         except TranscriptIntakeError:
-            invalid_transcript = True
-        if invalid_transcript or intake is None:
+            intake = None
+
+        if intake is not None:
+            redacted_text = "\n".join(
+                "{0}: {1}".format(line.speaker, line.text)
+                for line in intake.transcript.lines
+            )
+            fragments = tuple(
+                fragment
+                for line in intake.transcript.lines
+                for fragment in _likely_requirement_fragments(line.text)
+            )[:MAX_PROPOSALS]
+        elif _is_single_speaker_natural_text(bounded):
+            # Keep the redacted source wording intact. In particular, do not
+            # invent a speaker label merely to satisfy the dialogue parser.
+            redacted_text, _ = _redact_for_storage(bounded)
+            fragments = _likely_requirement_fragments(redacted_text)
+        else:
             raise POCSourceIntakeInvalid(
                 "The meeting transcript was not accepted."
             )
 
-        redacted_text = "\n".join(
-            "{0}: {1}".format(line.speaker, line.text)
-            for line in intake.transcript.lines
-        )
-        fragments = tuple(
-            fragment
-            for line in intake.transcript.lines
-            for fragment in _likely_requirement_fragments(line.text)
-        )[:MAX_PROPOSALS]
         candidates = tuple(
             _candidate(
                 adapter_label="meeting",
@@ -746,6 +810,7 @@ __all__ = [
     "CONTRACT_INPUT_LIMIT",
     "DOCUMENT_INPUT_LIMIT",
     "EMAIL_INPUT_LIMIT",
+    "EMAIL_TEXT_INPUT_LIMIT",
     "MEETING_INPUT_LIMIT",
     "POCSourceFixtureUnavailable",
     "POCSourceIntakeCapacityExceeded",

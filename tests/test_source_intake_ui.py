@@ -53,7 +53,7 @@ def test_source_intake_is_one_accessible_bounded_task():
 
     assert len(parser.ids) == len(set(parser.ids))
     assert set(parser.input_ids).issubset(set(parser.labels_for)) or {
-        "email-fixture",
+        "email-text",
         "meeting-transcript",
         "document-text",
         "contract-json",
@@ -86,9 +86,17 @@ def test_four_sources_are_clear_and_product_claims_stay_honest():
 
     assert "Starting choice" in html
     assert "not a POC type" in html
-    assert "Customer thread" in html
-    assert "Authority attack" in html
-    assert "Mailbox import is not connected" in html
+    assert "Customer email text" in html
+    assert "Paste bounded customer email text" in html
+    assert "Approved synthetic fixtures only" not in html
+    assert 'id="email-text"' in html
+    assert 'maxlength="20000"' in html
+    assert "API tokens are redacted before the source is stored" in html
+    assert "human review" in html
+    assert "Speaker: message" in html
+    assert "Customer: Error rate must stay below 1%." in html
+    assert "single-speaker natural-text paste is also accepted" in html
+    assert 'aria-describedby="meeting-format-help meeting-connection-help"' in html
     assert "Audio, STT, Zoom, and Google Meet are not" in html
     assert "PDF and DOCX parsing" in html
     assert "not connected" in html
@@ -98,6 +106,21 @@ def test_four_sources_are_clear_and_product_claims_stay_honest():
     assert "Upload" not in html
     assert "<canvas" not in html
     assert "<svg" not in html
+
+
+def test_meeting_failure_copy_repeats_the_accepted_shapes_without_content_echo():
+    javascript = _asset(JS_PATH)
+    failure_copy = _function(
+        javascript,
+        "safeFailureCopy",
+        "setControlsDisabled",
+    )
+
+    assert 'selectedSource === "MEETING"' in failure_copy
+    assert "Speaker: message lines" in failure_copy
+    assert "natural single-speaker text block" in failure_copy
+    assert "error.message" not in failure_copy
+    assert "response.text" not in failure_copy
 
 
 def test_route_identity_is_validated_before_any_api_url_is_constructed():
@@ -138,7 +161,7 @@ def test_endpoint_selection_is_explicit_and_never_uses_a_generic_adapter_route()
         "isTrustedApiPath",
     )
 
-    for endpoint in ("email", "meeting", "document", "contract"):
+    for endpoint in ("email-text", "meeting", "document", "contract"):
         assert f"return `${{sourcesApi}}/{endpoint}`;" in endpoint_selector
     for source_kind in ("EMAIL", "MEETING", "DOCUMENT", "EXISTING_CONTRACT"):
         assert f'case "{source_kind}"' in endpoint_selector
@@ -157,7 +180,7 @@ def test_each_post_payload_contains_only_its_allowed_field_and_idempotency_key()
     builder = _function(javascript, "buildSourcePayload", "clearError")
 
     expected_returns = (
-        "{ fixture_case_id: value, idempotency_key: idempotencyKey }",
+        "{ email_text: value, idempotency_key: idempotencyKey }",
         "{ transcript_text: value, idempotency_key: idempotencyKey }",
         "{ document_text: value, idempotency_key: idempotencyKey }",
         "{ contract_json: value, idempotency_key: idempotencyKey }",
@@ -201,9 +224,9 @@ def test_source_content_is_never_persisted_logged_or_added_to_navigation_state()
         "resultPanel.hidden = false;"
     )
     assert 'document.querySelector("#meeting-transcript").value = "";' in clearer
+    assert 'document.querySelector("#email-text").value = "";' in clearer
     assert 'document.querySelector("#document-text").value = "";' in clearer
     assert 'document.querySelector("#contract-json").value = "";' in clearer
-    assert "selectedIndex = 0;" in clearer
     assert "pendingAttempt = null;" in success
     assert "currentTask.hidden = true;" in success
     assert "`/app/pocs/${pocId}/sources/new`" in success

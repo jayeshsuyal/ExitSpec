@@ -18,8 +18,9 @@ evidence.
 
 ## What the current product does
 
-The local browser workbench implements one complete **Define → Prove → Decide**
-loop for a synthetic support-agent POC:
+The local browser product implements one guided **Capture → Review → Agree →
+Prove → Decide** journey. It includes a deterministic support-agent POC and a
+bounded synthetic inference-performance POC:
 
 ```text
 employee-selected synthetic sample email
@@ -31,9 +32,11 @@ employee-selected synthetic sample email
     -> immutable frozen contract
     -> deterministic Reference A/B/C measurement and typed verdict
     -> POC Acceptance Evidence Pack
+    -> explicit human handoff or stop decision
+    -> Completed POC
 ```
 
-### Define
+### Capture and review
 
 - `/app?intake=email` offers exactly two manifest-approved synthetic samples:
   **Support-agent requirements** and **Untrusted-instructions test**.
@@ -73,18 +76,15 @@ Current implementation status is recorded separately at
 `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; ExitSpec
 does not rewrite a frozen contract to claim completion.
 
-The first POC-workspace slices are implemented: an immutable local POC registry
-snapshot and deterministic read-only projection derive source summary,
-`Define`/`Prove`/`Decide` phase, next action, blockers, and latest evidence from
-existing domain state. `/app` renders that state as one bounded POC dashboard;
-`/api/workspace` exposes its three deterministic filters; and the seeded
-support-agent workbench lives at `/app/pocs/poc_support_agent_demo`. The same
-dashboard also projects the bundled frozen inference-latency agreement at
-`/app/pocs/poc_inference_latency_demo`; it says `NOT RUN` until verified
-performance evidence exists. POC creation remains visibly unavailable until its
-separate authority-free draft flow is built.
+The workspace derives source summary, internal `Define`/`Prove`/`Decide` phase,
+next action, blockers, and latest evidence from existing domain state. `/app`
+renders that state as a bounded POC dashboard with Active, Needs attention, and
+Completed views. `/app/pocs/new` creates an authority-free local draft, then
+routes the employee through source capture, proposal review, criterion
+definition, customer agreement, proof, and evidence. Email and meeting notes
+are source choices for the same POC object; they are not separate products.
 
-### Confirm
+### Agree
 
 - One canonical customer-visible projection is both rendered and fingerprinted.
   It includes the contract identity, customer, use case, target system, workload,
@@ -109,6 +109,10 @@ separate authority-free draft flow is built.
   equation, canonical contract hash, limitation, next human action, and six
   artifact links in the first viewport. Seven deeper audit sections stay
   collapsed until requested.
+- A terminal Evidence Pack enables one explicit human decision: complete the
+  handoff or stop the POC. The decision is bound to the exact contract, run,
+  verdict, Evidence Pack URL, and digest. It closes only the POC lifecycle;
+  shipping remains a separate authorization.
 
 For the primary reference set:
 
@@ -121,7 +125,7 @@ Required ≥ 95.00% · Observed 197/200 (98.50%)
 deployment, spending, procurement, production traffic, or any other external
 action.
 
-### Inference-performance proof (CLI)
+### Inference-performance proof
 
 The bounded `exitspec performance` path proves one frozen streaming-latency
 claim against an OpenAI-compatible endpoint:
@@ -144,11 +148,12 @@ passes that rule and one error fails. It does not claim four-way request
 overlap. TTFT includes network, proxy, queueing, and inference time; ExitSpec
 does not label it GPU latency.
 
-Execution remains intentionally CLI-only. `/app` now provides a read-only
-projection of the frozen agreement, exact thresholds, workload shape, and
-explicit `NOT RUN` evidence state; it does not expose a browser Run button or
-invent observed results. Verified performance results are not projected until a
-real Evidence Pack exists. The support-agent browser demo remains independent.
+The same bounded operation is available from the guided local browser workbench
+and the `exitspec performance` CLI. The browser exposes a Run action only after
+the exact agreement is customer-confirmed and frozen. It never invents observed
+results: the dashboard remains `NOT RUN`, `BLOCKED`, or `NOT_PROVEN` until the
+operation service returns verified state, and it exposes an Evidence Pack only
+after independent artifact validation succeeds.
 
 ## Authority model
 
@@ -182,9 +187,10 @@ support-agent workbench is at
 `http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`, and its read-only
 inference-latency POC is at
 `http://127.0.0.1:8765/app/pocs/poc_inference_latency_demo`. For a clean
-support-agent recording, the compatibility entry
-`http://127.0.0.1:8765/app?mode=recording` still opens the workbench directly.
-Click **Restart** before the take.
+support-agent recording, choose **Guided demo** on the dashboard or open
+`http://127.0.0.1:8765/app?mode=recording`. The guided entry resets only the
+seeded support-agent demo before opening it. Follow the
+[three-minute product demo](docs/DEMO_RUNBOOK.md).
 
 For the guided Wave 2 email demo, open
 `http://127.0.0.1:8765/app?intake=email` from a clean server and follow the
@@ -269,8 +275,9 @@ speech-to-text or audio ingestion.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
-authorization, a live email connector, mailbox OAuth or webhooks, arbitrary
-email upload, or real-customer-email ingestion. The performance adapter is
+authorization, a live email connector, mailbox OAuth or webhooks, or arbitrary
+email upload. Local employees can paste bounded email text for redacted,
+review-only requirement extraction; this is not mailbox ingestion. The performance adapter is
 bounded to one synthetic, frozen OpenAI-compatible streaming workload; no real
 vLLM/GPU endpoint result is claimed by the repository yet.
 
@@ -281,6 +288,7 @@ vLLM/GPU endpoint result is claimed by the repository yet.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Engineering playbook](docs/ENGINEERING_PLAYBOOK.md)
 - [Demo plan](docs/DEMO_PLAN.md)
+- [Three-minute product demo](docs/DEMO_RUNBOOK.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Contract specification](docs/CONTRACT_SPEC.md)
