@@ -155,6 +155,15 @@ results: the dashboard remains `NOT RUN`, `BLOCKED`, or `NOT_PROVEN` until the
 operation service returns verified state, and it exposes an Evidence Pack only
 after independent artifact validation succeeds.
 
+For a provider-free local demonstration, the agreement screen offers an
+explicit **Use local reference target** action. The target is a bounded,
+deterministic OpenAI-compatible stream served on loopback. It exercises the
+real preflight, warmup, 100-request measurement, verdict, artifact-validation,
+Evidence Pack, and human-closure path; it is not an inference engine and does
+not claim production performance. Reviewed claims outside the supported TTFT
+plus error-rate criterion remain visible in the frozen non-goals and Evidence
+Pack as `NOT_PROVEN`.
+
 ## Authority model
 
 | Actor or component | May do | May not do |

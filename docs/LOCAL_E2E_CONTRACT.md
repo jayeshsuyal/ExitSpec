@@ -1,6 +1,6 @@
 # Local end-to-end product contract
 
-Status: implementation contract
+Status: implemented local product contract
 Scope: local synthetic demonstration
 External mailbox and meeting-platform connectors: excluded
 
@@ -56,7 +56,7 @@ The local source choices are:
 
 | Choice | First implemented capture path | Honest unavailable boundary |
 | --- | --- | --- |
-| Email | Manifest-approved synthetic RFC822 fixture | Live mailbox/OAuth |
+| Email | Pasted bounded synthetic email text | Live mailbox/OAuth |
 | Meeting | Pasted or uploaded synthetic transcript | Live microphone/STT until its adapter lands |
 | Document | Bounded UTF-8 synthetic text document | Arbitrary binary extraction |
 | Existing contract | Strict ExitSpec contract import | Generic third-party schema conversion |
@@ -81,8 +81,11 @@ authorization for deployment, spend, procurement, or production traffic.
 ```text
 /app                              professional POC work queue
 /app/pocs/new                     source-first local draft creation
-/app/pocs/{poc_id}                one guided POC workbench
-/app/pocs/{poc_id}/sources        bounded source history and add-source entry
+/app/pocs/{poc_id}/sources        bounded source capture
+/app/pocs/{poc_id}/review         human proposal triage
+/app/pocs/{poc_id}/define         measurable-rule definition
+/app/pocs/{poc_id}/agreement      customer draft, confirmation, and freeze
+/app/pocs/{poc_id}                frozen-contract proof and closure
 /review/{token}                   exact-version customer review
 /artifacts/{run_path}             verified static Evidence Pack boundary
 ```
@@ -117,7 +120,7 @@ and next intake route. It does not import content.
 
 ```text
 GET  /api/pocs/{poc_id}/sources
-POST /api/pocs/{poc_id}/sources/email
+POST /api/pocs/{poc_id}/sources/email-text
 POST /api/pocs/{poc_id}/sources/meeting
 POST /api/pocs/{poc_id}/sources/document
 POST /api/pocs/{poc_id}/sources/contract
@@ -136,9 +139,9 @@ authorities; they may not reproduce their rules.
 ### Measurement operation
 
 ```text
-GET  /api/pocs/{poc_id}/readiness
 POST /api/pocs/{poc_id}/runs
 GET  /api/pocs/{poc_id}/runs/{run_id}
+GET  /api/pocs/{poc_id}/runs/latest
 GET  /api/pocs/{poc_id}/evidence
 ```
 
@@ -161,6 +164,26 @@ NOT_PROVEN
 `COMPLETED` does not imply `PASS`. A customer Evidence Pack URL appears only
 after persisted artifacts survive independent reload, integrity validation,
 and deterministic verdict recomputation.
+
+The first dynamic evaluator is one bounded inference-performance criterion:
+client-observed p95 time to first token plus its mandatory error-rate
+guardrail. The local agreement screen may explicitly select:
+
+```text
+POST /api/reference/inference/v1/chat/completions
+model: exitspec/reference-stream-v1
+```
+
+This deterministic OpenAI-compatible streaming target exists only to exercise
+the real probe, calculation, Evidence Pack, and handoff loop without a funded
+provider or GPU. It is not an inference engine and does not prove production
+performance. The probe still performs one preflight, ten warmups, and 100
+measured streamed requests.
+
+Only reviewed definitions supported by this evaluator may become executable.
+Every reviewed claim excluded from the contract is retained in the frozen
+non-goals and customer Evidence Pack as explicitly `NOT_PROVEN`; ExitSpec never
+invents a metric, observation, or recommendation for it.
 
 ## UI contract
 
@@ -247,8 +270,10 @@ true:
 8. status survives safe replay and never converts failure into `PASS`;
 9. the UI exposes no verdict before verified terminal evidence exists;
 10. the Evidence Pack survives independent reload and recomputation;
-11. the dashboard and normal workbench fit at 1280×720;
-12. the complete synthetic flow is repeatable from a clean process using the
+11. excluded or unsupported reviewed claims appear as `NOT_PROVEN`, not as
+    silently dropped or fabricated evidence;
+12. the dashboard and normal workbench fit at 1280×720;
+13. the complete synthetic flow is repeatable from a clean process using the
     recorded runbook.
 
 External Gmail, Outlook, Zoom, Google Meet, authenticated identity, durable

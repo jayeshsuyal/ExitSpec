@@ -315,19 +315,20 @@ def prepare_performance_bundle(
     )
     limitations = (
         (
-            "Prompt token range {0}-{1} is planning context only; runner v1 "
-            "binds the exact synthetic prompt fixture and does not prove a "
-            "token distribution."
+            "NOT_PROVEN — Prompt token range {0}-{1} is planning context "
+            "only; runner v1 binds the exact synthetic prompt fixture and "
+            "does not prove a token distribution."
         ).format(ttft.prompt_tokens_min, ttft.prompt_tokens_max),
         (
-            "Output minimum {0} tokens is not measured; runner v1 only binds "
-            "max_tokens={1}."
+            "NOT_PROVEN — Output minimum {0} tokens is not measured; runner "
+            "v1 only binds max_tokens={1}."
         ).format(ttft.output_tokens_min, ttft.output_tokens_max),
         (
-            "Configured client concurrency does not by itself prove achieved "
-            "request overlap, production capacity, GPU latency, model quality, "
-            "or long-duration reliability."
+            "NOT_PROVEN — Configured client concurrency does not by itself "
+            "prove achieved request overlap, production capacity, GPU "
+            "latency, model quality, or long-duration reliability."
         ),
+        *_excluded_claim_limitations(proposals),
     )
     contract = POCContract(
         id=contract_id,
@@ -375,6 +376,26 @@ def prepare_performance_bundle(
         definition_bindings=bindings,
         planning_limitations=limitations,
     )
+
+
+def _excluded_claim_limitations(
+    proposals: Sequence[ProposalReviewItem],
+) -> tuple[str, ...]:
+    """Keep human-excluded source claims visible as explicit non-proof."""
+
+    excluded = []
+    for proposal in proposals:
+        if (
+            type(proposal) is ProposalReviewItem
+            and proposal.review_state is ProposalReviewState.DISCARD
+            and proposal.decision is not None
+            and proposal.decision.decision is ProposalDecision.DISCARD
+        ):
+            excluded.append(
+                "NOT_PROVEN — Reviewed source claim excluded from this "
+                'executable POC: "{0}"'.format(proposal.normalized_claim)
+            )
+    return tuple(excluded)
 
 
 def _kept_proposals(

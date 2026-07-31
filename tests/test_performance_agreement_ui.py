@@ -88,7 +88,13 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
         "create-customer-draft",
         "confirm-agreement",
         "freeze-contract",
+        "use-reference-target",
     }
+    assert re.search(
+        r'id="use-reference-target"[\s\S]*?>\s*'
+        r"Use local reference target\s*</button>",
+        html,
+    )
     assert re.search(r">\s*Create customer draft\s*</button>", html)
     assert re.search(r">\s*Confirm agreement\s*</button>", html)
     assert re.search(r">\s*Freeze confirmed contract\s*</button>", html)
@@ -117,6 +123,37 @@ def test_execution_target_is_required_never_defaulted_and_not_inferred():
     assert "defaultTarget" not in javascript
     assert "inferTarget" not in javascript
     assert "autoTarget" not in javascript
+
+
+def test_local_reference_target_is_explicit_and_never_fakes_human_review():
+    html = _asset(HTML_PATH)
+    javascript = _asset(JS_PATH)
+    reference = _function(
+        javascript,
+        "useReferenceTarget",
+        "updateConfirmationControls",
+    )
+
+    assert "Use local reference target" in html
+    assert "It does not prove production inference" in html
+    assert "Not proven by this POC" in html
+    assert "Excluded reviewed claims remain" in html
+    assert 'id="customer-not-proven-list"' in html
+    assert "<strong>NOT_PROVEN</strong>" in html
+    for exact_value in (
+        "ExitSpec local reference",
+        "OpenAI-compatible deterministic reference",
+        "exitspec/reference-stream-v1",
+        "/api/reference/inference/v1/chat/completions",
+    ):
+        assert exact_value in javascript
+    assert "targetProviderInput.value" in reference
+    assert "endpointClassInput.value" in reference
+    assert "endpointInput.value" in reference
+    assert "modelInput.value" in reference
+    assert "draftReviewerInput.value" not in reference
+    assert "draftRationaleInput.value" not in reference
+    assert "draftReviewerInput.focus();" in reference
 
 
 def test_customer_review_visibly_repeats_all_target_fields_before_confirmation():
@@ -192,6 +229,7 @@ def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
     for exact_key in (
         "poc_id",
         "definitions",
+        "not_proven_claims",
         "draft",
         "confirmation",
         "frozen_contract",
@@ -201,6 +239,8 @@ def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
     assert "payload.poc_id !== pocId" in validator
     assert "payload.definitions.length > 1024" in validator
     assert "payload.definitions.every(isTrustedDefinition)" in validator
+    assert "payload.not_proven_claims.length > 1024" in validator
+    assert "isSafeBoundedText(claim, 2000)" in validator
     assert "new Set(proposalIds).size !== proposalIds.length" in validator
     assert "new Set(definitionIds).size !== definitionIds.length" in validator
     assert "payload.draft === null" in validator

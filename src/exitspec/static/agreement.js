@@ -31,6 +31,12 @@
       maximum: 100,
     }),
   });
+  const REFERENCE_TARGET = Object.freeze({
+    target_provider: "ExitSpec local reference",
+    endpoint_class: "OpenAI-compatible deterministic reference",
+    model: "exitspec/reference-stream-v1",
+    path: "/api/reference/inference/v1/chat/completions",
+  });
   const SOURCE_KINDS = Object.freeze([
     "EMAIL",
     "MEETING",
@@ -52,6 +58,7 @@
     "definitions",
     "draft",
     "frozen_contract",
+    "not_proven_claims",
     "poc_id",
   ]);
   const DEFINITION_KEYS = Object.freeze([
@@ -121,6 +128,9 @@
   const draftReviewerInput = document.querySelector("#draft-reviewer");
   const draftRationaleInput = document.querySelector("#draft-rationale");
   const createDraftButton = document.querySelector("#create-customer-draft");
+  const useReferenceTargetButton = document.querySelector(
+    "#use-reference-target"
+  );
   const draftStatus = document.querySelector("#draft-status");
   const endpointDetails = document.querySelector(".endpoint-fields");
   const confirmationPanel = document.querySelector("#confirmation-panel");
@@ -378,6 +388,11 @@
       !Array.isArray(payload.definitions) ||
       payload.definitions.length > 1024 ||
       !payload.definitions.every(isTrustedDefinition) ||
+      !Array.isArray(payload.not_proven_claims) ||
+      payload.not_proven_claims.length > 1024 ||
+      !payload.not_proven_claims.every((claim) =>
+        isSafeBoundedText(claim, 2000)
+      ) ||
       (payload.draft !== null && !isTrustedDraft(payload.draft)) ||
       (payload.confirmation !== null &&
         !isTrustedConfirmation(payload.confirmation)) ||
@@ -617,6 +632,7 @@
     const editable =
       available && inFlight === null && pendingDraftAttempt === null;
     setControlsAvailability(draftControls, editable);
+    useReferenceTargetButton.disabled = !editable;
     createDraftButton.disabled = Boolean(
       !available ||
         inFlight !== null ||
@@ -633,6 +649,26 @@
           : fieldsValid
             ? "Verify the target and create the customer draft."
             : "Complete the exact target, reviewer, and rationale.";
+  }
+
+  function useReferenceTarget() {
+    if (
+      !agreementState ||
+      agreementState.draft !== null ||
+      inFlight !== null ||
+      pendingDraftAttempt !== null
+    ) {
+      return;
+    }
+    targetProviderInput.value = REFERENCE_TARGET.target_provider;
+    endpointClassInput.value = REFERENCE_TARGET.endpoint_class;
+    endpointInput.value =
+      `${window.location.origin}${REFERENCE_TARGET.path}`;
+    modelInput.value = REFERENCE_TARGET.model;
+    endpointDetails.open = true;
+    clearError();
+    updateDraftControls();
+    draftReviewerInput.focus();
   }
 
   function updateConfirmationControls() {
@@ -752,6 +788,21 @@
     const criteria = document.querySelector("#customer-criteria-list");
     criteria.replaceChildren();
     agreementState.definitions.forEach(appendCustomerCriterion);
+    const notProven = document.querySelector(
+      "#customer-not-proven-list"
+    );
+    notProven.replaceChildren();
+    if (agreementState.not_proven_claims.length === 0) {
+      const empty = document.createElement("li");
+      empty.textContent = "No reviewed source claim was excluded.";
+      notProven.append(empty);
+    } else {
+      agreementState.not_proven_claims.forEach((claim) => {
+        const item = document.createElement("li");
+        item.textContent = claim;
+        notProven.append(item);
+      });
+    }
   }
 
   function setCurrentStep(stepName) {
@@ -869,6 +920,11 @@
       }
     });
   });
+
+  useReferenceTargetButton.addEventListener(
+    "click",
+    useReferenceTarget
+  );
 
   confirmationControls.forEach((control) => {
     control.addEventListener("input", () => {

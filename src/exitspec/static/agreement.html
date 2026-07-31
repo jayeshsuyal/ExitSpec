@@ -133,6 +133,25 @@
                   </p>
                 </header>
 
+                <div class="reference-target">
+                  <div>
+                    <strong>Run the complete local demo</strong>
+                    <p>
+                      Use ExitSpec’s deterministic streaming target to verify
+                      the workflow. It does not prove production inference
+                      performance.
+                    </p>
+                  </div>
+                  <button
+                    class="secondary-action"
+                    id="use-reference-target"
+                    type="button"
+                    disabled
+                  >
+                    Use local reference target
+                  </button>
+                </div>
+
                 <div class="action-fields">
                   <div class="target-primary-fields">
                     <div class="field-group">
@@ -306,6 +325,17 @@
                     <div class="customer-criteria">
                       <p class="section-label">Acceptance criteria</p>
                       <div id="customer-criteria-list"></div>
+                      <div class="not-proven-boundary">
+                        <p class="section-label">
+                          Not proven by this POC
+                        </p>
+                        <p>
+                          Only the criteria listed above enter the evaluator.
+                          Excluded reviewed claims remain
+                          <strong>NOT_PROVEN</strong>.
+                        </p>
+                        <ul id="customer-not-proven-list"></ul>
+                      </div>
                     </div>
                   </article>
 

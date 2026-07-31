@@ -27,6 +27,7 @@ from .poc_performance_lifecycle import (
     ProcessLocalPerformanceLifecycleService,
 )
 from .poc_proposal_review import (
+    ProposalDecision,
     ProcessLocalProposalReviewService,
     ProposalReviewState,
 )
@@ -269,11 +270,21 @@ def _snapshot_payload(
     proposals: ProcessLocalProposalReviewService,
     definitions: ProcessLocalContractDefinitionService,
 ) -> dict[str, Any]:
+    proposal_projection = proposals.list_proposals(poc_id)
     current_proposals = {
         proposal.proposal_id: proposal
-        for proposal in proposals.list_proposals(poc_id)
+        for proposal in proposal_projection
         if proposal.review_state is ProposalReviewState.KEEP_FOR_CONTRACT
     }
+    not_proven_claims = [
+        proposal.normalized_claim
+        for proposal in proposal_projection
+        if (
+            proposal.review_state is ProposalReviewState.DISCARD
+            and proposal.decision is not None
+            and proposal.decision.decision is ProposalDecision.DISCARD
+        )
+    ]
     definition_payloads = []
     for definition in definitions.definitions():
         if definition.poc_id != poc_id:
@@ -314,6 +325,7 @@ def _snapshot_payload(
     return {
         "poc_id": poc_id,
         "definitions": definition_payloads,
+        "not_proven_claims": not_proven_claims,
         "draft": (None if preparation is None else _preparation_payload(preparation)),
         "confirmation": (
             None

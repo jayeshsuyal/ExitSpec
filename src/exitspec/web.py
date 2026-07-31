@@ -142,6 +142,12 @@ from .provider_egress import (
     ProviderEgressAcknowledgementError,
 )
 from .providers import ProviderError, StructuredJSONRequest
+from .reference_inference import (
+    REFERENCE_ENDPOINT_PATH,
+    ReferenceInferenceRequestError,
+    reference_sse_payload,
+    validate_reference_request,
+)
 from .runner import RunResult, run_demo
 from .reporting import render_customer_draft
 from .review_links import (
@@ -3090,6 +3096,73 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
 class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
     server: ExitSpecDemoServer
 
+    def _dispatch_reference_inference(self) -> bool:
+        """Serve one exact loopback-only deterministic streaming target."""
+
+        parsed = urlparse(self.path)
+        if parsed.path != REFERENCE_ENDPOINT_PATH:
+            return False
+        self.close_connection = True
+        if parsed.params or parsed.query or parsed.fragment:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Reference inference request is invalid."},
+            )
+            return True
+        if self.command != "POST":
+            self._send_json(
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "Reference inference method is not allowed."},
+            )
+            return True
+        if self.client_address[0] not in LOOPBACK_ORIGIN_HOSTS:
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "Reference inference is loopback-only."},
+            )
+            return True
+        if self.headers.get_all("Authorization"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Reference inference does not accept credentials."},
+            )
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+            validate_reference_request(payload)
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Reference inference request is too large."},
+            )
+            return True
+        except (ReferenceInferenceRequestError, TypeError, ValueError):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Reference inference request is invalid."},
+            )
+            return True
+
+        response = reference_sse_payload()
+        self.send_response(HTTPStatus.OK)
+        self.send_header(
+            "Content-Type",
+            "text/event-stream; charset=utf-8",
+        )
+        self.send_header("Content-Length", str(len(response)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(response)
+        return True
+
     def _source_header_values(self, name: str) -> Sequence[str]:
         return tuple(self.headers.get_all(name) or ())
 
@@ -3739,6 +3812,12 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if (
             code == HTTPStatus.NOT_IMPLEMENTED
             and hasattr(self, "path")
+            and self._dispatch_reference_inference()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
             and is_source_pipeline_target(self.path)
             and self._dispatch_source_request()
         ):
@@ -3788,6 +3867,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+        if self._dispatch_reference_inference():
+            return
         if self._dispatch_source_request():
             return
         if self._dispatch_performance_read():
@@ -4097,6 +4178,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._serve_static(parsed.path, parsed.query)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+        if self._dispatch_reference_inference():
+            return
         if self._dispatch_source_request():
             return
         if self._dispatch_performance_write():
@@ -4583,6 +4666,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _unsupported_method(self) -> None:
+        if self._dispatch_reference_inference():
+            return
         if self._dispatch_source_request():
             return
         self.send_error(

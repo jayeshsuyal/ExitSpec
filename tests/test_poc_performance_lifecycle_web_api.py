@@ -198,10 +198,12 @@ def test_prepare_confirm_freeze_projects_only_exact_public_state():
     assert set(after.payload) == {
         "poc_id",
         "definitions",
+        "not_proven_claims",
         "draft",
         "confirmation",
         "frozen_contract",
     }
+    assert after.payload["not_proven_claims"] == []
 
 
 def test_every_write_exposes_exact_idempotent_replay():

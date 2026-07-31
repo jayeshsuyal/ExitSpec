@@ -10,6 +10,13 @@ from pathlib import Path
 
 import pytest
 
+from exitspec.reference_inference import (
+    REFERENCE_ENDPOINT_CLASS,
+    REFERENCE_ENDPOINT_PATH,
+    REFERENCE_MODEL,
+    REFERENCE_PROVIDER,
+    reference_sse_payload,
+)
 from exitspec.web import MAX_REQUEST_BYTES, DemoSession, ExitSpecDemoServer
 
 
@@ -364,6 +371,79 @@ def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
         assert forbidden not in serialized
 
 
+def test_local_reference_target_is_exact_bounded_and_credential_free(
+    tmp_path,
+):
+    valid = {
+        "max_tokens": 64,
+        "messages": [{"content": "Measure this request.", "role": "user"}],
+        "model": REFERENCE_MODEL,
+        "stream": True,
+        "temperature": 0,
+    }
+    with _running_server(tmp_path) as server:
+        ok = _request(
+            server,
+            "POST",
+            REFERENCE_ENDPOINT_PATH,
+            payload=valid,
+            origin=None,
+        )
+        wrong_method = _request(
+            server,
+            "GET",
+            REFERENCE_ENDPOINT_PATH,
+            content_type=None,
+            origin=None,
+        )
+        parameterized = _request(
+            server,
+            "POST",
+            REFERENCE_ENDPOINT_PATH + "?model=other",
+            payload=valid,
+            origin=None,
+        )
+        credentialed = _request(
+            server,
+            "POST",
+            REFERENCE_ENDPOINT_PATH,
+            payload=valid,
+            origin=None,
+            headers={"Authorization": "Bearer should-never-be-sent"},
+        )
+        wrong_model_payload = dict(valid)
+        wrong_model_payload["model"] = "some-real-model"
+        wrong_model = _request(
+            server,
+            "POST",
+            REFERENCE_ENDPOINT_PATH,
+            payload=wrong_model_payload,
+            origin=None,
+        )
+
+    assert ok == (
+        200,
+        reference_sse_payload().decode("utf-8"),
+        "text/event-stream; charset=utf-8",
+    )
+    assert wrong_method[:2] == (
+        405,
+        {"error": "Reference inference method is not allowed."},
+    )
+    assert parameterized[:2] == (
+        400,
+        {"error": "Reference inference request is invalid."},
+    )
+    assert credentialed[:2] == (
+        400,
+        {"error": "Reference inference does not accept credentials."},
+    )
+    assert wrong_model[:2] == (
+        400,
+        {"error": "Reference inference request is invalid."},
+    )
+
+
 @pytest.mark.parametrize(
     ("content_type", "origin", "expected_status", "message"),
     (
@@ -697,6 +777,266 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
     )
     assert completed_projection["archive_state"] == "COMPLETED"
     assert completed_projection["next_action_code"] == "NONE"
+
+
+def test_unseen_email_completes_reference_evaluator_evidence_and_handoff(
+    tmp_path,
+):
+    raw_identity = "buyer@example.com"
+    with _running_server(tmp_path) as server:
+        status, draft, _ = _request(
+            server,
+            "POST",
+            "/api/pocs",
+            payload={
+                "display_name": "Email inference POC",
+                "customer_label": "Northstar",
+                "use_case": "Turn an email into bounded proof.",
+                "owner": "field_engineer",
+                "first_source_choice": "EMAIL",
+                "idempotency_key": "create-email-reference-e2e",
+            },
+        )
+        assert status == 201
+        assert isinstance(draft, dict)
+        poc_id = str(draft["poc_id"])
+
+        status, receipt, _ = _request(
+            server,
+            "POST",
+            f"/api/pocs/{poc_id}/sources/email-text",
+            payload={
+                "email_text": (
+                    f"From: {raw_identity}\n"
+                    "The p95 time to first token must stay below 500 ms. "
+                    "Error rate must remain below 1%. "
+                    "Answer quality must feel delightful."
+                ),
+                "idempotency_key": "capture-email-reference-e2e",
+            },
+        )
+        assert status == 201
+        assert receipt["proposal_count"] == 3
+
+        status, proposal_payload, _ = _request(
+            server,
+            "GET",
+            f"/api/pocs/{poc_id}/proposals",
+            content_type=None,
+            origin=None,
+        )
+        assert status == 200
+        proposals = proposal_payload["proposals"]
+        assert len(proposals) == 3
+        kept = []
+        for index, proposal in enumerate(proposals):
+            claim = proposal["normalized_claim"].lower()
+            decision = (
+                "KEEP_FOR_CONTRACT"
+                if "first token" in claim or "error rate" in claim
+                else "DISCARD"
+            )
+            status, _, _ = _request(
+                server,
+                "POST",
+                (
+                    f"/api/pocs/{poc_id}/proposals/"
+                    f"{proposal['proposal_id']}/decision"
+                ),
+                payload={
+                    "decision": decision,
+                    "reviewer": "field_engineer",
+                    "rationale": (
+                        "Keep the supported measurable rule."
+                        if decision == "KEEP_FOR_CONTRACT"
+                        else (
+                            "The current evaluator does not measure this "
+                            "claim; retain it as NOT_PROVEN."
+                        )
+                    ),
+                    "idempotency_key": f"review-email-reference-{index}",
+                },
+            )
+            assert status == 201
+            if decision == "KEEP_FOR_CONTRACT":
+                kept.append(proposal)
+        assert len(kept) == 2
+
+        for index, proposal in enumerate(kept):
+            is_ttft = "first token" in proposal["normalized_claim"].lower()
+            status, _, _ = _request(
+                server,
+                "POST",
+                f"/api/pocs/{poc_id}/definitions",
+                payload={
+                    "proposal_id": proposal["proposal_id"],
+                    "metric": (
+                        "TTFT_P95_MS"
+                        if is_ttft
+                        else "ERROR_RATE_PERCENT"
+                    ),
+                    "operator": "LT",
+                    "threshold": 500 if is_ttft else 1,
+                    "minimum_samples": 100,
+                    "concurrency": 4,
+                    "prompt_tokens_min": 512,
+                    "prompt_tokens_max": 4096,
+                    "output_tokens_min": 64,
+                    "output_tokens_max": 512,
+                    "reviewer": "field_engineer",
+                    "rationale": (
+                        "Confirm the exact measurable rule from the email."
+                    ),
+                    "idempotency_key": f"define-email-reference-{index}",
+                },
+            )
+            assert status == 201
+
+        agreement_root = f"/api/pocs/{poc_id}/agreement"
+        reference_endpoint = (
+            f"http://127.0.0.1:{server.server_port}"
+            f"{REFERENCE_ENDPOINT_PATH}"
+        )
+        status, _, _ = _request(
+            server,
+            "POST",
+            agreement_root,
+            payload={
+                "target_provider": REFERENCE_PROVIDER,
+                "endpoint_class": REFERENCE_ENDPOINT_CLASS,
+                "endpoint": reference_endpoint,
+                "model": REFERENCE_MODEL,
+                "reviewer": "field_engineer",
+                "rationale": (
+                    "Use the deterministic local target to prove the "
+                    "ExitSpec workflow, not production inference."
+                ),
+                "idempotency_key": "prepare-email-reference-e2e",
+            },
+        )
+        assert status == 201
+        status, customer_draft_projection, _ = _request(
+            server,
+            "GET",
+            agreement_root,
+            content_type=None,
+            origin=None,
+        )
+        assert status == 200
+        status, _, _ = _request(
+            server,
+            "POST",
+            agreement_root + "/confirm",
+            payload={
+                "confirmer": "Customer contact recorded by field_engineer",
+                "agreement_acknowledged": True,
+                "rationale": (
+                    "The customer reviewed the exact target, supported "
+                    "criteria, and NOT_PROVEN boundary."
+                ),
+                "idempotency_key": "confirm-email-reference-e2e",
+            },
+        )
+        assert status == 201
+        status, frozen, _ = _request(
+            server,
+            "POST",
+            agreement_root + "/freeze",
+            payload={
+                "idempotency_key": "freeze-email-reference-e2e"
+            },
+        )
+        assert status == 201
+
+        run_root = f"/api/pocs/{poc_id}/runs"
+        status, _, _ = _request(
+            server,
+            "POST",
+            run_root,
+            payload={
+                "execution_acknowledged": True,
+                "idempotency_key": "run-email-reference-e2e",
+            },
+        )
+        assert status == 202
+        deadline = time.monotonic() + 10
+        latest = None
+        while time.monotonic() < deadline:
+            status, latest, _ = _request(
+                server,
+                "GET",
+                run_root + "/latest",
+                content_type=None,
+                origin=None,
+            )
+            assert status == 200
+            if latest["is_terminal"]:
+                break
+            time.sleep(0.01)
+        assert latest is not None and latest["is_terminal"] is True
+
+        evidence_url = str(latest["evidence_pack_url"])
+        pack = _request(
+            server,
+            "GET",
+            evidence_url,
+            content_type=None,
+            origin=None,
+        )
+        closure_state = _request(
+            server,
+            "GET",
+            f"/api/workspace/pocs/{poc_id}/closure",
+            content_type=None,
+            origin=None,
+        )
+        binding = closure_state[1]["eligible_evidence_binding"]
+        closed = _request(
+            server,
+            "POST",
+            f"/api/workspace/pocs/{poc_id}/closure",
+            payload={
+                "decision": "HANDOFF_COMPLETED",
+                "decided_by": "field_engineer",
+                "rationale": "Customer-safe Evidence Pack handed off.",
+                "evidence_binding": binding,
+                "idempotency_key": "close-email-reference-e2e",
+            },
+        )
+        completed = _request(
+            server,
+            "GET",
+            "/api/workspace?filter=Completed",
+            content_type=None,
+            origin=None,
+        )
+
+    assert frozen["frozen_contract"]["endpoint"] == reference_endpoint
+    assert customer_draft_projection["not_proven_claims"] == [
+        "Answer quality must feel delightful."
+    ]
+    assert latest["status"] == "COMPLETED"
+    assert latest["verdict"] == "PASS"
+    assert latest["attempted_count"] == 100
+    assert latest["successful_count"] == 100
+    assert pack[0] == 200
+    assert pack[2].startswith("text/html")
+    assert "Answer quality must feel delightful." in pack[1]
+    assert "NOT_PROVEN" in pack[1]
+    assert raw_identity not in pack[1]
+    assert closure_state[1]["closeable"] is True
+    assert binding["contract_hash"] == (
+        frozen["frozen_contract"]["canonical_hash"]
+    )
+    assert closed[0] == 201
+    assert closed[1]["closure"]["shipping_authorized"] is False
+    completed_poc = next(
+        item
+        for item in completed[1]["pocs"]
+        if item["poc_id"] == poc_id
+    )
+    assert completed_poc["archive_state"] == "COMPLETED"
+    assert completed_poc["next_action_code"] == "NONE"
 
 
 def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):

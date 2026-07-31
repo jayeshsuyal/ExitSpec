@@ -70,7 +70,10 @@ def render_performance_evidence_pack(
     ttft_threshold = _format_ttft(ttft.threshold_ns)
     error_observed = _format_rate(error_rate.observed_rate)
     error_threshold = _format_rate(error_rate.threshold)
-    limitations = _ordered_limitations(verdict)
+    limitations = _ordered_limitations(
+        verdict,
+        contract.non_goals,
+    )
     limitation_items = "\n".join(
         f"          <li>{_safe(item)}</li>" for item in limitations
     )
@@ -258,6 +261,7 @@ def _require_context_bindings(context: ValidatedPerformanceContext) -> None:
 
 def _ordered_limitations(
     verdict: PerformanceCriterionVerdict,
+    contract_non_goals: tuple[str, ...],
 ) -> tuple[str, ...]:
     required = (
         "TTFT is client-observed and includes network, proxy, queueing, "
@@ -265,7 +269,11 @@ def _ordered_limitations(
         "This run proves only the frozen model, workload, endpoint, and "
         "measurement conditions shown in this pack.",
     )
-    return tuple(dict.fromkeys((*verdict.limitations, *required)))
+    return tuple(
+        dict.fromkeys(
+            (*verdict.limitations, *contract_non_goals, *required)
+        )
+    )
 
 
 def _format_ttft(value_ns: int | None) -> str:
