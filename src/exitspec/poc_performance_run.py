@@ -33,7 +33,7 @@ from .performance_evidence import (
     require_frozen_confirmed,
     validate_performance_context_bytes,
 )
-from .performance_operations import PerformanceOperationStatus
+from .performance_operations import PerformanceOperation, PerformanceOperationStatus
 from .performance_reporting import render_performance_evidence_pack
 from .performance_runner import PerformanceRunResult, run_performance_proof
 from .performance_serialization import serialize_contract
@@ -111,6 +111,7 @@ class POCPerformanceRunSnapshot:
     p95_ttft_ms: str | None
     error_rate_percent: str | None
     evidence_pack_url: str | None
+    terminal_operation: PerformanceOperation | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -141,6 +142,7 @@ class _RunRecord:
     p95_ttft_ms: str | None = None
     error_rate_percent: str | None = None
     evidence_pack_url: str | None = None
+    terminal_operation: PerformanceOperation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +359,7 @@ class ProcessLocalPOCPerformanceRunService:
                 "error_rate_percent"
             )
             record.evidence_pack_url = terminal.get("evidence_pack_url")
+            record.terminal_operation = terminal.get("terminal_operation")
             if self._active_operation_id == record.operation_id:
                 self._active_operation_id = None
 
@@ -414,6 +417,7 @@ class ProcessLocalPOCPerformanceRunService:
                     operation.terminal_reason
                     or "ENDPOINT_PREFLIGHT_FAILED"
                 ),
+                "terminal_operation": operation,
             }
         if operation.status is not PerformanceOperationStatus.COMPLETED:
             return {
@@ -421,6 +425,7 @@ class ProcessLocalPOCPerformanceRunService:
                 "reason_code": (
                     operation.terminal_reason or "RUN_NOT_PROVEN"
                 ),
+                "terminal_operation": operation,
             }
         context = validate_performance_context_bytes(
             frozen,
@@ -477,6 +482,7 @@ class ProcessLocalPOCPerformanceRunService:
                     operation.run_id
                 )
             ),
+            "terminal_operation": operation,
         }
 
     def _snapshot_locked(
@@ -528,6 +534,7 @@ class ProcessLocalPOCPerformanceRunService:
             p95_ttft_ms=record.p95_ttft_ms,
             error_rate_percent=record.error_rate_percent,
             evidence_pack_url=record.evidence_pack_url,
+            terminal_operation=record.terminal_operation,
         )
 
 

@@ -157,13 +157,43 @@
     );
   }
 
+  function isTrustedReviewSummary(summary) {
+    if (
+      !hasExactKeys(summary, [
+        "discarded",
+        "kept_for_contract",
+        "needs_review",
+        "total",
+      ])
+    ) {
+      return false;
+    }
+    const counts = [
+      summary.discarded,
+      summary.kept_for_contract,
+      summary.needs_review,
+      summary.total,
+    ];
+    return Boolean(
+      counts.every(
+        (count) => Number.isInteger(count) && count >= 0 && count <= 1024
+      ) &&
+        summary.total ===
+          summary.discarded +
+            summary.kept_for_contract +
+            summary.needs_review
+    );
+  }
+
   function isTrustedProposalList(payload) {
     if (
-      !hasExactKeys(payload, ["poc_id", "proposals"]) ||
+      !hasExactKeys(payload, ["poc_id", "proposals", "review_summary"]) ||
       payload.poc_id !== pocId ||
       !Array.isArray(payload.proposals) ||
       payload.proposals.length > 1024 ||
-      !payload.proposals.every(isTrustedProposal)
+      !payload.proposals.every(isTrustedProposal) ||
+      !isTrustedReviewSummary(payload.review_summary) ||
+      payload.review_summary.needs_review !== payload.proposals.length
     ) {
       return false;
     }
@@ -408,7 +438,9 @@
 
   function applyLoadedData(draft, proposalList) {
     proposals = proposalList.proposals.slice();
-    initialCount = proposals.length;
+    initialCount = proposalList.review_summary.total;
+    keptCount = proposalList.review_summary.kept_for_contract;
+    discardedCount = proposalList.review_summary.discarded;
     document.querySelector("#poc-title").textContent = draft.display_name;
     document.querySelector("#poc-context").textContent =
       `${draft.customer_label} · ${initialCount} ${initialCount === 1 ? "proposal" : "proposals"} awaiting triage`;
@@ -422,7 +454,9 @@
       throw new SafeRequestError(200, true);
     }
     proposals = proposalList.proposals.slice();
-    initialCount = keptCount + discardedCount + proposals.length;
+    initialCount = proposalList.review_summary.total;
+    keptCount = proposalList.review_summary.kept_for_contract;
+    discardedCount = proposalList.review_summary.discarded;
     renderCurrentProposal();
   }
 
@@ -510,11 +544,6 @@
       });
       if (!isTrustedDecisionResponse(response, pendingAttempt)) {
         throw new SafeRequestError(200, true);
-      }
-      if (response.decision === "KEEP_FOR_CONTRACT") {
-        keptCount += 1;
-      } else {
-        discardedCount += 1;
       }
       pendingAttempt = null;
       proposals.shift();

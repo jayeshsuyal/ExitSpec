@@ -110,7 +110,7 @@
   }
 
   const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
-  const BINDING_FIELDS = Object.freeze([
+  const EVIDENCE_BINDING_FIELDS = Object.freeze([
     "poc_id",
     "contract_id",
     "contract_version",
@@ -119,6 +119,19 @@
     "verdict",
     "evidence_pack_url",
     "evidence_pack_sha256",
+  ]);
+  const RUN_BINDING_FIELDS = Object.freeze([
+    "poc_id",
+    "contract_id",
+    "contract_version",
+    "contract_hash",
+    "operation_id",
+    "runner_run_id",
+    "runner_input_digest",
+    "run_status",
+    "reason_code",
+    "terminal_at",
+    "run_receipt_sha256",
   ]);
   const pathMatch = window.location.pathname.match(
     /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})(?:\/|$)/
@@ -137,6 +150,7 @@
   const receiptRationale = document.querySelector("#closure-receipt-rationale");
   const evidenceLink = document.querySelector("#closure-evidence-link");
   let eligibleEvidenceBinding = null;
+  let eligibleTerminalRunBinding = null;
   let inFlight = false;
   let refreshVersion = 0;
   let refreshTimer = null;
@@ -151,25 +165,59 @@
       return null;
     }
     const keys = Object.keys(candidate).sort();
-    if (keys.join("|") !== BINDING_FIELDS.slice().sort().join("|")) {
-      return null;
-    }
+    const isEvidenceBinding =
+      keys.join("|") === EVIDENCE_BINDING_FIELDS.slice().sort().join("|");
+    const isRunBinding =
+      keys.join("|") === RUN_BINDING_FIELDS.slice().sort().join("|");
     if (
       candidate.poc_id !== pocId ||
       !POC_ID_PATTERN.test(candidate.poc_id) ||
-      !/^[a-f0-9]{64}$/.test(candidate.contract_hash) ||
-      !/^[a-f0-9]{64}$/.test(candidate.evidence_pack_sha256) ||
-      !["PASS", "FAIL", "BLOCKED", "NOT_PROVEN"].includes(
-        candidate.verdict
-      ) ||
-      !candidate.evidence_pack_url.startsWith("/artifacts/") ||
-      !candidate.evidence_pack_url.endsWith("/decision-packet.html")
+      !/^[a-f0-9]{64}$/.test(candidate.contract_hash)
     ) {
       return null;
     }
-    return Object.freeze(
-      Object.fromEntries(BINDING_FIELDS.map((key) => [key, candidate[key]]))
-    );
+    if (
+      isEvidenceBinding &&
+      /^[a-f0-9]{64}$/.test(candidate.evidence_pack_sha256) &&
+      ["PASS", "FAIL", "BLOCKED", "NOT_PROVEN"].includes(
+        candidate.verdict
+      ) &&
+      candidate.evidence_pack_url.startsWith("/artifacts/") &&
+      candidate.evidence_pack_url.endsWith("/decision-packet.html")
+    ) {
+      return Object.freeze(
+        Object.fromEntries(
+          EVIDENCE_BINDING_FIELDS.map((key) => [key, candidate[key]])
+        )
+      );
+    }
+    if (
+      isRunBinding &&
+      candidate.run_status === "BLOCKED" &&
+      typeof candidate.reason_code === "string" &&
+      candidate.reason_code.length > 0 &&
+      candidate.reason_code.length <= 200 &&
+      /^prun_[a-f0-9]{32}$/.test(candidate.operation_id) &&
+      /^run_[a-f0-9]{32}$/.test(candidate.runner_run_id) &&
+      /^[a-f0-9]{64}$/.test(candidate.runner_input_digest) &&
+      !Number.isNaN(Date.parse(candidate.terminal_at)) &&
+      /^[a-f0-9]{64}$/.test(candidate.run_receipt_sha256)
+    ) {
+      return Object.freeze(
+        Object.fromEntries(
+          RUN_BINDING_FIELDS.map((key) => [key, candidate[key]])
+        )
+      );
+    }
+    return null;
+  }
+
+  function hasEvidencePack(binding) {
+    return Boolean(binding && "evidence_pack_url" in binding);
+  }
+
+  function eligibleBinding() {
+    return eligibleEvidenceBinding || eligibleTerminalRunBinding;
   }
 
   function setStatus(message, tone = "") {
@@ -194,8 +242,10 @@
       ? new Date(closure.recorded_at).toLocaleString()
       : "Recorded";
     receiptRationale.textContent = closure.rationale || "No rationale returned.";
-    const binding = exactBinding(closure.evidence_binding);
-    if (binding) {
+    const binding =
+      exactBinding(closure.evidence_binding) ||
+      exactBinding(closure.terminal_run_binding);
+    if (hasEvidencePack(binding)) {
       evidenceLink.href = binding.evidence_pack_url;
       evidenceLink.hidden = false;
     } else {
@@ -212,6 +262,9 @@
     eligibleEvidenceBinding = exactBinding(
       payload?.eligible_evidence_binding
     );
+    eligibleTerminalRunBinding = exactBinding(
+      payload?.eligible_terminal_run_binding
+    );
     if (closure) {
       panel.hidden = false;
       renderReceipt(closure);
@@ -219,14 +272,27 @@
     }
     receipt.hidden = true;
     form.hidden = false;
-    panel.hidden = !(payload?.closeable && eligibleEvidenceBinding);
+    panel.hidden = !(payload?.closeable && eligibleBinding());
     submitButton.disabled = panel.hidden || inFlight;
     if (!panel.hidden) {
-      evidenceLink.href = eligibleEvidenceBinding.evidence_pack_url;
-      evidenceLink.hidden = false;
-      setStatus(
-        "Choose the human outcome after reviewing the exact Evidence Pack."
+      const handoffOption = decisionInput.querySelector(
+        'option[value="HANDOFF_COMPLETED"]'
       );
+      const evidenceAvailable = hasEvidencePack(eligibleEvidenceBinding);
+      handoffOption.disabled = !evidenceAvailable;
+      if (evidenceAvailable) {
+        evidenceLink.href = eligibleEvidenceBinding.evidence_pack_url;
+        evidenceLink.hidden = false;
+        setStatus(
+          "Choose the human outcome after reviewing the exact Evidence Pack."
+        );
+      } else {
+        decisionInput.value = "POC_STOPPED";
+        evidenceLink.hidden = true;
+        setStatus(
+          "This terminal run has no Evidence Pack. Review the bound run receipt and stop the POC."
+        );
+      }
     }
   }
 
@@ -261,7 +327,7 @@
 
   async function submitClosure(event) {
     event.preventDefault();
-    if (inFlight || !eligibleEvidenceBinding) {
+    if (inFlight || !eligibleBinding()) {
       return;
     }
     const decidedBy = actorInput.value.trim();
@@ -285,7 +351,9 @@
           decision: decisionInput.value,
           decided_by: decidedBy,
           rationale,
-          evidence_binding: eligibleEvidenceBinding,
+          ...(eligibleEvidenceBinding
+            ? { evidence_binding: eligibleEvidenceBinding }
+            : { terminal_run_binding: eligibleTerminalRunBinding }),
           idempotency_key: idempotencyKey,
         }),
       });

@@ -1,4 +1,4 @@
-"""A local-only browser demo for ExitSpec's Define -> Prove -> Decide loop.
+"""A local-only browser demo for ExitSpec's Define -> Confirm -> Prove loop.
 
 The server deliberately has no authentication or persistence. Optional Fireworks
 execution is disabled by default, accepts only the frozen synthetic request, and
@@ -32,6 +32,7 @@ from urllib.parse import parse_qsl, unquote, urlparse
 import yaml
 from pydantic import ValidationError
 
+from .canonical import canonical_json_bytes
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import (
     approve_draft,
@@ -90,6 +91,10 @@ from .performance_web_api import (
 from .performance_web_runtime import PerformanceWebRuntime
 from .performance_web_service import (
     build_trusted_performance_web_runtime,
+)
+from .performance_operations import (
+    PerformanceOperation,
+    PerformanceOperationStatus,
 )
 from .poc_contract_definition import ProcessLocalContractDefinitionService
 from .poc_contract_definition_web_api import (
@@ -209,7 +214,9 @@ from .workspace_closure import (
     POCClosureEvidenceUnavailable,
     POCClosureIdempotencyConflict,
     ProcessLocalPOCClosureService,
+    TerminalClosureBinding,
     TerminalEvidenceBinding,
+    TerminalRunReceiptBinding,
 )
 
 
@@ -2637,7 +2644,7 @@ def _agreement_aware_workspace_projection(
 def _closure_aware_workspace_projection(
     projected: POCWorkspaceProjection,
     closure: Optional[HumanPOCClosureRecord],
-    current_binding: Optional[TerminalEvidenceBinding],
+    current_binding: Optional[TerminalClosureBinding],
 ) -> POCWorkspaceProjection:
     """Apply one separately recorded closure without mutating workflow state."""
 
@@ -2652,7 +2659,10 @@ def _closure_aware_workspace_projection(
             "action_since": closure.recorded_at,
         }
     )
-    if current_binding != closure.evidence_binding:
+    recorded_binding = (
+        closure.evidence_binding or closure.terminal_run_binding
+    )
+    if current_binding != recorded_binding:
         blocker = WorkspaceBlocker(
             code="closure_evidence_binding_unverifiable",
             message=(
@@ -2683,10 +2693,16 @@ def _closure_aware_workspace_projection(
                 "next_action_code": WorkspaceAction.NONE,
                 "next_human_action": (
                     "POC closed by {0} after an explicit {1} decision and "
-                    "Evidence Pack handoff. Shipping was not authorized."
+                    "review of the bound terminal {2}. Shipping was not "
+                    "authorized."
                 ).format(
                     closure.decided_by,
                     closure.decision.value,
+                    (
+                        "Evidence Pack"
+                        if closure.evidence_binding is not None
+                        else "run receipt"
+                    ),
                 ),
                 "blockers": (),
                 "attention_required": False,
@@ -2979,8 +2995,8 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
     def _terminal_evidence_binding(
         self,
         poc_id: str,
-    ) -> Optional[TerminalEvidenceBinding]:
-        """Resolve authoritative terminal evidence without trusting a web payload."""
+    ) -> Optional[TerminalClosureBinding]:
+        """Resolve an authoritative terminal binding without trusting the web."""
 
         if poc_id == SYNTHETIC_SUPPORT_AGENT_POC_ID:
             result = self.session.last_run
@@ -3027,9 +3043,44 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             snapshot = self.poc_performance_run_service.snapshot(poc_id)
         except Exception:
             return None
+        if snapshot.operation_id is None:
+            return None
+        if snapshot.status is POCPerformanceRunStatus.BLOCKED:
+            operation = snapshot.terminal_operation
+            if (
+                type(operation) is not PerformanceOperation
+                or operation.status is not PerformanceOperationStatus.BLOCKED
+                or operation.terminal_reason is None
+                or operation.terminal_reason != snapshot.reason_code
+            ):
+                return None
+            terminal_receipt = TerminalRunReceiptBinding(
+                poc_id=poc_id,
+                contract_id=snapshot.contract_id,
+                contract_version=snapshot.contract_version,
+                contract_hash=snapshot.contract_hash,
+                operation_id=snapshot.operation_id,
+                runner_run_id=operation.run_id,
+                runner_input_digest=operation.input_digest,
+                run_status=snapshot.status.value,
+                reason_code=snapshot.reason_code,
+                terminal_at=operation.updated_at,
+                run_receipt_sha256="0" * 64,
+            )
+            receipt_payload = terminal_receipt.model_dump(
+                mode="json",
+                exclude={"run_receipt_sha256"},
+            )
+            receipt_sha256 = hashlib.sha256(
+                b"exitspec-terminal-run-receipt-v1\x00"
+                + canonical_json_bytes(receipt_payload)
+            ).hexdigest()
+            return TerminalRunReceiptBinding(
+                **receipt_payload,
+                run_receipt_sha256=receipt_sha256,
+            )
         if (
             snapshot.status is not POCPerformanceRunStatus.COMPLETED
-            or snapshot.operation_id is None
             or snapshot.verdict is None
             or snapshot.evidence_pack_url is None
         ):
@@ -3237,15 +3288,32 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             header_values=self._source_header_values,
             read_body=self._read_bounded_source_body,
         )
-        response = handle_source_web_request(
-            request,
-            catalog_payload=(
-                self.server.session.guided_source_catalog_payload
-            ),
-            import_fixture=(
-                self.server.session.import_guided_source_fixture
-            ),
-        )
+        def import_if_open(*args: Any, **kwargs: Any) -> Any:
+            return self.server.poc_closure_service.run_if_open(
+                SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                lambda: self.server.session.import_guided_source_fixture(
+                    *args,
+                    **kwargs,
+                ),
+            )
+
+        try:
+            response = handle_source_web_request(
+                request,
+                catalog_payload=(
+                    self.server.session.guided_source_catalog_payload
+                ),
+                import_fixture=import_if_open,
+            )
+        except POCClosureConflict:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "POC lifecycle is closed.",
+                    "code": "POC_LIFECYCLE_CLOSED",
+                },
+            )
+            return True
         if response is None:
             return False
         self._send_json(response.status, response.payload)
@@ -3339,6 +3407,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return False
             self._send_json(response.status, response.payload)
             return True
+        poc_id = _poc_scoped_api_poc_id(parsed.path, "sources")
         if not self._has_json_media_type():
             self._send_json(
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -3374,12 +3443,17 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 {"error": "Source intake request is invalid."},
             )
             return True
-        response = handle_poc_source_web_api_request(
-            method=self.command,
-            target=self.path,
-            payload=payload,
-            runtime=self.server.poc_source_intake,
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_poc_source_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                runtime=self.server.poc_source_intake,
+            ),
         )
+        if not allowed:
+            return True
         if response is None:
             return False
         self._send_json(response.status, response.payload)
@@ -3412,6 +3486,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return False
             self._send_json(response.status, response.payload)
             return True
+        poc_id = _poc_scoped_api_poc_id(parsed.path, "proposals")
         if not self._has_json_media_type():
             self._send_json(
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -3447,12 +3522,17 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 {"error": "Proposal review request is invalid."},
             )
             return True
-        response = handle_poc_proposal_web_api_request(
-            method=self.command,
-            target=self.path,
-            payload=payload,
-            runtime=self.server.proposal_review_service,
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_poc_proposal_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                runtime=self.server.proposal_review_service,
+            ),
         )
+        if not allowed:
+            return True
         if response is None:
             return False
         self._send_json(response.status, response.payload)
@@ -3534,13 +3614,18 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 {"error": "Contract definition request is invalid."},
             )
             return True
-        response = handle_poc_contract_definition_web_api_request(
-            method=self.command,
-            target=self.path,
-            payload=payload,
-            definition_runtime=self.server.contract_definition_service,
-            proposal_runtime=self.server.proposal_review_service,
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_poc_contract_definition_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                definition_runtime=self.server.contract_definition_service,
+                proposal_runtime=self.server.proposal_review_service,
+            ),
         )
+        if not allowed:
+            return True
         if response is None:
             return False
         self._send_json(response.status, response.payload)
@@ -3651,14 +3736,19 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 {"error": "Performance agreement request is invalid."},
             )
             return True
-        response = handle_performance_lifecycle_web_api_request(
-            method=self.command,
-            target=self.path,
-            payload=payload,
-            lifecycle=self.server.performance_lifecycle_service,
-            proposals=self.server.proposal_review_service,
-            definitions=self.server.contract_definition_service,
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_performance_lifecycle_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                lifecycle=self.server.performance_lifecycle_service,
+                proposals=self.server.proposal_review_service,
+                definitions=self.server.contract_definition_service,
+            ),
         )
+        if not allowed:
+            return True
         if response is None:
             return False
         self._send_json(response.status, response.payload)
@@ -3765,12 +3855,22 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 {"error": "Performance run request is invalid."},
             )
             return True
-        response = handle_poc_performance_run_web_api_request(
-            method=self.command,
-            target=self.path,
-            payload=payload,
-            runtime=self.server.poc_performance_run_service,
+        run_poc_id = (
+            poc_id
+            if len(parsed.path.strip("/").split("/")) == 4
+            else None
         )
+        allowed, response = self._run_unclosed_poc_mutation(
+            run_poc_id,
+            lambda: handle_poc_performance_run_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                runtime=self.server.poc_performance_run_service,
+            ),
+        )
+        if not allowed:
+            return True
         if response is None:
             return False
         self._send_json(response.status, response.payload)
@@ -3800,6 +3900,33 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             )
             return False
         return True
+
+    def _run_unclosed_poc_mutation(
+        self,
+        poc_id: Optional[str],
+        mutation: Any,
+    ) -> Tuple[bool, Any]:
+        """Serialize one scoped write against terminal closure."""
+
+        if poc_id is None:
+            return True, mutation()
+        try:
+            return (
+                True,
+                self.server.poc_closure_service.run_if_open(
+                    poc_id,
+                    mutation,
+                ),
+            )
+        except POCClosureConflict:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "POC lifecycle is closed.",
+                    "code": "POC_LIFECYCLE_CLOSED",
+                },
+            )
+            return False, None
 
     def send_error(
         self,
@@ -4112,11 +4239,28 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 )
             except Exception:
                 binding = None
+            evidence_binding = (
+                binding if type(binding) is TerminalEvidenceBinding else None
+            )
+            terminal_run_binding = (
+                binding
+                if type(binding) is TerminalRunReceiptBinding
+                else None
+            )
             self._send_json(
                 HTTPStatus.OK,
                 {
                     "poc_id": closure_poc_id,
                     "closeable": closure is None and binding is not None,
+                    "allowed_decisions": (
+                        []
+                        if closure is not None or binding is None
+                        else (
+                            ["POC_STOPPED"]
+                            if terminal_run_binding is not None
+                            else ["HANDOFF_COMPLETED", "POC_STOPPED"]
+                        )
+                    ),
                     "closure": (
                         None
                         if closure is None
@@ -4124,8 +4268,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     ),
                     "eligible_evidence_binding": (
                         None
-                        if binding is None
-                        else binding.model_dump(mode="json")
+                        if evidence_binding is None
+                        else evidence_binding.model_dump(mode="json")
+                    ),
+                    "eligible_terminal_run_binding": (
+                        None
+                        if terminal_run_binding is None
+                        else terminal_run_binding.model_dump(mode="json")
                     ),
                     "authorization": (
                         "This action closes only the POC lifecycle. No verdict, "
@@ -4242,37 +4391,50 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                         "idempotency_key",
                     },
                 )
-                authorized = (
-                    self.server.session.authorize_wave1_provider_egress(
-                        disclosure_id=_required_exact_string(
-                            payload,
-                            "disclosure_id",
-                        ),
-                        acknowledged=_optional_boolean(
-                            payload,
-                            "acknowledged",
-                        ),
-                        idempotency_key=self._idempotency_key(payload),
-                    )
+                disclosure_id = _required_exact_string(
+                    payload,
+                    "disclosure_id",
+                )
+                acknowledged = _optional_boolean(
+                    payload,
+                    "acknowledged",
+                )
+                idempotency_key = self._idempotency_key(payload)
+                authorized = self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.authorize_wave1_provider_egress(
+                        disclosure_id=disclosure_id,
+                        acknowledged=acknowledged,
+                        idempotency_key=idempotency_key,
+                    ),
                 )
                 self._send_json(HTTPStatus.OK, authorized)
                 return
             if parsed.path == "/api/provider/fireworks/execution":
                 _require_only_fields(payload, set())
-                executed = self.server.session.execute_wave1_provider_assist(
-                    configuration=self.server.wave1_provider_execution,
-                    idempotency_key=(
-                        self._provider_execution_idempotency_key()
+                execution_key = self._provider_execution_idempotency_key()
+                executed = self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.execute_wave1_provider_assist(
+                        configuration=self.server.wave1_provider_execution,
+                        idempotency_key=execution_key,
                     ),
                 )
                 self._send_json(HTTPStatus.OK, executed)
                 return
             if parsed.path == "/api/review":
-                reviewed = self.server.session.review(
-                    draft_id=_required_string(payload, "draft_id"),
-                    decision=_required_string(payload, "decision"),
-                    reviewer=_required_string(payload, "reviewer"),
-                    rationale=_required_string(payload, "rationale"),
+                draft_id = _required_string(payload, "draft_id")
+                decision = _required_string(payload, "decision")
+                reviewer = _required_string(payload, "reviewer")
+                rationale = _required_string(payload, "rationale")
+                reviewed = self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.review(
+                        draft_id=draft_id,
+                        decision=decision,
+                        reviewer=reviewer,
+                        rationale=rationale,
+                    ),
                 )
                 self._send_json(
                     HTTPStatus.OK,
@@ -4283,7 +4445,11 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/prove":
-                self.server.session.prove(_required_string(payload, "scenario"))
+                scenario = _required_string(payload, "scenario")
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.prove(scenario),
+                )
                 self._send_json(HTTPStatus.OK, self.server.session.state_payload())
                 return
             customer_review_token = _customer_review_decision_token(parsed.path)
@@ -4329,16 +4495,23 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                         "Customer confirmed that this exact contract version "
                         "matches the intended POC agreement."
                     )
-                confirmation, replayed = self.server.session.record_customer_decision(
-                    customer_review_token,
-                    decision=decision,
-                    confirmer=(
-                        _optional_string(payload, "confirmer")
-                        or "Customer approver · local synthetic demo"
-                    ),
-                    agreement_acknowledged=agreement_acknowledged,
-                    rationale=rationale,
-                    idempotency_key=self._idempotency_key(payload),
+                confirmer = (
+                    _optional_string(payload, "confirmer")
+                    or "Customer approver · local synthetic demo"
+                )
+                decision_key = self._idempotency_key(payload)
+                confirmation, replayed = (
+                    self.server.poc_closure_service.run_if_open(
+                        SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                        lambda: self.server.session.record_customer_decision(
+                            customer_review_token,
+                            decision=decision,
+                            confirmer=confirmer,
+                            agreement_acknowledged=agreement_acknowledged,
+                            rationale=rationale,
+                            idempotency_key=decision_key,
+                        ),
+                    )
                 )
                 self._send_json(
                     HTTPStatus.OK,
@@ -4357,11 +4530,17 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/freeze":
-                self.server.session.freeze()
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    self.server.session.freeze,
+                )
                 self._send_json(HTTPStatus.OK, self.server.session.state_payload())
                 return
             if parsed.path == "/api/revision/start":
-                self.server.session.start_revision()
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    self.server.session.start_revision,
+                )
                 self._send_json(HTTPStatus.OK, self.server.session.state_payload())
                 return
             if parsed.path == "/api/draft/define":
@@ -4370,20 +4549,28 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                         "normalized_claim is generated from the structured rule "
                         "fields and cannot be supplied."
                     )
-                defined = self.server.session.define_draft_rule(
-                    draft_id=_required_string(payload, "draft_id"),
-                    title=_required_string(payload, "title"),
-                    threshold_percent=_required_number(
-                        payload,
-                        "threshold_percent",
-                    ),
-                    minimum_samples=_required_integer(
-                        payload,
-                        "minimum_samples",
-                    ),
-                    workload_slice=_required_string(
-                        payload,
-                        "workload_slice",
+                draft_id = _required_string(payload, "draft_id")
+                title = _required_string(payload, "title")
+                threshold_percent = _required_number(
+                    payload,
+                    "threshold_percent",
+                )
+                minimum_samples = _required_integer(
+                    payload,
+                    "minimum_samples",
+                )
+                workload_slice = _required_string(
+                    payload,
+                    "workload_slice",
+                )
+                defined = self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.define_draft_rule(
+                        draft_id=draft_id,
+                        title=title,
+                        threshold_percent=threshold_percent,
+                        minimum_samples=minimum_samples,
+                        workload_slice=workload_slice,
                     ),
                 )
                 self._send_json(
@@ -4400,20 +4587,28 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                         "normalized_claim is generated from the structured rule "
                         "fields and cannot be supplied."
                     )
-                revised = self.server.session.edit_revision(
-                    draft_id=_required_string(payload, "draft_id"),
-                    title=_required_string(payload, "title"),
-                    threshold_percent=_required_number(
-                        payload,
-                        "threshold_percent",
-                    ),
-                    minimum_samples=_required_integer(
-                        payload,
-                        "minimum_samples",
-                    ),
-                    workload_slice=_required_string(
-                        payload,
-                        "workload_slice",
+                draft_id = _required_string(payload, "draft_id")
+                title = _required_string(payload, "title")
+                threshold_percent = _required_number(
+                    payload,
+                    "threshold_percent",
+                )
+                minimum_samples = _required_integer(
+                    payload,
+                    "minimum_samples",
+                )
+                workload_slice = _required_string(
+                    payload,
+                    "workload_slice",
+                )
+                revised = self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.edit_revision(
+                        draft_id=draft_id,
+                        title=title,
+                        threshold_percent=threshold_percent,
+                        minimum_samples=minimum_samples,
+                        workload_slice=workload_slice,
                     ),
                 )
                 self._send_json(
@@ -4425,19 +4620,36 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/customer-draft":
-                self.server.session.create_customer_draft()
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    self.server.session.create_customer_draft,
+                )
                 self._send_json(HTTPStatus.OK, self.server.session.state_payload())
                 return
             if parsed.path == "/api/reset":
-                self.server.session.reset_to_synthetic_sample()
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    self.server.session.reset_to_synthetic_sample,
+                )
                 self._send_json(HTTPStatus.OK, self.server.session.state_payload())
                 return
             if parsed.path == "/api/intake":
-                self.server.session.intake(
-                    pasted_text=_required_string(payload, "transcript"),
-                    title=_optional_string(payload, "title")
-                    or "Pasted discovery transcript",
-                    customer_terms=_optional_string_list(payload, "customer_terms"),
+                transcript = _required_string(payload, "transcript")
+                title = (
+                    _optional_string(payload, "title")
+                    or "Pasted discovery transcript"
+                )
+                customer_terms = _optional_string_list(
+                    payload,
+                    "customer_terms",
+                )
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.intake(
+                        pasted_text=transcript,
+                        title=title,
+                        customer_terms=customer_terms,
+                    ),
                 )
                 self._send_json(
                     HTTPStatus.OK,
@@ -4452,11 +4664,22 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/assisted-intake":
-                self.server.session.assisted_intake(
-                    pasted_text=_required_string(payload, "transcript"),
-                    title=_optional_string(payload, "title")
-                    or "Assisted discovery transcript",
-                    customer_terms=_optional_string_list(payload, "customer_terms"),
+                transcript = _required_string(payload, "transcript")
+                title = (
+                    _optional_string(payload, "title")
+                    or "Assisted discovery transcript"
+                )
+                customer_terms = _optional_string_list(
+                    payload,
+                    "customer_terms",
+                )
+                self.server.poc_closure_service.run_if_open(
+                    SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    lambda: self.server.session.assisted_intake(
+                        pasted_text=transcript,
+                        title=title,
+                        customer_terms=customer_terms,
+                    ),
                 )
                 self._send_json(
                     HTTPStatus.OK,
@@ -4471,6 +4694,14 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Unknown API route."})
+        except POCClosureConflict:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": "POC lifecycle is closed.",
+                    "code": "POC_LIFECYCLE_CLOSED",
+                },
+            )
         except DemoStateError as error:
             payload = {"error": str(error)}
             error_code = getattr(error, "code", None)
@@ -4609,6 +4840,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     "decided_by",
                     "rationale",
                     "evidence_binding",
+                    "terminal_run_binding",
                     "idempotency_key",
                 },
             )
@@ -5156,6 +5388,35 @@ def _workspace_closure_api_poc_id(request_path: str) -> Optional[str]:
     ):
         return None
     poc_id = unquote(parts[3])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _poc_scoped_api_poc_id(
+    request_path: str,
+    collection: str,
+) -> Optional[str]:
+    """Return a POC identity for one scoped API collection namespace."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) < 4
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] != collection
+    ):
+        return None
+    if collection == "sources" and (
+        len(parts) != 5
+        or parts[4]
+        not in {"email", "email-text", "meeting", "document", "contract"}
+    ):
+        return None
+    if collection == "proposals" and (
+        len(parts) != 6 or parts[5] != "decision"
+    ):
+        return None
+    poc_id = unquote(parts[2])
     if not poc_id or "/" in poc_id or "\\" in poc_id:
         return None
     return poc_id

@@ -110,9 +110,10 @@ are source choices for the same POC object; they are not separate products.
   artifact links in the first viewport. Seven deeper audit sections stay
   collapsed until requested.
 - A terminal Evidence Pack enables one explicit human decision: complete the
-  handoff or stop the POC. The decision is bound to the exact contract, run,
-  verdict, Evidence Pack URL, and digest. It closes only the POC lifecycle;
-  shipping remains a separate authorization.
+  handoff or stop the POC. A `BLOCKED` run without an Evidence Pack can only be
+  stopped, and that decision binds to the durable terminal run receipt.
+  Closure makes every scoped lifecycle mutation fail with `409`; shipping
+  remains a separate authorization.
 
 For the primary reference set:
 

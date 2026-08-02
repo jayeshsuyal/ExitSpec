@@ -149,6 +149,73 @@ def test_source_to_human_decision_is_one_real_process_local_round_trip(tmp_path)
         assert forbidden not in serialized
 
 
+def test_refresh_restores_review_counts_and_define_action_after_exhaustion(
+    tmp_path,
+):
+    with _running_server(tmp_path) as server:
+        poc_id = _create_draft(server)
+        _capture_source(server, poc_id)
+        root = f"/api/pocs/{poc_id}/proposals"
+        initial = _request(
+            server,
+            "GET",
+            root,
+            content_type=None,
+            origin=None,
+        )
+        assert initial[0] == 200
+        proposals = initial[1]["proposals"]
+        assert len(proposals) == 2
+
+        for index, (proposal, decision) in enumerate(
+            zip(
+                proposals,
+                ("KEEP_FOR_CONTRACT", "DISCARD"),
+                strict=True,
+            )
+        ):
+            decided = _request(
+                server,
+                "POST",
+                f"{root}/{proposal['proposal_id']}/decision",
+                payload={
+                    "decision": decision,
+                    "reviewer": "Jayesh",
+                    "rationale": "Record this bounded triage decision.",
+                    "idempotency_key": f"review-before-refresh-{index}",
+                },
+            )
+            assert decided[0] == 201
+
+        refreshed = _request(
+            server,
+            "GET",
+            root,
+            content_type=None,
+            origin=None,
+        )
+        javascript = _request(
+            server,
+            "GET",
+            "/proposal_review.js",
+            content_type=None,
+            origin=None,
+        )
+
+    assert refreshed[0] == 200
+    assert refreshed[1]["proposals"] == []
+    assert refreshed[1]["review_summary"] == {
+        "total": 2,
+        "needs_review": 0,
+        "kept_for_contract": 1,
+        "discarded": 1,
+    }
+    assert javascript[0] == 200
+    assert "review_summary.kept_for_contract" in javascript[1]
+    assert "review_summary.discarded" in javascript[1]
+    assert "if (pocId && keptCount > 0)" in javascript[1]
+
+
 def test_archived_poc_refuses_proposal_reads_and_decisions(tmp_path):
     with _running_server(tmp_path) as server:
         poc_id = _create_draft(server)

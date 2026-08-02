@@ -89,6 +89,12 @@ def test_get_returns_only_current_redacted_needs_review_proposals():
 
     assert response.status == HTTPStatus.OK
     assert response.payload["poc_id"] == POC_ID
+    assert response.payload["review_summary"] == {
+        "total": 2,
+        "needs_review": 2,
+        "kept_for_contract": 0,
+        "discarded": 0,
+    }
     assert len(response.payload["proposals"]) == 2
     for proposal in response.payload["proposals"]:
         assert set(proposal) == {
@@ -148,6 +154,12 @@ def test_keep_decision_is_triage_only_and_leaves_one_pending_proposal():
         "disposition": "IDEMPOTENT_REPLAY",
     }
     assert len(remaining.payload["proposals"]) == 1
+    assert remaining.payload["review_summary"] == {
+        "total": 2,
+        "needs_review": 1,
+        "kept_for_contract": 1,
+        "discarded": 0,
+    }
     serialized = repr((created.payload, replay.payload)).lower()
     for forbidden in (
         "approved",

@@ -112,6 +112,13 @@ GET  /api/workspace/pocs/{poc_id}/closure
 POST /api/workspace/pocs/{poc_id}/closure
 ```
 
+Closure accepts exactly one authoritative terminal binding. Completed handoff
+requires the verified Evidence Pack binding. A durable `BLOCKED` run exposes a
+separate terminal-run binding and permits only `POC_STOPPED`; it never invents
+an Evidence Pack or verdict. Once either human closure decision is recorded,
+all POC-scoped lifecycle writes return `409 POC_LIFECYCLE_CLOSED` while reads
+and exact closure replay remain available.
+
 `POST /api/pocs` accepts only the required draft identity, one supported
 starting-source choice, and an idempotency key. It returns a draft POC identity
 and next intake route. It does not import content.
@@ -164,6 +171,10 @@ NOT_PROVEN
 `COMPLETED` does not imply `PASS`. A customer Evidence Pack URL appears only
 after persisted artifacts survive independent reload, integrity validation,
 and deterministic verdict recomputation.
+
+`BLOCKED` may be intentionally closed as `POC_STOPPED` against the exact
+durable runner receipt. It cannot be recorded as `HANDOFF_COMPLETED` because
+no Evidence Pack exists to hand off.
 
 The first dynamic evaluator is one bounded inference-performance criterion:
 client-observed p95 time to first token plus its mandatory error-rate

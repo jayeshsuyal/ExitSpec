@@ -291,6 +291,10 @@ def test_failed_preflight_is_blocked_without_fake_metrics_or_evidence(tmp_path):
     assert operation.p95_ttft_ms is None
     assert operation.error_rate_percent is None
     assert operation.evidence_pack_url is None
+    assert operation.terminal_operation is not None
+    assert operation.terminal_operation.status is PerformanceOperationStatus.BLOCKED
+    assert operation.terminal_operation.terminal_reason == operation.reason_code
+    assert len(operation.terminal_operation.input_digest) == 64
 
 
 def test_independent_artifact_verifier_failure_releases_no_result(tmp_path):
@@ -316,6 +320,7 @@ def test_independent_artifact_verifier_failure_releases_no_result(tmp_path):
     assert operation.p95_ttft_ms is None
     assert operation.error_rate_percent is None
     assert operation.evidence_pack_url is None
+    assert operation.terminal_operation is None
 
 
 def test_fireworks_credential_is_bound_only_to_the_exact_allowed_endpoint(
@@ -351,6 +356,8 @@ def test_fireworks_credential_is_bound_only_to_the_exact_allowed_endpoint(
     )
 
     assert result.operation.status is POCPerformanceRunStatus.BLOCKED
+    assert result.operation.terminal_operation is not None
+    assert result.operation.terminal_operation.input_digest == "b" * 64
     assert captured["api_key"] == "server-owned-fireworks-key"
     assert captured["credential_endpoint"] == endpoint
     assert captured["authorized_request_count"] == 111
