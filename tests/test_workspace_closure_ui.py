@@ -25,7 +25,8 @@ def test_terminal_decision_ui_is_available_on_every_proof_surface():
         html = _read(name)
         for dom_id in required_ids:
             assert f'id="{dom_id}"' in html, (name, dom_id)
-        assert "Step 5 of 5 · Decide" in html
+        assert "Step 3 of 3 · Prove" in html
+        assert "Step 5 of 5 · Decide" not in html
         assert "Evidence is not authorization." in html
         assert "never authorizes shipping or deployment" in html
         assert 'href="/closure.css"' in html
@@ -38,7 +39,8 @@ def test_terminal_decision_ui_is_available_on_every_proof_surface():
     assert 'created.id = "closure-panel"' in compatibility_javascript
     for dom_id in required_ids[1:]:
         assert f'id="{dom_id}"' in compatibility_javascript
-    assert "Step 5 of 5 · Decide" in compatibility_javascript
+    assert "Step 3 of 3 · Prove" in compatibility_javascript
+    assert "Step 5 of 5 · Decide" not in compatibility_javascript
     assert "Evidence is not authorization." in compatibility_javascript
 
 
@@ -65,7 +67,7 @@ def test_closure_browser_echoes_only_the_exact_evidence_binding():
     assert "shipping remains a separate human decision" in javascript.lower()
 
 
-def test_dashboard_routes_terminal_and_completed_pocs_to_decide():
+def test_dashboard_routes_terminal_and_completed_pocs_to_handoff():
     javascript = _read("dashboard.js")
 
     assert '"RECORD_DECISION_HANDOFF"' in javascript

@@ -4,7 +4,8 @@ import re
 
 
 STATIC_ROOT = Path(__file__).parents[1] / "src" / "exitspec" / "static"
-JOURNEY = ("Capture", "Review", "Agree", "Prove", "Decide")
+JOURNEY = ("Define", "Confirm", "Prove")
+RETIRED_PROGRESS_LABELS = ("Capture", "Review", "Agree", "Decide")
 
 
 class _IdAudit(HTMLParser):
@@ -47,7 +48,7 @@ def test_primary_employee_surfaces_share_one_product_identity():
 
     customer_review = _read("review.html")
     assert ">E</span>" in customer_review
-    assert "Customer agreement" in customer_review
+    assert "Review the POC agreement" in customer_review
 
 
 def test_primary_workbenches_share_one_application_hierarchy():
@@ -68,7 +69,7 @@ def test_primary_workbenches_share_one_application_hierarchy():
     assert 'class="object-header support-object-header"' in support
 
 
-def test_product_exposes_one_canonical_five_step_journey():
+def test_product_exposes_one_canonical_three_step_journey():
     for name in (
         "dashboard.html",
         "new_poc.html",
@@ -79,12 +80,29 @@ def test_product_exposes_one_canonical_five_step_journey():
         html = _read(name)
         for label in JOURNEY:
             assert label in html, (name, label)
+        for label in RETIRED_PROGRESS_LABELS:
+            assert f"<strong>{label}</strong>" not in html, (name, label)
+        assert "Capture → Review → Agree → Prove → Decide" not in html, name
 
-    assert "Step 1 of 5 · Capture" in _read("source_intake.html")
-    assert "Step 2 of 5 · Review" in _read("proposal_review.html")
-    assert "Step 2 of 5 · Review" in _read("contract_definition.html")
-    assert "Step 3 of 5 · Agree" in _read("agreement.html")
-    assert "Step 3 of 5 · Customer agreement" in _read("review.html")
+    for name in (
+        "new_poc.html",
+        "source_intake.html",
+        "proposal_review.html",
+        "contract_definition.html",
+    ):
+        html = _read(name)
+        assert "Step 1 of 3 · Define" in html, name
+        assert " of 5 · " not in html, name
+
+    for name in ("agreement.html", "review.html"):
+        html = _read(name)
+        assert "Step 2 of 3 · Confirm" in html, name
+        assert " of 5 · " not in html, name
+
+    for name in ("performance.html", "proof.html"):
+        html = _read(name)
+        assert "Step 3 of 3 · Prove" in html, name
+        assert "Step 5 of 5 · Decide" not in html, name
 
 
 def test_static_pages_have_no_duplicate_dom_ids():

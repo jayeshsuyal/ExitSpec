@@ -946,7 +946,7 @@
     if (!hasReviewLink) {
       return {
         stage: "define",
-        eyebrow: "Define · Draft ready",
+        eyebrow: "Confirm · Brief ready",
         title: "Ready to create the customer review?",
         copy: "Send only the approved rule for customer confirmation.",
         nextTitle: "Create customer review",
@@ -968,7 +968,7 @@
     if (decision !== "CONFIRM") {
       return {
         stage: "define",
-        eyebrow: "Define · Awaiting customer",
+        eyebrow: "Confirm · Awaiting customer",
         title: "Ready for the customer’s decision?",
         copy: "Open the draft to confirm it or request changes.",
         nextTitle: "Open customer review",
@@ -979,7 +979,7 @@
     if (state?.ready_to_freeze) {
       return {
         stage: "define",
-        eyebrow: "Define · Customer confirmed",
+        eyebrow: "Confirm · Customer confirmed",
         title: "Freeze the customer-confirmed version?",
         copy: "Lock the agreement used by every evidence run.",
         nextTitle: "Freeze confirmed contract",
@@ -1005,7 +1005,7 @@
       const isPass = verdict === "PASS";
       return {
         stage: "decide",
-        eyebrow: "Decide · Evidence recorded",
+        eyebrow: "Prove · Evidence recorded",
         title: isPass
           ? "The agreement was proved. What does the evidence say?"
           : `${verdict.replace("_", " ")} — what should happen next?`,
@@ -1113,24 +1113,28 @@
 
   function workflowStep(model) {
     if (model.stage === "prove" || model.stage === "decide") {
-      return model.stage;
+      return "prove";
     }
     if (emailIntakeMode && !guidedSourceIntake()) {
-      return "capture";
+      return "define";
     }
     const currentDrafts = drafts();
     const needsReview = currentDrafts.some(
       (draft) => draft.status === "NEEDS_REVIEW"
     );
     const hasApprovedRule = approvedDrafts().length > 0;
-    if (needsReview || !hasApprovedRule) {
-      return "review";
+    if (
+      needsReview ||
+      !hasApprovedRule ||
+      state?.confirmation?.decision === "REQUEST_CHANGES"
+    ) {
+      return "define";
     }
-    return "define";
+    return "confirm";
   }
 
   function renderWorkflow(model) {
-    const journeyOrder = ["capture", "review", "define", "prove", "decide"];
+    const journeyOrder = ["define", "confirm", "prove"];
     const currentStep = workflowStep(model);
     const currentIndex = journeyOrder.indexOf(currentStep);
 

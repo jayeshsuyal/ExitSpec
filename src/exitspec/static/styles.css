@@ -280,7 +280,7 @@ h4 {
 
 .journey-steps {
   display: grid;
-  grid-template-columns: repeat(5, minmax(76px, 1fr));
+  grid-template-columns: repeat(3, minmax(76px, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2014,7 +2014,7 @@ body.recording-mode .header-meta {
   }
 
   .journey-steps {
-    grid-template-columns: repeat(5, minmax(60px, 1fr));
+    grid-template-columns: repeat(3, minmax(60px, 1fr));
   }
 
   .journey-step {
@@ -2075,7 +2075,7 @@ body.recording-mode .header-meta {
   }
 
   .journey-steps {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .journey-step {

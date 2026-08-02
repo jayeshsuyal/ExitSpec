@@ -441,15 +441,12 @@
     );
   }
 
-  function setJourney(decide) {
-    document.querySelector("#journey-prove").dataset.state = decide
+  function setJourney(hasEvidence) {
+    document.querySelector("#journey-prove").dataset.state = hasEvidence
       ? "complete"
       : "current";
-    document.querySelector("#journey-decide").dataset.state = decide
-      ? "current"
-      : "locked";
-    document.querySelector("#performance-phase").textContent = decide
-      ? "DECIDE"
+    document.querySelector("#performance-phase").textContent = hasEvidence
+      ? "EVIDENCE"
       : "PROVE";
   }
 
@@ -533,8 +530,8 @@
       return;
     }
     if (run.status === "COMPLETED") {
-      heading.textContent = "Review the verified decision";
-      kicker.textContent = "Current task · Decide";
+      heading.textContent = "Review the verified Evidence Pack";
+      kicker.textContent = "Current task · Evidence";
       guidance.textContent =
         `${run.verdict.replaceAll("_", " ")} is the evidence verdict, not automatic authorization to ship.`;
       runReason.textContent =

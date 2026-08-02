@@ -119,12 +119,15 @@ def test_agreement_and_evidence_are_distinct_non_invented_boundaries():
     assert ".continue-boundaries dd[data-state=\"BLOCKED\"]" in css
 
 
-def test_dashboard_exposes_one_five_step_human_journey():
+def test_dashboard_exposes_one_three_step_human_journey():
     _, _, javascript = _sources()
 
-    for label in ("Capture", "Review", "Agree", "Prove", "Decide"):
+    for label in ("Define", "Confirm", "Prove"):
         assert f'label: "{label}"' in javascript
-    assert "`Step ${step.number} of 5 · ${step.label}`" in javascript
+    for label in ("Capture", "Review", "Agree", "Decide"):
+        assert f'label: "{label}"' not in javascript
+    assert "`Step ${step.number} of 3 · ${step.label}`" in javascript
+    assert "`Step ${step.number} of 5 · ${step.label}`" not in javascript
     assert "`Step ${step.number} · ${step.label}`" in javascript
     assert '"Run the frozen proof."' in javascript
     assert '"Run frozen proof"' in javascript

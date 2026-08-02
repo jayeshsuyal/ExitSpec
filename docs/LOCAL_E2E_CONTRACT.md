@@ -195,7 +195,7 @@ At 1280×720, `/app` is one fixed professional application shell:
 - one authoritative **Continue working** card;
 - one finite POC work queue;
 - direct POC navigation with no duplicate selection preview;
-- one visible `Capture -> Review -> Confirm -> Prove -> Decide` position;
+- one visible `Define -> Confirm -> Prove` position;
 - agreement state distinct from evidence state;
 - one exact next action;
 - one consistently placed primary action; and

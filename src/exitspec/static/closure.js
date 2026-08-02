@@ -18,7 +18,7 @@
     created.innerHTML = `
       <header class="closure-heading">
         <div>
-          <p class="eyebrow">Step 5 of 5 · Decide</p>
+          <p class="eyebrow">Step 3 of 3 · Prove</p>
           <h2 id="closure-heading">Complete the POC handoff</h2>
         </div>
         <p>Record the human outcome against this exact Evidence Pack.</p>
