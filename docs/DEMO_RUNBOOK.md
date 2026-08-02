@@ -19,7 +19,7 @@ authorization.
 
 | Time | Show and do | What to say |
 | --- | --- | --- |
-| 0:00–0:20 | On **POCs**, point to **Continue working**, the five-step journey, and **Guided demo**. Choose **Guided demo**. | “A solutions engineer sees every POC and its next required decision—not a wall of project data.” |
+| 0:00–0:20 | On **POCs**, point to **Continue working**, the three-step journey, and **Guided demo**. Choose **Guided demo**. | “A solutions engineer sees every POC and its next required decision—not a wall of project data.” |
 | 0:20–0:45 | Review requirement 1 with **Matches intent**. Keep requirement 2 as context. | “Customer language becomes a proposed measurable rule, but a human decides what belongs in the agreement.” |
 | 0:45–1:05 | Choose **Create customer review**, then **Open customer review**. | “ExitSpec creates a customer-readable draft immediately. This draft is an agreement, not evidence.” |
 | 1:05–1:25 | Check the exact-draft confirmation and choose **Confirm requirements**. Return to the owner view. | “Confirmation is bound to the visible version. It does not run a test or create a PASS.” |

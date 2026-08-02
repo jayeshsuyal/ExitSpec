@@ -26,8 +26,8 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
 
     for phrase in (
         "Define",
+        "Confirm",
         "Prove",
-        "Decide",
         "Does this rule match the customer’s intent?",
         "Customer asked",
         "Proposed acceptance rule",
@@ -93,6 +93,9 @@ def test_static_demo_assets_exist_and_describe_the_proof_boundary():
     assert 'data-stage="define"' in html
     assert 'data-stage="prove"' in html
     assert 'data-stage="decide"' in html
+    for label in ("Capture", "Review", "Agree", "Decide"):
+        assert f"<strong>{label}</strong>" not in html
+    assert "Capture → Review → Agree → Prove → Decide" not in html
     assert "class=\"hero\"" not in html
     assert "Which dataset should test this agreement?" in javascript
     assert "Choose the evidence outcome" not in html
@@ -360,9 +363,16 @@ def test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette():
     assert "Requirement ${reviewed + 1}" in javascript
     assert 'class="candidate decision-card"' in javascript
     assert "Customer review draft" in javascript
-    assert 'const journeyOrder = ["capture", "review", "define", "prove", "decide"]' in javascript
-    for label in ("Capture", "Review", "Agree", "Prove", "Decide"):
+    assert 'const journeyOrder = ["define", "confirm", "prove"]' in javascript
+    assert html.count("data-journey-step=") == 3
+    for stage in ("define", "confirm", "prove"):
+        assert f'data-journey-step="{stage}"' in html
+    for stage in ("capture", "review", "agree", "decide"):
+        assert f'data-journey-step="{stage}"' not in html
+    for label in ("Define", "Confirm", "Prove"):
         assert f"<strong>{label}</strong>" in html
+    for label in ("Capture", "Review", "Agree", "Decide"):
+        assert f"<strong>{label}</strong>" not in html
     assert '"criterion" : "criteria"' in javascript
     assert '"note" : "notes"' in javascript
     assert "--canvas: #0e141b" in styles

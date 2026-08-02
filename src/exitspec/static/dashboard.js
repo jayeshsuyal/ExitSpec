@@ -98,34 +98,27 @@
 
   function journeyStep(poc) {
     const action = poc?.next_action_code;
-    if (action === "ADD_SOURCE") {
-      return { number: 1, label: "Capture" };
-    }
     if (
       [
+        "ADD_SOURCE",
         "REVIEW_PROPOSALS",
         "DEFINE_CRITERIA",
         "START_REVISION",
       ].includes(action)
     ) {
-      return { number: 2, label: "Review" };
+      return { number: 1, label: "Define" };
     }
     if (CONFIRM_ACTIONS.has(action)) {
-      return { number: 3, label: "Agree" };
-    }
-    if (PROVE_ACTIONS.has(action)) {
-      return { number: 4, label: "Prove" };
+      return { number: 2, label: "Confirm" };
     }
     if (
+      PROVE_ACTIONS.has(action) ||
       ["REVIEW_EVIDENCE", "RECORD_DECISION_HANDOFF", "NONE"].includes(action) ||
-      poc?.derived_phase === "DECIDE"
+      ["PROVE", "DECIDE"].includes(poc?.derived_phase)
     ) {
-      return { number: 5, label: "Decide" };
+      return { number: 3, label: "Prove" };
     }
-    return {
-      number: poc?.derived_phase === "PROVE" ? 4 : 2,
-      label: poc?.derived_phase === "PROVE" ? "Prove" : "Review",
-    };
+    return { number: 1, label: "Define" };
   }
 
   function actionPresentation(poc) {
@@ -257,7 +250,7 @@
       element(
         "p",
         "journey-position",
-        `Step ${step.number} of 5 · ${step.label}`
+        `Step ${step.number} of 3 · ${step.label}`
       ),
       element("h3", "", poc.display_name),
       element(

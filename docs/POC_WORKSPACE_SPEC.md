@@ -320,11 +320,14 @@ Source -> Agreement -> Customer -> Freeze -> Evidence -> Handoff
 The user-facing journey language is:
 
 ```text
-Capture -> Review -> Agree -> Prove -> Decide
+Define -> Confirm -> Prove
 ```
 
-`Define`, `Prove`, and `Decide` remain the smaller internal projection phases;
-they are not shown as a competing second journey.
+`Define` contains source capture, proposal review, and measurable-rule
+definition. `Confirm` contains agreement preparation, customer decision, and
+freeze. `Prove` contains execution, verdict, Evidence Pack, and handoff.
+Existing domain actions and the internal `Define`/`Prove`/`Decide` projection
+remain unchanged; they are not shown as a competing journey.
 
 Every normal state emphasizes:
 

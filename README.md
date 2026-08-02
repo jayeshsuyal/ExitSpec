@@ -18,8 +18,8 @@ evidence.
 
 ## What the current product does
 
-The local browser product implements one guided **Capture → Review → Agree →
-Prove → Decide** journey. It includes a deterministic support-agent POC and a
+The local browser product implements one guided **Define → Confirm → Prove**
+journey. It includes a deterministic support-agent POC and a
 bounded synthetic inference-performance POC:
 
 ```text
@@ -36,7 +36,7 @@ employee-selected synthetic sample email
     -> Completed POC
 ```
 
-### Capture and review
+### Define
 
 - `/app?intake=email` offers exactly two manifest-approved synthetic samples:
   **Support-agent requirements** and **Untrusted-instructions test**.
@@ -84,7 +84,7 @@ routes the employee through source capture, proposal review, criterion
 definition, customer agreement, proof, and evidence. Email and meeting notes
 are source choices for the same POC object; they are not separate products.
 
-### Agree
+### Confirm
 
 - One canonical customer-visible projection is both rendered and fingerprinted.
   It includes the contract identity, customer, use case, target system, workload,
@@ -97,7 +97,7 @@ are source choices for the same POC object; they are not separate products.
 - Local reviewer identity, links, decisions, and idempotency records are
   synthetic, unauthenticated, in-memory, and non-durable.
 
-### Prove and decide
+### Prove
 
 - The employee workbench polls only while a customer decision is pending, then
   advances to the exact terminal state.
