@@ -453,6 +453,19 @@ git diff --check
 and proves the bundled deterministic demo. The remaining Python suite and
 browser syntax checks mirror the current CI split.
 
+The full dynamic browser loop has a separate optional gate so the baseline
+install remains dependency-light:
+
+```bash
+python3 -m pip install -e '.[dev,browser]'
+python3 -m playwright install chromium
+EXITSPEC_BROWSER_E2E=1 python3 -m pytest tests/test_browser_new_id_flow.py
+```
+
+Without `EXITSPEC_BROWSER_E2E=1`, that test is skipped intentionally. CI runs it
+once on Python 3.12 in a dedicated Chromium job; the normal Python 3.12 and 3.13
+engineering-gate matrix remains authoritative for the dependency-light product.
+
 These commands are the floor, not the entire gate. A PR also runs focused tests
 for the behavior and failure classes it changes. Browser behavior requires
 browser inspection; external integrations require transport-boundary tests; data
