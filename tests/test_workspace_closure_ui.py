@@ -59,8 +59,24 @@ def test_closure_browser_echoes_only_the_exact_evidence_binding():
     ):
         assert f'"{field}"' in javascript
 
+    for field in (
+        "operation_id",
+        "runner_run_id",
+        "runner_input_digest",
+        "run_status",
+        "reason_code",
+        "terminal_at",
+        "run_receipt_sha256",
+    ):
+        assert f'"{field}"' in javascript
+
     assert "/api/workspace/pocs/${encodeURIComponent(pocId)}/closure" in javascript
     assert "evidence_binding: eligibleEvidenceBinding" in javascript
+    assert "terminal_run_binding: eligibleTerminalRunBinding" in javascript
+    assert "eligible_terminal_run_binding" in javascript
+    assert 'decisionInput.value = "POC_STOPPED"' in javascript
+    assert "handoffOption.disabled = !evidenceAvailable" in javascript
+    assert "This terminal run has no Evidence Pack" in javascript
     assert "idempotency_key: idempotencyKey" in javascript
     assert "sessionStorage" not in javascript
     assert "localStorage" not in javascript

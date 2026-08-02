@@ -132,6 +132,11 @@ def test_trusted_queue_is_exact_bounded_source_anchored_and_unique():
     proposal_validator = _function(
         javascript,
         "isTrustedProposal",
+        "isTrustedReviewSummary",
+    )
+    summary_validator = _function(
+        javascript,
+        "isTrustedReviewSummary",
         "isTrustedProposalList",
     )
     queue_validator = _function(
@@ -155,7 +160,25 @@ def test_trusted_queue_is_exact_bounded_source_anchored_and_unique():
     assert "isSafeBoundedText(proposal.source_quote, 4000)" in proposal_validator
     assert "isSafeBoundedText(proposal.normalized_claim, 2000)" in proposal_validator
     assert 'proposal.review_state === "NEEDS_REVIEW"' in proposal_validator
-    assert 'hasExactKeys(payload, ["poc_id", "proposals"])' in queue_validator
+    for summary_key in (
+        "discarded",
+        "kept_for_contract",
+        "needs_review",
+        "total",
+    ):
+        assert f'"{summary_key}"' in summary_validator
+    assert "Number.isInteger(count)" in summary_validator
+    assert "count >= 0 && count <= 1024" in summary_validator
+    assert "summary.total ===" in summary_validator
+    assert (
+        'hasExactKeys(payload, ["poc_id", "proposals", "review_summary"])'
+        in queue_validator
+    )
+    assert "isTrustedReviewSummary(payload.review_summary)" in queue_validator
+    assert (
+        "payload.review_summary.needs_review !== payload.proposals.length"
+        in queue_validator
+    )
     assert "payload.proposals.length > 1024" in queue_validator
     assert "new Set(proposalIds).size === proposalIds.length" in queue_validator
 
@@ -176,6 +199,15 @@ def test_draft_and_proposals_load_read_only_before_review_unlocks():
     assert "isTrustedDraft(draft)" in initialise
     assert "isTrustedProposalList(proposalList)" in initialise
     assert "proposals = proposalList.proposals.slice();" in apply_loaded
+    assert "initialCount = proposalList.review_summary.total;" in apply_loaded
+    assert (
+        "keptCount = proposalList.review_summary.kept_for_contract;"
+        in apply_loaded
+    )
+    assert (
+        "discardedCount = proposalList.review_summary.discarded;"
+        in apply_loaded
+    )
     assert 'currentTask.setAttribute("aria-busy", "false");' in apply_loaded
     assert "renderCurrentProposal();" in apply_loaded
     assert 'payload.archive_state === "ACTIVE"' in javascript
@@ -340,8 +372,13 @@ def test_completion_requires_an_authoritative_queue_refresh():
     assert "requestJson(proposalsApi)" in reconcile
     assert "isTrustedProposalList(proposalList)" in reconcile
     assert "proposals = proposalList.proposals.slice();" in reconcile
+    assert "initialCount = proposalList.review_summary.total;" in reconcile
     assert (
-        "initialCount = keptCount + discardedCount + proposals.length;"
+        "keptCount = proposalList.review_summary.kept_for_contract;"
+        in reconcile
+    )
+    assert (
+        "discardedCount = proposalList.review_summary.discarded;"
         in reconcile
     )
     assert "renderCurrentProposal();" in reconcile

@@ -161,15 +161,29 @@ def _dispatch(
     if method == "GET":
         if payload is not None or proposal_id is not None or action is not None:
             raise POCProposalWebAPIRequestError
+        all_proposals = runtime.list_proposals(poc_id)
         proposals = tuple(
             item
-            for item in runtime.list_proposals(poc_id)
+            for item in all_proposals
             if item.review_state == ProposalReviewState.NEEDS_REVIEW
         )
         return _ok(
             {
                 "poc_id": poc_id,
                 "proposals": [_proposal_payload(item) for item in proposals],
+                "review_summary": {
+                    "total": len(all_proposals),
+                    "needs_review": len(proposals),
+                    "kept_for_contract": sum(
+                        item.review_state
+                        == ProposalReviewState.KEEP_FOR_CONTRACT
+                        for item in all_proposals
+                    ),
+                    "discarded": sum(
+                        item.review_state == ProposalReviewState.DISCARD
+                        for item in all_proposals
+                    ),
+                },
             }
         )
 

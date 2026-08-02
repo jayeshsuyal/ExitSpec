@@ -253,6 +253,38 @@ def _streaming_endpoint():
         endpoint.server_close()
 
 
+@contextmanager
+def _unready_endpoint():
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            payload = b'{"error":"endpoint not ready"}'
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    endpoint = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=endpoint.serve_forever, daemon=True)
+    worker.start()
+    try:
+        yield "http://127.0.0.1:{0}/v1/chat/completions".format(
+            endpoint.server_port
+        )
+    finally:
+        endpoint.shutdown()
+        worker.join(timeout=5)
+        endpoint.server_close()
+
+
 def _freeze_agreement(
     server: ExitSpecDemoServer,
     poc_id: str,
@@ -286,6 +318,62 @@ def _freeze_agreement(
     )
     assert frozen[0] == 201
     return str(frozen[1]["frozen_contract"]["canonical_hash"])
+
+
+def _start_and_wait_for_terminal_run(
+    server: ExitSpecDemoServer,
+    poc_id: str,
+    *,
+    idempotency_key: str,
+) -> dict:
+    root = f"/api/pocs/{poc_id}/runs"
+    started = _request(
+        server,
+        "POST",
+        root,
+        payload={
+            "execution_acknowledged": True,
+            "idempotency_key": idempotency_key,
+        },
+    )
+    assert started[0] == 202
+
+    deadline = time.monotonic() + 10
+    latest = None
+    while time.monotonic() < deadline:
+        status, latest, _ = _request(
+            server,
+            "GET",
+            root + "/latest",
+            content_type=None,
+            origin=None,
+        )
+        assert status == 200
+        assert isinstance(latest, dict)
+        if latest["is_terminal"]:
+            break
+        time.sleep(0.01)
+    assert latest is not None and latest["is_terminal"] is True
+    return latest
+
+
+def _dynamic_lifecycle_state(
+    server: ExitSpecDemoServer,
+    poc_id: str,
+) -> tuple:
+    return (
+        server.draft_poc_service.get(poc_id),
+        server.poc_source_intake.list_receipts(poc_id),
+        server.proposal_review_service.list_proposals(poc_id),
+        tuple(
+            definition
+            for definition in server.contract_definition_service.definitions()
+            if definition.poc_id == poc_id
+        ),
+        server.performance_lifecycle_service.snapshot(poc_id),
+        server.poc_performance_run_service.snapshot(poc_id),
+        server.poc_closure_service.get(poc_id),
+    )
 
 
 def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
@@ -1154,3 +1242,271 @@ def test_dynamic_run_transport_gates_and_pre_freeze_state_fail_closed(tmp_path):
         404,
         {"error": "Performance run was not found."},
     )
+
+
+@pytest.mark.parametrize(
+    "closure_decision",
+    ("HANDOFF_COMPLETED", "POC_STOPPED"),
+)
+def test_closed_dynamic_poc_rejects_every_lifecycle_mutation_atomically(
+    tmp_path,
+    closure_decision,
+):
+    with _streaming_endpoint() as (endpoint, _):
+        with _running_server(tmp_path) as server:
+            poc_id = _create_defined_performance_poc(server)
+            _freeze_agreement(server, poc_id, endpoint)
+            latest = _start_and_wait_for_terminal_run(
+                server,
+                poc_id,
+                idempotency_key="run-before-terminal-closure",
+            )
+            assert latest["status"] == "COMPLETED"
+
+            definitions = _request(
+                server,
+                "GET",
+                f"/api/pocs/{poc_id}/definitions",
+                content_type=None,
+                origin=None,
+            )
+            assert definitions[0] == 200
+            first_proposal_id = definitions[1]["proposals"][0]["proposal_id"]
+
+            closure_root = f"/api/workspace/pocs/{poc_id}/closure"
+            eligibility = _request(
+                server,
+                "GET",
+                closure_root,
+                content_type=None,
+                origin=None,
+            )
+            assert eligibility[0] == 200
+            binding = eligibility[1]["eligible_evidence_binding"]
+            assert binding is not None
+            closed = _request(
+                server,
+                "POST",
+                closure_root,
+                payload={
+                    "decision": closure_decision,
+                    "decided_by": "field_engineer",
+                    "rationale": "Record the terminal POC lifecycle decision.",
+                    "evidence_binding": binding,
+                    "idempotency_key": (
+                        f"close-before-mutation-{closure_decision.lower()}"
+                    ),
+                },
+            )
+            assert closed[0] == 201
+            before = _dynamic_lifecycle_state(server, poc_id)
+
+            attempts = {
+                "source": _request(
+                    server,
+                    "POST",
+                    f"/api/pocs/{poc_id}/sources/document",
+                    payload={
+                        "document_text": (
+                            "Throughput must remain above 20 tokens per second."
+                        ),
+                        "idempotency_key": "source-after-terminal-closure",
+                    },
+                ),
+                "proposal_review": _request(
+                    server,
+                    "POST",
+                    (
+                        f"/api/pocs/{poc_id}/proposals/"
+                        f"{first_proposal_id}/decision"
+                    ),
+                    payload={
+                        "decision": "KEEP_FOR_CONTRACT",
+                        "reviewer": "Jayesh",
+                        "rationale": (
+                            "Keep this measurable customer requirement."
+                        ),
+                        "idempotency_key": "keep-agreement-0",
+                    },
+                ),
+                "definition": _request(
+                    server,
+                    "POST",
+                    f"/api/pocs/{poc_id}/definitions",
+                    payload={
+                        "proposal_id": first_proposal_id,
+                        "metric": "TTFT_P95_MS",
+                        "operator": "LT",
+                        "threshold": 500,
+                        "minimum_samples": 100,
+                        "concurrency": 4,
+                        "prompt_tokens_min": 512,
+                        "prompt_tokens_max": 4096,
+                        "output_tokens_min": 64,
+                        "output_tokens_max": 512,
+                        "reviewer": "Jayesh",
+                        "rationale": (
+                            "This exact rule defines POC acceptance."
+                        ),
+                        "idempotency_key": "define-agreement-0",
+                    },
+                ),
+                "agreement_prepare": _request(
+                    server,
+                    "POST",
+                    f"/api/pocs/{poc_id}/agreement",
+                    payload=_prepare_payload_for(endpoint),
+                ),
+                "agreement_confirm": _request(
+                    server,
+                    "POST",
+                    f"/api/pocs/{poc_id}/agreement/confirm",
+                    payload={
+                        "confirmer": "Customer contact recorded by Jayesh",
+                        "agreement_acknowledged": True,
+                        "rationale": (
+                            "The exact target and both criteria were reviewed."
+                        ),
+                        "idempotency_key": "confirm-dynamic-run-transport",
+                    },
+                ),
+                "agreement_freeze": _request(
+                    server,
+                    "POST",
+                    f"/api/pocs/{poc_id}/agreement/freeze",
+                    payload={
+                        "idempotency_key": "freeze-dynamic-run-transport"
+                    },
+                ),
+                "run": _request(
+                    server,
+                    "POST",
+                    f"/api/pocs/{poc_id}/runs",
+                    payload={
+                        "execution_acknowledged": True,
+                        "idempotency_key": "run-before-terminal-closure",
+                    },
+                ),
+            }
+            after = _dynamic_lifecycle_state(server, poc_id)
+
+    assert {name: response[0] for name, response in attempts.items()} == {
+        name: 409 for name in attempts
+    }
+    assert {
+        response[1]["code"] for response in attempts.values()
+    } == {"POC_LIFECYCLE_CLOSED"}
+    assert after == before
+
+
+def test_blocked_terminal_run_can_be_stopped_but_cannot_be_handed_off(
+    tmp_path,
+):
+    with _unready_endpoint() as endpoint:
+        with _running_server(tmp_path) as server:
+            poc_id = _create_defined_performance_poc(server)
+            _freeze_agreement(server, poc_id, endpoint)
+            latest = _start_and_wait_for_terminal_run(
+                server,
+                poc_id,
+                idempotency_key="run-blocked-before-stop",
+            )
+            assert latest["status"] == "BLOCKED"
+            assert latest["operation_id"] is not None
+            assert latest["evidence_pack_url"] is None
+
+            operation_route = (
+                f"/api/pocs/{poc_id}/runs/{latest['operation_id']}"
+            )
+            immutable_receipt = _request(
+                server,
+                "GET",
+                operation_route,
+                content_type=None,
+                origin=None,
+            )
+            assert immutable_receipt[:2] == (200, latest)
+
+            closure_root = f"/api/workspace/pocs/{poc_id}/closure"
+            eligibility = _request(
+                server,
+                "GET",
+                closure_root,
+                content_type=None,
+                origin=None,
+            )
+            assert eligibility[0] == 200
+            terminal_run_binding = eligibility[1][
+                "eligible_terminal_run_binding"
+            ]
+            assert eligibility[1]["eligible_evidence_binding"] is None
+            assert eligibility[1]["allowed_decisions"] == ["POC_STOPPED"]
+            assert terminal_run_binding is not None
+            assert (
+                terminal_run_binding["operation_id"]
+                == latest["operation_id"]
+            )
+            assert terminal_run_binding["run_status"] == "BLOCKED"
+            assert len(terminal_run_binding["run_receipt_sha256"]) == 64
+            assert "evidence_pack_url" not in terminal_run_binding
+            assert "evidence_pack_sha256" not in terminal_run_binding
+            handoff = _request(
+                server,
+                "POST",
+                closure_root,
+                payload={
+                    "decision": "HANDOFF_COMPLETED",
+                    "decided_by": "field_engineer",
+                    "rationale": "A blocked run has no Evidence Pack to hand off.",
+                    "terminal_run_binding": terminal_run_binding,
+                    "idempotency_key": "reject-blocked-handoff",
+                },
+            )
+            after_handoff = _request(
+                server,
+                "GET",
+                closure_root,
+                content_type=None,
+                origin=None,
+            )
+            stopped = _request(
+                server,
+                "POST",
+                closure_root,
+                payload={
+                    "decision": "POC_STOPPED",
+                    "decided_by": "field_engineer",
+                    "rationale": (
+                        "Stop after reviewing the immutable blocked-run receipt."
+                    ),
+                    "terminal_run_binding": terminal_run_binding,
+                    "idempotency_key": "stop-blocked-performance-poc",
+                },
+            )
+            after_stop = _request(
+                server,
+                "GET",
+                closure_root,
+                content_type=None,
+                origin=None,
+            )
+            receipt_after_stop = _request(
+                server,
+                "GET",
+                operation_route,
+                content_type=None,
+                origin=None,
+            )
+
+    assert handoff[0] == 409
+    assert after_handoff[0] == 200
+    assert after_handoff[1]["closure"] is None
+    assert stopped[0] == 201
+    assert stopped[1]["closure"]["decision"] == "POC_STOPPED"
+    assert stopped[1]["closure"]["evidence_binding"] is None
+    assert (
+        stopped[1]["closure"]["terminal_run_binding"]
+        == terminal_run_binding
+    )
+    assert after_stop[1]["closure"] == stopped[1]["closure"]
+    assert receipt_after_stop[:2] == immutable_receipt[:2]

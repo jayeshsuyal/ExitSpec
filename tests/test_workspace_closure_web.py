@@ -93,6 +93,11 @@ def test_support_poc_closure_moves_active_to_completed_and_replays(tmp_path):
         assert status == 200
         binding = eligibility["eligible_evidence_binding"]
         assert eligibility["closeable"] is True
+        assert eligibility["eligible_terminal_run_binding"] is None
+        assert eligibility["allowed_decisions"] == [
+            "HANDOFF_COMPLETED",
+            "POC_STOPPED",
+        ]
         assert binding["verdict"] == "PASS"
         assert binding["evidence_pack_sha256"]
 
@@ -115,6 +120,12 @@ def test_support_poc_closure_moves_active_to_completed_and_replays(tmp_path):
             "GET",
             "/api/workspace?filter=Completed",
         )
+        reset_status, reset_refusal = _request(
+            server,
+            "POST",
+            "/api/reset",
+            {},
+        )
 
         assert created_status == 201
         assert replay_status == 200
@@ -123,6 +134,8 @@ def test_support_poc_closure_moves_active_to_completed_and_replays(tmp_path):
         assert created["closure"]["shipping_authorized"] is False
         assert created["closure"]["authorization_scope"] == "POC_LIFECYCLE_ONLY"
         assert active_status == completed_status == 200
+        assert reset_status == 409
+        assert reset_refusal["code"] == "POC_LIFECYCLE_CLOSED"
         assert SYNTHETIC_SUPPORT_AGENT_POC_ID not in {
             poc["poc_id"] for poc in active["pocs"]
         }
