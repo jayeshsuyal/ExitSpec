@@ -10,6 +10,7 @@
     <title>ExitSpec — Inference-latency POC</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/performance.css" />
+    <link rel="stylesheet" href="/closure.css" />
   </head>
   <body>
     <a class="skip-link" href="#performance-current-task">
@@ -52,16 +53,26 @@
           <ol class="journey" aria-label="POC journey">
             <li data-state="complete">
               <span>1</span>
-              <strong>Define</strong>
+              <strong>Capture</strong>
+              <small>Complete</small>
+            </li>
+            <li data-state="complete">
+              <span>2</span>
+              <strong>Review</strong>
+              <small>Complete</small>
+            </li>
+            <li data-state="complete">
+              <span>3</span>
+              <strong>Agree</strong>
               <small>Complete</small>
             </li>
             <li data-state="current">
-              <span>2</span>
+              <span>4</span>
               <strong>Prove</strong>
               <small>Current</small>
             </li>
             <li data-state="locked">
-              <span>3</span>
+              <span>5</span>
               <strong>Decide</strong>
               <small>After evidence</small>
             </li>
@@ -72,17 +83,37 @@
           class="current-task-card"
           id="performance-current-task"
           aria-labelledby="current-task-heading"
-          aria-live="polite"
         >
           <div class="task-copy">
             <p class="task-kicker">Current task · Prove</p>
-            <h2 id="current-task-heading">Run the frozen latency check</h2>
+            <h2 id="current-task-heading">Check endpoint readiness</h2>
             <p id="performance-use-case">
               Loading the approved performance requirement…
             </p>
-            <a class="primary-action" href="#run-checklist">
-              Review run checklist
-            </a>
+            <p class="task-guidance" id="task-guidance" aria-live="polite">
+              Loading the trusted operation state…
+            </p>
+            <div class="task-actions">
+              <button
+                class="primary-action"
+                id="check-readiness"
+                type="button"
+                aria-describedby="task-guidance"
+                disabled
+              >
+                Check readiness
+              </button>
+              <button
+                class="primary-action"
+                id="run-proof"
+                type="button"
+                aria-describedby="task-guidance"
+                disabled
+                hidden
+              >
+                Run proof
+              </button>
+            </div>
           </div>
 
           <dl class="state-boundary" aria-label="POC authority states">
@@ -91,11 +122,11 @@
               <dd id="agreement-status">Loading</dd>
             </div>
             <div class="execution-state">
-              <dt>Execution</dt>
+              <dt>Run</dt>
               <dd id="execution-status">Loading</dd>
             </div>
             <div class="evidence-state">
-              <dt>Evidence</dt>
+              <dt>Verdict / Evidence</dt>
               <dd id="evidence-status">Loading</dd>
             </div>
           </dl>
@@ -137,26 +168,21 @@
             >
               <header class="panel-heading">
                 <div>
-                  <p class="panel-index">02 · Approved workload</p>
-                  <h2 id="run-heading">Run checklist</h2>
+                  <p class="panel-index">02 · Trusted operation</p>
+                  <h2 id="run-heading">Proof run</h2>
                 </div>
-                <span>CLI-only</span>
+                <span>Server-controlled</span>
               </header>
 
-              <ol class="run-steps">
-                <li>
-                  <span>1</span>
-                  <p><strong>Start endpoint</strong>Use the approved local model.</p>
-                </li>
-                <li>
-                  <span>2</span>
-                  <p><strong>Run workload</strong>Execute the frozen CLI command.</p>
-                </li>
-                <li>
-                  <span>3</span>
-                  <p><strong>Inspect proof</strong>Open the verified Evidence Pack.</p>
-                </li>
-              </ol>
+              <div class="operation-summary">
+                <div>
+                  <span>Readiness</span>
+                  <strong id="readiness-status">Loading</strong>
+                </div>
+                <p id="run-reason" aria-live="polite">
+                  Reading cached server state. No check has started.
+                </p>
+              </div>
 
               <dl class="run-shape">
                 <div>
@@ -172,6 +198,11 @@
                   <dd id="warmup-requests">—</dd>
                 </div>
               </dl>
+
+              <p class="operation-reference">
+                Operation
+                <code id="operation-reference">Not started</code>
+              </p>
             </section>
 
             <section
@@ -185,7 +216,116 @@
                   Waiting for verified evidence state…
                 </p>
               </div>
-              <strong class="verdict" id="evidence-verdict">NOT RUN</strong>
+              <div class="evidence-action">
+                <strong class="verdict" id="evidence-verdict">NOT RUN</strong>
+                <a
+                  class="evidence-pack-link"
+                  id="evidence-pack-link"
+                  hidden
+                >
+                  Open Evidence Pack
+                </a>
+              </div>
+              <section
+                class="closure-panel"
+                id="closure-panel"
+                aria-labelledby="closure-heading"
+                hidden
+              >
+                <header class="closure-heading">
+                  <div>
+                    <p class="panel-index">Step 5 of 5 · Decide</p>
+                    <h2 id="closure-heading">Complete the POC handoff</h2>
+                  </div>
+                  <p>
+                    Record the human outcome against this exact Evidence Pack.
+                  </p>
+                </header>
+                <form class="closure-form" id="closure-form">
+                  <label>
+                    Outcome
+                    <select id="closure-decision">
+                      <option value="HANDOFF_COMPLETED">Handoff completed</option>
+                      <option value="POC_STOPPED">POC stopped</option>
+                    </select>
+                  </label>
+                  <label>
+                    Reviewer
+                    <input
+                      id="closure-actor"
+                      maxlength="160"
+                      value="field_engineer"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Rationale
+                    <textarea
+                      id="closure-rationale"
+                      maxlength="2000"
+                      rows="2"
+                      placeholder="Evidence Pack reviewed and handed to the customer POC owner."
+                      required
+                    ></textarea>
+                  </label>
+                  <button
+                    class="closure-submit"
+                    id="record-closure"
+                    type="submit"
+                  >
+                    Record final decision
+                  </button>
+                  <p class="closure-boundary">
+                    <strong>Evidence is not authorization.</strong>
+                    Closing the POC never authorizes shipping or deployment.
+                  </p>
+                  <p
+                    class="closure-status"
+                    id="closure-status"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                </form>
+                <article
+                  class="closure-receipt"
+                  id="closure-receipt"
+                  aria-label="Recorded POC closure"
+                  hidden
+                >
+                  <dl>
+                    <div>
+                      <dt>Outcome</dt>
+                      <dd id="closure-receipt-decision">—</dd>
+                    </div>
+                    <div>
+                      <dt>Reviewer</dt>
+                      <dd id="closure-receipt-actor">—</dd>
+                    </div>
+                    <div>
+                      <dt>Recorded</dt>
+                      <dd id="closure-receipt-time">—</dd>
+                    </div>
+                    <div>
+                      <dt>Rationale</dt>
+                      <dd id="closure-receipt-rationale">—</dd>
+                    </div>
+                  </dl>
+                  <div class="closure-receipt-actions">
+                    <a
+                      class="closure-evidence-link"
+                      id="closure-evidence-link"
+                      target="_blank"
+                      rel="noopener"
+                      hidden
+                    >
+                      Evidence Pack
+                    </a>
+                    <a class="closure-dashboard-link" href="/app?filter=Completed">
+                      Completed POCs
+                    </a>
+                  </div>
+                </article>
+              </section>
             </section>
           </div>
         </div>
@@ -220,5 +360,6 @@
     </div>
 
     <script src="/performance.js"></script>
+    <script src="/closure.js"></script>
   </body>
 </html>

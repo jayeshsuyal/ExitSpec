@@ -126,11 +126,12 @@ Build the local synthetic/demo track in this order:
 2. **Complete:** `/app` read-only dashboard with no dead destinations or
    unavailable actions, one non-duplicative bounded POC list, at most one
    **Next up** card, and three deterministic filters;
-3. `/app/pocs/new` local draft creation with zero authority side effects;
-4. source chooser with honest availability;
-5. bridge the existing manifest-approved synthetic email loop into one seeded
+3. **Complete:** `/app/pocs/new` local draft creation with zero authority side
+   effects;
+4. **Complete:** source chooser with honest availability;
+5. **Complete:** bridge the existing manifest-approved synthetic email loop into one seeded
    POC without modifying either frozen Wave 2 contract;
-6. add a pasted or deterministic synthetic meeting transcript as a second
+6. **Complete:** add a pasted or deterministic synthetic meeting transcript as a second
    source type, without raw audio;
 7. enforce new agreement versions and new customer decisions for material
    multi-source changes;

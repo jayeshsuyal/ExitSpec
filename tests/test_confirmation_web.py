@@ -431,6 +431,9 @@ def test_customer_review_payload_excludes_internal_review_and_raw_source(tmp_pat
         )
         assert customer_payload["review"]["criteria"]
         assert customer_payload["review"]["non_goals"] is not None
+        assert customer_payload["review"]["local_demo"]["return_url"] == (
+            "/app/pocs/poc_support_agent_demo"
+        )
     finally:
         server.shutdown()
         worker.join(timeout=5)

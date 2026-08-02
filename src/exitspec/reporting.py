@@ -570,9 +570,7 @@ def render_decision_packet(
     body {{
       min-width: 320px;
       margin: 0;
-      background:
-        radial-gradient(circle at 74% -12%, rgba(255, 119, 36, .10), transparent 32rem),
-        #0d1215;
+      background: #0e141b;
     }}
     main {{ width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 18px 0 64px; }}
     p, h1, h2 {{ margin-top: 0; }}
@@ -623,21 +621,8 @@ def render_decision_packet(
       border: 1px solid #303a40;
       border-top: 3px solid var(--status);
       border-radius: 17px;
-      background: linear-gradient(145deg, rgba(29, 37, 42, .98), rgba(20, 27, 31, .98));
-      box-shadow: 0 22px 60px rgba(0, 0, 0, .24);
+      background: #18222d;
       padding: 20px 22px 18px;
-    }}
-    .proof-sheet::after {{
-      position: absolute;
-      z-index: 0;
-      top: -8rem;
-      right: -7rem;
-      width: 26rem;
-      height: 22rem;
-      border-radius: 50%;
-      background: radial-gradient(circle, var(--status-soft), transparent 68%);
-      content: "";
-      pointer-events: none;
     }}
     .proof-sheet > * {{ position: relative; z-index: 1; }}
     .status-panel-PASS {{ --status: #58d693; --status-soft: rgba(88, 214, 147, .12); }}
@@ -654,7 +639,7 @@ def render_decision_packet(
       display: block;
       margin: 0 0 6px;
       color: #8e999f;
-      font-size: .66rem;
+      font-size: .72rem;
       font-weight: 800;
       letter-spacing: .11em;
       text-transform: uppercase;
@@ -703,7 +688,7 @@ def render_decision_packet(
       background: rgba(13, 18, 21, .56);
       padding: 10px 12px;
     }}
-    .decision-grid p {{ margin: 0; color: #c3c9cb; font-size: .79rem; line-height: 1.38; }}
+    .decision-grid p {{ margin: 0; color: #c3c9cb; font-size: .82rem; line-height: 1.42; }}
     .integrity-row {{
       display: grid;
       grid-template-columns: 165px minmax(0, 1fr);
@@ -714,7 +699,7 @@ def render_decision_packet(
       padding-top: 10px;
     }}
     .integrity-row .label {{ margin: 0; }}
-    .integrity-row code {{ font-size: .69rem; line-height: 1.4; }}
+    .integrity-row code {{ font-size: .72rem; line-height: 1.45; }}
     .artifact-row {{
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -733,7 +718,7 @@ def render_decision_packet(
       padding: 9px 10px;
       color: #cbd0d1;
       font-family: "SFMono-Regular", Consolas, monospace;
-      font-size: .63rem;
+      font-size: .7rem;
       text-decoration: none;
       transition: border-color .15s ease, color .15s ease, transform .15s ease;
     }}
@@ -747,7 +732,7 @@ def render_decision_packet(
     .disclaimer {{
       margin: 10px 0 0;
       color: #858f94;
-      font-size: .68rem;
+      font-size: .72rem;
       line-height: 1.35;
     }}
     .disclaimer strong {{ color: #e2dfd7; }}
@@ -760,7 +745,7 @@ def render_decision_packet(
       padding: 0 2px 8px;
     }}
     .audit-heading h2 {{ margin: 0; font-size: 1.08rem; letter-spacing: -.025em; }}
-    .audit-heading p {{ margin: 0; color: #7f8a90; font-size: .72rem; }}
+    .audit-heading p {{ margin: 0; color: #8f9aa0; font-size: .75rem; }}
     details {{
       border-top: 1px solid #2a3439;
       background: rgba(20, 27, 31, .52);
@@ -782,10 +767,10 @@ def render_decision_packet(
     .row-number {{
       color: #ff8b43;
       font-family: "SFMono-Regular", Consolas, monospace;
-      font-size: .66rem;
+      font-size: .72rem;
       letter-spacing: .08em;
     }}
-    .row-hint {{ color: #778389; font-size: .69rem; font-weight: 500; text-align: right; }}
+    .row-hint {{ color: #8a969c; font-size: .72rem; font-weight: 500; text-align: right; }}
     details[open] summary {{ border-bottom: 1px solid #2a3439; background: rgba(255, 122, 36, .035); }}
     .detail-body {{ padding: 17px 58px 20px; color: #bdc4c6; font-size: .84rem; }}
     .detail-body h2 {{ margin: 0 0 10px; color: #f0ede6; font-size: 1rem; }}
@@ -807,7 +792,7 @@ def render_decision_packet(
       text-align: left;
       vertical-align: top;
     }}
-    th {{ width: 29%; padding-right: 24px; color: #7f8b90; font-size: .72rem; font-weight: 750; }}
+    th {{ width: 29%; padding-right: 24px; color: #8e999f; font-size: .75rem; font-weight: 750; }}
     td {{ color: #c7cdcf; font-size: .82rem; }}
     ul {{ margin: 8px 0 0; padding-left: 19px; line-height: 1.5; }}
     @media (max-width: 900px) {{
@@ -845,7 +830,7 @@ def render_decision_packet(
   <main data-legacy-artifact-name="Proof Pack">
     <header class="product-bar">
       <div class="identity">
-        <span class="identity-mark" aria-hidden="true">E/S</span>
+        <span class="identity-mark" aria-hidden="true">E</span>
         <div><strong>ExitSpec</strong><span>POC acceptance evidence</span></div>
       </div>
       <p class="packet-ref">{contract_id} · v{contract_version}<br>{run_id} · synthetic demonstration</p>

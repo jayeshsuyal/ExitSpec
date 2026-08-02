@@ -50,10 +50,13 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
     for phrase in (
         "POCs",
         "Customer POCs",
-        "Next up",
+        "Next required decision",
+        "Continue working",
+        "All POCs",
         "Active",
         "Needs attention",
         "Completed",
+        "Guided demo",
         "Local demo",
     ):
         assert phrase in html
@@ -64,7 +67,6 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
         "Leaderboard",
         "<canvas",
         "gradient",
-        "New POC",
         "Evidence Packs",
         "Available in the next build",
     ):
@@ -102,25 +104,29 @@ def test_dashboard_palette_matches_the_frozen_graphite_orange_contract():
     assert "backdrop-filter" not in css
 
 
-def test_dashboard_has_no_dead_primary_action_and_three_bounded_filters():
+def test_dashboard_has_one_real_create_action_and_three_bounded_filters():
     html, _, javascript = _sources()
 
     assert 'class="primary-action"' not in html
-    assert "New POC" not in html
+    assert html.count('class="new-poc-link"') == 1
+    assert html.count('class="guided-demo-link"') == 1
+    assert html.count('href="/app?mode=recording"') == 1
+    assert html.count('href="/app/pocs/new"') == 1
+    assert html.count("New POC") == 1
     assert html.count('data-filter="') == 3
     assert (
         'const FILTERS = ["Active", "Needs attention", "Completed"];'
         in javascript
     )
     assert "Open POC" in javascript
-    assert "No other active POCs." in javascript
+    assert "No active POCs." in javascript
 
 
 def test_dashboard_desktop_is_fixed_and_narrow_layout_reenables_body_scroll():
     _, css, _ = _sources()
 
     assert "height: 100dvh" in css
-    assert "body {\n  margin: 0;\n  overflow: hidden;" in css
+    assert "body {\n  margin: 0;\n  overflow: auto;" in css
     assert ".poc-list-panel {" in css
     assert "overflow: auto" in css
     mobile = css.split("@media (max-width: 760px)", 1)[1]

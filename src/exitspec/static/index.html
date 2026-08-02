@@ -9,34 +9,24 @@
     />
     <title>ExitSpec — POC workbench</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/closure.css" />
   </head>
   <body data-mode="standard">
     <a class="skip-link" href="#current-task">Skip to the current task</a>
 
     <div class="app-shell">
-      <header class="app-header">
+      <header class="app-header global-header">
         <a class="brand" href="/app" aria-label="ExitSpec workbench">
+          <span class="brand-mark" aria-hidden="true">E</span>
           <span class="brand-name">ExitSpec</span>
         </a>
 
-        <div class="poc-identity">
-          <span>POC</span>
-          <strong id="poc-label">Loading current POC…</strong>
-        </div>
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app">POCs</a>
+        </nav>
 
-        <ol class="journey-steps sr-only" aria-label="POC journey">
-          <li class="journey-step is-current" id="step-define">
-            <span>1</span><strong>Define</strong>
-          </li>
-          <li class="journey-step" id="step-prove">
-            <span>2</span><strong>Prove</strong>
-          </li>
-          <li class="journey-step" id="step-decide">
-            <span>3</span><strong>Decide</strong>
-          </li>
-        </ol>
-
-        <div class="header-meta">
+        <div class="header-meta local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
           <span class="mode-chip" id="mode-chip" aria-live="polite">Loading demo…</span>
         </div>
       </header>
@@ -44,15 +34,46 @@
       <aside class="recording-cue" id="recording-cue" aria-label="Recording walkthrough" hidden>
         <div>
           <strong>75-second walkthrough</strong>
-          <span>Define → Prove → Decide</span>
+          <span>Capture → Review → Agree → Prove → Decide</span>
         </div>
         <button class="recording-restart" id="recording-restart" type="button">Restart</button>
       </aside>
 
       <main class="workspace" id="app-main">
+        <header class="object-header support-object-header">
+          <div class="object-identity">
+            <a class="back-link" href="/app">← All POCs</a>
+            <p class="eyebrow">Support agent</p>
+            <h1 id="poc-label">Loading current POC…</h1>
+          </div>
+
+          <ol class="journey-steps" aria-label="POC journey">
+            <li class="journey-step is-current" data-journey-step="capture">
+              <span>1</span><strong>Capture</strong>
+            </li>
+            <li class="journey-step" data-journey-step="review">
+              <span>2</span><strong>Review</strong>
+            </li>
+            <li class="journey-step" id="step-define" data-journey-step="define">
+              <span>3</span><strong>Agree</strong>
+            </li>
+            <li class="journey-step" id="step-prove" data-journey-step="prove">
+              <span>4</span><strong>Prove</strong>
+            </li>
+            <li class="journey-step" id="step-decide" data-journey-step="decide">
+              <span>5</span><strong>Decide</strong>
+            </li>
+          </ol>
+        </header>
+
         <div class="proof-workspace">
-          <nav class="custody-rail" aria-label="POC chain of custody">
-            <ol class="custody-ledger">
+          <details class="custody-disclosure">
+            <summary>
+              <span>Proof chain</span>
+              <strong>Source → agreement → evidence</strong>
+            </summary>
+            <nav class="custody-rail" aria-label="POC chain of custody">
+              <ol class="custody-ledger">
               <li id="custody-source">
                 <span class="custody-number" aria-hidden="true">01</span>
                 <span class="custody-label">Source</span>
@@ -83,8 +104,9 @@
                 <span class="custody-label">Handoff</span>
                 <span class="custody-state" id="custody-decision-state">Pending</span>
               </li>
-            </ol>
-          </nav>
+              </ol>
+            </nav>
+          </details>
 
           <section class="proof-sheet" id="current-task" aria-labelledby="current-task-title">
             <header class="task-heading">
@@ -411,5 +433,6 @@
     </div>
 
     <script src="/app.js"></script>
+    <script src="/closure.js"></script>
   </body>
 </html>

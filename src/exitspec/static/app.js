@@ -554,8 +554,12 @@
 
   function renderSourceIntake() {
     const panel = $("#source-intake-panel");
-    panel.hidden = !emailIntakeMode;
+    const terminalEvidenceExists = Boolean(state?.proof_pack);
+    panel.hidden = !emailIntakeMode || terminalEvidenceExists;
     if (!emailIntakeMode) {
+      return;
+    }
+    if (terminalEvidenceExists) {
       return;
     }
 
@@ -856,7 +860,12 @@
   }
 
   function workflowModel() {
-    if (emailIntakeMode && !guidedSourceIntake()) {
+    if (
+      emailIntakeMode
+      && !guidedSourceIntake()
+      && !state?.contract
+      && !state?.proof_pack
+    ) {
       return {
         stage: "define",
         eyebrow: "Define · Synthetic source",
@@ -1102,9 +1111,28 @@
     });
   }
 
+  function workflowStep(model) {
+    if (model.stage === "prove" || model.stage === "decide") {
+      return model.stage;
+    }
+    if (emailIntakeMode && !guidedSourceIntake()) {
+      return "capture";
+    }
+    const currentDrafts = drafts();
+    const needsReview = currentDrafts.some(
+      (draft) => draft.status === "NEEDS_REVIEW"
+    );
+    const hasApprovedRule = approvedDrafts().length > 0;
+    if (needsReview || !hasApprovedRule) {
+      return "review";
+    }
+    return "define";
+  }
+
   function renderWorkflow(model) {
-    const stageOrder = ["define", "prove", "decide"];
-    const currentIndex = stageOrder.indexOf(model.stage);
+    const journeyOrder = ["capture", "review", "define", "prove", "decide"];
+    const currentStep = workflowStep(model);
+    const currentIndex = journeyOrder.indexOf(currentStep);
 
     $("#poc-label").textContent = state?.poc_label
       || guidedSourceIntake()?.label
@@ -1124,8 +1152,11 @@
       view.classList.toggle("is-current", isCurrent);
     });
 
-    stageOrder.forEach((stage, index) => {
-      const step = $(`#step-${stage}`);
+    journeyOrder.forEach((stage, index) => {
+      const legacyStep = $(`#step-${stage}`);
+      const step = document.querySelector(
+        `[data-journey-step="${stage}"]`
+      ) || legacyStep;
       const isCurrent = index === currentIndex;
       step.classList.toggle("is-current", isCurrent);
       step.classList.toggle("is-complete", index < currentIndex);
@@ -1591,7 +1622,7 @@
       evidenceStatus.className = hasProof ? tagClass(state.proof_pack.overall_verdict) : "";
     }
 
-    if (emailIntakeMode && !sourceIntake) {
+    if (emailIntakeMode && !sourceIntake && !state?.proof_pack) {
       customerDraftButton.hidden = true;
       sourceButton.hidden = true;
       runButton.hidden = true;
@@ -1702,6 +1733,7 @@
     renderWorkflow(model);
     renderFireworksAssist();
     reconcileCustomerPolling();
+    window.dispatchEvent(new CustomEvent("exitspec:evidence-updated"));
   }
 
   async function reviewDraft(draftId, decision) {
@@ -2026,7 +2058,11 @@
 
   async function initialise() {
     try {
-      applyState(await request(API.state));
+      applyState(
+        recordingMode
+          ? await request(API.reset, { method: "POST", body: "{}" })
+          : await request(API.state)
+      );
       await Promise.all([
         loadFireworksDisclosure(),
         emailIntakeMode ? loadSourceCatalog() : Promise.resolve(),

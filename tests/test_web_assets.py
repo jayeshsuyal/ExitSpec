@@ -236,12 +236,24 @@ def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
     assert 'new URLSearchParams(window.location.search).get("mode")' in javascript
     assert '=== "recording"' in javascript
     assert 'document.body.dataset.mode = recordingMode ? "recording" : "standard"' in javascript
+    assert 'await request(API.reset, { method: "POST", body: "{}" })' in javascript
     assert '$("#define").scrollIntoView' in javascript
     assert '$("#decide").scrollIntoView' in javascript
     assert "body.recording-mode .source-details" in styles
     assert "body.recording-mode .proof-workspace" in styles
     assert "body.recording-mode .custody-rail {\n  display: block;" in styles
     assert '$("#recording-restart").addEventListener("click", resetDemo)' in javascript
+
+
+def test_customer_confirmation_returns_to_the_exact_seeded_poc():
+    javascript = (STATIC_ROOT / "review.js").read_text(encoding="utf-8")
+
+    assert (
+        'localReturn?.return_url === "/app/pocs/poc_support_agent_demo"'
+        in javascript
+    )
+    assert "elements.returnToApp.href = safeLocalReturnUrl;" in javascript
+    assert "elements.returnToApp.href = \"/app\";" not in javascript
 
 
 def test_rule_editor_places_progressive_details_before_state_changing_actions():
@@ -335,6 +347,7 @@ def test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette():
     javascript = (STATIC_ROOT / "app.js").read_text(encoding="utf-8")
 
     assert 'class="proof-sheet"' in html
+    assert 'class="custody-disclosure"' in html
     assert 'class="custody-ledger"' in html
     assert 'class="context-rail"' not in html
     assert '<details class="source-details" id="source-details">' in html
@@ -347,19 +360,22 @@ def test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette():
     assert "Requirement ${reviewed + 1}" in javascript
     assert 'class="candidate decision-card"' in javascript
     assert "Customer review draft" in javascript
+    assert 'const journeyOrder = ["capture", "review", "define", "prove", "decide"]' in javascript
+    for label in ("Capture", "Review", "Agree", "Prove", "Decide"):
+        assert f"<strong>{label}</strong>" in html
     assert '"criterion" : "criteria"' in javascript
     assert '"note" : "notes"' in javascript
-    assert "--canvas: #0b0d0c" in styles
-    assert "--mast: #101310" in styles
-    assert "--sheet: #151815" in styles
-    assert "--raised: #1b1f1b" in styles
-    assert "--primary: #f2f0e8" in styles
-    assert "--secondary: #bec4ba" in styles
-    assert "--muted: #858d84" in styles
-    assert "--rule: #30362f" in styles
-    assert "--strong-rule: #4a5248" in styles
-    assert "--signal: #ff6b3d" in styles
-    assert "--success: #78d6a3" in styles
+    assert "--canvas: #0e141b" in styles
+    assert "--mast: #121a23" in styles
+    assert "--sheet: #18222d" in styles
+    assert "--raised: #1d2936" in styles
+    assert "--primary: #f1f4f7" in styles
+    assert "--secondary: #c4ced9" in styles
+    assert "--muted: #96a4b4" in styles
+    assert "--rule: #2a3747" in styles
+    assert "--strong-rule: #46576b" in styles
+    assert "--signal: #e87849" in styles
+    assert "--success: #73c99c" in styles
 
 
 def test_workbench_continuity_contracts_are_explicit_in_the_browser_surface():

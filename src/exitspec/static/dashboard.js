@@ -3,7 +3,28 @@
 
   const WORKSPACE_API = "/api/workspace";
   const FILTERS = ["Active", "Needs attention", "Completed"];
-  let activeFilter = "Active";
+  const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
+  const SEEDED_POC_IDS = new Set([
+    "poc_support_agent_demo",
+    "poc_inference_latency_demo",
+  ]);
+  const CONFIRM_ACTIONS = new Set([
+    "PREPARE_AGREEMENT",
+    "CREATE_CUSTOMER_REVIEW",
+    "WAIT_FOR_CUSTOMER",
+    "FREEZE_CONFIRMED_CONTRACT",
+  ]);
+  const PROVE_ACTIONS = new Set([
+    "RUN_POC",
+    "WAIT_FOR_PROOF",
+    "RERUN_POC",
+  ]);
+  const requestedFilter = new URLSearchParams(window.location.search).get(
+    "filter"
+  );
+  let activeFilter = FILTERS.includes(requestedFilter)
+    ? requestedFilter
+    : "Active";
   let requestVersion = 0;
 
   const $ = (selector) => document.querySelector(selector);
@@ -19,8 +40,36 @@
     return node;
   }
 
-  function workbenchUrl(pocId) {
-    return `/app/pocs/${encodeURIComponent(pocId)}`;
+  function workbenchUrl(poc) {
+    const pocId = poc?.poc_id;
+    if (typeof pocId !== "string" || !POC_ID_PATTERN.test(pocId)) {
+      return null;
+    }
+    const base = `/app/pocs/${encodeURIComponent(pocId)}`;
+    if (SEEDED_POC_IDS.has(pocId)) {
+      return base;
+    }
+    if (poc.next_action_code === "ADD_SOURCE") {
+      return `${base}/sources/new`;
+    }
+    if (poc.next_action_code === "REVIEW_PROPOSALS") {
+      return `${base}/review`;
+    }
+    if (poc.next_action_code === "DEFINE_CRITERIA") {
+      return `${base}/define`;
+    }
+    if (CONFIRM_ACTIONS.has(poc.next_action_code)) {
+      return `${base}/agreement`;
+    }
+    if (
+      PROVE_ACTIONS.has(poc.next_action_code) ||
+      poc.next_action_code === "REVIEW_EVIDENCE" ||
+      poc.next_action_code === "RECORD_DECISION_HANDOFF" ||
+      poc.archive_state === "COMPLETED"
+    ) {
+      return base;
+    }
+    return null;
   }
 
   function evidenceLabel(status) {
@@ -33,36 +82,150 @@
     }[status] || "Unavailable";
   }
 
-  function compactOwner(owner) {
-    return String(owner || "Unassigned")
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (character) => character.toUpperCase());
-  }
-
-  function updatedLabel(timestamp) {
-    const value = new Date(timestamp);
-    if (Number.isNaN(value.getTime())) {
-      return "Update unavailable";
+  function sourceLabel(poc) {
+    const summary = poc?.source_summary;
+    if (!summary || summary.count === 0) {
+      return "No source";
     }
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(value);
+    if (typeof summary.label !== "string") {
+      return "Source unavailable";
+    }
+    const separator = summary.label.indexOf(" · ");
+    return separator >= 0
+      ? summary.label.slice(separator + 3)
+      : summary.label;
   }
 
-  function nextAction(poc) {
-    if (Array.isArray(poc.blockers) && poc.blockers.length > 0) {
+  function journeyStep(poc) {
+    const action = poc?.next_action_code;
+    if (action === "ADD_SOURCE") {
+      return { number: 1, label: "Capture" };
+    }
+    if (
+      [
+        "REVIEW_PROPOSALS",
+        "DEFINE_CRITERIA",
+        "START_REVISION",
+      ].includes(action)
+    ) {
+      return { number: 2, label: "Review" };
+    }
+    if (CONFIRM_ACTIONS.has(action)) {
+      return { number: 3, label: "Agree" };
+    }
+    if (PROVE_ACTIONS.has(action)) {
+      return { number: 4, label: "Prove" };
+    }
+    if (
+      ["REVIEW_EVIDENCE", "RECORD_DECISION_HANDOFF", "NONE"].includes(action) ||
+      poc?.derived_phase === "DECIDE"
+    ) {
+      return { number: 5, label: "Decide" };
+    }
+    return {
+      number: poc?.derived_phase === "PROVE" ? 4 : 2,
+      label: poc?.derived_phase === "PROVE" ? "Prove" : "Review",
+    };
+  }
+
+  function actionPresentation(poc) {
+    if (Array.isArray(poc?.blockers) && poc.blockers.length > 0) {
       return {
-        text: poc.blockers[0].message || "Resolve the visible POC blocker.",
+        title:
+          poc.blockers[0].message || "Resolve the visible POC blocker.",
+        button: "Resolve blocker",
         blocked: true,
       };
     }
+    const presentation = {
+      ADD_SOURCE: {
+        title: "Add the first customer source.",
+        button: "Add source",
+      },
+      REVIEW_PROPOSALS: {
+        title: poc.next_human_action || "Review the extracted requirements.",
+        button: "Review requirements",
+      },
+      DEFINE_CRITERIA: {
+        title: poc.next_human_action || "Define measurable acceptance criteria.",
+        button: "Define acceptance",
+      },
+      START_REVISION: {
+        title: "Revise the customer agreement.",
+        button: "Start revision",
+      },
+      PREPARE_AGREEMENT: {
+        title: "Prepare the customer-visible agreement.",
+        button: "Prepare agreement",
+      },
+      CREATE_CUSTOMER_REVIEW: {
+        title: "Create the customer review draft.",
+        button: "Create customer draft",
+      },
+      WAIT_FOR_CUSTOMER: {
+        title: "Customer confirmation is pending.",
+        button: "View agreement",
+      },
+      FREEZE_CONFIRMED_CONTRACT: {
+        title: "Freeze the confirmed agreement.",
+        button: "Freeze contract",
+      },
+      RUN_POC: {
+        title: "Run the frozen proof.",
+        button: "Run frozen proof",
+      },
+      WAIT_FOR_PROOF: {
+        title: "The proof run is in progress.",
+        button: "View proof run",
+      },
+      RERUN_POC: {
+        title: "Retry the frozen proof.",
+        button: "Retry frozen proof",
+      },
+      REVIEW_EVIDENCE: {
+        title: "Review the verified decision.",
+        button: "Review evidence",
+      },
+      RECORD_DECISION_HANDOFF: {
+        title:
+          poc.next_human_action ||
+          "Record the human decision and complete the Evidence Pack handoff.",
+        button: "Complete decision",
+      },
+      NONE: {
+        title: poc.next_human_action || "This POC is complete.",
+        button: "View completed POC",
+      },
+    }[poc?.next_action_code];
     return {
-      text: poc.next_human_action || "Review this POC.",
+      title:
+        presentation?.title || poc?.next_human_action || "Review this POC.",
+      button: presentation?.button || "Open POC",
       blocked: false,
     };
+  }
+
+  function agreementLabel(poc) {
+    if (!poc?.active_contract_id) {
+      return "Not ready";
+    }
+    if (poc.next_action_code === "WAIT_FOR_CUSTOMER") {
+      return "In review";
+    }
+    if (poc.next_action_code === "FREEZE_CONFIRMED_CONTRACT") {
+      return "Confirmed";
+    }
+    if (
+      PROVE_ACTIONS.has(poc.next_action_code) ||
+      poc.next_action_code === "REVIEW_EVIDENCE" ||
+      poc.next_action_code === "RECORD_DECISION_HANDOFF" ||
+      poc.archive_state === "COMPLETED" ||
+      poc.derived_phase === "PROVE" ||
+      poc.derived_phase === "DECIDE"
+    ) {
+      return "Frozen";
+    }
+    return "Draft";
   }
 
   function renderContinue(poc) {
@@ -71,120 +234,176 @@
     card.setAttribute("aria-busy", "false");
 
     if (!poc) {
-      const copy = element(
-        "p",
-        "loading-copy",
-        "No active POC is waiting for work."
+      const empty = element("div", "continue-empty");
+      empty.append(
+        element("strong", "", "No POC needs a decision."),
+        element(
+          "p",
+          "",
+          "Create a POC when new customer requirements arrive."
+        )
       );
-      card.append(copy);
+      card.append(empty);
       return;
     }
 
-    const identity = element("div", "continue-identity");
-    const name = element("h3", "", poc.display_name);
-    const customer = element(
-      "p",
-      "continue-customer",
-      `${poc.customer_label} · ${poc.source_summary.label}`
-    );
-    identity.append(name, customer);
+    const action = actionPresentation(poc);
+    const step = journeyStep(poc);
+    const evidenceStatus =
+      poc.latest_evidence_summary?.status || "NOT_RUN";
 
-    const action = nextAction(poc);
-    const actionBlock = element("div", "continue-action");
-    const actionLabel = element(
-      "span",
+    const identity = element("section", "continue-identity");
+    identity.append(
+      element(
+        "p",
+        "journey-position",
+        `Step ${step.number} of 5 · ${step.label}`
+      ),
+      element("h3", "", poc.display_name),
+      element(
+        "p",
+        "continue-meta",
+        `${poc.customer_label} · ${sourceLabel(poc)}`
+      )
+    );
+
+    const nextAction = element(
+      "section",
+      `continue-action${action.blocked ? " is-blocked" : ""}`
+    );
+    nextAction.append(
+      element(
+        "p",
+        "continue-label",
+        action.blocked ? "Blocker" : "Next action"
+      ),
+      element("strong", "", action.title)
+    );
+
+    const boundaries = element("dl", "continue-boundaries");
+    const agreement = element("div");
+    agreement.append(
+      element("dt", "", "Agreement"),
+      element("dd", "", agreementLabel(poc))
+    );
+    const evidence = element("div");
+    const evidenceValue = element(
+      "dd",
       "",
-      action.blocked ? "Blocker" : `${poc.derived_phase} · Next action`
+      evidenceLabel(evidenceStatus)
     );
-    const actionText = element("p", "", action.text);
-    actionBlock.append(actionLabel, actionText);
+    evidenceValue.dataset.state = evidenceStatus;
+    evidence.append(element("dt", "", "Evidence"), evidenceValue);
+    boundaries.append(agreement, evidence);
 
-    const link = element("a", "continue-link", "Open POC");
-    link.href = workbenchUrl(poc.poc_id);
-    link.setAttribute(
-      "aria-label",
-      `Open ${poc.display_name}: ${action.text}`
-    );
+    const footer = element("div", "continue-cta");
+    const destination = workbenchUrl(poc);
+    if (destination) {
+      const link = element("a", "continue-link", action.button);
+      link.href = destination;
+      link.setAttribute(
+        "aria-label",
+        `${action.button} for ${poc.display_name}`
+      );
+      footer.append(link);
+    } else {
+      const unavailable = element(
+        "span",
+        "continue-link is-unavailable",
+        "Action unavailable"
+      );
+      footer.append(unavailable);
+    }
 
-    card.append(identity, actionBlock, link);
+    card.append(identity, nextAction, boundaries, footer);
   }
 
   function renderRow(poc) {
-    const item = element("li");
-    const link = element("a", "poc-row");
-    const action = nextAction(poc);
-    link.href = workbenchUrl(poc.poc_id);
-    link.setAttribute(
-      "aria-label",
-      `${poc.display_name}, ${poc.customer_label} — ${action.text}`
+    const item = element("li", "poc-list-item");
+    const destination = workbenchUrl(poc);
+    const row = element(
+      destination ? "a" : "div",
+      `poc-row${destination ? "" : " is-unavailable"}`
     );
+    const action = actionPresentation(poc);
+    const step = journeyStep(poc);
+    const evidenceStatus =
+      poc.latest_evidence_summary?.status || "NOT_RUN";
 
-    const name = element("div", "poc-name");
-    name.append(
+    if (destination) {
+      row.href = destination;
+      row.setAttribute(
+        "aria-label",
+        `Open ${poc.display_name}. Next step: ${action.title}`
+      );
+    } else {
+      row.setAttribute("aria-disabled", "true");
+    }
+
+    const identity = element("span", "poc-name");
+    identity.append(
       element("strong", "", poc.display_name),
-      element("span", "", `${poc.customer_label} · ${poc.source_summary.label}`)
+      element("span", "", poc.customer_label)
     );
 
-    const phase = element("span", "phase-value", poc.derived_phase);
-    phase.dataset.phase = poc.derived_phase;
+    const source = element("span", "source-value", sourceLabel(poc));
 
-    const actionValue = element(
+    const next = element(
       "span",
-      `next-action-value${action.blocked ? " is-blocked" : ""}`,
-      action.text
+      `next-step-value${action.blocked ? " is-blocked" : ""}`
     );
-    const owner = element("span", "owner-value", compactOwner(poc.owner));
+    next.append(
+      element("strong", "", action.title),
+      element("small", "", `Step ${step.number} · ${step.label}`)
+    );
 
-    const evidenceStatus = poc.latest_evidence_summary?.status || "NOT_RUN";
-    const rowMeta = element("span", "row-meta");
     const evidence = element(
       "span",
       "evidence-value",
       evidenceLabel(evidenceStatus)
     );
     evidence.dataset.evidence = evidenceStatus;
-    const updated = element(
-      "span",
-      "updated-value",
-      updatedLabel(poc.updated_at)
-    );
-    rowMeta.append(evidence, updated);
 
-    link.append(name, phase, actionValue, owner, rowMeta);
-    item.append(link);
+    const arrow = element("span", "row-open", destination ? "→" : "—");
+    arrow.setAttribute("aria-hidden", "true");
+    row.append(identity, source, next, evidence, arrow);
+    item.append(row);
     return item;
+  }
+
+  function listSummary(count) {
+    const noun = count === 1 ? "POC" : "POCs";
+    if (activeFilter === "Needs attention") {
+      return `${count} ${noun} ${count === 1 ? "needs" : "need"} attention`;
+    }
+    return `${count} ${activeFilter.toLowerCase()} ${noun}`;
   }
 
   function renderWorkspace(workspace) {
     const pocs = Array.isArray(workspace.pocs) ? workspace.pocs : [];
-    const currentPocId = workspace.continue_working?.poc_id;
-    const listedPocs = activeFilter === "Active" && currentPocId
-      ? pocs.filter((poc) => poc.poc_id !== currentPocId)
-      : pocs;
     const list = $("#poc-list");
     const empty = $("#empty-state");
+
+    renderContinue(workspace.continue_working || null);
     list.replaceChildren();
     list.setAttribute("aria-busy", "false");
-    empty.hidden = listedPocs.length > 0;
-    $("#list-labels").hidden = listedPocs.length === 0;
+    empty.hidden = pocs.length > 0;
+    $("#list-labels").hidden = pocs.length === 0;
+    pocs.forEach((poc) => list.append(renderRow(poc)));
 
-    listedPocs.forEach((poc) => list.append(renderRow(poc)));
-    $("#list-summary").textContent = pocs.length === 1
-      ? `1 ${activeFilter.toLowerCase()} POC total`
-      : `${pocs.length} ${activeFilter.toLowerCase()} POCs total`;
-    $("#poc-list-heading").textContent = activeFilter === "Active"
-      ? "Other active POCs"
-      : activeFilter;
-    if (activeFilter === "Active" && pocs.length > 0 && listedPocs.length === 0) {
-      $("#empty-title").textContent = "No other active POCs.";
-      $("#empty-copy").textContent = "Your current work is shown above.";
-      $("#show-active").hidden = true;
-    } else {
-      $("#empty-title").textContent = "No POCs match this view.";
-      $("#empty-copy").textContent = "Choose Active to return to current customer work.";
+    $("#list-summary").textContent = listSummary(pocs.length);
+
+    if (pocs.length === 0) {
+      $("#empty-title").textContent = activeFilter === "Active"
+        ? "No active POCs."
+        : "No POCs match this view.";
+      $("#empty-copy").textContent = activeFilter === "Active"
+        ? "Create a POC when new customer requirements arrive."
+        : "Choose Active to return to current customer work.";
       $("#show-active").hidden = activeFilter === "Active";
+      return;
     }
-    renderContinue(workspace.continue_working);
+    $("#show-active").hidden = true;
   }
 
   function setFilter(filter) {
@@ -204,17 +423,16 @@
   }
 
   function renderUnavailable() {
-    $("#poc-region").hidden = false;
-    $("#list-labels").hidden = true;
     const card = $("#continue-card");
     card.replaceChildren(
       element(
         "p",
         "loading-copy",
-        "POC priority is unavailable. No status has been inferred."
+        "The next action is unavailable. No status has been inferred."
       )
     );
     card.setAttribute("aria-busy", "false");
+    $("#list-labels").hidden = true;
 
     const list = $("#poc-list");
     list.replaceChildren(

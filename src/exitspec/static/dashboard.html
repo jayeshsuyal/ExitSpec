@@ -35,7 +35,19 @@
           <div>
             <p class="eyebrow">Customer POCs</p>
             <h1>POCs</h1>
-            <p>Pick up the customer decision that needs you.</p>
+            <p>Continue customer work from its next required decision.</p>
+          </div>
+          <div class="page-actions">
+            <p class="journey-summary" aria-label="POC journey">
+              Capture → Review → Agree → Prove → Decide
+            </p>
+            <div class="page-action-links">
+              <a class="guided-demo-link" href="/app?mode=recording">
+                Guided demo
+                <span>75 sec</span>
+              </a>
+              <a class="new-poc-link" href="/app/pocs/new">New POC</a>
+            </div>
           </div>
         </header>
 
@@ -43,13 +55,20 @@
           class="continue-region"
           id="continue-region"
           aria-labelledby="continue-heading"
-          aria-live="polite"
         >
-          <div class="section-heading">
-            <h2 id="continue-heading">Next up</h2>
-            <span>Highest-priority active POC</span>
-          </div>
-          <div class="continue-card" id="continue-card" aria-busy="true">
+          <header class="section-heading continue-heading">
+            <div>
+              <p class="eyebrow">Next required decision</p>
+              <h2 id="continue-heading">Continue working</h2>
+            </div>
+            <p>One POC, one next action.</p>
+          </header>
+          <div
+            class="continue-card"
+            id="continue-card"
+            aria-live="polite"
+            aria-busy="true"
+          >
             <p class="loading-copy">Loading the next action…</p>
           </div>
         </section>
@@ -75,7 +94,11 @@
               >
                 Needs attention
               </button>
-              <button type="button" data-filter="Completed" aria-pressed="false">
+              <button
+                type="button"
+                data-filter="Completed"
+                aria-pressed="false"
+              >
                 Completed
               </button>
             </div>
@@ -83,19 +106,26 @@
 
           <div class="list-labels" id="list-labels" aria-hidden="true">
             <span>POC / customer</span>
-            <span>Phase</span>
-            <span>Next action</span>
-            <span>Owner</span>
+            <span>Source</span>
+            <span>Next step</span>
             <span>Evidence</span>
+            <span></span>
           </div>
 
           <div class="poc-list-panel" id="poc-list-panel">
-            <ul class="poc-list" id="poc-list" aria-busy="true">
+            <ul
+              class="poc-list"
+              id="poc-list"
+              aria-label="All POCs"
+              aria-busy="true"
+            >
               <li class="loading-row">Loading workspace…</li>
             </ul>
             <div class="empty-state" id="empty-state" hidden>
               <strong id="empty-title">No POCs match this view.</strong>
-              <p id="empty-copy">Choose Active to return to current customer work.</p>
+              <p id="empty-copy">
+                Choose Active to return to current customer work.
+              </p>
               <button type="button" id="show-active">Show active POCs</button>
             </div>
           </div>

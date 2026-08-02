@@ -29,6 +29,21 @@
   font-synthesis: none;
 }
 
+/* Active product theme. The first token block remains a safe legacy fallback. */
+:root {
+  --canvas: #0e141b;
+  --mast: #121a23;
+  --sheet: #18222d;
+  --raised: #1d2936;
+  --primary: #f1f4f7;
+  --secondary: #c4ced9;
+  --muted: #96a4b4;
+  --rule: #2a3747;
+  --strong-rule: #46576b;
+  --signal: #e87849;
+  --success: #73c99c;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -58,7 +73,7 @@ body {
 
 body {
   margin: 0;
-  overflow: hidden;
+  overflow: auto;
   color: var(--primary);
   font-size: 14px;
   line-height: 1.45;
@@ -144,18 +159,32 @@ h4 {
   align-items: center;
   height: 54px;
   border-bottom: 1px solid var(--rule);
-  padding: 0 24px;
+  padding: 0 30px;
   background: var(--mast);
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
+  gap: 10px;
   height: 100%;
   border-right: 1px solid var(--rule);
-  padding-right: 22px;
+  padding-right: 26px;
   color: var(--primary);
   text-decoration: none;
+}
+
+.brand-mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  background: var(--signal);
+  color: var(--canvas);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .brand-name {
@@ -164,37 +193,133 @@ h4 {
   letter-spacing: -0.025em;
 }
 
-.poc-identity {
+.global-nav {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-  padding: 0 22px;
+  align-items: center;
+  height: 100%;
+  padding-left: 26px;
 }
 
-.poc-identity span,
-.poc-identity strong,
+.global-nav a {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+  text-decoration: none;
+}
+
+.global-nav a:hover {
+  color: var(--primary);
+}
+
+.local-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.identity-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--success);
+}
+
 .mode-chip {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.poc-identity span {
-  flex: none;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.object-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 32px;
+  min-width: 0;
 }
 
-.poc-identity strong {
-  overflow: hidden;
-  color: var(--secondary);
+.support-object-header {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+}
+
+.object-identity {
+  min-width: 0;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 4px;
+  color: var(--muted);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.015em;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--primary);
+}
+
+.object-identity .eyebrow {
+  display: inline;
+  margin: 0 8px 0 0;
+}
+
+.object-identity h1 {
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--primary);
+  font-family: "Iowan Old Style", Charter, "Palatino Linotype", Georgia, serif;
+  font-size: 29px;
+  font-weight: 540;
+  letter-spacing: -0.035em;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.journey-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(76px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.journey-step {
+  display: grid;
+  grid-template-columns: 18px auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 82px;
+  border-top: 2px solid var(--rule);
+  padding: 8px 9px 0;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.journey-step span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 720;
+}
+
+.journey-step strong {
+  font-weight: 680;
+}
+
+.journey-step.is-complete {
+  border-color: var(--success);
+  color: var(--secondary);
+}
+
+.journey-step.is-current {
+  border-color: var(--signal);
+  color: var(--primary);
+}
+
+.journey-step.is-current span {
+  color: var(--signal);
 }
 
 .header-meta {
@@ -205,7 +330,7 @@ h4 {
 .mode-chip {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -231,7 +356,7 @@ h4 {
   background: var(--raised);
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.035em;
 }
 
@@ -253,7 +378,7 @@ h4 {
   background: var(--mast);
   color: var(--secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -266,12 +391,62 @@ h4 {
 
 .workspace {
   display: grid;
-  place-items: center;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 20px 28px 24px;
+  padding: 14px 28px 20px;
   background: var(--canvas);
+}
+
+.custody-disclosure {
+  min-width: 0;
+  min-height: 0;
+}
+
+.custody-disclosure > summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 7px;
+  align-items: start;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  list-style: none;
+}
+
+.custody-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.custody-disclosure > summary::before {
+  color: var(--signal);
+  content: "›";
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 900;
+  transform: rotate(0deg);
+}
+
+.custody-disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.custody-disclosure > summary span,
+.custody-disclosure > summary strong {
+  grid-column: 2;
+}
+
+.custody-disclosure > summary strong {
+  color: var(--secondary);
+  font-weight: 680;
+}
+
+.custody-disclosure .custody-rail {
+  margin-top: 8px;
 }
 
 .proof-workspace {
@@ -312,7 +487,7 @@ h4 {
   grid-row: 1 / span 2;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
 }
 
@@ -330,7 +505,7 @@ h4 {
   overflow: hidden;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.055em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -395,7 +570,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   margin: 0 0 8px;
   color: var(--signal);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.12em;
   line-height: 1.35;
@@ -450,7 +625,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
 
 .sheet-ledger dt {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -460,7 +635,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   overflow-wrap: anywhere;
   margin: 0;
   color: var(--secondary);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
   text-align: right;
 }
@@ -539,7 +714,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   gap: 5px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -569,7 +744,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   padding-top: 10px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 680;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -607,7 +782,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
 .source-summary-boundary {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -621,7 +796,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   width: max-content;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -667,7 +842,7 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
 .source-summary-actions .text-action {
   min-height: 30px;
   padding: 5px 7px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .source-intake-status {
@@ -813,7 +988,7 @@ body.email-intake-mode .candidate-actions .text-action {
 .rule-rows dt {
   margin-bottom: 5px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -848,7 +1023,7 @@ body.email-intake-mode .candidate-actions .text-action {
 .missing-callout strong {
   color: var(--signal);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -944,7 +1119,7 @@ body.email-intake-mode .candidate-actions .text-action {
   flex: none;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 680;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -961,7 +1136,7 @@ body.email-intake-mode .candidate-actions .text-action {
 .revision-request span {
   color: var(--signal);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -1000,7 +1175,7 @@ body.email-intake-mode .candidate-actions .text-action {
   padding-left: 8px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1017,7 +1192,7 @@ body.email-intake-mode .candidate-actions .text-action {
   gap: 5px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 680;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1058,7 +1233,7 @@ textarea {
   padding-top: 9px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1112,7 +1287,7 @@ textarea {
   margin-bottom: 3px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -1122,7 +1297,7 @@ textarea {
   overflow-wrap: anywhere;
   margin: 0;
   color: var(--secondary);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -1157,7 +1332,7 @@ textarea {
   padding: 3px 0 3px 9px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 740;
   letter-spacing: 0.07em;
   line-height: 1.25;
@@ -1255,7 +1430,7 @@ textarea {
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1279,7 +1454,7 @@ textarea {
 .next-human-action > span {
   display: block;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1310,7 +1485,7 @@ textarea {
 .verdict-hero > span {
   display: block;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1367,7 +1542,7 @@ textarea {
 
 .decision-list dt {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1388,7 +1563,7 @@ textarea {
   width: max-content;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 680;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1418,7 +1593,7 @@ textarea {
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1525,7 +1700,7 @@ textarea {
   background: var(--sheet);
   color: var(--secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1551,7 +1726,7 @@ textarea {
 .line-number {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .speaker {
@@ -1559,7 +1734,7 @@ textarea {
   margin-bottom: 2px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1581,7 +1756,7 @@ textarea {
   margin-bottom: 6px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 680;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1623,7 +1798,7 @@ textarea {
   flex: none;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1666,7 +1841,7 @@ textarea {
 .provider-disclosure-item dt {
   margin-bottom: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -1676,7 +1851,7 @@ textarea {
   overflow-wrap: anywhere;
   color: var(--secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -1694,13 +1869,13 @@ textarea {
 
 #fireworks-policy-details summary {
   width: max-content;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 #fireworks-policy-detail-copy {
   margin: 7px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1834,6 +2009,21 @@ body.recording-mode .header-meta {
     gap: 18px;
   }
 
+  .object-header {
+    gap: 18px;
+  }
+
+  .journey-steps {
+    grid-template-columns: repeat(5, minmax(60px, 1fr));
+  }
+
+  .journey-step {
+    min-width: 64px;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding-inline: 7px;
+  }
+
   .task-heading {
     grid-template-columns: minmax(0, 1fr) 210px;
     gap: 22px;
@@ -1855,10 +2045,6 @@ body.recording-mode .header-meta {
 }
 
 @media (max-width: 760px) {
-  body {
-    overflow: auto;
-  }
-
   .app-shell {
     display: block;
     height: auto;
@@ -1869,12 +2055,31 @@ body.recording-mode .header-meta {
     position: sticky;
     z-index: 40;
     top: 0;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .header-meta {
+    display: none;
   }
 
   .workspace {
-    display: block;
+    display: grid;
+    gap: 14px;
     overflow: visible;
     padding: 14px;
+  }
+
+  .object-header {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .journey-steps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .journey-step {
+    min-width: 0;
   }
 
   .proof-workspace {
@@ -1883,6 +2088,14 @@ body.recording-mode .header-meta {
     gap: 12px;
     width: 100%;
     height: auto;
+  }
+
+  .custody-disclosure {
+    width: 100%;
+  }
+
+  .custody-disclosure > summary {
+    padding: 9px 0;
   }
 
   .custody-rail {
@@ -1911,8 +2124,8 @@ body.recording-mode .header-meta {
 
   .task-heading {
     grid-template-columns: 1fr;
-    gap: 18px;
-    padding: 21px;
+    gap: 14px;
+    padding: 18px;
   }
 
   .sheet-ledger {
@@ -1941,8 +2154,10 @@ body.recording-mode .header-meta {
   }
 
   .task-view {
+    width: 100%;
+    min-width: 0;
     overflow: visible;
-    padding: 20px 21px;
+    padding: 18px;
   }
 
   .rule-technical-panel {
@@ -2009,17 +2224,69 @@ body.recording-mode .header-meta {
     padding-right: 14px;
   }
 
-  .poc-identity {
-    padding: 0 14px;
+  .global-nav {
+    padding-left: 14px;
   }
 
-  .poc-identity span,
   .header-meta {
+    display: none;
+  }
+
+  .object-identity h1 {
+    font-size: 25px;
+  }
+
+  .journey-step {
+    justify-items: start;
+    padding-inline: 4px;
+  }
+
+  .journey-step span {
     display: none;
   }
 
   .task-heading h1 {
     font-size: 30px;
+  }
+
+  .task-heading,
+  .task-view {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .proof-sheet,
+  .task-main,
+  .task-view,
+  .evidence-card,
+  .proof-pack,
+  .proof-pack-header,
+  .verdict-hero,
+  .decision-dock {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .card-heading,
+  .proof-pack-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .contract-chip,
+  .pack-id,
+  .verdict-badge {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .evidence-equation,
+  .evidence-detail-grid code {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .customer-ask {
@@ -2086,8 +2353,11 @@ body.recording-mode .header-meta {
   .decision-dock {
     align-items: stretch;
     flex-direction: column-reverse;
+    gap: 10px;
     padding-top: 12px;
+    padding-right: 16px;
     padding-bottom: 12px;
+    padding-left: 16px;
   }
 
   .primary-actions,

@@ -39,6 +39,7 @@ class WorkspaceSourceType(str, Enum):
     MEETING_TRANSCRIPT = "meeting_transcript"
     NOTE = "note"
     DOCUMENT = "document"
+    EXISTING_CONTRACT = "existing_contract"
 
 
 class DashboardFilter(str, Enum):
@@ -50,6 +51,7 @@ class DashboardFilter(str, Enum):
 class WorkspaceAction(str, Enum):
     ADD_SOURCE = "ADD_SOURCE"
     REVIEW_PROPOSALS = "REVIEW_PROPOSALS"
+    DEFINE_CRITERIA = "DEFINE_CRITERIA"
     PREPARE_AGREEMENT = "PREPARE_AGREEMENT"
     CREATE_CUSTOMER_REVIEW = "CREATE_CUSTOMER_REVIEW"
     WAIT_FOR_CUSTOMER = "WAIT_FOR_CUSTOMER"
@@ -59,6 +61,7 @@ class WorkspaceAction(str, Enum):
     WAIT_FOR_PROOF = "WAIT_FOR_PROOF"
     RERUN_POC = "RERUN_POC"
     REVIEW_EVIDENCE = "REVIEW_EVIDENCE"
+    RECORD_DECISION_HANDOFF = "RECORD_DECISION_HANDOFF"
     RESOLVE_BLOCKER = "RESOLVE_BLOCKER"
     NONE = "NONE"
 
@@ -104,6 +107,8 @@ class POCWorkflowFacts(FrozenExitSpecModel):
     source_count: int = Field(default=0, ge=0)
     source_types: Tuple[WorkspaceSourceType, ...] = Field(default_factory=tuple)
     pending_draft_count: int = Field(default=0, ge=0)
+    kept_proposal_count: int = Field(default=0, ge=0)
+    defined_criterion_count: int = Field(default=0, ge=0)
     approved_criterion_count: int = Field(default=0, ge=0)
     active_contract_id: Optional[str] = Field(
         default=None,
@@ -147,6 +152,16 @@ class POCWorkflowFacts(FrozenExitSpecModel):
         ):
             raise ValueError("action_since must be timezone-aware.")
         return value
+
+    @model_validator(mode="after")
+    def require_definition_counts_to_follow_review(
+        self,
+    ) -> "POCWorkflowFacts":
+        if self.defined_criterion_count > self.kept_proposal_count:
+            raise ValueError(
+                "Defined criterion count cannot exceed kept proposal count."
+            )
+        return self
 
 
 class SourceSummary(FrozenExitSpecModel):
@@ -591,6 +606,7 @@ def _source_type_label(source_type: WorkspaceSourceType) -> str:
         WorkspaceSourceType.MEETING_TRANSCRIPT: "Meeting transcript",
         WorkspaceSourceType.NOTE: "Note",
         WorkspaceSourceType.DOCUMENT: "Document",
+        WorkspaceSourceType.EXISTING_CONTRACT: "Existing contract",
     }[source_type]
 
 
@@ -613,6 +629,13 @@ def _derive_action(
             WorkspacePhase.DECIDE,
             WorkspaceAction.NONE,
             "This POC is archived.",
+        )
+
+    if record.archive_state == ArchiveState.COMPLETED:
+        return (
+            WorkspacePhase.DECIDE,
+            WorkspaceAction.NONE,
+            "POC closed after an explicit human decision and Evidence Pack handoff.",
         )
 
     if facts.verdict is not None:
@@ -675,6 +698,19 @@ def _derive_action(
             ),
         )
 
+    undefined_kept_count = (
+        facts.kept_proposal_count - facts.defined_criterion_count
+    )
+    if undefined_kept_count > 0:
+        return (
+            WorkspacePhase.DEFINE,
+            WorkspaceAction.DEFINE_CRITERIA,
+            "Define acceptance criteria for {0} kept proposal{1}.".format(
+                undefined_kept_count,
+                "" if undefined_kept_count == 1 else "s",
+            ),
+        )
+
     if facts.contract_status in {ContractStatus.DRAFT, ContractStatus.IN_REVIEW}:
         return (
             WorkspacePhase.DEFINE,
@@ -689,10 +725,24 @@ def _derive_action(
             "Prepare the customer-visible agreement.",
         )
 
+    if facts.defined_criterion_count > 0:
+        return (
+            WorkspacePhase.DEFINE,
+            WorkspaceAction.PREPARE_AGREEMENT,
+            "Prepare an agreement from {0} defined acceptance {1}.".format(
+                facts.defined_criterion_count,
+                (
+                    "criterion"
+                    if facts.defined_criterion_count == 1
+                    else "criteria"
+                ),
+            ),
+        )
+
     if facts.source_count > 0:
         return (
             WorkspacePhase.DEFINE,
-            WorkspaceAction.REVIEW_PROPOSALS,
+            WorkspaceAction.PREPARE_AGREEMENT,
             "Define an executable requirement from the reviewed source.",
         )
 
@@ -709,23 +759,35 @@ def _verdict_action(
     if verdict == VerdictStatus.PASS:
         return (
             WorkspacePhase.DECIDE,
-            WorkspaceAction.REVIEW_EVIDENCE,
-            "Review and share the Evidence Pack. PASS is not authorization.",
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
+            (
+                "Record the human decision and complete the Evidence Pack handoff. "
+                "PASS is not authorization."
+            ),
         )
     if verdict == VerdictStatus.FAIL:
         return (
             WorkspacePhase.DECIDE,
-            WorkspaceAction.REVIEW_EVIDENCE,
-            "Review the failed criterion and decide whether to revise or stop.",
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
+            (
+                "Record whether the human handoff is complete or the POC is "
+                "stopped; FAIL is evidence, not authorization."
+            ),
         )
     if verdict == VerdictStatus.BLOCKED:
         return (
             WorkspacePhase.DECIDE,
-            WorkspaceAction.RERUN_POC,
-            "Resolve the external blocker, then rerun the frozen agreement.",
+            WorkspaceAction.RECORD_DECISION_HANDOFF,
+            (
+                "Record the human decision to stop or hand off the BLOCKED "
+                "Evidence Pack; rerunning remains a separate action."
+            ),
         )
     return (
         WorkspacePhase.DECIDE,
-        WorkspaceAction.RERUN_POC,
-        "Collect sufficient valid evidence, then rerun the frozen agreement.",
+        WorkspaceAction.RECORD_DECISION_HANDOFF,
+        (
+            "Record the human decision to stop or hand off the NOT_PROVEN "
+            "Evidence Pack; no success claim is authorized."
+        ),
     )

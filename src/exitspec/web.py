@@ -24,11 +24,13 @@ from decimal import Decimal
 from functools import wraps
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, unquote, urlparse
 
 import yaml
+from pydantic import ValidationError
 
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import (
@@ -55,6 +57,7 @@ from .confirmations import (
 )
 from .contracts import freeze_confirmed_contract, utc_now as contract_utc_now
 from .demo_data import support_agent_demo_paths
+from .draft_workspace import project_draft_dashboard
 from .intake import (
     TranscriptIntakeError,
     TranscriptRedactionSummary,
@@ -71,6 +74,7 @@ from .models import (
     POCContract,
     ProportionRule,
     ReviewDecision,
+    RunStatus,
     TranscriptSpan,
     VerdictStatus,
 )
@@ -79,12 +83,71 @@ from .performance_workspace import (
     performance_poc_detail_payload,
     performance_workspace_record_and_facts,
 )
+from .performance_web_api import (
+    handle_performance_web_api_request,
+    is_performance_web_api_target,
+)
+from .performance_web_runtime import PerformanceWebRuntime
+from .performance_web_service import (
+    build_trusted_performance_web_runtime,
+)
+from .poc_contract_definition import ProcessLocalContractDefinitionService
+from .poc_contract_definition_web_api import (
+    handle_poc_contract_definition_web_api_request,
+    is_poc_contract_definition_web_api_target,
+)
+from .poc_creation import (
+    DraftPOCArchiveState,
+    DraftPOCCapacityExceeded,
+    DraftPOCCreateRequest,
+    DraftPOCIdempotencyConflict,
+    DraftPOCNotFound,
+    DuplicateDraftPOCId,
+    ProcessLocalDraftPOCService,
+)
+from .poc_performance_lifecycle import (
+    PerformanceLifecycleError,
+    PerformanceLifecycleSnapshot,
+    ProcessLocalPerformanceLifecycleService,
+)
+from .poc_performance_lifecycle_web_api import (
+    handle_performance_lifecycle_web_api_request,
+    is_performance_lifecycle_web_api_target,
+)
+from .poc_performance_run import (
+    POCPerformanceRunSnapshot,
+    POCPerformanceRunStatus,
+    ProcessLocalPOCPerformanceRunService,
+)
+from .poc_performance_run_web_api import (
+    handle_poc_performance_run_web_api_request,
+    is_poc_performance_run_web_api_target,
+)
+from .poc_proposal_review import (
+    ProcessLocalProposalReviewService,
+    ProposalReviewState,
+)
+from .poc_proposal_web_api import (
+    handle_poc_proposal_web_api_request,
+    is_poc_proposal_web_api_target,
+)
+from .poc_source_intake import ProcessLocalPOCSourceIntake
+from .poc_source_web_api import (
+    handle_poc_source_web_api_request,
+    is_poc_source_web_api_target,
+)
 from .provider_egress import (
     InMemoryProviderEgressAuthorizer,
     ProviderEgressAcknowledgement,
     ProviderEgressAcknowledgementError,
 )
 from .providers import ProviderError, StructuredJSONRequest
+from .reference_inference import (
+    REFERENCE_ENDPOINT_PATH,
+    ReferenceInferenceRequestError,
+    reference_sse_payload,
+    validate_reference_request,
+)
 from .runner import RunResult, run_demo
 from .reporting import render_customer_draft
 from .review_links import (
@@ -125,11 +188,28 @@ from .wave1_runtime import (
 from .workspace import (
     ArchiveState,
     DashboardFilter,
+    DashboardProjection,
     POCRegistryEntry,
+    POCWorkspaceProjection,
     POCWorkflowFacts,
     ReadOnlyPOCRegistry,
+    WorkspaceAction,
+    WorkspaceBlocker,
+    WorkspaceEvidenceState,
+    WorkspacePhase,
     WorkspaceSourceType,
     project_dashboard,
+)
+from .workspace_closure import (
+    HumanPOCClosureRecord,
+    HumanPOCClosureRequest,
+    POCClosureBindingMismatch,
+    POCClosureCapacityExceeded,
+    POCClosureConflict,
+    POCClosureEvidenceUnavailable,
+    POCClosureIdempotencyConflict,
+    ProcessLocalPOCClosureService,
+    TerminalEvidenceBinding,
 )
 
 
@@ -154,6 +234,17 @@ PROVIDER_ROUTE_PARAMETERS_ERROR = (
 WORKSPACE_FILTER_ERROR = (
     "Workspace filter must be exactly Active, Needs attention, or Completed."
 )
+DRAFT_POC_ROUTE_PARAMETERS_ERROR = (
+    "Draft POC routes do not accept URL parameters."
+)
+DRAFT_POC_INVALID_REQUEST_ERROR = "Draft POC request is invalid."
+DRAFT_POC_CONFLICT_ERROR = (
+    "That idempotency key is already bound to a different draft POC request."
+)
+DRAFT_POC_CAPACITY_ERROR = (
+    "Draft POC creation is temporarily unavailable in this local process."
+)
+DRAFT_POC_NOT_FOUND_ERROR = "Draft POC was not found in this local process."
 SUPPORTED_RULE_TEMPLATE = {
     "metric": Metric.EXACT_TOOL_SELECTION_RATE.value,
     "metric_label": "Exact expected support-tool selection",
@@ -1756,7 +1847,11 @@ class DemoSession:
                     ),
                 },
                 "local_demo": {
-                    "return_url": "/app",
+                    "return_url": (
+                        "/app/pocs/{0}".format(
+                            SYNTHETIC_SUPPORT_AGENT_POC_ID
+                        )
+                    ),
                     "notice": (
                         "Local loopback demo only. A hosted customer review would "
                         "not expose an internal workspace shortcut."
@@ -2341,6 +2436,287 @@ def _capture_source_candidates(transcript: DiscoveryTranscript) -> List[Criterio
     ]
 
 
+def _newest_workspace_items_first(
+    items: Sequence[POCWorkspaceProjection],
+) -> Tuple[POCWorkspaceProjection, ...]:
+    """Keep newly created local drafts ahead of older local work."""
+
+    return tuple(
+        sorted(
+            items,
+            key=lambda item: (item.updated_at, item.poc_id),
+            reverse=True,
+        )
+    )
+
+
+def _unavailable_draft_workspace_projection(
+    projected: POCWorkspaceProjection,
+) -> POCWorkspaceProjection:
+    """Replace an unverifiable source summary with one explicit safe blocker."""
+
+    blocker = WorkspaceBlocker(
+        code="draft_source_summary_unavailable",
+        message="Source status is unavailable. Reload before continuing.",
+    )
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "source_summary": {
+                "count": 0,
+                "types": (),
+                "label": "Source status unavailable",
+            },
+            "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+            "next_human_action": blocker.message,
+            "blockers": (blocker,),
+            "attention_required": True,
+        }
+    )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
+def _unavailable_review_workspace_projection(
+    projected: POCWorkspaceProjection,
+) -> POCWorkspaceProjection:
+    """Keep source facts visible while refusing an unknown review state."""
+
+    blocker = WorkspaceBlocker(
+        code="draft_proposal_review_unavailable",
+        message="Proposal review status is unavailable. Reload before continuing.",
+    )
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+            "next_human_action": blocker.message,
+            "blockers": (blocker,),
+            "attention_required": True,
+        }
+    )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
+def _agreement_aware_workspace_projection(
+    projected: POCWorkspaceProjection,
+    snapshot: PerformanceLifecycleSnapshot,
+    run_snapshot: POCPerformanceRunSnapshot | None = None,
+) -> POCWorkspaceProjection:
+    """Project the exact local agreement lifecycle onto one dashboard row."""
+
+    preparation = snapshot.preparation
+    if preparation is None:
+        return projected
+
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "active_contract_id": preparation.draft_id,
+            "active_contract_version": None,
+            "derived_phase": WorkspacePhase.DEFINE,
+            "next_action_code": WorkspaceAction.CREATE_CUSTOMER_REVIEW,
+            "next_human_action": (
+                "Review and record customer confirmation for this agreement."
+            ),
+            "action_since": preparation.prepared_at,
+            "updated_at": max(projected.updated_at, preparation.prepared_at),
+        }
+    )
+    if snapshot.confirmation is not None:
+        payload.update(
+            {
+                "next_action_code": (
+                    WorkspaceAction.FREEZE_CONFIRMED_CONTRACT
+                ),
+                "next_human_action": "Freeze confirmed contract.",
+                "action_since": snapshot.confirmation.decided_at,
+                "updated_at": max(
+                    projected.updated_at,
+                    snapshot.confirmation.decided_at,
+                ),
+            }
+        )
+    if snapshot.frozen_contract is not None:
+        frozen = snapshot.frozen_contract
+        payload.update(
+            {
+                "active_contract_id": frozen.id,
+                "active_contract_version": str(frozen.version),
+                "derived_phase": WorkspacePhase.PROVE,
+                "next_action_code": WorkspaceAction.RUN_POC,
+                "next_human_action": (
+                    "Bind and run this POC against the frozen agreement."
+                ),
+                "action_since": frozen.frozen_at,
+                "updated_at": max(projected.updated_at, frozen.frozen_at),
+            }
+        )
+    if run_snapshot is not None:
+        run_status = run_snapshot.status
+        if run_status is POCPerformanceRunStatus.RUNNING:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.WAIT_FOR_PROOF,
+                    "next_human_action": (
+                        "Wait for the active proof run to finish."
+                    ),
+                }
+            )
+        elif run_status is POCPerformanceRunStatus.BLOCKED:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.RERUN_POC,
+                    "next_human_action": (
+                        "Resolve endpoint readiness, then retry the proof."
+                    ),
+                    "latest_evidence_summary": {
+                        "status": WorkspaceEvidenceState.BLOCKED,
+                        "reason": (
+                            run_snapshot.reason_code
+                            or "The proof run was blocked."
+                        ),
+                        "report_url": None,
+                    },
+                    "attention_required": True,
+                }
+            )
+        elif run_status is POCPerformanceRunStatus.NOT_PROVEN:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.RERUN_POC,
+                    "next_human_action": (
+                        "Review the unproven run, then retry safely."
+                    ),
+                    "latest_evidence_summary": {
+                        "status": WorkspaceEvidenceState.NOT_PROVEN,
+                        "reason": (
+                            run_snapshot.reason_code
+                            or "The proof did not produce verified evidence."
+                        ),
+                        "report_url": None,
+                    },
+                    "attention_required": True,
+                }
+            )
+        elif run_status is POCPerformanceRunStatus.COMPLETED:
+            verdict = run_snapshot.verdict
+            if verdict is None or run_snapshot.evidence_pack_url is None:
+                raise ValueError(
+                    "Completed performance run lacks verified evidence."
+                )
+            evidence_state = WorkspaceEvidenceState(verdict.value)
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.DECIDE,
+                    "next_action_code": (
+                        WorkspaceAction.RECORD_DECISION_HANDOFF
+                    ),
+                    "next_human_action": (
+                        "Record the human decision and complete the verified "
+                        "{0} Evidence Pack handoff. The verdict does not "
+                        "authorize shipping.".format(verdict.value)
+                    ),
+                    "latest_evidence_summary": {
+                        "status": evidence_state,
+                        "reason": (
+                            "Verified performance decision: {0}.".format(
+                                verdict.value
+                            )
+                        ),
+                        "report_url": run_snapshot.evidence_pack_url,
+                    },
+                    "attention_required": True,
+                }
+            )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
+def _closure_aware_workspace_projection(
+    projected: POCWorkspaceProjection,
+    closure: Optional[HumanPOCClosureRecord],
+    current_binding: Optional[TerminalEvidenceBinding],
+) -> POCWorkspaceProjection:
+    """Apply one separately recorded closure without mutating workflow state."""
+
+    if closure is None:
+        return projected
+
+    payload = projected.model_dump(mode="python")
+    payload.update(
+        {
+            "archive_state": ArchiveState.COMPLETED,
+            "updated_at": max(projected.updated_at, closure.recorded_at),
+            "action_since": closure.recorded_at,
+        }
+    )
+    if current_binding != closure.evidence_binding:
+        blocker = WorkspaceBlocker(
+            code="closure_evidence_binding_unverifiable",
+            message=(
+                "The recorded closure no longer matches the current terminal "
+                "Evidence Pack. Review the evidence boundary."
+            ),
+        )
+        payload.update(
+            {
+                "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+                "next_human_action": blocker.message,
+                "blockers": (blocker,),
+                "attention_required": True,
+            }
+        )
+    elif projected.blockers:
+        payload.update(
+            {
+                "next_action_code": WorkspaceAction.RESOLVE_BLOCKER,
+                "next_human_action": projected.blockers[0].message,
+                "attention_required": True,
+            }
+        )
+    else:
+        payload.update(
+            {
+                "derived_phase": WorkspacePhase.DECIDE,
+                "next_action_code": WorkspaceAction.NONE,
+                "next_human_action": (
+                    "POC closed by {0} after an explicit {1} decision and "
+                    "Evidence Pack handoff. Shipping was not authorized."
+                ).format(
+                    closure.decided_by,
+                    closure.decision.value,
+                ),
+                "blockers": (),
+                "attention_required": False,
+            }
+        )
+    return POCWorkspaceProjection.model_validate(payload)
+
+
+def _workspace_items_for_filter(
+    items: Sequence[POCWorkspaceProjection],
+    selected_filter: DashboardFilter,
+) -> Tuple[POCWorkspaceProjection, ...]:
+    """Apply the dashboard's bounded filters after closure projection."""
+
+    if selected_filter is DashboardFilter.ACTIVE:
+        return tuple(
+            item for item in items if item.archive_state is ArchiveState.ACTIVE
+        )
+    if selected_filter is DashboardFilter.NEEDS_ATTENTION:
+        return tuple(
+            item
+            for item in items
+            if item.archive_state is ArchiveState.ACTIVE
+            and item.attention_required
+        )
+    return tuple(
+        item for item in items if item.archive_state is ArchiveState.COMPLETED
+    )
+
+
 class ExitSpecDemoServer(ThreadingHTTPServer):
     """A loopback-only server with one ephemeral DemoSession."""
 
@@ -2356,6 +2732,8 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         wave1_provider_execution: Optional[
             Wave1ProviderExecutionConfiguration
         ] = None,
+        performance_runtime: Optional[PerformanceWebRuntime] = None,
+        performance_fireworks_api_key: object = None,
     ) -> None:
         configuration = (
             Wave1ProviderExecutionConfiguration()
@@ -2365,13 +2743,343 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         if type(configuration) is not Wave1ProviderExecutionConfiguration:
             raise ValueError(
                 "Wave-1 provider execution configuration is invalid."
-            )
+        )
         self._resource_stack = resource_stack
+        self.draft_poc_service = ProcessLocalDraftPOCService()
+        self.poc_source_intake = ProcessLocalPOCSourceIntake(
+            draft_lookup=self.draft_poc_service.get,
+        )
+        self.proposal_review_service = ProcessLocalProposalReviewService(
+            proposal_lookup=self.poc_source_intake.proposal_inputs,
+        )
+        self.contract_definition_service = (
+            ProcessLocalContractDefinitionService(
+                proposal_lookup=self.proposal_review_service.list_proposals,
+            )
+        )
+        performance_prompt_bytes = (
+            files("exitspec.demo_data")
+            .joinpath(
+                "inference_performance",
+                "prompts",
+                "synthetic-latency-v1.jsonl",
+            )
+            .read_bytes()
+        )
+        self.performance_lifecycle_service = (
+            ProcessLocalPerformanceLifecycleService(
+                draft_lookup=self.draft_poc_service.get,
+                proposal_lookup=self.proposal_review_service.list_proposals,
+                definition_lookup=self.contract_definition_service.definitions,
+                prompt_bytes=performance_prompt_bytes,
+            )
+        )
+        self.poc_performance_run_service = (
+            ProcessLocalPOCPerformanceRunService(
+                lifecycle=self.performance_lifecycle_service,
+                output_root=session.output_root.resolve(),
+                fireworks_api_key=performance_fireworks_api_key,
+            )
+        )
+        if (
+            performance_runtime is not None
+            and type(performance_runtime) is not PerformanceWebRuntime
+        ):
+            raise ValueError("Performance web runtime is invalid.")
+        self.performance_runtime = (
+            performance_runtime
+            if performance_runtime is not None
+            else build_trusted_performance_web_runtime(
+                output_root=session.output_root.resolve(),
+            )
+        )
         super().__init__(address, ExitSpecDemoRequestHandler)
         self.session = session
+        self.poc_closure_service = ProcessLocalPOCClosureService(
+            evidence_resolver=self._terminal_evidence_binding,
+        )
         self.wave1_provider_execution = configuration
         self.session.configure_wave1_provider_execution(configuration)
         self.static_root = STATIC_ROOT
+
+    def workspace_payload(
+        self,
+        selected_filter: DashboardFilter,
+    ) -> Dict[str, Any]:
+        """Merge local drafts into the seeded read-only dashboard projection."""
+
+        seeded_active = DashboardProjection.model_validate(
+            self.session.workspace_payload(DashboardFilter.ACTIVE)
+        )
+        drafts = self.draft_poc_service.snapshots()
+        receipts_by_poc_id = {}
+        pending_proposal_counts_by_poc_id = {}
+        kept_proposal_counts_by_poc_id = {}
+        defined_criterion_counts_by_poc_id = {}
+        agreement_snapshots_by_poc_id = {}
+        performance_run_snapshots_by_poc_id = {}
+        unavailable = []
+        for draft in drafts:
+            try:
+                receipts_by_poc_id[draft.poc_id] = (
+                    self.poc_source_intake.list_receipts(draft.poc_id)
+                )
+            except Exception:
+                projected = project_draft_dashboard((draft,), {})
+                if projected.continue_working is not None:
+                    unavailable.append(
+                        _unavailable_draft_workspace_projection(
+                            projected.continue_working
+                        )
+                    )
+                continue
+            try:
+                proposal_items = self.proposal_review_service.list_proposals(
+                    draft.poc_id
+                )
+                pending_proposal_counts_by_poc_id[draft.poc_id] = sum(
+                    item.review_state == ProposalReviewState.NEEDS_REVIEW
+                    for item in proposal_items
+                )
+                kept_proposal_counts_by_poc_id[draft.poc_id] = sum(
+                    item.review_state
+                    == ProposalReviewState.KEEP_FOR_CONTRACT
+                    for item in proposal_items
+                )
+                defined_criterion_counts_by_poc_id[draft.poc_id] = sum(
+                    definition.poc_id == draft.poc_id
+                    for definition in (
+                        self.contract_definition_service.definitions()
+                    )
+                )
+                agreement_snapshot = (
+                    self.performance_lifecycle_service.snapshot(draft.poc_id)
+                )
+                agreement_snapshots_by_poc_id[draft.poc_id] = (
+                    agreement_snapshot
+                )
+                performance_run_snapshots_by_poc_id[draft.poc_id] = (
+                    None
+                    if agreement_snapshot.frozen_contract is None
+                    else self.poc_performance_run_service.snapshot(
+                        draft.poc_id
+                    )
+                )
+            except Exception:
+                projected = project_draft_dashboard(
+                    (draft,),
+                    {draft.poc_id: receipts_by_poc_id[draft.poc_id]},
+                )
+                receipts_by_poc_id.pop(draft.poc_id, None)
+                pending_proposal_counts_by_poc_id.pop(draft.poc_id, None)
+                kept_proposal_counts_by_poc_id.pop(draft.poc_id, None)
+                defined_criterion_counts_by_poc_id.pop(draft.poc_id, None)
+                agreement_snapshots_by_poc_id.pop(draft.poc_id, None)
+                performance_run_snapshots_by_poc_id.pop(
+                    draft.poc_id,
+                    None,
+                )
+                if projected.continue_working is not None:
+                    unavailable.append(
+                        _unavailable_review_workspace_projection(
+                            projected.continue_working
+                        )
+                    )
+
+        available_drafts = tuple(
+            draft
+            for draft in drafts
+            if (
+                draft.poc_id in receipts_by_poc_id
+                and draft.poc_id in pending_proposal_counts_by_poc_id
+                and draft.poc_id in kept_proposal_counts_by_poc_id
+                and draft.poc_id in defined_criterion_counts_by_poc_id
+                and draft.poc_id in agreement_snapshots_by_poc_id
+                and draft.poc_id in performance_run_snapshots_by_poc_id
+            )
+        )
+        draft_active = project_draft_dashboard(
+            available_drafts,
+            receipts_by_poc_id,
+            pending_proposal_counts_by_poc_id=(
+                pending_proposal_counts_by_poc_id
+            ),
+            kept_proposal_counts_by_poc_id=(
+                kept_proposal_counts_by_poc_id
+            ),
+            defined_criterion_counts_by_poc_id=(
+                defined_criterion_counts_by_poc_id
+            ),
+            selected_filter=DashboardFilter.ACTIVE,
+        )
+        local_items = _newest_workspace_items_first(
+            (
+                *(
+                    self._project_closure(
+                        _agreement_aware_workspace_projection(
+                            item,
+                            agreement_snapshots_by_poc_id[item.poc_id],
+                            performance_run_snapshots_by_poc_id[item.poc_id],
+                        )
+                    )
+                    for item in draft_active.pocs
+                ),
+                *unavailable,
+            )
+        )
+        seeded_items = tuple(
+            self._project_closure(item) for item in seeded_active.pocs
+        )
+        active_local = _workspace_items_for_filter(
+            local_items,
+            DashboardFilter.ACTIVE,
+        )
+        active_seeded = _workspace_items_for_filter(
+            seeded_items,
+            DashboardFilter.ACTIVE,
+        )
+        visible_local = _workspace_items_for_filter(
+            local_items,
+            selected_filter,
+        )
+        visible_seeded = _workspace_items_for_filter(
+            seeded_items,
+            selected_filter,
+        )
+
+        dashboard = DashboardProjection(
+            selected_filter=selected_filter,
+            available_filters=seeded_active.available_filters,
+            continue_working=(
+                active_local[0]
+                if active_local
+                else (active_seeded[0] if active_seeded else None)
+            ),
+            pocs=tuple((*visible_local, *visible_seeded)),
+        )
+        return dashboard.model_dump(mode="json")
+
+    def _project_closure(
+        self,
+        projection: POCWorkspaceProjection,
+    ) -> POCWorkspaceProjection:
+        closure = self.poc_closure_service.get(projection.poc_id)
+        if closure is None:
+            return projection
+        try:
+            current_binding = self._terminal_evidence_binding(projection.poc_id)
+        except Exception:
+            current_binding = None
+        return _closure_aware_workspace_projection(
+            projection,
+            closure,
+            current_binding,
+        )
+
+    def _terminal_evidence_binding(
+        self,
+        poc_id: str,
+    ) -> Optional[TerminalEvidenceBinding]:
+        """Resolve authoritative terminal evidence without trusting a web payload."""
+
+        if poc_id == SYNTHETIC_SUPPORT_AGENT_POC_ID:
+            result = self.session.last_run
+            if (
+                result is None
+                or result.manifest.status
+                not in {
+                    RunStatus.COMPLETED,
+                    RunStatus.BLOCKED,
+                    RunStatus.FAILED_INTERNAL,
+                }
+            ):
+                return None
+            proof = self.session._proof_payload()
+            if proof is None:
+                return None
+            contract_hash = result.contract.canonical_hash
+            if contract_hash is None:
+                return None
+            evidence_url = proof["report_url"]
+            evidence_sha256 = self._evidence_pack_sha256(evidence_url)
+            if evidence_sha256 is None:
+                return None
+            return TerminalEvidenceBinding(
+                poc_id=poc_id,
+                contract_id=result.contract.id,
+                contract_version=result.contract.version,
+                contract_hash=contract_hash,
+                run_id=result.manifest.run_id,
+                verdict=result.overall_verdict.verdict,
+                evidence_pack_url=evidence_url,
+                evidence_pack_sha256=evidence_sha256,
+            )
+
+        if poc_id == PERFORMANCE_POC_ID:
+            return None
+        try:
+            draft = self.draft_poc_service.get(poc_id)
+        except (ValueError, DraftPOCNotFound):
+            return None
+        if draft.archive_state is not DraftPOCArchiveState.ACTIVE:
+            return None
+        try:
+            snapshot = self.poc_performance_run_service.snapshot(poc_id)
+        except Exception:
+            return None
+        if (
+            snapshot.status is not POCPerformanceRunStatus.COMPLETED
+            or snapshot.operation_id is None
+            or snapshot.verdict is None
+            or snapshot.evidence_pack_url is None
+        ):
+            return None
+        evidence_sha256 = self._evidence_pack_sha256(
+            snapshot.evidence_pack_url
+        )
+        if evidence_sha256 is None:
+            return None
+        return TerminalEvidenceBinding(
+            poc_id=poc_id,
+            contract_id=snapshot.contract_id,
+            contract_version=snapshot.contract_version,
+            contract_hash=snapshot.contract_hash,
+            run_id=snapshot.operation_id,
+            verdict=snapshot.verdict,
+            evidence_pack_url=snapshot.evidence_pack_url,
+            evidence_pack_sha256=evidence_sha256,
+        )
+
+    def _evidence_pack_sha256(self, evidence_pack_url: str) -> Optional[str]:
+        if (
+            type(evidence_pack_url) is not str
+            or not evidence_pack_url.startswith("/artifacts/")
+        ):
+            return None
+        relative = evidence_pack_url.removeprefix("/artifacts/")
+        target = _safe_child(self.session.output_root, relative)
+        if (
+            target is None
+            or not target.is_file()
+            or target.name != "decision-packet.html"
+        ):
+            return None
+        try:
+            return hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def known_workspace_poc(self, poc_id: str) -> bool:
+        if poc_id in {
+            SYNTHETIC_SUPPORT_AGENT_POC_ID,
+            PERFORMANCE_POC_ID,
+        }:
+            return True
+        try:
+            self.draft_poc_service.get(poc_id)
+        except (ValueError, DraftPOCNotFound):
+            return False
+        return True
 
     def server_close(self) -> None:
         """Release materialized package resources only after the server is closed."""
@@ -2387,6 +3095,73 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
 
 class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
     server: ExitSpecDemoServer
+
+    def _dispatch_reference_inference(self) -> bool:
+        """Serve one exact loopback-only deterministic streaming target."""
+
+        parsed = urlparse(self.path)
+        if parsed.path != REFERENCE_ENDPOINT_PATH:
+            return False
+        self.close_connection = True
+        if parsed.params or parsed.query or parsed.fragment:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Reference inference request is invalid."},
+            )
+            return True
+        if self.command != "POST":
+            self._send_json(
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "Reference inference method is not allowed."},
+            )
+            return True
+        if self.client_address[0] not in LOOPBACK_ORIGIN_HOSTS:
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "Reference inference is loopback-only."},
+            )
+            return True
+        if self.headers.get_all("Authorization"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Reference inference does not accept credentials."},
+            )
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+            validate_reference_request(payload)
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Reference inference request is too large."},
+            )
+            return True
+        except (ReferenceInferenceRequestError, TypeError, ValueError):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Reference inference request is invalid."},
+            )
+            return True
+
+        response = reference_sse_payload()
+        self.send_response(HTTPStatus.OK)
+        self.send_header(
+            "Content-Type",
+            "text/event-stream; charset=utf-8",
+        )
+        self.send_header("Content-Length", str(len(response)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(response)
+        return True
 
     def _source_header_values(self, name: str) -> Sequence[str]:
         return tuple(self.headers.get_all(name) or ())
@@ -2476,6 +3251,556 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
         return True
 
+    def _dispatch_performance_read(self) -> bool:
+        response = handle_performance_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.performance_runtime,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_performance_write(self) -> bool:
+        if not is_performance_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_performance_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.performance_runtime,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        try:
+            payload = self._read_json()
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance API request is invalid."},
+            )
+            return True
+        response = handle_performance_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            runtime=self.server.performance_runtime,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_source_read(self) -> bool:
+        response = handle_poc_source_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.poc_source_intake,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_source_write(self) -> bool:
+        if not is_poc_source_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_poc_source_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.poc_source_intake,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Source intake request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Source intake request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Source intake request is invalid."},
+            )
+            return True
+        response = handle_poc_source_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            runtime=self.server.poc_source_intake,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_proposal_read(self) -> bool:
+        response = handle_poc_proposal_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.proposal_review_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_proposal_write(self) -> bool:
+        if not is_poc_proposal_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_poc_proposal_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.proposal_review_service,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Proposal review request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Proposal review request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Proposal review request is invalid."},
+            )
+            return True
+        response = handle_poc_proposal_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            runtime=self.server.proposal_review_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_contract_definition_read(self) -> bool:
+        poc_id = _contract_definition_api_poc_id(
+            urlparse(self.path).path
+        )
+        if poc_id is not None and not self._allow_active_definition_poc(
+            poc_id
+        ):
+            return True
+        response = handle_poc_contract_definition_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            definition_runtime=self.server.contract_definition_service,
+            proposal_runtime=self.server.proposal_review_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_poc_contract_definition_write(self) -> bool:
+        if not is_poc_contract_definition_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_poc_contract_definition_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                definition_runtime=self.server.contract_definition_service,
+                proposal_runtime=self.server.proposal_review_service,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = _contract_definition_api_poc_id(parsed.path)
+        if poc_id is not None and not self._allow_active_definition_poc(
+            poc_id
+        ):
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Contract definition request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Contract definition request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Contract definition request is invalid."},
+            )
+            return True
+        response = handle_poc_contract_definition_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            definition_runtime=self.server.contract_definition_service,
+            proposal_runtime=self.server.proposal_review_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _allow_active_definition_poc(self, poc_id: str) -> bool:
+        """Keep archived or unknown local drafts outside authoring routes."""
+
+        try:
+            draft = self.server.draft_poc_service.get(poc_id)
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Contract definition request is invalid."},
+            )
+            return False
+        except DraftPOCNotFound:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Contract definition was not found."},
+            )
+            return False
+        if draft.archive_state != DraftPOCArchiveState.ACTIVE:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Contract definition was not found."},
+            )
+            return False
+        return True
+
+    def _dispatch_performance_agreement_read(self) -> bool:
+        if not is_performance_lifecycle_web_api_target(self.path):
+            return False
+        poc_id = _performance_agreement_api_poc_id(
+            urlparse(self.path).path
+        )
+        if poc_id is not None and not self._allow_active_agreement_poc(
+            poc_id
+        ):
+            return True
+        response = handle_performance_lifecycle_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            lifecycle=self.server.performance_lifecycle_service,
+            proposals=self.server.proposal_review_service,
+            definitions=self.server.contract_definition_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_performance_agreement_write(self) -> bool:
+        if not is_performance_lifecycle_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_performance_lifecycle_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                lifecycle=self.server.performance_lifecycle_service,
+                proposals=self.server.proposal_review_service,
+                definitions=self.server.contract_definition_service,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = _performance_agreement_api_poc_id(parsed.path)
+        if poc_id is not None and not self._allow_active_agreement_poc(
+            poc_id
+        ):
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance agreement request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Performance agreement request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance agreement request is invalid."},
+            )
+            return True
+        response = handle_performance_lifecycle_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            lifecycle=self.server.performance_lifecycle_service,
+            proposals=self.server.proposal_review_service,
+            definitions=self.server.contract_definition_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _allow_active_agreement_poc(self, poc_id: str) -> bool:
+        """Keep archived or unknown local drafts outside agreement routes."""
+
+        try:
+            draft = self.server.draft_poc_service.get(poc_id)
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance agreement request is invalid."},
+            )
+            return False
+        except DraftPOCNotFound:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Performance agreement was not found."},
+            )
+            return False
+        if draft.archive_state != DraftPOCArchiveState.ACTIVE:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Performance agreement was not found."},
+            )
+            return False
+        return True
+
+    def _dispatch_dynamic_performance_run_read(self) -> bool:
+        if not is_poc_performance_run_web_api_target(self.path):
+            return False
+        poc_id = _poc_performance_run_api_poc_id(
+            urlparse(self.path).path
+        )
+        if poc_id is not None and not self._allow_active_performance_run_poc(
+            poc_id
+        ):
+            return True
+        response = handle_poc_performance_run_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.poc_performance_run_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_dynamic_performance_run_write(self) -> bool:
+        if not is_poc_performance_run_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_poc_performance_run_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.poc_performance_run_service,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = _poc_performance_run_api_poc_id(parsed.path)
+        if poc_id is not None and not self._allow_active_performance_run_poc(
+            poc_id
+        ):
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance run request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Performance run request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance run request is invalid."},
+            )
+            return True
+        response = handle_poc_performance_run_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=payload,
+            runtime=self.server.poc_performance_run_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _allow_active_performance_run_poc(self, poc_id: str) -> bool:
+        """Keep archived or unknown local drafts outside execution routes."""
+
+        try:
+            draft = self.server.draft_poc_service.get(poc_id)
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Performance run request is invalid."},
+            )
+            return False
+        except DraftPOCNotFound:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Performance run was not found."},
+            )
+            return False
+        if draft.archive_state != DraftPOCArchiveState.ACTIVE:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Performance run was not found."},
+            )
+            return False
+        return True
+
     def send_error(
         self,
         code: int,
@@ -2487,16 +3812,253 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if (
             code == HTTPStatus.NOT_IMPLEMENTED
             and hasattr(self, "path")
+            and self._dispatch_reference_inference()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
             and is_source_pipeline_target(self.path)
             and self._dispatch_source_request()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_performance_web_api_target(self.path)
+            and self._dispatch_performance_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_poc_source_web_api_target(self.path)
+            and self._dispatch_poc_source_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_poc_proposal_web_api_target(self.path)
+            and self._dispatch_poc_proposal_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_poc_contract_definition_web_api_target(self.path)
+            and self._dispatch_poc_contract_definition_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_performance_lifecycle_web_api_target(self.path)
+            and self._dispatch_performance_agreement_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and is_poc_performance_run_web_api_target(self.path)
+            and self._dispatch_dynamic_performance_run_read()
         ):
             return
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+        if self._dispatch_reference_inference():
+            return
         if self._dispatch_source_request():
             return
+        if self._dispatch_performance_read():
+            return
+        if self._dispatch_poc_source_read():
+            return
+        if self._dispatch_poc_proposal_read():
+            return
+        if self._dispatch_poc_contract_definition_read():
+            return
+        if self._dispatch_performance_agreement_read():
+            return
+        if self._dispatch_dynamic_performance_run_read():
+            return
         parsed = urlparse(self.path)
+        if parsed.path == "/app/pocs/new":
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        source_intake_poc_id = _source_intake_page_poc_id(parsed.path)
+        if source_intake_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                self.server.draft_poc_service.get(source_intake_poc_id)
+            except ValueError:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+                )
+                return
+            except DraftPOCNotFound:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        proposal_review_poc_id = _proposal_review_page_poc_id(parsed.path)
+        if proposal_review_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                self.server.draft_poc_service.get(proposal_review_poc_id)
+            except ValueError:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+                )
+                return
+            except DraftPOCNotFound:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        contract_definition_poc_id = _contract_definition_page_poc_id(
+            parsed.path
+        )
+        if contract_definition_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                draft = self.server.draft_poc_service.get(
+                    contract_definition_poc_id
+                )
+            except ValueError:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+                )
+                return
+            except DraftPOCNotFound:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            if draft.archive_state != DraftPOCArchiveState.ACTIVE:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        performance_agreement_poc_id = _performance_agreement_page_poc_id(
+            parsed.path
+        )
+        if performance_agreement_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            if not self._allow_active_agreement_poc(
+                performance_agreement_poc_id
+            ):
+                return
+            self._serve_static(parsed.path)
+            return
+        dynamic_proof_poc_id = _dynamic_proof_page_poc_id(parsed.path)
+        if dynamic_proof_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                proof_draft = self.server.draft_poc_service.get(
+                    dynamic_proof_poc_id
+                )
+            except (ValueError, DraftPOCNotFound):
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Page not found."},
+                )
+                return
+            if proof_draft.archive_state != DraftPOCArchiveState.ACTIVE:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Page not found."},
+                )
+                return
+            try:
+                self.server.performance_lifecycle_service.frozen_bundle(
+                    dynamic_proof_poc_id
+                )
+            except PerformanceLifecycleError:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": (
+                            "Performance proof requires a confirmed "
+                            "frozen agreement."
+                        )
+                    },
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        draft_poc_id = _draft_poc_api_id(parsed.path)
+        if draft_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+                )
+                return
+            try:
+                draft = self.server.draft_poc_service.get(draft_poc_id)
+            except ValueError:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+                )
+                return
+            except DraftPOCNotFound:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": DRAFT_POC_NOT_FOUND_ERROR},
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                draft.model_dump(mode="json"),
+            )
+            return
         if parsed.path == "/api/provider/fireworks/disclosure":
             if parsed.params or parsed.query or parsed.fragment:
                 self._send_json(
@@ -2526,7 +4088,50 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(
                 HTTPStatus.OK,
-                self.server.session.workspace_payload(selected_filter),
+                self.server.workspace_payload(selected_filter),
+            )
+            return
+        closure_poc_id = _workspace_closure_api_poc_id(parsed.path)
+        if closure_poc_id is not None:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "POC closure routes do not accept URL parameters."},
+                )
+                return
+            if not self.server.known_workspace_poc(closure_poc_id):
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "POC was not found."},
+                )
+                return
+            closure = self.server.poc_closure_service.get(closure_poc_id)
+            try:
+                binding = self.server._terminal_evidence_binding(
+                    closure_poc_id
+                )
+            except Exception:
+                binding = None
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "poc_id": closure_poc_id,
+                    "closeable": closure is None and binding is not None,
+                    "closure": (
+                        None
+                        if closure is None
+                        else closure.model_dump(mode="json")
+                    ),
+                    "eligible_evidence_binding": (
+                        None
+                        if binding is None
+                        else binding.model_dump(mode="json")
+                    ),
+                    "authorization": (
+                        "This action closes only the POC lifecycle. No verdict, "
+                        "including PASS, authorizes shipping."
+                    ),
+                },
             )
             return
         if parsed.path == "/api/workspace/pocs/{0}".format(PERFORMANCE_POC_ID):
@@ -2573,9 +4178,30 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._serve_static(parsed.path, parsed.query)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+        if self._dispatch_reference_inference():
+            return
         if self._dispatch_source_request():
             return
+        if self._dispatch_performance_write():
+            return
+        if self._dispatch_poc_source_write():
+            return
+        if self._dispatch_poc_proposal_write():
+            return
+        if self._dispatch_poc_contract_definition_write():
+            return
+        if self._dispatch_performance_agreement_write():
+            return
+        if self._dispatch_dynamic_performance_run_write():
+            return
         parsed = urlparse(self.path)
+        closure_poc_id = _workspace_closure_api_poc_id(parsed.path)
+        if closure_poc_id is not None:
+            self._record_workspace_closure(parsed, closure_poc_id)
+            return
+        if parsed.path == "/api/pocs":
+            self._create_draft_poc(parsed)
+            return
         is_provider_authority_action = parsed.path in {
             "/api/provider/fireworks/authorization",
             "/api/provider/fireworks/execution",
@@ -2861,7 +4487,187 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
+    def _create_draft_poc(self, parsed: Any) -> None:
+        """Create identity only; this route owns no workflow authority."""
+
+        if parsed.params or parsed.query or parsed.fragment:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": DRAFT_POC_ROUTE_PARAMETERS_ERROR},
+            )
+            return
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return
+
+        try:
+            payload = self._read_json()
+            _require_only_fields(
+                payload,
+                {
+                    "display_name",
+                    "customer_label",
+                    "use_case",
+                    "owner",
+                    "first_source_choice",
+                    "idempotency_key",
+                },
+            )
+            idempotency_key = self._idempotency_key(payload)
+            request = DraftPOCCreateRequest.model_validate(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "idempotency_key"
+                }
+            )
+            result = self.server.draft_poc_service.create(
+                request,
+                idempotency_key=idempotency_key,
+            )
+        except DraftPOCIdempotencyConflict:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": DRAFT_POC_CONFLICT_ERROR},
+            )
+            return
+        except DuplicateDraftPOCId:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "Draft POC identity is already in use."},
+            )
+            return
+        except DraftPOCCapacityExceeded:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": DRAFT_POC_CAPACITY_ERROR},
+            )
+            return
+        except (TypeError, ValueError, ValidationError):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": DRAFT_POC_INVALID_REQUEST_ERROR},
+            )
+            return
+
+        response = result.draft.model_dump(mode="json")
+        response["idempotent_replay"] = result.idempotent_replay
+        self._send_json(
+            HTTPStatus.OK if result.idempotent_replay else HTTPStatus.CREATED,
+            response,
+        )
+
+    def _record_workspace_closure(self, parsed: Any, poc_id: str) -> None:
+        """Record one exact human terminal action outside read-only projection."""
+
+        if parsed.params or parsed.query or parsed.fragment:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "POC closure routes do not accept URL parameters."},
+            )
+            return
+        if not self.server.known_workspace_poc(poc_id):
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "POC was not found."},
+            )
+            return
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return
+
+        try:
+            payload = self._read_poc_source_json()
+            _require_only_fields(
+                payload,
+                {
+                    "decision",
+                    "decided_by",
+                    "rationale",
+                    "evidence_binding",
+                    "idempotency_key",
+                },
+            )
+            idempotency_key = self._idempotency_key(payload)
+            request = HumanPOCClosureRequest.model_validate(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "idempotency_key"
+                }
+            )
+            result = self.server.poc_closure_service.record(
+                poc_id,
+                request,
+                idempotency_key=idempotency_key,
+            )
+        except POCClosureCapacityExceeded:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "POC closure capacity has been reached."},
+            )
+            return
+        except (
+            POCClosureBindingMismatch,
+            POCClosureConflict,
+            POCClosureEvidenceUnavailable,
+            POCClosureIdempotencyConflict,
+        ) as error:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": str(error)},
+            )
+            return
+        except (TypeError, ValueError, ValidationError):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "POC closure request is invalid."},
+            )
+            return
+
+        self._send_json(
+            (
+                HTTPStatus.OK
+                if result.idempotent_replay
+                else HTTPStatus.CREATED
+            ),
+            {
+                "closure": result.closure.model_dump(mode="json"),
+                "idempotent_replay": result.idempotent_replay,
+                "authorization": (
+                    "POC lifecycle closed. Shipping remains a separate human "
+                    "authorization decision."
+                ),
+            },
+        )
+
     def _unsupported_method(self) -> None:
+        if self._dispatch_reference_inference():
+            return
         if self._dispatch_source_request():
             return
         self.send_error(
@@ -3060,6 +4866,49 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Request body must be a JSON object.")
         return payload
 
+    def _read_poc_source_json(self) -> Dict[str, Any]:
+        """Read strict bounded JSON without accepting duplicate object keys."""
+
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            raise ValueError("Content-Length is required.")
+        try:
+            size = int(content_length)
+        except ValueError as error:
+            raise ValueError("Content-Length must be an integer.") from error
+        if size < 0:
+            raise ValueError("Content-Length must not be negative.")
+        if size > MAX_REQUEST_BYTES:
+            raise OverflowError("Source intake request body is too large.")
+        body = self.rfile.read(size)
+
+        def reject_duplicate_pairs(
+            pairs: List[Tuple[str, Any]],
+        ) -> Dict[str, Any]:
+            parsed_object: Dict[str, Any] = {}
+            for key, value in pairs:
+                if key in parsed_object:
+                    raise ValueError("Duplicate JSON object key.")
+                parsed_object[key] = value
+            return parsed_object
+
+        def reject_nonfinite(_: str) -> Any:
+            raise ValueError("Non-finite JSON number.")
+
+        try:
+            payload = json.loads(
+                body.decode("utf-8"),
+                object_pairs_hook=reject_duplicate_pairs,
+                parse_constant=reject_nonfinite,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError(
+                "Request body must be valid UTF-8 JSON."
+            ) from error
+        if type(payload) is not dict:
+            raise ValueError("Request body must be a JSON object.")
+        return payload
+
     def _serve_static(self, request_path: str, query: str = "") -> None:
         if request_path in ("", "/", "/app", "/app/"):
             relative = (
@@ -3067,6 +4916,18 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 if _is_compatibility_workbench_query(query)
                 else "dashboard.html"
             )
+        elif request_path == "/app/pocs/new":
+            relative = "new_poc.html"
+        elif _source_intake_page_poc_id(request_path) is not None:
+            relative = "source_intake.html"
+        elif _proposal_review_page_poc_id(request_path) is not None:
+            relative = "proposal_review.html"
+        elif _contract_definition_page_poc_id(request_path) is not None:
+            relative = "contract_definition.html"
+        elif _performance_agreement_page_poc_id(request_path) is not None:
+            relative = "agreement.html"
+        elif _dynamic_proof_page_poc_id(request_path) is not None:
+            relative = "proof.html"
         elif request_path.strip("/") == (
             "app/pocs/{0}".format(SYNTHETIC_SUPPORT_AGENT_POC_ID)
         ):
@@ -3271,6 +5132,179 @@ def _customer_review_decision_token(request_path: str) -> Optional[str]:
     return token
 
 
+def _draft_poc_api_id(request_path: str) -> Optional[str]:
+    """Return one decoded POC identity without accepting nested path authority."""
+
+    parts = request_path.strip("/").split("/")
+    if len(parts) != 3 or parts[:2] != ["api", "pocs"]:
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _workspace_closure_api_poc_id(request_path: str) -> Optional[str]:
+    """Return one identity from the exact terminal closure API route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 5
+        or parts[:2] != ["api", "workspace"]
+        or parts[2] != "pocs"
+        or parts[4] != "closure"
+    ):
+        return None
+    poc_id = unquote(parts[3])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _source_intake_page_poc_id(request_path: str) -> Optional[str]:
+    """Return the one POC identity in an exact source-intake page route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 5
+        or parts[:2] != ["app", "pocs"]
+        or parts[3:] != ["sources", "new"]
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _proposal_review_page_poc_id(request_path: str) -> Optional[str]:
+    """Return the one POC identity in an exact proposal-review page route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 4
+        or parts[:2] != ["app", "pocs"]
+        or parts[3] != "review"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _contract_definition_page_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the one POC identity in an exact definition page route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 4
+        or parts[:2] != ["app", "pocs"]
+        or parts[3] != "define"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _contract_definition_api_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity for the exact definition collection API."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 4
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] != "definitions"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _performance_agreement_page_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity in one exact agreement workbench route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 4
+        or parts[:2] != ["app", "pocs"]
+        or parts[3] != "agreement"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _performance_agreement_api_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity in an exact agreement lifecycle API route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) not in {4, 5}
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] != "agreement"
+        or (len(parts) == 5 and parts[4] not in {"confirm", "freeze"})
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _poc_performance_run_api_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity in one exact dynamic run API route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) not in {4, 5}
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] not in {"runs", "evidence"}
+        or (parts[3] == "evidence" and len(parts) != 4)
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _dynamic_proof_page_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return one local draft identity in an exact base POC page route."""
+
+    parts = request_path.strip("/").split("/")
+    if len(parts) != 3 or parts[:2] != ["app", "pocs"]:
+        return None
+    poc_id = unquote(parts[2])
+    if (
+        not poc_id
+        or "/" in poc_id
+        or "\\" in poc_id
+        or poc_id
+        in {SYNTHETIC_SUPPORT_AGENT_POC_ID, PERFORMANCE_POC_ID}
+    ):
+        return None
+    return poc_id
+
+
 def serve_demo(
     host: str = "127.0.0.1",
     port: int = 8765,
@@ -3304,6 +5338,9 @@ def serve_demo(
             session,
             resource_stack=resource_stack,
             wave1_provider_execution=provider_execution,
+            performance_fireworks_api_key=(
+                fireworks_api_key if enable_fireworks else None
+            ),
         )
     except Exception:
         resource_stack.close()
