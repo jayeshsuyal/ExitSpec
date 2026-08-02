@@ -23,6 +23,9 @@ dev = [
   "setuptools>=68",
   "wheel>=0.44",
 ]
+browser = [
+  "playwright>=1.54,<2",
+]
 
 [project.scripts]
 exitspec = "exitspec.cli:main"
