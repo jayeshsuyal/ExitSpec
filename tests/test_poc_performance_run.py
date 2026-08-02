@@ -217,9 +217,10 @@ def _lifecycle(
             rationale="Bind the exact local target.",
             idempotency_key="prepare-dynamic-performance",
         )
-        lifecycle.confirm(
-            POC_ID,
-            confirmer_identity="Customer contact recorded by Jayesh",
+        review_token = lifecycle.customer_review_url(POC_ID).rsplit("/", 1)[-1]
+        lifecycle.record_customer_review_decision(
+            review_token,
+            decision="CONFIRM",
             agreement_acknowledged=True,
             rationale="The exact target and criteria were reviewed.",
             idempotency_key="confirm-dynamic-performance",

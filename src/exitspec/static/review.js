@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
   const $ = (selector) => document.querySelector(selector);
   const elements = {
     main: $("#main-content"),
@@ -162,6 +163,54 @@
     }
   }
 
+  function isDisplayString(value, maximum = 2048) {
+    return Boolean(
+      typeof value === "string" &&
+        value.trim() &&
+        value === value.trim() &&
+        value.length <= maximum &&
+        !value.includes("\n") &&
+        !value.includes("\r")
+    );
+  }
+
+  function isOptionalTargetEndpoint(value) {
+    if (value === undefined) {
+      return true;
+    }
+    if (!isDisplayString(value)) {
+      return false;
+    }
+    try {
+      const parsed = new URL(value);
+      return Boolean(
+        ["http:", "https:"].includes(parsed.protocol) &&
+          parsed.username === "" &&
+          parsed.password === "" &&
+          parsed.search === "" &&
+          parsed.hash === ""
+      );
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function displayTarget(record, agreement) {
+    const candidates = [
+      record?.target_system,
+      record?.contract?.target_system,
+      agreement?.target_system,
+    ];
+    return candidates.find(
+      (candidate) =>
+        candidate &&
+        isDisplayString(candidate.provider, 160) &&
+        isDisplayString(candidate.endpoint_class, 160) &&
+        isDisplayString(candidate.model, 300) &&
+        isOptionalTargetEndpoint(candidate.endpoint)
+    ) || null;
+  }
+
   function normalize(payload) {
     const value = payload?.review || payload;
     const agreement = value?.agreement;
@@ -235,12 +284,15 @@
       agreement.version === value?.contract?.version &&
       agreement.customer === value?.poc?.customer_name &&
       agreement.use_case === value?.poc?.title;
+    const targetSystem = displayTarget(value, agreement);
     if (
       !value ||
       requiredStrings.some((item) => typeof item !== "string" || !item.trim()) ||
       !criteriaAreComplete ||
       !contractExclusionsAreValid ||
       !canonicalAgreementIsComplete ||
+      !targetSystem ||
+      (value.poc_id !== undefined && !POC_ID_PATTERN.test(value.poc_id)) ||
       typeof value.acknowledgement_required !== "boolean"
     ) {
       throw new Error("Incomplete review response");
@@ -329,14 +381,19 @@
 
     criterionIndex = 0;
     const agreement = record.agreement;
+    const targetSystem = displayTarget(record, agreement);
     elements.mockBanner.hidden = !localSynthetic;
     elements.pocTitle.textContent = agreement.use_case;
     elements.customerName.textContent = agreement.customer;
     elements.contractId.textContent = agreement.id;
     elements.contractVersion.textContent = agreement.version;
-    elements.targetModel.textContent = agreement.target_system.model;
+    elements.targetModel.textContent = targetSystem.model;
     elements.targetRuntime.textContent =
-      `${agreement.target_system.provider} · ${agreement.target_system.endpoint_class}`;
+      [
+        targetSystem.provider,
+        targetSystem.endpoint_class,
+        targetSystem.endpoint,
+      ].filter(Boolean).join(" · ");
     elements.workloadFixture.textContent = agreement.workload.fixture_path;
     elements.workloadSha256.textContent = agreement.workload.sha256;
     elements.agreementOwners.textContent = agreement.owners.join(" · ");
@@ -373,12 +430,7 @@
     elements.threshold.textContent = criterion.threshold;
     elements.sample.textContent = criterion.sample;
     elements.workload.textContent = criterion.workload;
-    elements.rule.textContent =
-      `${boundCriterion.rule.operator} ${boundCriterion.rule.threshold} · ` +
-      `${boundCriterion.rule.minimum_samples} samples · ` +
-      `${Math.round(boundCriterion.rule.confidence_level * 100)}% ` +
-      `${boundCriterion.rule.confidence_method} · ` +
-      `${boundCriterion.aggregation} (${boundCriterion.unit})`;
+    elements.rule.textContent = criterionRuleText(boundCriterion);
     elements.adapter.textContent =
       `${boundCriterion.adapter}@${boundCriterion.adapter_version} · ` +
       boundCriterion.workload_slice;
@@ -408,6 +460,36 @@
         item.textContent = exclusion;
         elements.exclusions.append(item);
       }
+    );
+  }
+
+  function criterionRuleText(boundCriterion) {
+    if (boundCriterion?.criterion_type === "inference_performance_v1") {
+      const ttft = boundCriterion.ttft_p95 || {};
+      const errorRate = boundCriterion.error_rate || {};
+      const ttftOperator = ttft.operator === "lte" ? "≤" : "<";
+      const errorPercent =
+        typeof errorRate.threshold === "number"
+          ? `${errorRate.threshold * 100}%`
+          : "unavailable";
+      return (
+        `P95 TTFT ${ttftOperator} ${ttft.threshold ?? "unavailable"} ms · ` +
+        `${ttft.minimum_successful_samples ?? "unavailable"} successful samples · ` +
+        `error rate < ${errorPercent} · ` +
+        `${errorRate.minimum_attempts ?? "unavailable"} attempts`
+      );
+    }
+    const rule = boundCriterion?.rule || {};
+    const confidence =
+      typeof rule.confidence_level === "number"
+        ? `${Math.round(rule.confidence_level * 100)}% `
+        : "";
+    return (
+      `${rule.operator ?? "Rule"} ${rule.threshold ?? "unavailable"} · ` +
+      `${rule.minimum_samples ?? "unavailable"} samples · ` +
+      `${confidence}${rule.confidence_method ?? "method unavailable"} · ` +
+      `${boundCriterion?.aggregation ?? "aggregation unavailable"} ` +
+      `(${boundCriterion?.unit ?? "unit unavailable"})`
     );
   }
 
@@ -596,10 +678,44 @@
     }
   }
 
+  function safeLocalReturnPath(value) {
+    if (value === "/app/pocs/poc_support_agent_demo") {
+      return value;
+    }
+    if (typeof value !== "string") {
+      return null;
+    }
+    const match = value.match(
+      /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/agreement$/
+    );
+    if (
+      !match ||
+      (review?.poc_id !== undefined && match[1] !== review.poc_id)
+    ) {
+      return null;
+    }
+    try {
+      const parsed = new URL(value, window.location.origin);
+      return parsed.origin === window.location.origin &&
+        parsed.pathname === value &&
+        parsed.search === "" &&
+        parsed.hash === ""
+        ? value
+        : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
   function showTerminal(decision) {
     const changesRequested = decision.decision === "REQUEST_CHANGES";
     const replay = Boolean(decision.idempotent_replay);
     const synthetic = Boolean(decision.synthetic);
+    const localReturn = review?.local_demo;
+    const safeLocalReturnUrl = safeLocalReturnPath(localReturn?.return_url);
+    const immutableDynamicPOC = Boolean(
+      safeLocalReturnUrl?.endsWith("/agreement")
+    );
 
     elements.terminalMark.textContent = changesRequested ? "↺" : "✓";
     elements.terminalMark.className =
@@ -617,7 +733,9 @@
       : replay
         ? "ExitSpec found the same completed decision. The original record is unchanged."
         : changesRequested
-          ? "The POC owner can revise the draft and issue a new version for review."
+          ? immutableDynamicPOC
+            ? "This immutable local POC stops here. The owner must start a new POC with the requested changes."
+            : "The POC owner can revise the draft and issue a new version for review."
           : "Your confirmation is recorded against the exact contract version below.";
     elements.terminalContract.textContent =
       `${review.contract.id} · Version ${review.contract.version}`;
@@ -630,15 +748,13 @@
     );
     elements.terminalReviewer.textContent =
       decision.reviewer_display_name || review.identity.display_name;
-    const localReturn = review?.local_demo;
-    const safeLocalReturnUrl =
-      localReturn?.return_url === "/app/pocs/poc_support_agent_demo"
-        ? localReturn.return_url
-        : null;
     const canReturnToLocalApp = Boolean(safeLocalReturnUrl);
     elements.localDemoReturn.hidden = !canReturnToLocalApp;
     if (canReturnToLocalApp) {
       elements.returnToApp.href = safeLocalReturnUrl;
+      elements.returnToApp.textContent = immutableDynamicPOC
+        ? "Return to the POC agreement"
+        : "Return to the local POC owner";
       elements.localDemoNotice.textContent =
         localReturn.notice ||
         "Local demo only. Hosted customer reviews do not expose an internal workspace shortcut.";

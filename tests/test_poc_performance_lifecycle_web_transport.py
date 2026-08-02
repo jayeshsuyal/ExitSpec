@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from exitspec.confirmations import contract_confirmation_fingerprint
 from exitspec.reference_inference import (
     REFERENCE_ENDPOINT_CLASS,
     REFERENCE_ENDPOINT_PATH,
@@ -206,6 +207,62 @@ def _prepare_payload_for(endpoint: str) -> dict:
     }
 
 
+def _review_api_path(review_url: str) -> str:
+    assert review_url.startswith("/review/")
+    token = review_url.rsplit("/", 1)[-1]
+    assert token
+    return f"/api/review/{token}"
+
+
+def _record_customer_decision(
+    server: ExitSpecDemoServer,
+    poc_id: str,
+    *,
+    decision: str = "CONFIRM",
+    agreement_acknowledged: bool = True,
+    rationale: str = "The exact target and both criteria were reviewed.",
+    idempotency_key: str = "confirm-dynamic-run-transport",
+) -> tuple[dict, tuple[int, dict | str, str]]:
+    agreement_root = f"/api/pocs/{poc_id}/agreement"
+    status, agreement, _ = _request(
+        server,
+        "GET",
+        agreement_root,
+        content_type=None,
+        origin=None,
+    )
+    assert status == 200
+    assert isinstance(agreement, dict)
+    customer_review = agreement["customer_review"]
+    assert customer_review["status"] == "PENDING"
+    review_api = _review_api_path(customer_review["review_url"])
+    status, customer_view, _ = _request(
+        server,
+        "GET",
+        review_api,
+        content_type=None,
+        origin=None,
+    )
+    assert status == 200
+    assert isinstance(customer_view, dict)
+    review = customer_view["review"]
+    response = _request(
+        server,
+        "POST",
+        review_api + "/decision",
+        payload={
+            "review_id": review["review_id"],
+            "contract_id": review["contract_id"],
+            "contract_version": review["contract_version"],
+            "decision": decision,
+            "agreement_acknowledged": agreement_acknowledged,
+            "rationale": rationale,
+            "idempotency_key": idempotency_key,
+        },
+    )
+    return customer_view, response
+
+
 @contextmanager
 def _streaming_endpoint():
     state = {"requests": 0}
@@ -298,18 +355,13 @@ def _freeze_agreement(
         payload=_prepare_payload_for(endpoint),
     )
     assert prepared[0] == 201
-    confirmed = _request(
+    _, confirmed = _record_customer_decision(
         server,
-        "POST",
-        root + "/confirm",
-        payload={
-            "confirmer": "Customer contact recorded by Jayesh",
-            "agreement_acknowledged": True,
-            "rationale": "The exact target and both criteria were reviewed.",
-            "idempotency_key": "confirm-dynamic-run-transport",
-        },
+        poc_id,
+        idempotency_key="confirm-dynamic-run-transport",
     )
-    assert confirmed[0] == 201
+    assert confirmed[0] == 200
+    assert confirmed[1]["decision"]["decision"] == "CONFIRM"
     frozen = _request(
         server,
         "POST",
@@ -376,7 +428,7 @@ def _dynamic_lifecycle_state(
     )
 
 
-def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
+def test_agreement_page_and_api_complete_external_confirm_freeze_loop(tmp_path):
     with _running_server(tmp_path) as server:
         poc_id = _create_defined_performance_poc(server)
         root = f"/api/pocs/{poc_id}/agreement"
@@ -401,16 +453,10 @@ def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
         replay = _request(server, "POST", root, payload=_prepare_payload())
         prepared_action = _workspace_action(server, poc_id)
 
-        confirmed = _request(
+        customer_view, confirmed = _record_customer_decision(
             server,
-            "POST",
-            root + "/confirm",
-            payload={
-                "confirmer": "Customer contact recorded by Jayesh",
-                "agreement_acknowledged": True,
-                "rationale": "The exact target and both criteria were reviewed.",
-                "idempotency_key": "confirm-performance-agreement",
-            },
+            poc_id,
+            idempotency_key="confirm-performance-agreement",
         )
         confirmed_action = _workspace_action(server, poc_id)
 
@@ -428,6 +474,16 @@ def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
             content_type=None,
             origin=None,
         )
+        lifecycle_snapshot = server.performance_lifecycle_service.snapshot(
+            poc_id,
+            allow_empty=False,
+        )
+        assert lifecycle_snapshot.preparation is not None
+        assert lifecycle_snapshot.review_invitation is not None
+        approved_contract = lifecycle_snapshot.preparation.approved_contract
+        expected_fingerprint = contract_confirmation_fingerprint(
+            approved_contract
+        )
 
     assert page[0] == 200
     assert page[2].startswith("text/html")
@@ -444,19 +500,241 @@ def test_agreement_page_and_api_complete_prepare_confirm_freeze_loop(tmp_path):
     assert replay[0] == 200
     assert replay[1]["disposition"] == "IDEMPOTENT_REPLAY"
     assert replay[1]["draft"] == prepared[1]["draft"]
-    assert prepared_action == "CREATE_CUSTOMER_REVIEW"
-    assert confirmed[0] == 201
+    assert prepared_action == "WAIT_FOR_CUSTOMER"
+    assert customer_view["review"]["status"] == "PENDING"
+    assert customer_view["review"]["contract_id"] == approved_contract.id
+    assert customer_view["review"]["contract_version"] == (
+        approved_contract.version
+    )
+    assert customer_view["review"]["confirmation_fingerprint"] == (
+        expected_fingerprint
+    )
+    assert lifecycle_snapshot.review_invitation.confirmation_fingerprint == (
+        expected_fingerprint
+    )
+    assert poc_id not in after[1]["customer_review"]["review_url"]
+    assert customer_view["review"]["criteria"][0]["metric"] == (
+        "P95 time to first token and error rate"
+    )
+    assert customer_view["review"]["criteria"][0]["threshold"] == (
+        "P95 TTFT below 500 ms · error rate below 1%"
+    )
+    assert customer_view["review"]["criteria"][0]["sample"] == (
+        "100 successful timing samples · 100 attempted requests"
+    )
+    assert "reviewer" not in json.dumps(customer_view).lower()
+    assert "draft_sha256" not in json.dumps(customer_view)
+    assert confirmed[0] == 200
     assert confirmed[1]["confirmation"]["agreement_acknowledged"] is True
+    assert confirmed[1]["confirmation"]["decision"] == "CONFIRM"
+    assert confirmed[1]["review"]["status"] == "CONFIRMED"
     assert confirmed_action == "FREEZE_CONFIRMED_CONTRACT"
     assert frozen[0] == 201
     assert frozen[1]["frozen_contract"]["canonical_hash"]
     assert frozen_action == "RUN_POC"
     assert after[1]["draft"] == prepared[1]["draft"]
-    assert after[1]["confirmation"] == confirmed[1]["confirmation"]
+    assert after[1]["customer_review"]["status"] == "CONFIRMED"
+    assert after[1]["confirmation"]["confirmation_id"] == (
+        confirmed[1]["confirmation"]["confirmation_id"]
+    )
     assert after[1]["frozen_contract"] == frozen[1]["frozen_contract"]
     serialized = json.dumps((prepared, confirmed, frozen, after)).lower()
     for forbidden in ("evidence_pack", '"verdict"', '"pass"', '"fail"'):
         assert forbidden not in serialized
+
+
+def test_dynamic_review_capability_rejects_tampering_and_replays_exactly(
+    tmp_path,
+):
+    with _running_server(tmp_path) as server:
+        poc_id = _create_defined_performance_poc(server)
+        agreement_root = f"/api/pocs/{poc_id}/agreement"
+        prepared = _request(
+            server,
+            "POST",
+            agreement_root,
+            payload=_prepare_payload(),
+        )
+        assert prepared[0] == 201
+        agreement = _request(
+            server,
+            "GET",
+            agreement_root,
+            content_type=None,
+            origin=None,
+        )[1]
+        review_api = _review_api_path(
+            agreement["customer_review"]["review_url"]
+        )
+        customer_view = _request(
+            server,
+            "GET",
+            review_api,
+            content_type=None,
+            origin=None,
+        )[1]
+        review = customer_view["review"]
+        exact_payload = {
+            "review_id": review["review_id"],
+            "contract_id": review["contract_id"],
+            "contract_version": review["contract_version"],
+            "decision": "CONFIRM",
+            "agreement_acknowledged": True,
+            "rationale": "Confirm the exact capability-bound agreement.",
+            "idempotency_key": "dynamic-review-exact-replay",
+        }
+
+        invalid_read = _request(
+            server,
+            "GET",
+            "/api/review/not-a-real-capability",
+            content_type=None,
+            origin=None,
+        )
+        invalid_write = _request(
+            server,
+            "POST",
+            "/api/review/not-a-real-capability/decision",
+            payload=exact_payload,
+        )
+        crossed_binding = _request(
+            server,
+            "POST",
+            review_api + "/decision",
+            payload={**exact_payload, "contract_id": "contract_from_another_poc"},
+        )
+        missing_acknowledgement = _request(
+            server,
+            "POST",
+            review_api + "/decision",
+            payload={
+                key: value
+                for key, value in exact_payload.items()
+                if key != "agreement_acknowledged"
+            },
+        )
+        false_acknowledgement = _request(
+            server,
+            "POST",
+            review_api + "/decision",
+            payload={**exact_payload, "agreement_acknowledged": False},
+        )
+        direct_confirmation = _request(
+            server,
+            "POST",
+            agreement_root + "/confirm",
+            payload={
+                "confirmer": "Employee self-attestation",
+                "agreement_acknowledged": True,
+                "rationale": "Attempt to bypass the review capability.",
+                "idempotency_key": "removed-direct-confirm-route",
+            },
+        )
+        before_valid_decision = _request(
+            server,
+            "GET",
+            agreement_root,
+            content_type=None,
+            origin=None,
+        )
+        confirmed = _request(
+            server,
+            "POST",
+            review_api + "/decision",
+            payload=exact_payload,
+        )
+        replay = _request(
+            server,
+            "POST",
+            review_api + "/decision",
+            payload=exact_payload,
+        )
+        conflicting_replay = _request(
+            server,
+            "POST",
+            review_api + "/decision",
+            payload={
+                **exact_payload,
+                "rationale": "Attempt to mutate an idempotent decision.",
+            },
+        )
+
+    assert invalid_read[0] == invalid_write[0] == 404
+    assert crossed_binding[:2] == (
+        409,
+        {"error": "contract_id does not match this customer review link."},
+    )
+    assert missing_acknowledgement[0] == false_acknowledgement[0] == 400
+    assert direct_confirmation[:2] == (
+        400,
+        {"error": "Performance agreement request is invalid."},
+    )
+    assert before_valid_decision[1]["confirmation"] is None
+    assert before_valid_decision[1]["customer_review"]["status"] == "PENDING"
+    assert confirmed[0] == replay[0] == 200
+    assert confirmed[1]["idempotent_replay"] is False
+    assert replay[1]["idempotent_replay"] is True
+    assert replay[1]["confirmation_id"] == confirmed[1]["confirmation_id"]
+    assert conflicting_replay[:2] == (
+        409,
+        {"error": "Customer review conflicts with current POC state."},
+    )
+
+
+def test_customer_request_changes_blocks_freeze_and_starts_revision(tmp_path):
+    with _running_server(tmp_path) as server:
+        poc_id = _create_defined_performance_poc(server)
+        agreement_root = f"/api/pocs/{poc_id}/agreement"
+        prepared = _request(
+            server,
+            "POST",
+            agreement_root,
+            payload=_prepare_payload(),
+        )
+        assert prepared[0] == 201
+        customer_view, changed = _record_customer_decision(
+            server,
+            poc_id,
+            decision="REQUEST_CHANGES",
+            agreement_acknowledged=False,
+            rationale="The workload does not match the customer call.",
+            idempotency_key="request-dynamic-agreement-changes",
+        )
+        action = _workspace_action(server, poc_id)
+        freeze = _request(
+            server,
+            "POST",
+            agreement_root + "/freeze",
+            payload={"idempotency_key": "freeze-after-request-changes"},
+        )
+        after = _request(
+            server,
+            "GET",
+            agreement_root,
+            content_type=None,
+            origin=None,
+        )
+        reviewed = _request(
+            server,
+            "GET",
+            _review_api_path(after[1]["customer_review"]["review_url"]),
+            content_type=None,
+            origin=None,
+        )
+
+    assert customer_view["review"]["status"] == "PENDING"
+    assert changed[0] == 200
+    assert changed[1]["decision"]["decision"] == "REQUEST_CHANGES"
+    assert changed[1]["review"]["status"] == "CHANGES_REQUESTED"
+    assert action == "START_REVISION"
+    assert freeze[:2] == (
+        409,
+        {"error": "Performance agreement conflicts with current POC state."},
+    )
+    assert after[1]["customer_review"]["status"] == "CHANGES_REQUESTED"
+    assert after[1]["confirmation"]["decision"] == "REQUEST_CHANGES"
+    assert after[1]["frozen_contract"] is None
+    assert reviewed[1]["review"]["status"] == "CHANGES_REQUESTED"
 
 
 def test_local_reference_target_is_exact_bounded_and_credential_free(
@@ -1011,21 +1289,16 @@ def test_unseen_email_completes_reference_evaluator_evidence_and_handoff(
             origin=None,
         )
         assert status == 200
-        status, _, _ = _request(
+        _, confirmation_response = _record_customer_decision(
             server,
-            "POST",
-            agreement_root + "/confirm",
-            payload={
-                "confirmer": "Customer contact recorded by field_engineer",
-                "agreement_acknowledged": True,
-                "rationale": (
-                    "The customer reviewed the exact target, supported "
-                    "criteria, and NOT_PROVEN boundary."
-                ),
-                "idempotency_key": "confirm-email-reference-e2e",
-            },
+            poc_id,
+            rationale=(
+                "The customer reviewed the exact target, supported "
+                "criteria, and NOT_PROVEN boundary."
+            ),
+            idempotency_key="confirm-email-reference-e2e",
         )
-        assert status == 201
+        assert confirmation_response[0] == 200
         status, frozen, _ = _request(
             server,
             "POST",
@@ -1390,11 +1663,20 @@ def test_closed_dynamic_poc_rejects_every_lifecycle_mutation_atomically(
             }
             after = _dynamic_lifecycle_state(server, poc_id)
 
-    assert {name: response[0] for name, response in attempts.items()} == {
-        name: 409 for name in attempts
+    assert attempts["agreement_confirm"][:2] == (
+        400,
+        {"error": "Performance agreement request is invalid."},
+    )
+    mutable_attempts = {
+        name: response
+        for name, response in attempts.items()
+        if name != "agreement_confirm"
+    }
+    assert {name: response[0] for name, response in mutable_attempts.items()} == {
+        name: 409 for name in mutable_attempts
     }
     assert {
-        response[1]["code"] for response in attempts.values()
+        response[1]["code"] for response in mutable_attempts.values()
     } == {"POC_LIFECYCLE_CLOSED"}
     assert after == before
 

@@ -81,7 +81,7 @@ authorization for deployment, spend, procurement, or production traffic.
 ```text
 /app                              professional POC work queue
 /app/pocs/new                     source-first local draft creation
-/app/pocs/{poc_id}/sources        bounded source capture
+/app/pocs/{poc_id}/sources/new    bounded source capture
 /app/pocs/{poc_id}/review         human proposal triage
 /app/pocs/{poc_id}/define         measurable-rule definition
 /app/pocs/{poc_id}/agreement      customer draft, confirmation, and freeze
