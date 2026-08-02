@@ -10,6 +10,7 @@
     <title>ExitSpec — Add source</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/source_intake.css" />
+    <link rel="stylesheet" href="/workbench.css" />
   </head>
   <body>
     <a class="skip-link" href="#source-intake-main">Skip to source intake</a>
@@ -32,9 +33,9 @@
         </div>
       </header>
 
-      <main class="source-intake-main" id="source-intake-main">
-        <header class="object-header">
-          <div class="object-heading">
+      <main class="source-intake-main workbench-main" id="source-intake-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
             <p class="eyebrow">Step 1 of 3 · Define</p>
             <h1 id="poc-title">Loading draft…</h1>
@@ -48,7 +49,7 @@
         </header>
 
         <section
-          class="current-task"
+          class="current-task workbench-current-task"
           id="source-current-task"
           aria-labelledby="current-task-heading"
           aria-busy="true"
@@ -234,52 +235,54 @@
                     confirm, freeze, run, or assign a verdict.
                   </small>
                 </div>
-                <button
-                  class="primary-action"
-                  id="capture-source"
-                  type="submit"
-                  disabled
-                >
-                  Capture source
-                </button>
+                <div class="workbench-primary-slot">
+                  <button
+                    class="primary-action"
+                    id="capture-source"
+                    type="submit"
+                    disabled
+                  >
+                    Capture source
+                  </button>
+                </div>
               </footer>
             </section>
           </form>
-        </section>
 
-        <section
-          class="capture-result"
-          id="capture-result"
-          aria-labelledby="capture-result-heading"
-          tabindex="-1"
-          hidden
-        >
-          <p class="eyebrow">Source captured</p>
-          <h2 id="capture-result-heading">Review the proposals next</h2>
-          <p>
-            <strong id="proposal-count">0 proposals</strong>
-            were created in <strong id="review-state">NEEDS_REVIEW</strong>.
-          </p>
-          <p>
-            No proposal was approved automatically. Review only decides what
-            may move into later contract definition.
-          </p>
-          <div class="capture-actions">
-            <a
-              class="capture-next-action capture-next-primary"
-              id="review-proposals"
-              hidden
-            >
-              Review proposals
-            </a>
-            <a
-              class="capture-next-action"
-              id="add-another-source"
-              hidden
-            >
-              Add another source
-            </a>
-          </div>
+          <section
+            class="capture-result"
+            id="capture-result"
+            aria-labelledby="capture-result-heading"
+            tabindex="-1"
+            hidden
+          >
+            <p class="eyebrow">Source captured</p>
+            <h2 id="capture-result-heading">Review the proposals next</h2>
+            <p>
+              <strong id="proposal-count">0 proposals</strong>
+              were created in <strong id="review-state">NEEDS_REVIEW</strong>.
+            </p>
+            <p>
+              No proposal was approved automatically. Review only decides what
+              may move into later contract definition.
+            </p>
+            <div class="capture-actions">
+              <a
+                class="capture-next-action capture-next-primary"
+                id="review-proposals"
+                hidden
+              >
+                Review proposals
+              </a>
+              <a
+                class="capture-next-action"
+                id="add-another-source"
+                hidden
+              >
+                Add another source
+              </a>
+            </div>
+          </section>
         </section>
 
         <p class="intake-error" id="intake-error" role="alert" hidden></p>

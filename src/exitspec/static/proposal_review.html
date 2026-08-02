@@ -10,6 +10,7 @@
     <title>ExitSpec — Review proposals</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/proposal_review.css" />
+    <link rel="stylesheet" href="/workbench.css" />
   </head>
   <body>
     <a class="skip-link" href="#proposal-review-main">
@@ -34,9 +35,9 @@
         </div>
       </header>
 
-      <main class="proposal-review-main" id="proposal-review-main">
-        <header class="object-header">
-          <div class="object-heading">
+      <main class="proposal-review-main workbench-main" id="proposal-review-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
             <p class="eyebrow">Step 1 of 3 · Define</p>
             <h1 id="poc-title">Loading draft…</h1>
@@ -55,7 +56,7 @@
         </header>
 
         <section
-          class="review-current-task"
+          class="review-current-task workbench-current-task"
           id="proposal-current-task"
           aria-labelledby="current-task-heading"
           aria-busy="true"
@@ -173,7 +174,7 @@
                 >
                   Waiting for trusted proposal data.
                 </p>
-                <div class="decision-actions">
+                <div class="decision-actions workbench-primary-slot">
                   <button
                     class="secondary-action"
                     id="discard-proposal"

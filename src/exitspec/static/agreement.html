@@ -10,6 +10,7 @@
     <title>ExitSpec — Customer agreement</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/agreement.css" />
+    <link rel="stylesheet" href="/workbench.css" />
   </head>
   <body>
     <a class="skip-link" href="#agreement-main">Skip to agreement</a>
@@ -32,9 +33,9 @@
         </div>
       </header>
 
-      <main class="agreement-main" id="agreement-main">
-        <header class="object-header">
-          <div class="object-heading">
+      <main class="agreement-main workbench-main" id="agreement-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
             <p class="eyebrow">Step 2 of 3 · Confirm</p>
             <h1 id="poc-title">Loading agreement…</h1>
@@ -53,7 +54,7 @@
         </header>
 
         <section
-          class="agreement-workbench"
+          class="agreement-workbench workbench-current-task"
           id="agreement-workbench"
           aria-labelledby="current-task-heading"
           aria-busy="true"
@@ -118,7 +119,7 @@
               </p>
             </article>
 
-            <div class="action-column">
+            <div class="action-column workbench-primary-slot">
               <form
                 class="action-panel draft-panel"
                 id="create-draft-form"

@@ -50,6 +50,7 @@
   let initialCount = 0;
   let keptCount = 0;
   let discardedCount = 0;
+  let pocCustomerLabel = null;
   let inFlight = false;
   let pendingAttempt = null;
 
@@ -424,11 +425,22 @@
         ? "There are no source proposals awaiting review. No contract was created or approved."
         : `${initialCount} proposals reviewed: ${keptCount} kept for contract authoring and ${discardedCount} discarded. No contract was created or approved.`;
     if (pocId && keptCount > 0) {
-      defineCriteriaLink.href = `/app/pocs/${pocId}/define`;
+      const destination = `/app/pocs/${encodeURIComponent(pocId)}/define`;
+      defineCriteriaLink.textContent = "Define acceptance criteria";
+      defineCriteriaLink.href = destination;
       defineCriteriaLink.hidden = false;
+      completionPanel.focus();
+      try {
+        window.location.replace(destination);
+      } catch {
+        // The verified fallback panel remains available if navigation is blocked.
+      }
     } else {
-      defineCriteriaLink.href = "/app";
-      defineCriteriaLink.hidden = true;
+      defineCriteriaLink.textContent = "Add another source";
+      defineCriteriaLink.href = pocId
+        ? `/app/pocs/${encodeURIComponent(pocId)}/sources/new`
+        : "/app";
+      defineCriteriaLink.hidden = false;
     }
     const progressBar = document.querySelector("#progress-bar");
     progressBar.setAttribute("aria-valuenow", String(initialCount));
@@ -436,14 +448,22 @@
     completionPanel.focus();
   }
 
+  function renderPOCContext(remainingCount) {
+    if (!pocCustomerLabel) {
+      return;
+    }
+    document.querySelector("#poc-context").textContent =
+      `${pocCustomerLabel} · ${remainingCount} ${remainingCount === 1 ? "proposal" : "proposals"} awaiting triage`;
+  }
+
   function applyLoadedData(draft, proposalList) {
     proposals = proposalList.proposals.slice();
     initialCount = proposalList.review_summary.total;
     keptCount = proposalList.review_summary.kept_for_contract;
     discardedCount = proposalList.review_summary.discarded;
+    pocCustomerLabel = draft.customer_label;
     document.querySelector("#poc-title").textContent = draft.display_name;
-    document.querySelector("#poc-context").textContent =
-      `${draft.customer_label} · ${initialCount} ${initialCount === 1 ? "proposal" : "proposals"} awaiting triage`;
+    renderPOCContext(proposalList.review_summary.needs_review);
     currentTask.setAttribute("aria-busy", "false");
     renderCurrentProposal();
   }
@@ -457,6 +477,7 @@
     initialCount = proposalList.review_summary.total;
     keptCount = proposalList.review_summary.kept_for_contract;
     discardedCount = proposalList.review_summary.discarded;
+    renderPOCContext(proposalList.review_summary.needs_review);
     renderCurrentProposal();
   }
 
@@ -603,6 +624,7 @@
 
   window.addEventListener("pagehide", () => {
     proposals = [];
+    pocCustomerLabel = null;
     pendingAttempt = null;
     reviewerInput.value = "";
     rationaleInput.value = "";

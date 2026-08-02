@@ -40,6 +40,19 @@
     return node;
   }
 
+  function isGuidedDemo(poc) {
+    return SEEDED_POC_IDS.has(poc?.poc_id);
+  }
+
+  function needsDecision(poc) {
+    return Boolean(
+      poc &&
+        !isGuidedDemo(poc) &&
+        poc.archive_state !== "COMPLETED" &&
+        poc.next_action_code !== "NONE"
+    );
+  }
+
   function workbenchUrl(poc) {
     const pocId = poc?.poc_id;
     if (typeof pocId !== "string" || !POC_ID_PATTERN.test(pocId)) {
@@ -373,11 +386,17 @@
   }
 
   function renderWorkspace(workspace) {
-    const pocs = Array.isArray(workspace.pocs) ? workspace.pocs : [];
+    const pocs = (Array.isArray(workspace.pocs) ? workspace.pocs : []).filter(
+      (poc) => !isGuidedDemo(poc)
+    );
+    const requestedContinue = workspace.continue_working || null;
+    const continuePoc = needsDecision(requestedContinue)
+      ? requestedContinue
+      : pocs.find(needsDecision) || null;
     const list = $("#poc-list");
     const empty = $("#empty-state");
 
-    renderContinue(workspace.continue_working || null);
+    renderContinue(continuePoc);
     list.replaceChildren();
     list.setAttribute("aria-busy", "false");
     empty.hidden = pocs.length > 0;

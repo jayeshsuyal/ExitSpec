@@ -10,6 +10,7 @@
     <title>ExitSpec — New POC</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/new_poc.css" />
+    <link rel="stylesheet" href="/workbench.css" />
   </head>
   <body>
     <a class="skip-link" href="#new-poc-main">Skip to new POC</a>
@@ -32,15 +33,14 @@
         </div>
       </header>
 
-      <main class="new-poc-main" id="new-poc-main">
-        <header class="new-poc-header">
-          <div>
+      <main class="new-poc-main workbench-main" id="new-poc-main">
+        <header class="new-poc-header workbench-object-header">
+          <div class="workbench-object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
             <p class="eyebrow">Step 1 of 3 · Define</p>
-            <h1>How are the requirements arriving?</h1>
+            <h1>New POC</h1>
             <p>
-              Choose the first source. This starts the intake path; it does not
-              define what kind of POC this becomes.
+              Start one bounded customer proof without deciding its outcome.
             </p>
           </div>
           <div class="new-poc-context">
@@ -53,13 +53,18 @@
           </div>
         </header>
 
-        <form class="creation-layout" id="new-poc-form" novalidate>
+        <section
+          class="new-poc-workbench workbench-current-task"
+          aria-labelledby="source-heading"
+        >
+          <form class="creation-layout" id="new-poc-form" novalidate>
           <section class="creation-panel source-panel" aria-labelledby="source-heading">
             <header class="panel-heading">
               <span>1</span>
               <div>
-                <h2 id="source-heading">Choose the starting source</h2>
-                <p>You can add other sources to this POC later.</p>
+                <p class="eyebrow">Current task</p>
+                <h2 id="source-heading">How are the requirements arriving?</h2>
+                <p>Choose the first source. You can add others later.</p>
               </div>
             </header>
 
@@ -172,39 +177,42 @@
               <p id="form-status" role="status" aria-live="polite">
                 Choose a starting source to continue.
               </p>
-              <button id="create-poc" type="submit" disabled>
-                Create draft POC
-              </button>
+              <div class="workbench-primary-slot">
+                <button id="create-poc" type="submit" disabled>
+                  Create draft POC
+                </button>
+              </div>
             </div>
           </section>
-        </form>
+          </form>
 
-        <section
-          class="created-panel"
-          id="created-panel"
-          aria-labelledby="created-heading"
-          hidden
-        >
-          <p class="eyebrow">Draft created</p>
-          <h2 id="created-heading">The POC is ready for its first source.</h2>
-          <p id="created-summary"></p>
-          <div class="next-intake">
-            <span>Next intake</span>
-            <strong id="next-intake-label"></strong>
-            <p id="next-intake-note"></p>
-          </div>
-          <p class="authority-note">
-            Nothing has been ingested, approved, confirmed, frozen, executed,
-            or scored. The next page captures one source as NEEDS_REVIEW
-            proposals only; it cannot approve, confirm, freeze, run, or issue a
-            verdict.
-          </p>
-          <a class="return-link" id="add-first-source" hidden>
-            Add first source
-          </a>
-          <a class="return-link secondary-link" href="/app">
-            Return to POC workspace
-          </a>
+          <section
+            class="created-panel"
+            id="created-panel"
+            aria-labelledby="created-heading"
+            hidden
+          >
+            <p class="eyebrow">Draft created</p>
+            <h2 id="created-heading">The POC is ready for its first source.</h2>
+            <p id="created-summary"></p>
+            <div class="next-intake">
+              <span>Next intake</span>
+              <strong id="next-intake-label"></strong>
+              <p id="next-intake-note"></p>
+            </div>
+            <p class="authority-note">
+              Nothing has been ingested, approved, confirmed, frozen, executed,
+              or scored. The next page captures one source as NEEDS_REVIEW
+              proposals only; it cannot approve, confirm, freeze, run, or issue
+              a verdict.
+            </p>
+            <a class="return-link" id="add-first-source" hidden>
+              Add first source
+            </a>
+            <a class="return-link secondary-link" href="/app">
+              Return to POC workspace
+            </a>
+          </section>
         </section>
 
         <p class="creation-error" id="creation-error" role="alert" hidden></p>

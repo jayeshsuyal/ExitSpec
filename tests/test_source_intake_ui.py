@@ -143,7 +143,7 @@ def test_route_identity_is_validated_before_any_api_url_is_constructed():
         r"^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/sources\/new$"
         in javascript
     )
-    assert "encodeURIComponent" not in javascript
+    assert "encodeURIComponent(pocId)" in javascript
     assert "URLSearchParams" not in javascript
     assert "window.location.search" not in javascript
     assert "window.location.hash" not in javascript
@@ -215,7 +215,6 @@ def test_source_content_is_never_persisted_logged_or_added_to_navigation_state()
         "console.",
         "history.",
         "location.assign",
-        "location.replace",
         "document.cookie",
     ):
         assert forbidden not in javascript
@@ -228,11 +227,22 @@ def test_source_content_is_never_persisted_logged_or_added_to_navigation_state()
     assert 'document.querySelector("#document-text").value = "";' in clearer
     assert 'document.querySelector("#contract-json").value = "";' in clearer
     assert "pendingAttempt = null;" in success
-    assert "currentTask.hidden = true;" in success
+    assert "currentTask.hidden = true;" not in success
     assert "`/app/pocs/${pocId}/sources/new`" in success
     assert "addAnotherSource.hidden = false;" in success
-    assert "`/app/pocs/${pocId}/review`" in success
+    assert "`/app/pocs/${encodeURIComponent(pocId)}/review`" in success
     assert "reviewProposals.hidden = false;" in success
+    assert "window.location.replace(destination);" in success
+    navigation = success.split("const destination =", 1)[1].split(";", 1)[0]
+    assert "pocId" in navigation
+    for sensitive_name in (
+        "payload",
+        "emailText",
+        "meetingTranscript",
+        "documentText",
+        "contractJson",
+    ):
+        assert sensitive_name not in navigation
     assert "innerHTML" not in javascript
 
 

@@ -722,11 +722,15 @@
         ? "There are no kept proposals available for criterion definition."
         : `${definedCount} of ${totalCount} kept proposals have bounded definitions ready for later agreement drafting.`;
     if (totalCount > 0 && definedCount === totalCount) {
-      prepareAgreement.setAttribute(
-        "href",
-        `/app/pocs/${pocId}/agreement`
-      );
+      const destination = `/app/pocs/${encodeURIComponent(pocId)}/agreement`;
+      prepareAgreement.setAttribute("href", destination);
       prepareAgreement.hidden = false;
+      completionPanel.focus();
+      try {
+        window.location.replace(destination);
+      } catch {
+        // The verified fallback panel remains available if navigation is blocked.
+      }
     } else {
       prepareAgreement.removeAttribute("href");
       prepareAgreement.hidden = true;

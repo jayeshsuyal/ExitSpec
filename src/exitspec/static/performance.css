@@ -127,7 +127,10 @@
 
 .current-task-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.72fr);
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(330px, 0.68fr)
+    minmax(150px, auto);
   align-items: stretch;
   min-width: 0;
   border: 1px solid var(--border-strong);
@@ -171,7 +174,17 @@
 }
 
 .task-actions {
-  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  padding: 14px;
+  background: var(--raised);
+}
+
+.task-actions:has(#run-proof[hidden]) {
+  display: none;
 }
 
 .primary-action {
@@ -269,6 +282,10 @@
   gap: 14px;
   min-width: 0;
   min-height: 0;
+}
+
+.performance-grid:has(.closure-panel:not([hidden])) {
+  grid-template-columns: minmax(0, 0.9fr) minmax(520px, 1.1fr);
 }
 
 .acceptance-panel,
@@ -378,6 +395,14 @@
   min-height: 0;
 }
 
+.right-column:has(.closure-panel:not([hidden])) {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.right-column:has(.closure-panel:not([hidden])) .run-panel {
+  display: none;
+}
+
 .operation-summary {
   display: grid;
   grid-template-columns: minmax(92px, 0.34fr) minmax(0, 1fr);
@@ -464,6 +489,57 @@
   gap: 16px;
   padding: 12px 14px;
   background: var(--navigation);
+}
+
+.evidence-panel:has(.closure-panel:not([hidden])) {
+  align-content: start;
+  align-items: start;
+  max-height: 100%;
+  overflow: auto;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.evidence-panel .closure-panel {
+  padding: 10px 11px;
+}
+
+.evidence-panel .closure-heading {
+  margin-bottom: 8px;
+}
+
+.evidence-panel .closure-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 10px;
+}
+
+.evidence-panel .closure-form label {
+  gap: 3px;
+}
+
+.evidence-panel .closure-form label:nth-of-type(3) {
+  grid-column: 1 / -1;
+}
+
+.evidence-panel .closure-form textarea {
+  min-height: 34px;
+  height: 34px;
+  resize: none;
+}
+
+.evidence-panel .closure-submit {
+  grid-column: 2;
+  grid-row: 3;
+  justify-self: end;
+}
+
+.evidence-panel .closure-boundary {
+  grid-column: 1;
+  grid-row: 3;
+  align-self: center;
+}
+
+.evidence-panel .closure-status {
+  grid-row: 4;
 }
 
 .evidence-panel p {
@@ -587,6 +663,11 @@
   }
 
   .state-boundary {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .task-actions {
     border-top: 1px solid var(--border);
     border-left: 0;
   }
