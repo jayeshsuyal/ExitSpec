@@ -84,8 +84,9 @@ def test_page_has_one_task_button_and_one_validated_completion_handoff():
     assert 'id="prepare-agreement"' in completion
     assert re.search(r">\s*Prepare agreement\s*</a>", completion)
     assert 'href="' not in completion
-    assert "`/app/pocs/${pocId}/agreement`" in javascript
+    assert "`/app/pocs/${encodeURIComponent(pocId)}/agreement`" in javascript
     assert 'prepareAgreement.hidden = false;' in javascript
+    assert "window.location.replace(destination);" in javascript
 
 
 def test_source_quote_and_claim_are_visibly_separate_from_human_form():
@@ -236,7 +237,7 @@ def test_exact_route_identity_precedes_api_construction():
         r"^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/define$"
         in javascript
     )
-    assert "encodeURIComponent" not in javascript
+    assert "encodeURIComponent(pocId)" in javascript
     assert "URLSearchParams" not in javascript
     assert 'window.location.search === ""' in javascript
     assert 'window.location.hash === ""' in javascript
@@ -531,7 +532,6 @@ def test_sensitive_content_never_enters_persistence_navigation_or_logs():
         "console.",
         "history.",
         "location.assign",
-        "location.replace",
         "document.cookie",
         "innerHTML",
         "dataset",
@@ -553,6 +553,15 @@ def test_sensitive_content_never_enters_persistence_navigation_or_logs():
     assert "payload.error" not in javascript
     assert "error.message" not in javascript
     assert "response.text" not in javascript
+    completion = _function(javascript, "renderCompletion", "applyLoadedData")
+    assert (
+        "`/app/pocs/${encodeURIComponent(pocId)}/agreement`" in completion
+    )
+    assert "window.location.replace(destination);" in completion
+    navigation = completion.split("const destination =", 1)[1].split(";", 1)[0]
+    assert "pocId" in navigation
+    assert "source_quote" not in navigation
+    assert "normalized_claim" not in navigation
     assert (
         "source_quote"
         not in javascript.split("payload: {", 1)[1].split("},\n      };", 1)[0]

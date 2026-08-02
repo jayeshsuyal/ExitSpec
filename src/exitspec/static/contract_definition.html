@@ -10,6 +10,7 @@
     <title>ExitSpec — Define criteria</title>
     <link rel="stylesheet" href="/dashboard.css" />
     <link rel="stylesheet" href="/contract_definition.css" />
+    <link rel="stylesheet" href="/workbench.css" />
   </head>
   <body>
     <a class="skip-link" href="#contract-definition-main">
@@ -34,9 +35,12 @@
         </div>
       </header>
 
-      <main class="contract-definition-main" id="contract-definition-main">
-        <header class="object-header">
-          <div class="object-heading">
+      <main
+        class="contract-definition-main workbench-main"
+        id="contract-definition-main"
+      >
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
             <p class="eyebrow">Step 1 of 3 · Define</p>
             <h1 id="poc-title">Loading draft…</h1>
@@ -55,7 +59,7 @@
         </header>
 
         <section
-          class="definition-current-task"
+          class="definition-current-task workbench-current-task"
           id="definition-current-task"
           aria-labelledby="current-task-heading"
           aria-busy="true"
@@ -346,14 +350,16 @@
                 >
                   Waiting for trusted proposal data.
                 </p>
-                <button
-                  class="primary-action"
-                  id="save-definition"
-                  type="submit"
-                  disabled
-                >
-                  Save definition
-                </button>
+                <div class="workbench-primary-slot">
+                  <button
+                    class="primary-action"
+                    id="save-definition"
+                    type="submit"
+                    disabled
+                  >
+                    Save definition
+                  </button>
+                </div>
               </div>
             </form>
           </div>

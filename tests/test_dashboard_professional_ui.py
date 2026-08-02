@@ -94,8 +94,27 @@ def test_dashboard_has_one_compact_create_action_and_safe_direct_navigation():
 def test_continue_working_uses_the_authoritative_projection_without_selection():
     _, _, javascript = _sources()
 
-    assert "renderContinue(workspace.continue_working || null)" in javascript
+    assert "function isGuidedDemo(poc)" in javascript
+    assert "SEEDED_POC_IDS.has(poc?.poc_id)" in javascript
+    assert "(poc) => !isGuidedDemo(poc)" in javascript
+    assert (
+        "const requestedContinue = workspace.continue_working || null;"
+        in javascript
+    )
+    assert "function needsDecision(poc)" in javascript
+    assert 'poc.archive_state !== "COMPLETED"' in javascript
+    assert 'poc.next_action_code !== "NONE"' in javascript
+    assert "const continuePoc = needsDecision(requestedContinue)" in javascript
+    assert "? requestedContinue" in javascript
+    assert ": pocs.find(needsDecision) || null;" in javascript
+    assert "renderContinue(continuePoc)" in javascript
     assert "pocs.forEach((poc) => list.append(renderRow(poc)))" in javascript
+    assert javascript.index("(poc) => !isGuidedDemo(poc)") < javascript.index(
+        "renderContinue(continuePoc)"
+    )
+    assert javascript.index("(poc) => !isGuidedDemo(poc)") < javascript.index(
+        "pocs.forEach((poc) => list.append(renderRow(poc)))"
+    )
     assert 'return `${count} ${noun} ${count === 1 ? "needs" : "need"} attention`;' in javascript
     assert "prioritizedPocs" not in javascript
     assert "aria-pressed" not in javascript.split(

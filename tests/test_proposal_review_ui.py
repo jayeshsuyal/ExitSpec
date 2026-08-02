@@ -117,7 +117,7 @@ def test_exact_route_identity_precedes_all_api_construction():
 
     assert pattern_at < match_at < identity_at < poc_api_at < proposals_api_at
     assert r"^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/review$" in javascript
-    assert "encodeURIComponent" not in javascript
+    assert "encodeURIComponent(pocId)" in javascript
     assert "URLSearchParams" not in javascript
     assert 'window.location.search === ""' in javascript
     assert 'window.location.hash === ""' in javascript
@@ -328,7 +328,6 @@ def test_source_content_never_enters_browser_persistence_navigation_or_logs():
         "console.",
         "history.",
         "location.assign",
-        "location.replace",
         "document.cookie",
         "innerHTML",
         "dataset",
@@ -355,6 +354,15 @@ def test_source_content_never_enters_browser_persistence_navigation_or_logs():
         "source_quote"
         not in javascript.split("payload: {", 1)[1].split("},\n      };", 1)[0]
     )
+    completion = _function(javascript, "renderCompletion", "applyLoadedData")
+    assert (
+        "`/app/pocs/${encodeURIComponent(pocId)}/define`" in completion
+    )
+    assert "window.location.replace(destination);" in completion
+    navigation = completion.split("const destination =", 1)[1].split(";", 1)[0]
+    assert "pocId" in navigation
+    assert "source_quote" not in navigation
+    assert "normalized_claim" not in navigation
 
 
 def test_completion_requires_an_authoritative_queue_refresh():
@@ -413,9 +421,11 @@ def test_completion_is_concise_honest_and_links_to_real_definition_step():
     assert 'id="define-criteria"' in completion_html
     assert "Define acceptance criteria" in completion_html
     assert "keptCount > 0" in completion_js
-    assert "`/app/pocs/${pocId}/define`" in completion_js
+    assert "`/app/pocs/${encodeURIComponent(pocId)}/define`" in completion_js
     assert "defineCriteriaLink.hidden = false;" in completion_js
-    assert "defineCriteriaLink.hidden = true;" in completion_js
+    assert 'defineCriteriaLink.textContent = "Add another source";' in completion_js
+    assert "`/app/pocs/${encodeURIComponent(pocId)}/sources/new`" in completion_js
+    assert "window.location.replace(destination);" in completion_js
     assert "initialCount === 0" in completion_js
     assert "keptCount" in completion_js
     assert "discardedCount" in completion_js

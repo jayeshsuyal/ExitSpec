@@ -1,0 +1,208 @@
+/* Shared employee workbench shell. Page styles retain their local controls. */
+.workbench-main {
+  width: min(100%, 1180px);
+  min-width: 0;
+  min-height: 0;
+  margin-inline: auto;
+  overflow: hidden;
+  padding: 16px 26px 20px;
+}
+
+.workbench-object-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+  min-width: 0;
+}
+
+.workbench-object-identity {
+  min-width: 0;
+}
+
+.workbench-object-identity .back-link {
+  margin-bottom: 7px;
+}
+
+.workbench-object-identity h1,
+.workbench-object-identity .object-title-row h1 {
+  max-width: 720px;
+  margin: 0 0 4px;
+  overflow: hidden;
+  font-family: "Iowan Old Style", Charter, "Palatino Linotype", Georgia, serif;
+  font-size: 28px;
+  font-weight: 540;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-object-identity .object-title-row h1 {
+  margin-bottom: 0;
+}
+
+.workbench-object-identity > p:last-child {
+  max-width: 720px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-current-task {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.new-poc-workbench {
+  display: grid;
+}
+
+.new-poc-workbench > .creation-layout,
+.new-poc-workbench > .created-panel {
+  grid-area: 1 / 1;
+}
+
+.new-poc-workbench > .created-panel {
+  width: min(100%, 680px);
+  max-height: 100%;
+  overflow: auto;
+}
+
+.workbench-primary-slot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbench-primary-slot > button:only-child {
+  flex: 0 0 auto;
+}
+
+.decision-actions.workbench-primary-slot {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+}
+
+.action-column.workbench-primary-slot {
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.capture-actions.workbench-primary-slot {
+  justify-content: flex-end;
+}
+
+.definition-footer > .workbench-primary-slot,
+.action-footer > .workbench-primary-slot {
+  width: 100%;
+}
+
+.new-poc-context {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.new-poc-context .journey-summary,
+.new-poc-context .draft-boundary {
+  margin: 0;
+}
+
+#source-current-task .capture-result {
+  align-self: center;
+  justify-self: center;
+  width: min(calc(100% - 28px), 700px);
+  max-height: calc(100% - 28px);
+  margin: 14px;
+  overflow: auto;
+}
+
+@media (min-width: 901px) and (min-height: 681px) {
+  .workbench-current-task :where(
+      .source-options,
+      .identity-fields,
+      .source-chooser,
+      .source-entry,
+      .proposal-evidence,
+      .review-fields,
+      .definition-fields,
+      .definition-list,
+      .action-column,
+      .customer-review-scroll
+    ) {
+    min-height: 0;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@media (max-width: 900px), (max-height: 680px) {
+  body {
+    overflow: auto;
+  }
+
+  .dashboard-shell {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .workbench-main {
+    width: 100%;
+    min-height: auto;
+    overflow: visible;
+    padding: 18px 16px 30px;
+  }
+
+  .workbench-current-task,
+  #source-current-task .capture-result {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 900px) {
+  .workbench-object-header {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 12px;
+  }
+
+  .new-poc-context {
+    justify-items: start;
+  }
+}
+
+@media (max-width: 620px) {
+  .workbench-object-identity h1,
+  .workbench-object-identity .object-title-row h1 {
+    font-size: 24px;
+  }
+
+  .workbench-object-identity > p:last-child {
+    white-space: normal;
+  }
+
+  .workbench-primary-slot {
+    width: 100%;
+  }
+
+  .workbench-primary-slot > button:only-child {
+    width: 100%;
+  }
+
+  .decision-actions.workbench-primary-slot {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-actions.workbench-primary-slot {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

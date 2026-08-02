@@ -209,7 +209,7 @@ def test_exact_route_identity_precedes_exact_agreement_api_construction():
         r"^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/agreement$"
         in javascript
     )
-    assert "encodeURIComponent" not in javascript
+    assert "encodeURIComponent(pocId)" in javascript
     assert "URLSearchParams" not in javascript
     assert 'window.location.search === ""' in javascript
     assert 'window.location.hash === ""' in javascript
@@ -635,7 +635,15 @@ def test_completion_is_honest_and_links_to_the_real_proof_route():
     assert "PASS" not in completion
     assert "FAIL" not in completion
     javascript = _asset(JS_PATH)
-    assert "continueToProof.href = `/app/pocs/${pocId}`;" in javascript
+    state = _function(
+        javascript,
+        "renderAgreementState",
+        "validatedDraftFields",
+    )
+    assert "`/app/pocs/${encodeURIComponent(pocId)}`" in state
+    assert "continueToProof.href = destination;" in state
+    assert "showOnly(completionPanel);" in state
+    assert "window.location.replace(destination);" in state
 
 
 def test_safety_copy_distinguishes_draft_confirmation_freeze_and_execution():
@@ -666,7 +674,6 @@ def test_sensitive_content_uses_safe_text_rendering_and_no_browser_persistence()
         "document.write",
         "history.",
         "location.assign",
-        "location.replace",
         "document.cookie",
     ):
         assert forbidden not in javascript
@@ -677,6 +684,16 @@ def test_sensitive_content_uses_safe_text_rendering_and_no_browser_persistence()
     assert "payload.error" not in javascript
     assert "error.message" not in javascript
     assert "response.text" not in javascript
+    state = _function(
+        javascript,
+        "renderAgreementState",
+        "validatedDraftFields",
+    )
+    assert "window.location.replace(destination);" in state
+    navigation = state.split("const destination =", 1)[1].split(";", 1)[0]
+    assert "pocId" in navigation
+    assert "source_quote" not in navigation
+    assert "normalized_claim" not in navigation
 
 
 def test_transport_is_same_origin_json_only_no_store_and_redirect_closed():

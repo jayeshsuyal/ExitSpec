@@ -61,6 +61,20 @@
     "not_proven_claims",
     "poc_id",
   ]);
+  const POC_DRAFT_KEYS = Object.freeze([
+    "archive_state",
+    "archived_at",
+    "created_at",
+    "customer_label",
+    "display_name",
+    "first_source_choice",
+    "next_intake_route",
+    "owner",
+    "poc_id",
+    "source_ingestion_state",
+    "updated_at",
+    "use_case",
+  ]);
   const DEFINITION_KEYS = Object.freeze([
     "concurrency",
     "defined_at",
@@ -115,6 +129,7 @@
       : null;
   const pocId =
     routeMatch && POC_ID_PATTERN.test(routeMatch[1]) ? routeMatch[1] : null;
+  const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const agreementApi = pocId ? `/api/pocs/${pocId}/agreement` : null;
   const confirmationApi = agreementApi ? `${agreementApi}/confirm` : null;
   const freezeApi = agreementApi ? `${agreementApi}/freeze` : null;
@@ -269,7 +284,8 @@
           parsed.pathname === value &&
           parsed.search === "" &&
           parsed.hash === "" &&
-          (value === agreementApi ||
+          (value === pocApi ||
+            value === agreementApi ||
             value === confirmationApi ||
             value === freezeApi)
       );
@@ -317,6 +333,38 @@
         definition.output_tokens_min <= definition.output_tokens_max &&
         isTrustedTimestamp(definition.defined_at)
     );
+  }
+
+  function isTrustedPOCDraft(payload) {
+    const nextRouteBySource = {
+      DOCUMENT: "document",
+      EMAIL: "email",
+      EXISTING_CONTRACT: "existing_contract",
+      MEETING: "meeting",
+    };
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload) ||
+      !hasExactKeys(payload, POC_DRAFT_KEYS) ||
+      payload.poc_id !== pocId ||
+      !isSafeBoundedText(payload.display_name, 160) ||
+      !isSafeBoundedText(payload.customer_label, 160) ||
+      !isSafeBoundedText(payload.use_case, 500) ||
+      !isSafeBoundedText(payload.owner, 160) ||
+      !SOURCE_KINDS.includes(payload.first_source_choice) ||
+      payload.next_intake_route !==
+        nextRouteBySource[payload.first_source_choice] ||
+      payload.source_ingestion_state !== "NOT_STARTED" ||
+      !isTrustedTimestamp(payload.created_at) ||
+      !isTrustedTimestamp(payload.updated_at) ||
+      Date.parse(payload.updated_at) < Date.parse(payload.created_at) ||
+      payload.archive_state !== "ACTIVE" ||
+      payload.archived_at !== null
+    ) {
+      return false;
+    }
+    return true;
   }
 
   function hasExecutableDefinitionPair(definitions) {
@@ -836,7 +884,8 @@
     workbench.setAttribute("aria-busy", "false");
 
     if (agreementState.frozen_contract !== null) {
-      continueToProof.href = `/app/pocs/${pocId}`;
+      const destination = `/app/pocs/${encodeURIComponent(pocId)}`;
+      continueToProof.href = destination;
       showOnly(completionPanel);
       setCurrentStep("complete");
       document.querySelector("#current-task-heading").textContent =
@@ -846,6 +895,11 @@
       document.querySelector("#frozen-contract-identity").textContent =
         `${agreementState.frozen_contract.contract_id} · ${agreementState.frozen_contract.canonical_hash.slice(0, 12)}…`;
       completionPanel.focus();
+      try {
+        window.location.replace(destination);
+      } catch {
+        // The verified fallback panel remains available if navigation is blocked.
+      }
       return;
     }
 
@@ -1167,22 +1221,27 @@
   });
 
   async function initialise() {
-    if (!pocId || !agreementApi || !confirmationApi || !freezeApi) {
+    if (!pocId || !pocApi || !agreementApi || !confirmationApi || !freezeApi) {
       blockAgreement(
         "This agreement address is invalid. Return to the POC workspace."
       );
       return;
     }
     try {
-      const projection = await requestJson(agreementApi);
-      if (!isTrustedAgreementProjection(projection)) {
+      const [draft, projection] = await Promise.all([
+        requestJson(pocApi),
+        requestJson(agreementApi),
+      ]);
+      if (
+        !isTrustedPOCDraft(draft) ||
+        !isTrustedAgreementProjection(projection)
+      ) {
         throw new SafeRequestError(200, true);
       }
       agreementState = projection;
-      document.querySelector("#poc-title").textContent =
-        "Performance agreement";
+      document.querySelector("#poc-title").textContent = draft.display_name;
       document.querySelector("#poc-context").textContent =
-        `${pocId} · ${projection.definitions.length} ${projection.definitions.length === 1 ? "bounded definition" : "bounded definitions"}`;
+        `${draft.customer_label} · ${draft.owner}`;
       renderAgreementState();
     } catch {
       blockAgreement(

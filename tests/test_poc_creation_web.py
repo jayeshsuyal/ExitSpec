@@ -425,7 +425,10 @@ def test_creation_ui_prevents_duplicate_submit_and_does_not_fake_intake():
     assert "isTrustedDraftResponse(result)" in javascript
     assert "source_ingestion_state === \"NOT_STARTED\"" in javascript
     assert 'document.querySelector("#add-first-source")' in javascript
-    assert "`/app/pocs/${payload.poc_id}/sources/new`" in javascript
+    assert "`/app/pocs/${encodeURIComponent(" in javascript
+    assert "payload.poc_id" in javascript
+    assert ")}/sources/new`" in javascript
+    assert "window.location.replace(destination)" in javascript
     assert 'addFirstSourceLink.setAttribute(\n      "href",' in javascript
     assert "addFirstSourceLink.hidden = false" in javascript
     assert "payload.error" not in javascript
@@ -433,7 +436,8 @@ def test_creation_ui_prevents_duplicate_submit_and_does_not_fake_intake():
     assert "responseStatus >= 400" in javascript
     assert "responseStatus < 500" in javascript
     assert "innerHTML" not in javascript
-    assert "window.location" not in javascript
+    assert "window.location.href =" not in javascript
+    assert "window.location.search" not in javascript
     assert "?source=" not in javascript
     assert "#source" not in javascript
     assert "height: 100dvh" not in css

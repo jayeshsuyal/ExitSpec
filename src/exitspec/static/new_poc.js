@@ -81,6 +81,9 @@
 
   function renderCreated(payload) {
     const source = SOURCE_COPY[payload.first_source_choice];
+    const destination = `/app/pocs/${encodeURIComponent(
+      payload.poc_id
+    )}/sources/new`;
     form.hidden = true;
     createdPanel.hidden = false;
     document.querySelector("#created-summary").textContent =
@@ -93,10 +96,15 @@
         : "Capture the selected source as NEEDS_REVIEW proposals.";
     addFirstSourceLink.setAttribute(
       "href",
-      `/app/pocs/${payload.poc_id}/sources/new`
+      destination
     );
     addFirstSourceLink.hidden = false;
     createdPanel.focus?.();
+    try {
+      window.location.replace(destination);
+    } catch {
+      // The verified fallback panel remains available if navigation is blocked.
+    }
   }
 
   function isTrustedDraftResponse(payload) {

@@ -389,19 +389,21 @@
   }
 
   function renderSuccess(payload) {
+    const destination = `/app/pocs/${encodeURIComponent(pocId)}/review`;
     clearSensitiveInputs();
     pendingAttempt = null;
     form.hidden = true;
-    currentTask.hidden = true;
+    currentTask.hidden = false;
     resultPanel.hidden = false;
+    document.querySelector("#current-task-heading").textContent =
+      "Review the extracted proposals";
+    document.querySelector("#task-guidance").textContent =
+      "The source is captured. Human review decides which claims may become acceptance criteria.";
     document.querySelector("#proposal-count").textContent =
       `${payload.proposal_count} ${payload.proposal_count === 1 ? "proposal" : "proposals"}`;
     document.querySelector("#review-state").textContent = "NEEDS_REVIEW";
     const reviewProposals = document.querySelector("#review-proposals");
-    reviewProposals.setAttribute(
-      "href",
-      `/app/pocs/${pocId}/review`
-    );
+    reviewProposals.setAttribute("href", destination);
     reviewProposals.hidden = false;
     const addAnotherSource = document.querySelector("#add-another-source");
     addAnotherSource.setAttribute(
@@ -410,6 +412,11 @@
     );
     addAnotherSource.hidden = false;
     resultPanel.focus();
+    try {
+      window.location.replace(destination);
+    } catch {
+      // The verified fallback panel remains available if navigation is blocked.
+    }
   }
 
   function applyDraft(draft, sourceList) {

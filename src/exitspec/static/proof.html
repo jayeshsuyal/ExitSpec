@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/performance.css" />
     <link rel="stylesheet" href="/proof.css" />
     <link rel="stylesheet" href="/closure.css" />
+    <link rel="stylesheet" href="/workbench.css" />
   </head>
   <body>
     <a class="skip-link" href="#performance-current-task">
@@ -34,14 +35,14 @@
       </header>
 
       <main
-        class="performance-main"
+        class="performance-main workbench-main"
         id="performance-main"
         aria-busy="true"
       >
-        <header class="object-header">
-          <div class="object-identity">
-            <a class="back-link" href="/app">← All POCs</a>
-            <p class="eyebrow">Inference performance</p>
+        <header class="object-header workbench-object-header">
+          <div class="object-identity workbench-object-identity">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Step 3 of 3 · Prove</p>
             <div class="object-title-row">
               <h1 id="performance-title">Loading proof…</h1>
               <span class="object-phase" id="performance-phase">PROVE</span>
@@ -73,7 +74,7 @@
         </header>
 
         <section
-          class="current-task-card"
+          class="current-task-card workbench-current-task"
           id="performance-current-task"
           aria-labelledby="current-task-heading"
         >
@@ -98,17 +99,6 @@
                 Loading the exact request boundary…
               </span>
             </label>
-            <div class="task-actions">
-              <button
-                class="primary-action"
-                id="run-proof"
-                type="button"
-                aria-describedby="task-guidance"
-                disabled
-              >
-                Run frozen proof
-              </button>
-            </div>
           </div>
 
           <dl class="state-boundary" aria-label="POC authority states">
@@ -125,6 +115,18 @@
               <dd id="evidence-status">Loading</dd>
             </div>
           </dl>
+
+          <div class="task-actions workbench-primary-slot">
+            <button
+              class="primary-action"
+              id="run-proof"
+              type="button"
+              aria-describedby="task-guidance"
+              disabled
+            >
+              Run frozen proof
+            </button>
+          </div>
         </section>
 
         <div class="performance-grid">
