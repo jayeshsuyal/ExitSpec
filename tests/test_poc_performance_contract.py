@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
 
-from exitspec.confirmations import ConfirmationDecision, record_confirmation
+from exitspec.confirmations import (
+    ConfirmationDecision,
+    canonical_confirmation_payload,
+    contract_confirmation_fingerprint,
+    record_confirmation,
+)
 from exitspec.contracts import freeze_confirmed_contract
 from exitspec.models import ContractStatus
 from exitspec.performance_evidence import (
@@ -38,6 +43,7 @@ from exitspec.poc_proposal_review import (
     ProposalDecision,
     SourceBoundProposal,
 )
+from exitspec.review_links import ReviewInvitationError
 
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
@@ -168,7 +174,7 @@ def _bundle(**input_updates):
     )
 
 
-def _lifecycle_service():
+def _lifecycle_service(*, clock=None):
     draft, proposals, definitions = _inputs()
     current_proposals = list(proposals)
     current_definitions = list(definitions)
@@ -181,9 +187,32 @@ def _lifecycle_service():
         else (),
         definition_lookup=lambda: tuple(current_definitions),
         prompt_bytes=PROMPTS,
-        clock=lambda: NOW,
+        clock=(lambda: NOW) if clock is None else clock,
     )
     return service, current_proposals, current_definitions
+
+
+def _review_token(
+    service: ProcessLocalPerformanceLifecycleService,
+) -> str:
+    review_url = service.customer_review_url(POC_ID)
+    assert review_url.startswith("/review/")
+    return review_url.rsplit("/", 1)[-1]
+
+
+def _confirm_through_customer_review(
+    service: ProcessLocalPerformanceLifecycleService,
+    *,
+    idempotency_key: str,
+    rationale: str = "The exact target and criteria were reviewed.",
+):
+    return service.record_customer_review_decision(
+        _review_token(service),
+        decision="CONFIRM",
+        agreement_acknowledged=True,
+        rationale=rationale,
+        idempotency_key=idempotency_key,
+    )
 
 
 @pytest.mark.parametrize(
@@ -326,6 +355,147 @@ def test_token_ranges_are_fingerprinted_as_explicit_non_goals():
     assert bundle.approved_contract.confirmation_id is None
 
 
+def test_prepare_issues_opaque_review_bound_to_exact_contract_fingerprint():
+    service, _, _ = _lifecycle_service()
+    prepared = service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepare the exact agreement for external review.",
+        idempotency_key="prepare-bound-review-capability",
+    )
+    snapshot = service.snapshot(POC_ID)
+    invitation = snapshot.review_invitation
+    assert invitation is not None
+    token = _review_token(service)
+    customer_view = service.customer_review_payload(token)
+    contract = prepared.value.approved_contract
+
+    assert POC_ID not in token
+    assert contract.id not in token
+    assert invitation.accepts(token, now=NOW)
+    assert invitation.contract_id == contract.id
+    assert invitation.contract_version == contract.version
+    assert invitation.confirmation_fingerprint == (
+        contract_confirmation_fingerprint(contract)
+    )
+    assert customer_view["review"]["confirmation_fingerprint"] == (
+        invitation.confirmation_fingerprint
+    )
+    assert customer_view["review"]["agreement"] == (
+        canonical_confirmation_payload(contract)
+    )
+    criterion = customer_view["review"]["criteria"][0]
+    assert criterion["metric"] == "P95 time to first token and error rate"
+    assert criterion["threshold"] == (
+        "P95 TTFT at most 500 ms · error rate below 1%"
+    )
+    assert criterion["sample"] == (
+        "95 successful timing samples · 100 attempted requests"
+    )
+    assert customer_view["safety"]["not_evidence"] is True
+    assert customer_view["safety"]["not_production_authorization"] is True
+
+
+def test_invalid_and_foreign_review_capabilities_fail_closed():
+    service, _, _ = _lifecycle_service()
+    service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepare the local capability.",
+        idempotency_key="prepare-local-review-capability",
+    )
+    other, _, _ = _lifecycle_service()
+    other.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepare a different process-local capability.",
+        idempotency_key="prepare-foreign-review-capability",
+    )
+
+    with pytest.raises(ReviewInvitationError, match="invalid"):
+        service.customer_review_payload("not-a-review-capability")
+    with pytest.raises(ReviewInvitationError, match="invalid"):
+        service.customer_review_payload(_review_token(other))
+
+
+def test_expired_review_can_be_reissued_without_changing_the_agreement():
+    current = [NOW]
+    service, _, _ = _lifecycle_service(clock=lambda: current[0])
+    prepared = service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepare one expiring capability.",
+        idempotency_key="prepare-expiring-review",
+    )
+    old_url = service.customer_review_url(POC_ID)
+    old_token = old_url.rsplit("/", 1)[-1]
+    current[0] = NOW + timedelta(hours=2, microseconds=1)
+
+    assert service.customer_review_expired(POC_ID) is True
+    with pytest.raises(ReviewInvitationError, match="expired"):
+        service.customer_review_payload(old_token)
+
+    reissued = service.reissue_customer_review(
+        POC_ID,
+        idempotency_key="reissue-expired-review",
+    )
+    replay = service.reissue_customer_review(
+        POC_ID,
+        idempotency_key="reissue-expired-review",
+    )
+    new_url = service.customer_review_url(POC_ID)
+
+    assert reissued.replayed is False
+    assert replay.replayed is True
+    assert replay.value is reissued.value
+    assert new_url != old_url
+    assert service.customer_review_payload(new_url.rsplit("/", 1)[-1])["review"][
+        "agreement"
+    ] == canonical_confirmation_payload(prepared.value.approved_contract)
+    with pytest.raises(ReviewInvitationError, match="invalid"):
+        service.customer_review_payload(old_token)
+
+    current[0] += timedelta(hours=2, microseconds=1)
+    with pytest.raises(PerformanceLifecycleConflict, match="no longer current"):
+        service.reissue_customer_review(
+            POC_ID,
+            idempotency_key="reissue-expired-review",
+        )
+
+
+def test_customer_decision_uses_one_timestamp_for_expiry_and_receipt():
+    before_expiry = NOW + timedelta(hours=2, microseconds=-1)
+    calls = 0
+
+    def clock():
+        nonlocal calls
+        calls += 1
+        return NOW if calls == 1 else before_expiry
+
+    service, _, _ = _lifecycle_service(clock=clock)
+    service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepare the boundary-time review.",
+        idempotency_key="prepare-boundary-time-review",
+    )
+    confirmation = service.record_customer_review_decision(
+        _review_token(service),
+        decision="CONFIRM",
+        agreement_acknowledged=True,
+        rationale=None,
+        idempotency_key="confirm-boundary-time-review",
+    )
+
+    assert confirmation.value.decided_at == before_expiry
+    assert calls == 2
+
+
 def test_process_local_lifecycle_reuses_proven_confirmation_and_freeze():
     service, _, _ = _lifecycle_service()
 
@@ -336,10 +506,8 @@ def test_process_local_lifecycle_reuses_proven_confirmation_and_freeze():
         rationale="This exact agreement is ready for customer review.",
         idempotency_key="prepare-lifecycle-001",
     )
-    confirmed = service.confirm(
-        POC_ID,
-        confirmer_identity="Customer approver",
-        agreement_acknowledged=True,
+    confirmed = _confirm_through_customer_review(
+        service,
         rationale="This exact target and requirement pair are correct.",
         idempotency_key="confirm-lifecycle-001",
     )
@@ -370,14 +538,17 @@ def test_every_lifecycle_write_is_exactly_idempotent():
     }
     first_prepare = service.prepare(POC_ID, **prepare_arguments)
     replay_prepare = service.prepare(POC_ID, **prepare_arguments)
-    confirm_arguments = {
-        "confirmer_identity": "Customer approver",
-        "agreement_acknowledged": True,
-        "rationale": "Confirmed exactly as displayed.",
-        "idempotency_key": "confirm-lifecycle-replay",
-    }
-    first_confirmation = service.confirm(POC_ID, **confirm_arguments)
-    replay_confirmation = service.confirm(POC_ID, **confirm_arguments)
+    confirmation_key = "confirm-lifecycle-replay"
+    first_confirmation = _confirm_through_customer_review(
+        service,
+        rationale="Confirmed exactly as displayed.",
+        idempotency_key=confirmation_key,
+    )
+    replay_confirmation = _confirm_through_customer_review(
+        service,
+        rationale="Confirmed exactly as displayed.",
+        idempotency_key=confirmation_key,
+    )
     first_freeze = service.freeze(
         POC_ID,
         idempotency_key="freeze-lifecycle-replay",
@@ -411,12 +582,76 @@ def test_freeze_requires_exact_affirmative_customer_confirmation():
             idempotency_key="freeze-without-confirmation",
         )
     with pytest.raises(PerformanceLifecycleInvalid, match="acknowledgement"):
-        service.confirm(
-            POC_ID,
-            confirmer_identity="Customer approver",
+        service.record_customer_review_decision(
+            _review_token(service),
+            decision="CONFIRM",
             agreement_acknowledged=False,
             rationale="No acknowledgement.",
             idempotency_key="reject-missing-acknowledgement",
+        )
+
+
+def test_request_changes_is_terminal_and_cannot_be_frozen():
+    service, _, _ = _lifecycle_service()
+    service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepared for customer review.",
+        idempotency_key="prepare-before-change-request",
+    )
+    changed = service.record_customer_review_decision(
+        _review_token(service),
+        decision="REQUEST_CHANGES",
+        agreement_acknowledged=False,
+        rationale="The workload does not match the customer call.",
+        idempotency_key="request-performance-agreement-changes",
+    )
+
+    assert changed.value.decision is ConfirmationDecision.REQUEST_CHANGES
+    assert service.snapshot(POC_ID).confirmation is changed.value
+    with pytest.raises(PerformanceLifecycleConflict, match="requested changes"):
+        service.freeze(
+            POC_ID,
+            idempotency_key="reject-freeze-after-change-request",
+        )
+
+
+def test_customer_decision_idempotency_cannot_change_payload_or_authority():
+    service, _, _ = _lifecycle_service()
+    service.prepare(
+        POC_ID,
+        target=_target(),
+        reviewer="Jayesh",
+        rationale="Prepared for exact customer review.",
+        idempotency_key="prepare-before-review-replay",
+    )
+    token = _review_token(service)
+    first = service.record_customer_review_decision(
+        token,
+        decision="CONFIRM",
+        agreement_acknowledged=True,
+        rationale="Confirm this exact agreement.",
+        idempotency_key="customer-review-replay",
+    )
+    replay = service.record_customer_review_decision(
+        token,
+        decision="CONFIRM",
+        agreement_acknowledged=True,
+        rationale="Confirm this exact agreement.",
+        idempotency_key="customer-review-replay",
+    )
+
+    assert first.replayed is False
+    assert replay.replayed is True
+    assert replay.value is first.value
+    with pytest.raises(PerformanceLifecycleConflict, match="Idempotency"):
+        service.record_customer_review_decision(
+            token,
+            decision="REQUEST_CHANGES",
+            agreement_acknowledged=False,
+            rationale="Attempt to mutate the terminal decision.",
+            idempotency_key="customer-review-replay",
         )
 
 

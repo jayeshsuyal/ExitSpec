@@ -248,15 +248,35 @@ def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
     assert '$("#recording-restart").addEventListener("click", resetDemo)' in javascript
 
 
-def test_customer_confirmation_returns_to_the_exact_seeded_poc():
+def test_customer_confirmation_returns_only_to_valid_seeded_or_dynamic_pocs():
     javascript = (STATIC_ROOT / "review.js").read_text(encoding="utf-8")
+    validator = javascript.split(
+        "function safeLocalReturnPath(value) {", 1
+    )[1].split("function showTerminal", 1)[0]
+    terminal = javascript.split(
+        "function showTerminal(decision) {", 1
+    )[1].split("async function loadReview", 1)[0]
 
+    assert 'value === "/app/pocs/poc_support_agent_demo"' in validator
     assert (
-        'localReturn?.return_url === "/app/pocs/poc_support_agent_demo"'
-        in javascript
+        r"^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/agreement$"
+        in validator
     )
+    assert "match[1] !== review.poc_id" in validator
+    assert "parsed.origin === window.location.origin" in validator
+    assert "parsed.pathname === value" in validator
+    assert 'parsed.search === ""' in validator
+    assert 'parsed.hash === ""' in validator
     assert "elements.returnToApp.href = safeLocalReturnUrl;" in javascript
     assert "elements.returnToApp.href = \"/app\";" not in javascript
+    assert 'decision.decision === "REQUEST_CHANGES"' in terminal
+    assert 'safeLocalReturnUrl?.endsWith("/agreement")' in terminal
+    assert '"Changes requested"' in terminal
+    assert (
+        '"This immutable local POC stops here. The owner must start a new POC '
+        'with the requested changes."'
+        in terminal
+    )
 
 
 def test_rule_editor_places_progressive_details_before_state_changing_actions():

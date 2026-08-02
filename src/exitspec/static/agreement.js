@@ -6,6 +6,8 @@
   const DEFINITION_ID_PATTERN = /^cdef_[a-f0-9]{32}$/;
   const DRAFT_ID_PATTERN = /^agd_[a-f0-9]{32,64}$/;
   const CONFIRMATION_ID_PATTERN = /^cnf_[a-f0-9]{64}$/;
+  const REVIEW_ID_PATTERN = /^review-[a-f0-9]{24}$/;
+  const REVIEW_URL_PATTERN = /^\/review\/[A-Za-z0-9_-]{32,512}$/;
   const SHA256_PATTERN = /^[a-f0-9]{64}$/;
   const ROUTE_PATTERN =
     /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/agreement$/;
@@ -55,6 +57,7 @@
   ]);
   const AGREEMENT_KEYS = Object.freeze([
     "confirmation",
+    "customer_review",
     "definitions",
     "draft",
     "frozen_contract",
@@ -110,8 +113,16 @@
     "confirmation_id",
     "confirmed_at",
     "confirmer",
+    "decision",
     "draft_sha256",
     "rationale",
+  ]);
+  const CUSTOMER_REVIEW_KEYS = Object.freeze([
+    "created_at",
+    "expires_at",
+    "review_id",
+    "review_url",
+    "status",
   ]);
   const FROZEN_CONTRACT_KEYS = Object.freeze([
     "canonical_hash",
@@ -131,7 +142,7 @@
     routeMatch && POC_ID_PATTERN.test(routeMatch[1]) ? routeMatch[1] : null;
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const agreementApi = pocId ? `/api/pocs/${pocId}/agreement` : null;
-  const confirmationApi = agreementApi ? `${agreementApi}/confirm` : null;
+  const reviewApi = agreementApi ? `${agreementApi}/review` : null;
   const freezeApi = agreementApi ? `${agreementApi}/freeze` : null;
 
   const workbench = document.querySelector("#agreement-workbench");
@@ -149,16 +160,30 @@
   const draftStatus = document.querySelector("#draft-status");
   const endpointDetails = document.querySelector(".endpoint-fields");
   const confirmationPanel = document.querySelector("#confirmation-panel");
-  const confirmationForm = document.querySelector("#confirmation-form");
-  const confirmerInput = document.querySelector("#confirmer");
-  const confirmationRationaleInput = document.querySelector(
-    "#confirmation-rationale"
-  );
-  const acknowledgementInput = document.querySelector(
-    "#agreement-acknowledged"
-  );
-  const confirmButton = document.querySelector("#confirm-agreement");
   const confirmationStatus = document.querySelector("#confirmation-status");
+  const customerReviewInvitation = document.querySelector(
+    "#review-invitation"
+  );
+  const customerReviewState = document.querySelector("#customer-review-state");
+  const customerReviewHeading = document.querySelector(
+    "#customer-review-heading"
+  );
+  const customerReviewExpiry = document.querySelector(
+    "#customer-review-expiry"
+  );
+  const customerReviewLink = document.querySelector("#customer-review-link");
+  const refreshCustomerReviewButton = document.querySelector(
+    "#refresh-customer-review"
+  );
+  const reissueCustomerReviewButton = document.querySelector(
+    "#reissue-customer-review"
+  );
+  const pendingReviewActions = document.querySelector(
+    "#pending-review-actions"
+  );
+  const changesRequestedActions = document.querySelector(
+    "#changes-requested-actions"
+  );
   const freezePanel = document.querySelector("#freeze-panel");
   const freezeForm = document.querySelector("#freeze-form");
   const freezeButton = document.querySelector("#freeze-contract");
@@ -174,16 +199,11 @@
     draftReviewerInput,
     draftRationaleInput,
   ]);
-  const confirmationControls = Object.freeze([
-    confirmerInput,
-    confirmationRationaleInput,
-    acknowledgementInput,
-  ]);
 
   let agreementState = null;
   let inFlight = null;
   let pendingDraftAttempt = null;
-  let pendingConfirmationAttempt = null;
+  let pendingReviewReissueAttempt = null;
   let pendingFreezeAttempt = null;
 
   class SafeRequestError extends Error {
@@ -268,6 +288,23 @@
     }
   }
 
+  function isTrustedReviewUrl(value) {
+    if (typeof value !== "string" || !REVIEW_URL_PATTERN.test(value)) {
+      return false;
+    }
+    try {
+      const parsed = new URL(value, window.location.origin);
+      return Boolean(
+        parsed.origin === window.location.origin &&
+          parsed.pathname === value &&
+          parsed.search === "" &&
+          parsed.hash === ""
+      );
+    } catch {
+      return false;
+    }
+  }
+
   function isTrustedApiPath(value) {
     if (
       typeof value !== "string" ||
@@ -286,7 +323,7 @@
           parsed.hash === "" &&
           (value === pocApi ||
             value === agreementApi ||
-            value === confirmationApi ||
+            value === reviewApi ||
             value === freezeApi)
       );
     } catch {
@@ -401,8 +438,26 @@
         SHA256_PATTERN.test(confirmation.draft_sha256) &&
         isTrustedTimestamp(confirmation.confirmed_at) &&
         isSingleLineText(confirmation.confirmer, 160) &&
-        confirmation.agreement_acknowledged === true &&
+        ["CONFIRM", "REQUEST_CHANGES"].includes(confirmation.decision) &&
+        (confirmation.decision !== "CONFIRM" ||
+          confirmation.agreement_acknowledged === true) &&
+        typeof confirmation.agreement_acknowledged === "boolean" &&
         isSafeBoundedText(confirmation.rationale, 2000)
+    );
+  }
+
+  function isTrustedCustomerReview(customerReview) {
+    return Boolean(
+      hasExactKeys(customerReview, CUSTOMER_REVIEW_KEYS) &&
+        REVIEW_ID_PATTERN.test(customerReview.review_id) &&
+        ["PENDING", "EXPIRED", "CONFIRMED", "CHANGES_REQUESTED"].includes(
+          customerReview.status
+        ) &&
+        isTrustedReviewUrl(customerReview.review_url) &&
+        isTrustedTimestamp(customerReview.created_at) &&
+        isTrustedTimestamp(customerReview.expires_at) &&
+        Date.parse(customerReview.expires_at) >
+          Date.parse(customerReview.created_at)
     );
   }
 
@@ -442,6 +497,8 @@
         isSafeBoundedText(claim, 2000)
       ) ||
       (payload.draft !== null && !isTrustedDraft(payload.draft)) ||
+      (payload.customer_review !== null &&
+        !isTrustedCustomerReview(payload.customer_review)) ||
       (payload.confirmation !== null &&
         !isTrustedConfirmation(payload.confirmation)) ||
       (payload.frozen_contract !== null &&
@@ -463,8 +520,13 @@
     }
     if (
       payload.draft === null &&
-      (payload.confirmation !== null || payload.frozen_contract !== null)
+      (payload.customer_review !== null ||
+        payload.confirmation !== null ||
+        payload.frozen_contract !== null)
     ) {
+      return false;
+    }
+    if (payload.draft !== null && payload.customer_review === null) {
       return false;
     }
     if (
@@ -475,11 +537,23 @@
       return false;
     }
     if (
+      payload.customer_review !== null &&
+      ((payload.confirmation === null &&
+        !["PENDING", "EXPIRED"].includes(payload.customer_review.status)) ||
+        (payload.confirmation?.decision === "CONFIRM" &&
+          payload.customer_review.status !== "CONFIRMED") ||
+        (payload.confirmation?.decision === "REQUEST_CHANGES" &&
+          payload.customer_review.status !== "CHANGES_REQUESTED"))
+    ) {
+      return false;
+    }
+    if (
       payload.frozen_contract !== null &&
       (payload.draft === null ||
         payload.confirmation === null ||
         payload.frozen_contract.confirmation_id !==
           payload.confirmation.confirmation_id ||
+        payload.confirmation.decision !== "CONFIRM" ||
         !targetMatches(payload.frozen_contract, payload.draft))
     ) {
       return false;
@@ -502,18 +576,6 @@
     );
   }
 
-  function isTrustedConfirmationActionResponse(payload, attempt) {
-    return Boolean(
-      hasExactKeys(payload, ["confirmation", "disposition", "poc_id"]) &&
-        payload.poc_id === pocId &&
-        DISPOSITIONS.includes(payload.disposition) &&
-        isTrustedConfirmation(payload.confirmation) &&
-        payload.confirmation.confirmer === attempt.payload.confirmer &&
-        payload.confirmation.agreement_acknowledged === true &&
-        payload.confirmation.rationale === attempt.payload.rationale
-    );
-  }
-
   function isTrustedFreezeActionResponse(payload) {
     return Boolean(
       hasExactKeys(payload, ["disposition", "frozen_contract", "poc_id"]) &&
@@ -526,6 +588,16 @@
         payload.frozen_contract.confirmation_id ===
           agreementState.confirmation.confirmation_id &&
         targetMatches(payload.frozen_contract, agreementState.draft)
+    );
+  }
+
+  function isTrustedReviewReissueResponse(payload) {
+    return Boolean(
+      hasExactKeys(payload, ["customer_review", "disposition", "poc_id"]) &&
+        payload.poc_id === pocId &&
+        DISPOSITIONS.includes(payload.disposition) &&
+        isTrustedCustomerReview(payload.customer_review) &&
+        payload.customer_review.status === "PENDING"
     );
   }
 
@@ -647,23 +719,6 @@
     };
   }
 
-  function validatedConfirmationFields() {
-    const confirmer = confirmerInput.value.trim();
-    const rationale = confirmationRationaleInput.value.trim();
-    if (
-      !isSingleLineText(confirmer, 160) ||
-      !isSafeBoundedText(rationale, 2000) ||
-      acknowledgementInput.checked !== true
-    ) {
-      return null;
-    }
-    return {
-      confirmer,
-      agreement_acknowledged: true,
-      rationale,
-    };
-  }
-
   function setControlsAvailability(controls, enabled) {
     controls.forEach((control) => {
       control.disabled = !enabled;
@@ -719,39 +774,12 @@
     draftReviewerInput.focus();
   }
 
-  function updateConfirmationControls() {
-    const available = Boolean(
-      agreementState &&
-        agreementState.draft !== null &&
-        agreementState.confirmation === null
-    );
-    const fieldsValid = validatedConfirmationFields() !== null;
-    const editable =
-      available && inFlight === null && pendingConfirmationAttempt === null;
-    setControlsAvailability(confirmationControls, editable);
-    confirmButton.disabled = Boolean(
-      !available ||
-        inFlight !== null ||
-        (!pendingConfirmationAttempt && !fieldsValid)
-    );
-    confirmButton.textContent = pendingConfirmationAttempt
-      ? "Retry confirm agreement"
-      : "Confirm agreement";
-    confirmationStatus.textContent =
-      inFlight === "confirmation"
-        ? "Recording the customer confirmation…"
-        : pendingConfirmationAttempt
-          ? "The response was interrupted. Retry will reuse the same confirmation key."
-          : fieldsValid
-            ? "Ready to record this explicit customer confirmation."
-            : "Customer identity, rationale, and acknowledgement are required.";
-  }
-
   function updateFreezeControls() {
     const available = Boolean(
       agreementState &&
         agreementState.draft !== null &&
         agreementState.confirmation !== null &&
+        agreementState.confirmation.decision === "CONFIRM" &&
         agreementState.frozen_contract === null
     );
     freezeButton.disabled = !available || inFlight !== null;
@@ -853,6 +881,139 @@
     }
   }
 
+  function formatReviewExpiry(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "Unavailable";
+    }
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(date);
+  }
+
+  function renderCustomerReviewState() {
+    const customerReview = agreementState.customer_review;
+    const changesRequested =
+      agreementState.confirmation?.decision === "REQUEST_CHANGES";
+    const expired = customerReview.status === "EXPIRED";
+    customerReviewLink.href = customerReview.review_url;
+    customerReviewLink.removeAttribute("aria-disabled");
+    customerReviewExpiry.dateTime = customerReview.expires_at;
+    customerReviewExpiry.textContent = formatReviewExpiry(
+      customerReview.expires_at
+    );
+    customerReviewInvitation.dataset.state = changesRequested
+      ? "changes-requested"
+      : expired
+        ? "expired"
+        : "pending";
+    pendingReviewActions.hidden = changesRequested;
+    changesRequestedActions.hidden = !changesRequested;
+    customerReviewLink.hidden = expired;
+    refreshCustomerReviewButton.hidden = expired;
+    refreshCustomerReviewButton.disabled = inFlight !== null;
+    reissueCustomerReviewButton.hidden = !expired;
+    reissueCustomerReviewButton.disabled = inFlight !== null;
+
+    if (changesRequested) {
+      customerReviewState.textContent = "Review complete";
+      customerReviewHeading.textContent = "Customer requested changes";
+      confirmationStatus.textContent =
+        "This agreement cannot be frozen or edited in place.";
+      return;
+    }
+
+    if (expired) {
+      customerReviewState.textContent = "Review link expired";
+      customerReviewHeading.textContent = "Issue a new review link";
+      confirmationStatus.textContent =
+        inFlight === "reissue"
+          ? "Issuing a new link for this unchanged agreement…"
+          : "The agreement is unchanged. Replace only the expired link.";
+      return;
+    }
+
+    customerReviewState.textContent = "Waiting for customer";
+    customerReviewHeading.textContent = "Customer confirmation is pending";
+    confirmationStatus.textContent =
+      inFlight === "refresh"
+        ? "Checking the customer decision…"
+        : "Open or share the review link, then refresh after the customer decides.";
+  }
+
+  async function refreshCustomerReview() {
+    if (
+      inFlight !== null ||
+      !agreementState ||
+      agreementState.customer_review?.status !== "PENDING"
+    ) {
+      return;
+    }
+    inFlight = "refresh";
+    clearError();
+    renderCustomerReviewState();
+    try {
+      await reconcileAgreement();
+    } catch (error) {
+      inFlight = null;
+      confirmationStatus.textContent =
+        "Status could not be refreshed. The agreement is unchanged.";
+      errorPanel.textContent = safeFailureCopy(error, "review refresh");
+      errorPanel.hidden = false;
+      refreshCustomerReviewButton.disabled = false;
+    }
+  }
+
+  async function reissueCustomerReview() {
+    if (
+      inFlight !== null ||
+      !agreementState ||
+      agreementState.customer_review?.status !== "EXPIRED"
+    ) {
+      return;
+    }
+    if (!pendingReviewReissueAttempt) {
+      const idempotencyKey = newOperationKey("agreement-review-reissue");
+      if (!idempotencyKey) {
+        confirmationStatus.textContent =
+          "A safe review-link operation key could not be created.";
+        return;
+      }
+      pendingReviewReissueAttempt = {
+        payload: { idempotency_key: idempotencyKey },
+      };
+    }
+    inFlight = "reissue";
+    clearError();
+    renderCustomerReviewState();
+    try {
+      const response = await requestJson(reviewApi, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingReviewReissueAttempt.payload),
+      });
+      if (!isTrustedReviewReissueResponse(response)) {
+        throw new SafeRequestError(200, true);
+      }
+      pendingReviewReissueAttempt = null;
+      await reconcileAgreement();
+    } catch (error) {
+      inFlight = null;
+      if (error instanceof SafeRequestError && !error.retrySameAttempt) {
+        pendingReviewReissueAttempt = null;
+      }
+      confirmationStatus.textContent =
+        "The review link was not replaced. Retry the same attempt.";
+      errorPanel.textContent = safeFailureCopy(error, "review-link reissue");
+      errorPanel.hidden = false;
+      reissueCustomerReviewButton.disabled = false;
+    }
+  }
+
   function setCurrentStep(stepName) {
     const steps = [
       ["draft", document.querySelector("#step-draft")],
@@ -903,7 +1064,7 @@
       return;
     }
 
-    if (agreementState.confirmation !== null) {
+    if (agreementState.confirmation?.decision === "CONFIRM") {
       showOnly(freezePanel);
       setCurrentStep("freeze");
       document.querySelector("#current-task-heading").textContent =
@@ -922,13 +1083,23 @@
     if (agreementState.draft !== null) {
       showOnly(confirmationPanel);
       setCurrentStep("confirm");
-      document.querySelector("#current-task-heading").textContent =
-        "Confirm the customer agreement";
-      document.querySelector("#current-task-copy").textContent =
-        "Show the exact target and criteria before recording confirmation.";
       renderCustomerAgreement();
-      updateConfirmationControls();
-      document.querySelector("#customer-agreement").focus?.();
+      renderCustomerReviewState();
+      const changesRequested =
+        agreementState.confirmation?.decision === "REQUEST_CHANGES";
+      document.querySelector("#current-task-heading").textContent =
+        changesRequested
+          ? "Customer requested changes"
+          : "Get the customer decision";
+      document.querySelector("#current-task-copy").textContent =
+        changesRequested
+          ? "This immutable local POC stops here. Start a new POC to revise it."
+          : "Share the separate review link. Freeze unlocks only after confirmation.";
+      if (!changesRequested) {
+        customerReviewLink.focus({ preventScroll: true });
+      } else {
+        document.querySelector("#start-new-poc").focus({ preventScroll: true });
+      }
       return;
     }
 
@@ -955,9 +1126,11 @@
   function blockAgreement(message) {
     workbench.setAttribute("aria-busy", "false");
     setControlsAvailability(draftControls, false);
-    setControlsAvailability(confirmationControls, false);
     createDraftButton.disabled = true;
-    confirmButton.disabled = true;
+    customerReviewLink.removeAttribute("href");
+    customerReviewLink.setAttribute("aria-disabled", "true");
+    refreshCustomerReviewButton.disabled = true;
+    reissueCustomerReviewButton.disabled = true;
     freezeButton.disabled = true;
     draftStatus.textContent = "Agreement drafting is unavailable.";
     confirmationStatus.textContent = "Agreement confirmation is unavailable.";
@@ -980,20 +1153,8 @@
     useReferenceTarget
   );
 
-  confirmationControls.forEach((control) => {
-    control.addEventListener("input", () => {
-      if (inFlight === null && pendingConfirmationAttempt === null) {
-        clearError();
-        updateConfirmationControls();
-      }
-    });
-    control.addEventListener("change", () => {
-      if (inFlight === null && pendingConfirmationAttempt === null) {
-        clearError();
-        updateConfirmationControls();
-      }
-    });
-  });
+  refreshCustomerReviewButton.addEventListener("click", refreshCustomerReview);
+  reissueCustomerReviewButton.addEventListener("click", reissueCustomerReview);
 
   draftForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1069,89 +1230,6 @@
     }
   });
 
-  confirmationForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    let actionRecorded = false;
-    if (
-      inFlight !== null ||
-      !agreementState ||
-      agreementState.draft === null ||
-      agreementState.confirmation !== null
-    ) {
-      return;
-    }
-    if (!pendingConfirmationAttempt) {
-      const fields = validatedConfirmationFields();
-      const idempotencyKey = newOperationKey("agreement-confirmation");
-      if (
-        !fields ||
-        !idempotencyKey ||
-        !confirmationForm.reportValidity()
-      ) {
-        confirmationStatus.textContent =
-          "Explicit customer identity, rationale, and acknowledgement are required.";
-        return;
-      }
-      pendingConfirmationAttempt = {
-        payload: {
-          confirmer: fields.confirmer,
-          agreement_acknowledged: true,
-          rationale: fields.rationale,
-          idempotency_key: idempotencyKey,
-        },
-      };
-    }
-
-    inFlight = "confirmation";
-    clearError();
-    updateConfirmationControls();
-    try {
-      const response = await requestJson(confirmationApi, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(pendingConfirmationAttempt.payload),
-      });
-      if (
-        !isTrustedConfirmationActionResponse(
-          response,
-          pendingConfirmationAttempt
-        )
-      ) {
-        throw new SafeRequestError(200, true);
-      }
-      pendingConfirmationAttempt = null;
-      actionRecorded = true;
-      await reconcileAgreement();
-      confirmerInput.value = "";
-      confirmationRationaleInput.value = "";
-      acknowledgementInput.checked = false;
-    } catch (error) {
-      if (actionRecorded) {
-        agreementState = null;
-        blockAgreement(
-          "The confirmation was recorded, but the authoritative agreement state could not be refreshed. Reload before freezing."
-        );
-        return;
-      }
-      if (error instanceof SafeRequestError && !error.retrySameAttempt) {
-        pendingConfirmationAttempt = null;
-      }
-      errorPanel.textContent = safeFailureCopy(error, "confirmation");
-      errorPanel.hidden = false;
-    } finally {
-      inFlight = null;
-      if (
-        agreementState &&
-        agreementState.draft !== null &&
-        agreementState.confirmation === null
-      ) {
-        updateConfirmationControls();
-      }
-    }
-  });
-
   freezeForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     let actionRecorded = false;
@@ -1160,6 +1238,7 @@
       !agreementState ||
       agreementState.draft === null ||
       agreementState.confirmation === null ||
+      agreementState.confirmation.decision !== "CONFIRM" ||
       agreementState.frozen_contract !== null
     ) {
       return;
@@ -1221,7 +1300,7 @@
   });
 
   async function initialise() {
-    if (!pocId || !pocApi || !agreementApi || !confirmationApi || !freezeApi) {
+    if (!pocId || !pocApi || !agreementApi || !reviewApi || !freezeApi) {
       blockAgreement(
         "This agreement address is invalid. Return to the POC workspace."
       );
@@ -1253,20 +1332,24 @@
   window.addEventListener("pagehide", () => {
     agreementState = null;
     pendingDraftAttempt = null;
-    pendingConfirmationAttempt = null;
+    pendingReviewReissueAttempt = null;
     pendingFreezeAttempt = null;
     draftControls.forEach((control) => {
       control.value = "";
     });
-    confirmerInput.value = "";
-    confirmationRationaleInput.value = "";
-    acknowledgementInput.checked = false;
+    customerReviewLink.removeAttribute("href");
     document.querySelector("#definition-list").replaceChildren();
     document.querySelector("#customer-criteria-list").replaceChildren();
     document.querySelector("#review-target-provider").textContent = "";
     document.querySelector("#review-model").textContent = "";
     document.querySelector("#review-endpoint-class").textContent = "";
     document.querySelector("#review-endpoint").textContent = "";
+  });
+
+  window.addEventListener("focus", () => {
+    if (agreementState?.customer_review?.status === "PENDING") {
+      refreshCustomerReview();
+    }
   });
 
   initialise();

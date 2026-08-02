@@ -456,7 +456,7 @@
 .field-group input:focus-visible,
 .field-group textarea:focus-visible,
 .endpoint-fields summary:focus-visible,
-.acknowledgement input:focus-visible {
+.agreement-details summary:focus-visible {
   outline: 2px solid var(--orange);
   outline-offset: 2px;
   border-color: var(--orange);
@@ -517,6 +517,9 @@
 }
 
 .primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--orange);
@@ -526,6 +529,9 @@
   color: var(--canvas);
   font-size: 11px;
   font-weight: 820;
+  line-height: 1.3;
+  text-align: center;
+  text-decoration: none;
 }
 
 .primary-action:hover:not(:disabled) {
@@ -537,12 +543,138 @@
   opacity: 0.42;
 }
 
+.secondary-action {
+  min-height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  padding: 8px 12px;
+  background: var(--raised);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.secondary-action:hover:not(:disabled) {
+  border-color: var(--orange);
+  color: var(--text);
+}
+
+.secondary-action:disabled {
+  opacity: 0.5;
+}
+
 .customer-review-scroll {
-  padding: 10px 14px 0;
+  padding: 12px 14px 14px;
+}
+
+.review-invitation {
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--orange);
+  padding: 14px;
+  background: var(--raised);
+}
+
+.review-state-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-state-line .eyebrow {
+  margin: 0;
+}
+
+.review-state-mark {
+  width: 7px;
+  height: 7px;
+  background: var(--orange);
+}
+
+.review-invitation[data-state="changes-requested"] {
+  border-left-color: var(--danger);
+}
+
+.review-invitation[data-state="changes-requested"] .review-state-mark {
+  background: var(--danger);
+}
+
+.review-invitation[data-state="expired"] {
+  border-left-color: var(--danger);
+}
+
+.review-invitation[data-state="expired"] .review-state-mark {
+  background: var(--danger);
+}
+
+.review-invitation h4 {
+  margin: 8px 0 4px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 780;
+}
+
+.review-invitation .action-status {
+  max-width: 560px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.review-expiry {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.review-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.changes-requested-message {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.changes-requested-message > strong {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.changes-requested-message > p {
+  margin: 4px 0 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.changes-requested-message .primary-action {
+  max-width: 210px;
+}
+
+.agreement-details {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.agreement-details > summary {
+  cursor: pointer;
+  padding: 9px 11px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.agreement-details[open] > summary {
+  border-bottom: 1px solid var(--border);
 }
 
 .customer-agreement {
-  border: 1px solid var(--orange);
+  border: 0;
   background: var(--panel);
 }
 
@@ -637,35 +769,6 @@
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
-}
-
-.confirmation-fields {
-  margin-top: 10px;
-}
-
-.acknowledgement {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  margin: 10px 0;
-  border-left: 2px solid var(--orange);
-  padding: 7px 9px;
-  background: var(--raised);
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.acknowledgement input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--orange);
-}
-
-.confirmation-panel .action-footer {
-  margin: 0 -14px;
 }
 
 .freeze-panel {
@@ -841,11 +944,11 @@
 
   .target-primary-fields,
   .review-fields,
-  .confirmation-fields,
   .endpoint-field-grid,
   .target-review,
   .freeze-summary dl,
-  .action-footer {
+  .action-footer,
+  .review-actions {
     grid-template-columns: 1fr;
   }
 

@@ -78,16 +78,22 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
 
     assert 'id="create-draft-form"' in html
     assert 'id="confirmation-panel"' in html
-    assert 'id="confirmation-form"' in html
+    assert 'id="review-invitation"' in html
+    assert 'id="pending-review-actions"' in html
+    assert 'id="customer-review-link"' in html
+    assert 'id="refresh-customer-review"' in html
+    assert 'id="reissue-customer-review"' in html
+    assert 'id="changes-requested-actions"' in html
+    assert 'id="start-new-poc"' in html
     assert 'id="freeze-panel"' in html
     assert 'id="freeze-form"' in html
     assert 'id="agreement-complete"' in html
-    assert html.count('class="primary-action"') == 4
     button_ids = {button["id"] for button in parser.buttons}
     assert button_ids == {
         "create-customer-draft",
-        "confirm-agreement",
         "freeze-contract",
+        "refresh-customer-review",
+        "reissue-customer-review",
         "use-reference-target",
     }
     assert re.search(
@@ -96,9 +102,20 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
         html,
     )
     assert re.search(r">\s*Create customer draft\s*</button>", html)
-    assert re.search(r">\s*Confirm agreement\s*</button>", html)
+    assert re.search(
+        r'id="customer-review-link"[\s\S]*?>\s*'
+        r"Open customer review\s*</a>",
+        html,
+    )
+    assert re.search(
+        r'id="reissue-customer-review"[\s\S]*?>\s*'
+        r"Issue new review link\s*</button>",
+        html,
+    )
     assert re.search(r">\s*Freeze confirmed contract\s*</button>", html)
     assert 'id="freeze-contract"' in html
+    assert 'id="confirmation-form"' not in html
+    assert 'id="confirm-agreement"' not in html
 
 
 def test_execution_target_is_required_never_defaulted_and_not_inferred():
@@ -131,13 +148,13 @@ def test_local_reference_target_is_explicit_and_never_fakes_human_review():
     reference = _function(
         javascript,
         "useReferenceTarget",
-        "updateConfirmationControls",
+        "updateFreezeControls",
     )
 
     assert "Use local reference target" in html
     assert "It does not prove production inference" in html
     assert "Not proven by this POC" in html
-    assert "Excluded reviewed claims remain" in html
+    assert "Excluded claims remain" in html
     assert 'id="customer-not-proven-list"' in html
     assert "<strong>NOT_PROVEN</strong>" in html
     for exact_value in (
@@ -160,7 +177,7 @@ def test_customer_review_visibly_repeats_all_target_fields_before_confirmation()
     html = _asset(HTML_PATH)
 
     customer = html.split('id="customer-agreement"', 1)[1].split(
-        'id="confirmation-form"', 1
+        'id="freeze-panel"', 1
     )[0]
     for label, element_id in (
         ("Provider", "review-target-provider"),
@@ -190,8 +207,8 @@ def test_exact_route_identity_precedes_exact_agreement_api_construction():
     agreement_at = javascript.index(
         "const agreementApi = pocId ? `/api/pocs/${pocId}/agreement` : null;"
     )
-    confirmation_at = javascript.index(
-        "const confirmationApi = agreementApi ? `${agreementApi}/confirm` : null;"
+    review_at = javascript.index(
+        "const reviewApi = agreementApi ? `${agreementApi}/review` : null;"
     )
     freeze_at = javascript.index(
         "const freezeApi = agreementApi ? `${agreementApi}/freeze` : null;"
@@ -202,7 +219,7 @@ def test_exact_route_identity_precedes_exact_agreement_api_construction():
         < match_at
         < identity_at
         < agreement_at
-        < confirmation_at
+        < review_at
         < freeze_at
     )
     assert (
@@ -215,6 +232,8 @@ def test_exact_route_identity_precedes_exact_agreement_api_construction():
     assert 'window.location.hash === ""' in javascript
     assert 'value.includes("?")' in javascript
     assert 'value.includes("#")' in javascript
+    assert "confirmationApi" not in javascript
+    assert "/agreement/confirm" not in javascript
 
 
 def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
@@ -231,6 +250,7 @@ def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
         "definitions",
         "not_proven_claims",
         "draft",
+        "customer_review",
         "confirmation",
         "frozen_contract",
     ):
@@ -254,6 +274,11 @@ def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
         "payload.frozen_contract.confirmation_id !==\n"
         "          payload.confirmation.confirmation_id"
     ) in validator
+    assert 'payload.confirmation?.decision === "CONFIRM"' in validator
+    assert 'payload.customer_review.status !== "CONFIRMED"' in validator
+    assert 'payload.confirmation?.decision === "REQUEST_CHANGES"' in validator
+    assert 'payload.customer_review.status !== "CHANGES_REQUESTED"' in validator
+    assert 'payload.confirmation.decision !== "CONFIRM"' in validator
     assert "!targetMatches(payload.frozen_contract, payload.draft)" in validator
 
 
@@ -381,7 +406,7 @@ def test_create_draft_body_has_only_target_review_and_body_idempotency_fields():
     submit = javascript.split(
         'draftForm.addEventListener("submit"', 1
     )[1].split(
-        '\n  confirmationForm.addEventListener("submit"', 1
+        '\n  freezeForm.addEventListener("submit"', 1
     )[0]
     payload = submit.split("payload: {", 1)[1].split("},\n      };", 1)[0]
 
@@ -422,7 +447,7 @@ def test_create_response_is_exact_and_echoes_every_target_field():
     validator = _function(
         javascript,
         "isTrustedDraftActionResponse",
-        "isTrustedConfirmationActionResponse",
+        "isTrustedFreezeActionResponse",
     )
 
     assert (
@@ -443,42 +468,58 @@ def test_create_response_is_exact_and_echoes_every_target_field():
         assert f"payload.draft.{field} === attempt.payload.{field}" in validator
 
 
-def test_confirmation_requires_identity_acknowledgement_and_exact_body():
+def test_customer_review_is_authoritative_and_employee_self_attestation_is_retired():
     html = _asset(HTML_PATH)
     javascript = _asset(JS_PATH)
-    validator = _function(
+    review_validator = _function(
         javascript,
-        "validatedConfirmationFields",
-        "setControlsAvailability",
+        "isTrustedCustomerReview",
+        "isTrustedFrozenContract",
     )
-    submit = javascript.split(
-        'confirmationForm.addEventListener("submit"', 1
-    )[1].split(
-        '\n  freezeForm.addEventListener("submit"', 1
+    review_url_validator = _function(
+        javascript,
+        "isTrustedReviewUrl",
+        "isTrustedApiPath",
+    )
+    keys = javascript.split("const CUSTOMER_REVIEW_KEYS", 1)[1].split(
+        "]);", 1
     )[0]
-    payload = submit.split("payload: {", 1)[1].split("},\n      };", 1)[0]
 
-    assert 'id="confirmer"' in html
-    assert 'maxlength="160"' in html.split('id="confirmer"', 1)[1].split(
-        "/>", 1
-    )[0]
-    assert 'id="agreement-acknowledged"' in html
-    assert 'type="checkbox"' in html.split(
-        'id="agreement-acknowledged"', 1
-    )[1].split("/>", 1)[0]
-    assert "isSingleLineText(confirmer, 160)" in validator
-    assert "isSafeBoundedText(rationale, 2000)" in validator
-    assert "acknowledgementInput.checked !== true" in validator
-    for exact_field in (
-        "confirmer",
-        "agreement_acknowledged",
-        "rationale",
-        "idempotency_key",
+    for exact_key in (
+        "created_at",
+        "expires_at",
+        "review_id",
+        "review_url",
+        "status",
     ):
-        assert re.search(rf"\b{exact_field}\b", payload)
-    assert "agreement_acknowledged: true" in payload
-    assert "JSON.stringify(pendingConfirmationAttempt.payload)" in submit
-    assert "confirmationApi" in submit
+        assert f'"{exact_key}"' in keys
+    for exact_status in (
+        "PENDING",
+        "EXPIRED",
+        "CONFIRMED",
+        "CHANGES_REQUESTED",
+    ):
+        assert f'"{exact_status}"' in review_validator
+    assert "hasExactKeys(customerReview, CUSTOMER_REVIEW_KEYS)" in review_validator
+    assert "REVIEW_ID_PATTERN.test(customerReview.review_id)" in review_validator
+    assert "isTrustedReviewUrl(customerReview.review_url)" in review_validator
+    assert "Date.parse(customerReview.expires_at)" in review_validator
+    assert "REVIEW_URL_PATTERN.test(value)" in review_url_validator
+    assert "new URL(value, window.location.origin)" in review_url_validator
+    assert "parsed.origin === window.location.origin" in review_url_validator
+    assert "parsed.pathname === value" in review_url_validator
+    assert 'parsed.search === ""' in review_url_validator
+    assert 'parsed.hash === ""' in review_url_validator
+
+    assert 'id="confirmer"' not in html
+    assert 'id="agreement-acknowledged"' not in html
+    assert 'id="confirmation-form"' not in html
+    assert 'id="confirm-agreement"' not in html
+    assert "confirmationForm" not in javascript
+    assert "pendingConfirmationAttempt" not in javascript
+    assert "validatedConfirmationFields" not in javascript
+    assert "confirmationApi" not in javascript
+    assert "/agreement/confirm" not in javascript
 
 
 def test_freeze_body_is_only_one_retry_stable_operation_key():
@@ -505,7 +546,7 @@ def test_retry_attempts_reuse_exact_in_memory_payloads():
 
     for pending_name, prefix in (
         ("pendingDraftAttempt", "agreement-draft"),
-        ("pendingConfirmationAttempt", "agreement-confirmation"),
+        ("pendingReviewReissueAttempt", "agreement-review-reissue"),
         ("pendingFreezeAttempt", "agreement-freeze"),
     ):
         assert f"if (!{pending_name})" in javascript
@@ -520,8 +561,23 @@ def test_retry_attempts_reuse_exact_in_memory_payloads():
     assert "localStorage" not in javascript
     assert "sessionStorage" not in javascript
 
+    reissue = _function(
+        javascript,
+        "reissueCustomerReview",
+        "setCurrentStep",
+    )
+    payload = reissue.split("payload: {", 1)[1].split("},", 1)[0]
+    assert re.fullmatch(
+        r"\s*idempotency_key:\s*idempotencyKey\s*",
+        payload,
+    )
+    assert "requestJson(reviewApi" in reissue
+    assert 'method: "POST"' in reissue
+    assert "JSON.stringify(pendingReviewReissueAttempt.payload)" in reissue
+    assert "pendingReviewReissueAttempt = null;" in reissue
 
-def test_confirmation_and_freeze_visibility_require_authoritative_refresh():
+
+def test_customer_review_and_freeze_visibility_require_authoritative_refresh():
     javascript = _asset(JS_PATH)
     reconcile = _function(
         javascript,
@@ -533,11 +589,11 @@ def test_confirmation_and_freeze_visibility_require_authoritative_refresh():
         "renderAgreementState",
         "reconcileAgreement",
     )
-    confirmation_submit = javascript.split(
-        'confirmationForm.addEventListener("submit"', 1
-    )[1].split(
-        '\n  freezeForm.addEventListener("submit"', 1
-    )[0]
+    refresh = _function(
+        javascript,
+        "refreshCustomerReview",
+        "reissueCustomerReview",
+    )
     freeze_submit = javascript.split(
         'freezeForm.addEventListener("submit"', 1
     )[1].split(
@@ -548,11 +604,12 @@ def test_confirmation_and_freeze_visibility_require_authoritative_refresh():
     assert "isTrustedAgreementProjection(projection)" in reconcile
     assert "agreementState = projection;" in reconcile
     assert "renderAgreementState();" in reconcile
-    assert "await reconcileAgreement();" in confirmation_submit
+    assert "await reconcileAgreement();" in refresh
     assert "await reconcileAgreement();" in freeze_submit
+    assert 'agreementState.confirmation.decision !== "CONFIRM"' in freeze_submit
     assert "showOnly(freezePanel);" in renderer
     freeze_branch = renderer.split(
-        "if (agreementState.confirmation !== null)", 1
+        'if (agreementState.confirmation?.decision === "CONFIRM")', 1
     )[1].split("if (agreementState.draft !== null)", 1)[0]
     assert "showOnly(freezePanel);" in freeze_branch
     assert "updateFreezeControls();" in freeze_branch
@@ -560,7 +617,7 @@ def test_confirmation_and_freeze_visibility_require_authoritative_refresh():
     assert "agreementState.frozen_contract !== null" in renderer
 
 
-def test_authoritative_refresh_unlocks_each_next_state_before_rendering():
+def test_authoritative_refresh_focus_and_decision_states_control_the_next_step():
     javascript = _asset(JS_PATH)
     reconcile = _function(
         javascript,
@@ -572,10 +629,10 @@ def test_authoritative_refresh_unlocks_each_next_state_before_rendering():
         "renderAgreementState",
         "reconcileAgreement",
     )
-    confirmation_controls = _function(
+    review_renderer = _function(
         javascript,
-        "updateConfirmationControls",
-        "updateFreezeControls",
+        "renderCustomerReviewState",
+        "refreshCustomerReview",
     )
     freeze_controls = _function(
         javascript,
@@ -585,29 +642,47 @@ def test_authoritative_refresh_unlocks_each_next_state_before_rendering():
     draft_submit = javascript.split(
         'draftForm.addEventListener("submit"', 1
     )[1].split(
-        '\n  confirmationForm.addEventListener("submit"', 1
-    )[0]
-    confirmation_submit = javascript.split(
-        'confirmationForm.addEventListener("submit"', 1
-    )[1].split(
         '\n  freezeForm.addEventListener("submit"', 1
     )[0]
+    refresh = _function(
+        javascript,
+        "refreshCustomerReview",
+        "reissueCustomerReview",
+    )
 
     assert reconcile.index("agreementState = projection;") < reconcile.index(
         "inFlight = null;"
     ) < reconcile.index("renderAgreementState();")
     assert "await reconcileAgreement();" in draft_submit
-    assert "await reconcileAgreement();" in confirmation_submit
+    assert "await reconcileAgreement();" in refresh
+    assert 'window.addEventListener("focus", () =>' in javascript
+    focus_handler = javascript.split(
+        'window.addEventListener("focus", () =>', 1
+    )[1].split("});", 1)[0]
+    assert 'agreementState?.customer_review?.status === "PENDING"' in focus_handler
+    assert "refreshCustomerReview();" in focus_handler
 
-    confirmation_branch = renderer.split(
+    review_branch = renderer.split(
         "if (agreementState.draft !== null)", 1
     )[1].split("showOnly(draftForm);", 1)[0]
-    assert "showOnly(confirmationPanel);" in confirmation_branch
-    assert "updateConfirmationControls();" in confirmation_branch
-    assert "inFlight === null" in confirmation_controls
+    assert "showOnly(confirmationPanel);" in review_branch
+    assert "renderCustomerReviewState();" in review_branch
+    assert 'agreementState.confirmation?.decision === "REQUEST_CHANGES"' in (
+        review_branch
+    )
+    assert '"Customer requested changes"' in review_branch
+    assert 'document.querySelector("#start-new-poc").focus' in review_branch
+    assert 'customerReview.status === "EXPIRED"' in review_renderer
+    assert 'customerReviewState.textContent = "Waiting for customer"' in (
+        review_renderer
+    )
+    assert 'customerReviewHeading.textContent = "Customer requested changes"' in (
+        review_renderer
+    )
+    assert "reissueCustomerReviewButton.hidden = !expired;" in review_renderer
 
     freeze_branch = renderer.split(
-        "if (agreementState.confirmation !== null)", 1
+        'if (agreementState.confirmation?.decision === "CONFIRM")', 1
     )[1].split("if (agreementState.draft !== null)", 1)[0]
     assert "showOnly(freezePanel);" in freeze_branch
     assert "updateFreezeControls();" in freeze_branch
@@ -651,7 +726,7 @@ def test_safety_copy_distinguishes_draft_confirmation_freeze_and_execution():
 
     assert "Human confirmation required · no execution yet" in html
     assert "This screen cannot\n                edit them, execute a run" in html
-    assert "It does not start a run." in html
+    assert "This screen cannot confirm for them." in html
     assert (
         "Freezing still does not run the POC, score evidence, or\n"
         "                    produce a verdict."
@@ -725,8 +800,10 @@ def test_transport_is_same_origin_json_only_no_store_and_redirect_closed():
     assert "responseUrl.hash !==" in request
     assert "parsed.origin === window.location.origin" in path_validator
     assert "value === agreementApi" in path_validator
-    assert "value === confirmationApi" in path_validator
+    assert "value === reviewApi" in path_validator
     assert "value === freezeApi" in path_validator
+    assert "confirmationApi" not in javascript
+    assert "/agreement/confirm" not in javascript
 
 
 def test_css_uses_established_theme_finite_panels_reflow_and_focus():

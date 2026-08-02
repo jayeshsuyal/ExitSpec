@@ -57,6 +57,10 @@ from .confirmations import (
     record_confirmation,
 )
 from .contracts import freeze_confirmed_contract, utc_now as contract_utc_now
+from .customer_review import (
+    customer_confirmation_payload,
+    customer_decision_payload,
+)
 from .demo_data import support_agent_demo_paths
 from .draft_workspace import project_draft_dashboard
 from .intake import (
@@ -111,7 +115,10 @@ from .poc_creation import (
     ProcessLocalDraftPOCService,
 )
 from .poc_performance_lifecycle import (
+    PerformanceLifecycleConflict,
     PerformanceLifecycleError,
+    PerformanceLifecycleInvalid,
+    PerformanceLifecycleNotFound,
     PerformanceLifecycleSnapshot,
     ProcessLocalPerformanceLifecycleService,
 )
@@ -2521,21 +2528,47 @@ def _agreement_aware_workspace_projection(
             "active_contract_id": preparation.draft_id,
             "active_contract_version": None,
             "derived_phase": WorkspacePhase.DEFINE,
-            "next_action_code": WorkspaceAction.CREATE_CUSTOMER_REVIEW,
+            "next_action_code": (
+                WorkspaceAction.WAIT_FOR_CUSTOMER
+                if (
+                    snapshot.review_invitation is not None
+                    and not snapshot.review_expired
+                )
+                else WorkspaceAction.CREATE_CUSTOMER_REVIEW
+            ),
             "next_human_action": (
-                "Review and record customer confirmation for this agreement."
+                "Wait for the customer decision on this exact agreement."
+                if (
+                    snapshot.review_invitation is not None
+                    and not snapshot.review_expired
+                )
+                else (
+                    "Issue a new customer review link for this agreement."
+                    if snapshot.review_expired
+                    else "Create the customer review for this agreement."
+                )
             ),
             "action_since": preparation.prepared_at,
             "updated_at": max(projected.updated_at, preparation.prepared_at),
         }
     )
     if snapshot.confirmation is not None:
+        requested_changes = (
+            snapshot.confirmation.decision
+            is ConfirmationDecision.REQUEST_CHANGES
+        )
         payload.update(
             {
                 "next_action_code": (
-                    WorkspaceAction.FREEZE_CONFIRMED_CONTRACT
+                    WorkspaceAction.START_REVISION
+                    if requested_changes
+                    else WorkspaceAction.FREEZE_CONFIRMED_CONTRACT
                 ),
-                "next_human_action": "Freeze confirmed contract.",
+                "next_human_action": (
+                    "Revise the customer-requested agreement."
+                    if requested_changes
+                    else "Freeze confirmed contract."
+                ),
                 "action_since": snapshot.confirmation.decided_at,
                 "updated_at": max(
                     projected.updated_at,
@@ -4307,11 +4340,23 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         customer_review_token = _customer_review_api_token(parsed.path)
         if customer_review_token is not None:
             try:
+                dynamic_poc_id = (
+                    self.server.performance_lifecycle_service.customer_review_poc_id(
+                        customer_review_token
+                    )
+                )
+                payload = (
+                    self.server.performance_lifecycle_service.customer_review_payload(
+                        customer_review_token
+                    )
+                    if dynamic_poc_id is not None
+                    else self.server.session.customer_review_payload(
+                        customer_review_token
+                    )
+                )
                 self._send_json(
                     HTTPStatus.OK,
-                    self.server.session.customer_review_payload(
-                        customer_review_token
-                    ),
+                    payload,
                 )
             except ReviewInvitationError as error:
                 status = (
@@ -4320,6 +4365,11 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     else HTTPStatus.NOT_FOUND
                 )
                 self._send_json(status, {"error": str(error)})
+            except PerformanceLifecycleError:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"error": "Customer review conflicts with current POC state."},
+                )
             return
         if parsed.path.startswith("/artifacts/"):
             self._serve_artifact(parsed.path)
@@ -4454,9 +4504,20 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 return
             customer_review_token = _customer_review_decision_token(parsed.path)
             if customer_review_token is not None:
-                review_payload = self.server.session.customer_review_payload(
-                    customer_review_token
-                )["review"]
+                dynamic_poc_id = (
+                    self.server.performance_lifecycle_service.customer_review_poc_id(
+                        customer_review_token
+                    )
+                )
+                review_payload = (
+                    self.server.performance_lifecycle_service.customer_review_payload(
+                        customer_review_token
+                    )["review"]
+                    if dynamic_poc_id is not None
+                    else self.server.session.customer_review_payload(
+                        customer_review_token
+                    )["review"]
+                )
                 _require_matching_optional(
                     payload,
                     "review_id",
@@ -4487,7 +4548,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     )
                 rationale = _optional_string(payload, "rationale")
                 if decision.upper() == "REQUEST_CHANGES" and rationale is None:
-                    raise DemoStateError(
+                    raise ValueError(
                         "A rationale is required when requesting changes."
                     )
                 if rationale is None:
@@ -4500,6 +4561,46 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     or "Customer approver · local synthetic demo"
                 )
                 decision_key = self._idempotency_key(payload)
+                if dynamic_poc_id is not None:
+                    result = self.server.poc_closure_service.run_if_open(
+                        dynamic_poc_id,
+                        lambda: (
+                            self.server.performance_lifecycle_service.record_customer_review_decision(
+                                customer_review_token,
+                                decision=decision.upper(),
+                                agreement_acknowledged=agreement_acknowledged,
+                                rationale=rationale,
+                                idempotency_key=decision_key,
+                            )
+                        ),
+                    )
+                    confirmation = result.value
+                    if type(confirmation) is not ContractConfirmation:
+                        raise PerformanceLifecycleError
+                    decision_payload = customer_decision_payload(
+                        confirmation,
+                        idempotent_replay=result.replayed,
+                    )
+                    response_review = dict(review_payload)
+                    response_review["status"] = (
+                        "CONFIRMED"
+                        if confirmation.decision is ConfirmationDecision.CONFIRM
+                        else "CHANGES_REQUESTED"
+                    )
+                    response_review["decision"] = decision_payload
+                    self._send_json(
+                        HTTPStatus.OK,
+                        {
+                            "confirmation": customer_confirmation_payload(
+                                confirmation
+                            ),
+                            "decision": decision_payload,
+                            "review": response_review,
+                            "confirmation_id": confirmation.confirmation_id,
+                            "idempotent_replay": result.replayed,
+                        },
+                    )
+                    return
                 confirmation, replayed = (
                     self.server.poc_closure_service.run_if_open(
                         SYNTHETIC_SUPPORT_AGENT_POC_ID,
@@ -4715,6 +4816,26 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 else HTTPStatus.NOT_FOUND
             )
             self._send_json(status, {"error": str(error)})
+        except PerformanceLifecycleInvalid:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Customer review decision is invalid."},
+            )
+        except PerformanceLifecycleNotFound:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Customer review was not found."},
+            )
+        except PerformanceLifecycleConflict:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"error": "Customer review conflicts with current POC state."},
+            )
+        except PerformanceLifecycleError:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "Customer review is unavailable."},
+            )
         except ValueError as error:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
@@ -5518,7 +5639,7 @@ def _performance_agreement_api_poc_id(
         len(parts) not in {4, 5}
         or parts[:2] != ["api", "pocs"]
         or parts[3] != "agreement"
-        or (len(parts) == 5 and parts[4] not in {"confirm", "freeze"})
+        or (len(parts) == 5 and parts[4] not in {"freeze", "review"})
     ):
         return None
     poc_id = unquote(parts[2])

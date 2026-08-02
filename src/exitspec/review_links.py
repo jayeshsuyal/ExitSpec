@@ -85,6 +85,7 @@ def issue_customer_review_invitation(
     created_at: Optional[datetime] = None,
     ttl: timedelta = DEFAULT_REVIEW_TTL,
     token: Optional[str] = None,
+    invitation_id: Optional[str] = None,
 ) -> Tuple[CustomerReviewInvitation, str]:
     """Create an invitation and return its raw capability exactly once."""
 
@@ -98,7 +99,11 @@ def issue_customer_review_invitation(
     if not raw_token.strip():
         raise ValueError("Review invitation token must be non-empty.")
     invitation = CustomerReviewInvitation(
-        invitation_id="review-{0}".format(secrets.token_hex(12)),
+        invitation_id=(
+            invitation_id
+            if invitation_id is not None
+            else "review-{0}".format(secrets.token_hex(12))
+        ),
         contract_id=contract_id,
         contract_version=contract_version,
         confirmation_fingerprint=confirmation_fingerprint,

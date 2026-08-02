@@ -7,20 +7,25 @@ does not execute the POC, generate evidence, or issue a verdict.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
+import hmac
+import secrets
 from threading import RLock
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 import unicodedata
 
 from .canonical import canonical_json_bytes
 from .confirmations import (
     ConfirmationDecision,
     ContractConfirmation,
+    contract_confirmation_fingerprint,
     record_confirmation,
 )
 from .contracts import freeze_confirmed_contract
+from .customer_review import build_customer_review_payload
 from .models import ContractStatus, POCContract
 from .poc_contract_definition import ContractDefinitionReceipt
 from .poc_creation import DraftPOCSnapshot
@@ -30,10 +35,14 @@ from .poc_performance_contract import (
     prepare_performance_bundle,
 )
 from .poc_proposal_review import ProposalReviewItem
+from .review_links import (
+    CustomerReviewInvitation,
+    ReviewInvitationError,
+    issue_customer_review_invitation,
+)
 
 
 MAX_REVIEWER_LENGTH = 160
-MAX_IDENTITY_LENGTH = 320
 MAX_RATIONALE_LENGTH = 2_000
 MAX_IDEMPOTENCY_KEY_LENGTH = 200
 DEFAULT_MAX_AGREEMENTS = 1_024
@@ -89,6 +98,8 @@ class PerformanceLifecycleSnapshot:
     """Exact current state without execution or verdict projection."""
 
     preparation: AgreementPreparation | None
+    review_invitation: CustomerReviewInvitation | None
+    review_expired: bool
     confirmation: ContractConfirmation | None
     frozen_contract: POCContract | None
 
@@ -101,7 +112,12 @@ class PerformanceLifecycleSnapshot:
 class LifecycleWriteResult:
     """One immutable write and whether it exactly replayed."""
 
-    value: AgreementPreparation | ContractConfirmation | POCContract
+    value: (
+        AgreementPreparation
+        | CustomerReviewInvitation
+        | ContractConfirmation
+        | POCContract
+    )
     replayed: bool
 
 
@@ -200,9 +216,15 @@ class ProcessLocalPerformanceLifecycleService:
         self._clock = clock
         self._max_agreements = max_agreements
         self._preparations: dict[str, AgreementPreparation] = {}
+        self._review_invitations: dict[str, CustomerReviewInvitation] = {}
+        self._review_token_secret = secrets.token_bytes(32)
         self._confirmations: dict[str, ContractConfirmation] = {}
         self._frozen: dict[str, POCContract] = {}
         self._prepare_idempotency: dict[str, _IdempotencyRecord] = {}
+        self._review_idempotency: dict[str, _IdempotencyRecord] = {}
+        self._review_idempotency_results: dict[
+            str, CustomerReviewInvitation
+        ] = {}
         self._confirm_idempotency: dict[str, _IdempotencyRecord] = {}
         self._freeze_idempotency: dict[str, _IdempotencyRecord] = {}
         self._lock = RLock()
@@ -331,70 +353,278 @@ class ProcessLocalPerformanceLifecycleService:
                 target=target,
                 bundle=bundle,
             )
+            invitation_id = "review-{0}".format(secrets.token_hex(12))
+            raw_token = self._review_token(
+                invitation_id=invitation_id,
+                contract_id=bundle.approved_contract.id,
+                contract_version=bundle.approved_contract.version,
+                confirmation_fingerprint=contract_confirmation_fingerprint(
+                    bundle.approved_contract
+                ),
+            )
+            invitation, _ = issue_customer_review_invitation(
+                contract_id=bundle.approved_contract.id,
+                contract_version=bundle.approved_contract.version,
+                confirmation_fingerprint=contract_confirmation_fingerprint(
+                    bundle.approved_contract
+                ),
+                created_at=prepared_at,
+                token=raw_token,
+                invitation_id=invitation_id,
+            )
             self._preparations[poc_id] = preparation
+            self._review_invitations[poc_id] = invitation
             self._prepare_idempotency[key_digest] = _IdempotencyRecord(
                 request_sha256,
                 poc_id,
             )
             return LifecycleWriteResult(preparation, False)
 
-    def confirm(
+    def _review_token(
+        self,
+        *,
+        invitation_id: str,
+        contract_id: str,
+        contract_version: str,
+        confirmation_fingerprint: str,
+    ) -> str:
+        message = canonical_json_bytes(
+            {
+                "invitation_id": invitation_id,
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+                "confirmation_fingerprint": confirmation_fingerprint,
+            }
+        )
+        digest = hmac.new(
+            self._review_token_secret,
+            b"exitspec-performance-review-capability-v1\x00" + message,
+            hashlib.sha256,
+        ).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+    def _invitation_token(self, invitation: CustomerReviewInvitation) -> str:
+        return self._review_token(
+            invitation_id=invitation.invitation_id,
+            contract_id=invitation.contract_id,
+            contract_version=invitation.contract_version,
+            confirmation_fingerprint=invitation.confirmation_fingerprint,
+        )
+
+    def customer_review_poc_id(self, token: object) -> str | None:
+        """Resolve a process-local capability without accepting a POC id."""
+
+        if type(token) is not str or not token or len(token) > 512:
+            return None
+        with self._lock:
+            for poc_id, invitation in self._review_invitations.items():
+                if hmac.compare_digest(self._invitation_token(invitation), token):
+                    return poc_id
+        return None
+
+    def customer_review_url(self, poc_id: str) -> str:
+        """Return the one shareable local review URL for a prepared agreement."""
+
+        with self._lock:
+            self._current_preparation(poc_id)
+            try:
+                invitation = self._review_invitations[poc_id]
+            except KeyError as error:
+                raise PerformanceLifecycleNotFound(
+                    "Customer review invitation was not found."
+                ) from error
+            return self.customer_review_url_for(invitation)
+
+    def customer_review_url_for(
+        self,
+        invitation: CustomerReviewInvitation,
+    ) -> str:
+        """Derive the shareable URL without retaining its raw capability."""
+
+        if type(invitation) is not CustomerReviewInvitation:
+            raise PerformanceLifecycleInvalid("Review invitation is invalid.")
+        return "/review/{0}".format(self._invitation_token(invitation))
+
+    def customer_review_expired(self, poc_id: str) -> bool:
+        """Return whether the current prepared review capability has expired."""
+
+        with self._lock:
+            self._current_preparation(poc_id)
+            try:
+                invitation = self._review_invitations[poc_id]
+            except KeyError as error:
+                raise PerformanceLifecycleNotFound(
+                    "Customer review invitation was not found."
+                ) from error
+            return self._clock() >= invitation.expires_at
+
+    def reissue_customer_review(
         self,
         poc_id: str,
         *,
-        confirmer_identity: object,
+        idempotency_key: object,
+    ) -> LifecycleWriteResult:
+        """Replace only an expired, undecided capability for the same agreement."""
+
+        key_digest = _idempotency_digest(idempotency_key)
+        request_sha256 = _request_digest(
+            {"operation": "REISSUE_CUSTOMER_REVIEW", "poc_id": poc_id}
+        )
+        with self._lock:
+            preparation = self._current_preparation(poc_id)
+            checked_at = self._clock()
+            prior = self._review_idempotency.get(key_digest)
+            if prior is not None:
+                if prior.poc_id != poc_id or prior.request_sha256 != request_sha256:
+                    raise PerformanceLifecycleConflict(
+                        "Idempotency key conflicts with another review reissue."
+                    )
+                replayed_invitation = self._review_idempotency_results[key_digest]
+                current_invitation = self._review_invitations[poc_id]
+                if (
+                    replayed_invitation.invitation_id
+                    != current_invitation.invitation_id
+                    or checked_at >= replayed_invitation.expires_at
+                ):
+                    raise PerformanceLifecycleConflict(
+                        "This review reissue operation is no longer current."
+                    )
+                return LifecycleWriteResult(
+                    replayed_invitation,
+                    True,
+                )
+            if poc_id in self._confirmations or poc_id in self._frozen:
+                raise PerformanceLifecycleConflict(
+                    "A decided agreement cannot issue another review link."
+                )
+            current = self._review_invitations[poc_id]
+            issued_at = checked_at
+            if issued_at < current.expires_at:
+                raise PerformanceLifecycleConflict(
+                    "The current customer review link is still active."
+                )
+            fingerprint = contract_confirmation_fingerprint(
+                preparation.approved_contract
+            )
+            invitation_id = "review-{0}".format(secrets.token_hex(12))
+            raw_token = self._review_token(
+                invitation_id=invitation_id,
+                contract_id=preparation.approved_contract.id,
+                contract_version=preparation.approved_contract.version,
+                confirmation_fingerprint=fingerprint,
+            )
+            invitation, _ = issue_customer_review_invitation(
+                contract_id=preparation.approved_contract.id,
+                contract_version=preparation.approved_contract.version,
+                confirmation_fingerprint=fingerprint,
+                created_at=issued_at,
+                token=raw_token,
+                invitation_id=invitation_id,
+            )
+            self._review_invitations[poc_id] = invitation
+            self._review_idempotency[key_digest] = _IdempotencyRecord(
+                request_sha256,
+                poc_id,
+            )
+            self._review_idempotency_results[key_digest] = invitation
+            return LifecycleWriteResult(invitation, False)
+
+    def customer_review_payload(self, token: object) -> dict[str, Any]:
+        """Return the customer-safe agreement for one valid capability."""
+
+        poc_id = self.customer_review_poc_id(token)
+        if poc_id is None or type(token) is not str:
+            raise ReviewInvitationError("Customer review link is invalid.")
+        with self._lock:
+            preparation = self._current_preparation(poc_id)
+            invitation = self._review_invitations[poc_id]
+            invitation.require_valid(token, now=self._clock())
+            return build_customer_review_payload(
+                invitation=invitation,
+                contract=preparation.approved_contract,
+                confirmation=self._confirmations.get(poc_id),
+                poc_id=poc_id,
+                return_url="/app/pocs/{0}/agreement".format(poc_id),
+                execution_endpoint=preparation.target.endpoint,
+            )
+
+    def record_customer_review_decision(
+        self,
+        token: object,
+        *,
+        decision: object,
         agreement_acknowledged: object,
         rationale: object,
         idempotency_key: object,
     ) -> LifecycleWriteResult:
-        identity = _safe_text(
-            confirmer_identity,
-            field_name="confirmer_identity",
-            maximum=MAX_IDENTITY_LENGTH,
-            single_line=True,
-        )
-        rationale_text = _safe_text(
-            rationale,
-            field_name="rationale",
-            maximum=MAX_RATIONALE_LENGTH,
-            single_line=False,
-        )
-        if agreement_acknowledged is not True:
+        """Record one terminal decision reached only through a review capability."""
+
+        poc_id = self.customer_review_poc_id(token)
+        if poc_id is None or type(token) is not str:
+            raise ReviewInvitationError("Customer review link is invalid.")
+        try:
+            requested_decision = ConfirmationDecision(decision)
+        except (TypeError, ValueError) as error:
+            raise PerformanceLifecycleInvalid(
+                "Customer review decision is invalid."
+            ) from error
+        if type(agreement_acknowledged) is not bool:
+            raise PerformanceLifecycleInvalid(
+                "agreement_acknowledged must be a boolean."
+            )
+        if (
+            requested_decision is ConfirmationDecision.CONFIRM
+            and agreement_acknowledged is not True
+        ):
             raise PerformanceLifecycleInvalid(
                 "Explicit agreement acknowledgement is required."
             )
+        if rationale is None and requested_decision is ConfirmationDecision.CONFIRM:
+            rationale_text = (
+                "Customer confirmed that this exact contract version matches "
+                "the intended POC agreement."
+            )
+        else:
+            rationale_text = _safe_text(
+                rationale,
+                field_name="rationale",
+                maximum=MAX_RATIONALE_LENGTH,
+                single_line=False,
+            )
         key_digest = _idempotency_digest(idempotency_key)
-        key_value = idempotency_key
         request_sha256 = _request_digest(
             {
-                "operation": "CONFIRM",
+                "operation": "CUSTOMER_REVIEW_DECISION",
                 "poc_id": poc_id,
-                "confirmer_identity": identity,
-                "agreement_acknowledged": True,
+                "decision": requested_decision.value,
+                "agreement_acknowledged": agreement_acknowledged,
                 "rationale": rationale_text,
             }
         )
         with self._lock:
             preparation = self._current_preparation(poc_id)
+            invitation = self._review_invitations[poc_id]
+            decided_at = self._clock()
+            invitation.require_valid(token, now=decided_at)
             prior = self._confirm_idempotency.get(key_digest)
             if prior is not None:
                 if prior.poc_id != poc_id or prior.request_sha256 != request_sha256:
                     raise PerformanceLifecycleConflict(
-                        "Idempotency key conflicts with another confirmation."
+                        "Idempotency key conflicts with another customer decision."
                     )
                 return LifecycleWriteResult(self._confirmations[poc_id], True)
             if poc_id in self._confirmations:
                 raise PerformanceLifecycleConflict(
-                    "This agreement already has a customer confirmation."
+                    "This review already has a terminal customer decision."
                 )
             confirmation = record_confirmation(
                 preparation.approved_contract,
-                confirmer_identity=identity,
-                decision=ConfirmationDecision.CONFIRM,
-                agreement_acknowledged=True,
+                confirmer_identity="Customer approver · capability review",
+                decision=requested_decision,
+                agreement_acknowledged=agreement_acknowledged,
                 rationale=rationale_text,
-                idempotency_key=key_value,
-                decided_at=self._clock(),
+                idempotency_key=idempotency_key,
+                decided_at=decided_at,
             )
             self._confirmations[poc_id] = confirmation
             self._confirm_idempotency[key_digest] = _IdempotencyRecord(
@@ -419,6 +649,10 @@ class ProcessLocalPerformanceLifecycleService:
                 raise PerformanceLifecycleConflict(
                     "Customer confirmation is required before freeze."
                 ) from error
+            if confirmation.decision is not ConfirmationDecision.CONFIRM:
+                raise PerformanceLifecycleConflict(
+                    "Customer requested changes; this agreement cannot be frozen."
+                )
             prior = self._freeze_idempotency.get(key_digest)
             if prior is not None:
                 if prior.poc_id != poc_id or prior.request_sha256 != request_sha256:
@@ -453,10 +687,16 @@ class ProcessLocalPerformanceLifecycleService:
                     raise PerformanceLifecycleNotFound(
                         "Agreement preparation was not found."
                     )
-                return PerformanceLifecycleSnapshot(None, None, None)
+                return PerformanceLifecycleSnapshot(None, None, False, None, None)
             preparation = self._current_preparation(poc_id)
+            invitation = self._review_invitations.get(poc_id)
             return PerformanceLifecycleSnapshot(
                 preparation,
+                invitation,
+                bool(
+                    invitation is not None
+                    and self._clock() >= invitation.expires_at
+                ),
                 self._confirmations.get(poc_id),
                 self._frozen.get(poc_id),
             )

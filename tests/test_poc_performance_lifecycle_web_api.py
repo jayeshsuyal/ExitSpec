@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 
 import pytest
@@ -35,7 +35,7 @@ ROOT = f"/api/pocs/{POC_ID}/agreement"
 PROMPTS = b'{"id":"agreement-api-001","content":"Explain TTFT briefly."}\n'
 
 
-def _runtime():
+def _runtime(*, clock=None):
     draft_service = ProcessLocalDraftPOCService(
         clock=lambda: NOW,
         poc_id_factory=lambda: POC_ID,
@@ -122,7 +122,7 @@ def _runtime():
         proposal_lookup=proposals.list_proposals,
         definition_lookup=definitions.definitions,
         prompt_bytes=PROMPTS,
-        clock=lambda: NOW,
+        clock=(lambda: NOW) if clock is None else clock,
     )
     return lifecycle, proposals, definitions
 
@@ -160,20 +160,21 @@ def _prepare_body(**updates):
     return payload
 
 
-def test_prepare_confirm_freeze_projects_only_exact_public_state():
+def test_prepare_customer_confirm_freeze_projects_only_exact_public_state():
     runtime = _runtime()
+    lifecycle, _, _ = runtime
     before = _handle(runtime, "GET", ROOT)
     prepared = _handle(runtime, "POST", ROOT, _prepare_body())
-    confirmed = _handle(
-        runtime,
-        "POST",
-        ROOT + "/confirm",
-        {
-            "confirmer": "Customer approver",
-            "agreement_acknowledged": True,
-            "rationale": "This exact displayed agreement is correct.",
-            "idempotency_key": "confirm-agreement-api",
-        },
+    pending = _handle(runtime, "GET", ROOT)
+    review_url = pending.payload["customer_review"]["review_url"]
+    token = review_url.rsplit("/", 1)[-1]
+    customer_view = lifecycle.customer_review_payload(token)
+    confirmed = lifecycle.record_customer_review_decision(
+        token,
+        decision="CONFIRM",
+        agreement_acknowledged=True,
+        rationale="This exact displayed agreement is correct.",
+        idempotency_key="confirm-agreement-api",
     )
     frozen = _handle(
         runtime,
@@ -186,20 +187,33 @@ def test_prepare_confirm_freeze_projects_only_exact_public_state():
     assert before.status == HTTPStatus.OK
     assert len(before.payload["definitions"]) == 2
     assert before.payload["draft"] is None
-    assert prepared.status == confirmed.status == frozen.status == HTTPStatus.CREATED
+    assert before.payload["customer_review"] is None
+    assert prepared.status == frozen.status == HTTPStatus.CREATED
+    assert confirmed.replayed is False
     assert prepared.payload["draft"]["endpoint"] == (
         "http://127.0.0.1:8000/v1/chat/completions"
     )
-    assert confirmed.payload["confirmation"]["agreement_acknowledged"] is True
+    assert pending.payload["customer_review"]["status"] == "PENDING"
+    assert review_url.startswith("/review/")
+    assert customer_view["review"]["status"] == "PENDING"
+    assert customer_view["review"]["contract_id"] == (
+        customer_view["review"]["agreement"]["id"]
+    )
     assert frozen.payload["frozen_contract"]["canonical_hash"]
     assert after.payload["draft"] == prepared.payload["draft"]
-    assert after.payload["confirmation"] == confirmed.payload["confirmation"]
+    assert after.payload["customer_review"]["status"] == "CONFIRMED"
+    assert after.payload["confirmation"]["confirmation_id"] == (
+        confirmed.value.confirmation_id
+    )
+    assert after.payload["confirmation"]["decision"] == "CONFIRM"
+    assert after.payload["confirmation"]["agreement_acknowledged"] is True
     assert after.payload["frozen_contract"] == frozen.payload["frozen_contract"]
     assert set(after.payload) == {
         "poc_id",
         "definitions",
         "not_proven_claims",
         "draft",
+        "customer_review",
         "confirmation",
         "frozen_contract",
     }
@@ -219,6 +233,36 @@ def test_every_write_exposes_exact_idempotent_replay():
     assert replay.payload["draft"] == first.payload["draft"]
 
 
+def test_expired_customer_review_can_be_reissued_idempotently():
+    current = [NOW]
+    runtime = _runtime(clock=lambda: current[0])
+    _handle(runtime, "POST", ROOT, _prepare_body())
+    original = _handle(runtime, "GET", ROOT).payload["customer_review"]
+    current[0] = NOW + timedelta(hours=2, microseconds=1)
+
+    expired = _handle(runtime, "GET", ROOT)
+    first = _handle(
+        runtime,
+        "POST",
+        ROOT + "/review",
+        {"idempotency_key": "reissue-agreement-review"},
+    )
+    replay = _handle(
+        runtime,
+        "POST",
+        ROOT + "/review",
+        {"idempotency_key": "reissue-agreement-review"},
+    )
+
+    assert expired.payload["customer_review"]["status"] == "EXPIRED"
+    assert first.status == HTTPStatus.CREATED
+    assert first.payload["customer_review"]["status"] == "PENDING"
+    assert first.payload["customer_review"]["review_url"] != original["review_url"]
+    assert replay.status == HTTPStatus.OK
+    assert replay.payload["disposition"] == "IDEMPOTENT_REPLAY"
+    assert replay.payload["customer_review"] == first.payload["customer_review"]
+
+
 @pytest.mark.parametrize(
     "body",
     (
@@ -235,7 +279,7 @@ def test_prepare_body_is_exact_and_cannot_claim_authority(body):
     assert response.payload == {"error": "Performance agreement request is invalid."}
 
 
-def test_confirmation_and_freeze_fail_closed_out_of_order():
+def test_direct_confirmation_is_unavailable_and_freeze_fails_closed_out_of_order():
     runtime = _runtime()
 
     confirmation = _handle(
@@ -256,7 +300,11 @@ def test_confirmation_and_freeze_fail_closed_out_of_order():
         {"idempotency_key": "freeze-before-prepare"},
     )
 
-    assert confirmation.status == freeze.status == HTTPStatus.NOT_FOUND
+    assert confirmation.status == HTTPStatus.BAD_REQUEST
+    assert confirmation.payload == {
+        "error": "Performance agreement request is invalid."
+    }
+    assert freeze.status == HTTPStatus.NOT_FOUND
 
 
 @pytest.mark.parametrize(

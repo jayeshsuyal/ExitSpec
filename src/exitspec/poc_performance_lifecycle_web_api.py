@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
-from .confirmations import ContractConfirmation
+from .confirmations import ConfirmationDecision, ContractConfirmation
 from .models import ContractStatus, POCContract
 from .poc_contract_definition import (
     ProcessLocalContractDefinitionService,
@@ -31,6 +31,7 @@ from .poc_proposal_review import (
     ProcessLocalProposalReviewService,
     ProposalReviewState,
 )
+from .review_links import CustomerReviewInvitation
 
 
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
@@ -43,13 +44,8 @@ _PREPARE_FIELDS = {
     "reviewer",
     "target_provider",
 }
-_CONFIRM_FIELDS = {
-    "agreement_acknowledged",
-    "confirmer",
-    "idempotency_key",
-    "rationale",
-}
 _FREEZE_FIELDS = {"idempotency_key"}
+_REISSUE_REVIEW_FIELDS = {"idempotency_key"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,35 +126,6 @@ def handle_performance_lifecycle_web_api_request(
                         "draft": _preparation_payload(result.value),
                     },
                 )
-            if action == "confirm":
-                _only(body, _CONFIRM_FIELDS)
-                result = lifecycle.confirm(
-                    poc_id,
-                    confirmer_identity=body["confirmer"],
-                    agreement_acknowledged=body["agreement_acknowledged"],
-                    rationale=body["rationale"],
-                    idempotency_key=body["idempotency_key"],
-                )
-                confirmation = result.value
-                preparation = lifecycle.snapshot(
-                    poc_id,
-                    allow_empty=False,
-                ).preparation
-                if preparation is None:
-                    raise PerformanceLifecycleError
-                return PerformanceLifecycleWebAPIResponse(
-                    HTTPStatus.OK if result.replayed else HTTPStatus.CREATED,
-                    {
-                        "poc_id": poc_id,
-                        "disposition": (
-                            "IDEMPOTENT_REPLAY" if result.replayed else "CREATED"
-                        ),
-                        "confirmation": _confirmation_payload(
-                            confirmation,
-                            preparation,
-                        ),
-                    },
-                )
             if action == "freeze":
                 _only(body, _FREEZE_FIELDS)
                 result = lifecycle.freeze(
@@ -181,6 +148,30 @@ def handle_performance_lifecycle_web_api_request(
                         "frozen_contract": _frozen_payload(
                             result.value,
                             preparation,
+                        ),
+                    },
+                )
+            if action == "review":
+                _only(body, _REISSUE_REVIEW_FIELDS)
+                result = lifecycle.reissue_customer_review(
+                    poc_id,
+                    idempotency_key=body["idempotency_key"],
+                )
+                invitation = result.value
+                if type(invitation) is not CustomerReviewInvitation:
+                    raise PerformanceLifecycleError
+                return PerformanceLifecycleWebAPIResponse(
+                    HTTPStatus.OK if result.replayed else HTTPStatus.CREATED,
+                    {
+                        "poc_id": poc_id,
+                        "disposition": (
+                            "IDEMPOTENT_REPLAY" if result.replayed else "CREATED"
+                        ),
+                        "customer_review": _customer_review_payload(
+                            invitation,
+                            None,
+                            lifecycle.customer_review_url_for(invitation),
+                            expired=False,
                         ),
                     },
                 )
@@ -247,7 +238,7 @@ def _parse_path(path: str) -> tuple[str, str | None]:
     ):
         raise PerformanceLifecycleWebAPIRequestError
     action = None if len(parts) == 4 else parts[4]
-    if action not in {None, "confirm", "freeze"}:
+    if action not in {None, "freeze", "review"}:
         raise PerformanceLifecycleWebAPIRequestError
     return parts[2], action
 
@@ -327,6 +318,16 @@ def _snapshot_payload(
         "definitions": definition_payloads,
         "not_proven_claims": not_proven_claims,
         "draft": (None if preparation is None else _preparation_payload(preparation)),
+        "customer_review": (
+            None
+            if preparation is None or snapshot.review_invitation is None
+            else _customer_review_payload(
+                snapshot.review_invitation,
+                snapshot.confirmation,
+                lifecycle.customer_review_url(poc_id),
+                expired=snapshot.review_expired,
+            )
+        ),
         "confirmation": (
             None
             if snapshot.confirmation is None or preparation is None
@@ -366,9 +367,35 @@ def _confirmation_payload(
         "confirmation_id": confirmation.confirmation_id,
         "draft_sha256": preparation.draft_sha256,
         "confirmer": confirmation.confirmer_identity,
+        "decision": confirmation.decision.value,
         "agreement_acknowledged": confirmation.agreement_acknowledged,
         "confirmed_at": confirmation.decided_at.isoformat(),
         "rationale": confirmation.rationale,
+    }
+
+
+def _customer_review_payload(
+    invitation: object,
+    confirmation: ContractConfirmation | None,
+    review_url: str,
+    *,
+    expired: bool,
+) -> dict[str, Any]:
+    if type(invitation) is not CustomerReviewInvitation:
+        raise PerformanceLifecycleError
+    status = "EXPIRED" if expired else "PENDING"
+    if confirmation is not None:
+        status = (
+            "CONFIRMED"
+            if confirmation.decision is ConfirmationDecision.CONFIRM
+            else "CHANGES_REQUESTED"
+        )
+    return {
+        "review_id": invitation.invitation_id,
+        "status": status,
+        "review_url": review_url,
+        "created_at": invitation.created_at.isoformat(),
+        "expires_at": invitation.expires_at.isoformat(),
     }
 
 

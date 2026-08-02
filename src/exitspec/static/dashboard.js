@@ -71,6 +71,9 @@
     if (poc.next_action_code === "DEFINE_CRITERIA") {
       return `${base}/define`;
     }
+    if (poc.next_action_code === "START_REVISION") {
+      return `${base}/agreement`;
+    }
     if (CONFIRM_ACTIONS.has(poc.next_action_code)) {
       return `${base}/agreement`;
     }
