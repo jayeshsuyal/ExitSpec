@@ -308,7 +308,8 @@ The product is accepted when:
   execution.
 - Successful real-account Fireworks evidence until the separately approved,
   funded smoke gate passes.
-- Speech-to-text or real customer call ingestion.
+- Working speech-to-text, raw-audio transport, or real customer call ingestion;
+  the current STT slice is a synthetic-only pre-transport contract.
 - Live email connectors, Gmail/Outlook/IMAP access, mailbox OAuth, webhooks,
   arbitrary upload, sending/replying, or real customer email.
 - Generic metrics, arbitrary multi-criterion contracts, or latency/cost
