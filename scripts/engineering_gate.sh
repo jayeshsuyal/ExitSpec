@@ -116,6 +116,10 @@ run_gate \
   node --check src/exitspec/static/dashboard.js
 
 run_gate \
+  "POC source intake JavaScript syntax" \
+  node --check src/exitspec/static/source_intake.js
+
+run_gate \
   "Performance workspace JavaScript syntax" \
   node --check src/exitspec/static/performance.js
 

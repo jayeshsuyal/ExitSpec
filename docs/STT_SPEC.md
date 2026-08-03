@@ -1,7 +1,7 @@
 # Speech-to-text boundary
 
-Status: contract, provider-neutral synthetic audio operation, and transcript
-handoff implemented; real provider transport and product transcription not
+Status: four-slice local synthetic demo implemented; real provider transport,
+speech recognition, customer audio, and meeting-platform integration not
 implemented
 
 ## Decision
@@ -31,7 +31,8 @@ transport_capability_issued = false
 
 No raw audio, provider SDK, network request, browser microphone, Zoom or Google
 Meet connection, provider credential, or persisted transcript is added by this
-contract.
+first policy contract. The later browser-demo adapter is separately bounded
+below and does not change this contract into a provider integration.
 
 ## Why this boundary comes first
 
@@ -323,6 +324,73 @@ text reference after redaction; it does not make a memory-forensics claim.
 | `STT_HANDOFF_CAPACITY_EXCEEDED` | Bounded process-local source state is full | No write |
 | `STT_HANDOFF_INTERNAL` | Handoff could not complete safely | Fail closed |
 
+## Browser-microphone synthetic demo
+
+`stt_demo_runtime.py` and `stt_demo_web_api.py` implement the fourth slice. It
+proves the product control loop, not speech-recognition quality:
+
+```text
+fixed disclosure shown
+        |
+        v
+three explicit acknowledgements recorded on the server
+        |
+        v
+browser may request one local operator's microphone
+        |
+        v
+WebM-signature clip: browser-declared 250 ms–8 s, at most 64 KiB
+        |
+        v
+exact bytes + digest -> PR95 policy -> PR96 one-use operation
+        |
+        v
+code-pinned synthetic transcript -> PR97 redaction and handoff
+        |
+        v
+MEETING source -> NEEDS_REVIEW proposals -> existing product flow
+```
+
+The interface says `Not real STT` and displays the exact two fixed requirements
+before consent:
+
+1. P95 time to first token must stay below 500 ms.
+2. Error rate must remain below 1%.
+
+The spoken words cannot change that output. The adapter connects no provider,
+and `spoken_words_transcribed=false` appears in both disclosure and completion
+receipts. The browser path is an alternate input inside the existing Meeting
+source card; Paste transcript remains available and both inputs converge on the
+same proposal-review page.
+
+The HTTP surface is deliberately narrow:
+
+- `GET /api/pocs/{poc_id}/stt/disclosure` returns exact copy and bounds for one
+  active draft;
+- `POST /api/pocs/{poc_id}/stt/consents` records all acknowledgements and issues
+  one two-minute process-local capture identity; and
+- `POST /api/pocs/{poc_id}/stt/captures/{capture_id}` accepts one exact base64
+  audio binding and returns only linked review receipts; and
+- `GET /api/pocs/{poc_id}/stt/captures/{capture_id}` returns only a completed,
+  content-free receipt so the browser can reconcile an interrupted response
+  without resending audio.
+
+Writes require strict JSON, exact same-origin requests, no query parameters, no
+duplicate keys, and no `Idempotency-Key` header. Consent must succeed and its
+response must pass exact browser validation before `getUserMedia` is called.
+Capture is one attempt with no automatic audio retry. The server verifies the
+EBML/WebM signature, exact bytes, digest, and declared byte count; duration is
+explicitly labeled as measured and declared by the browser monotonic clock, not
+derived by a server-side media decoder. Exact successful replay and content-free
+receipt recovery return the same source; changed bytes conflict; expired,
+failed, or consumed captures require fresh consent and a new recording.
+
+ExitSpec stores neither the clip nor a raw transcript. Browser references and
+server request-local references are released after success or failure. As with
+the operation layer, Python and browser runtimes do not guarantee physical
+memory zeroing, so this is a zero-persistence and bounded-reference claim, not
+a memory-forensics claim.
+
 ## Four-PR delivery train
 
 | PR | Decision | Still deliberately false |
@@ -330,7 +398,7 @@ text reference after redaction; it does not make a memory-forensics claim.
 | 95 — boundary | Consent, policy, limits, provenance, private output, and typed denials are executable | No audio upload, provider call, or UI |
 | 96 — bounded audio operation | Implemented on the current stack: exact synthetic bytes cross one private permit into one fake-proven transport attempt; execution is disabled by default | No real provider, product upload UI, automatic proposal approval, or meeting-platform bot |
 | 97 — transcript-to-source handoff | Implemented on the current stack: valid synthetic output is immediately redacted and attached as a `MEETING` source with source-linked `NEEDS_REVIEW` proposals | No transcript-to-contract shortcut, provider, or product audio UI |
-| 98 — live demo and hardening | Browser microphone completes the synthetic demo loop with visible consent, bounded state, recovery, and full regression evidence | No Zoom/Meet bot, real customer audio, or production claim |
+| 98 — live demo and hardening | Implemented on the current stack: browser microphone completes the fixed synthetic loop with visible consent, bounded process-local state, safe recovery, and Chromium regression evidence | No speech recognition, real provider, Zoom/Meet bot, customer audio, or production claim |
 
 Zoom or Google Meet is a later transport adapter. The first undeniable demo uses
 the browser microphone because it proves the product loop without OAuth,
@@ -381,6 +449,28 @@ PR97 passes only when all of the following are true in automated tests:
 7. redaction, draft, conflict, capacity, and internal failures are typed and
    content-free; and
 8. the complete existing deterministic ExitSpec loop remains green.
+
+## PR98 exit gate
+
+PR98 passes only when all of the following are true in automated tests:
+
+1. the exact disclosure and fixed synthetic output are visible before consent;
+2. every acknowledgement is required and the server records consent before the
+   browser asks for microphone permission;
+3. only one local operator, an EBML/WebM signature, browser-declared 250 ms–8
+   seconds, and at most 64 KiB are accepted;
+4. audio bytes and transcript text appear in no public receipt or persistent
+   browser state;
+5. spoken audio cannot change the fixed synthetic proposal output;
+6. exact replay creates no duplicate source, while changed, expired, malformed,
+   oversized, and consumed attempts fail closed without automatic audio retry;
+7. successful capture lands in the existing `MEETING` source review screen with
+   source-linked `NEEDS_REVIEW` proposals;
+8. Chromium proves consent precedes microphone access, denial leaves Paste
+   transcript available, upload failure requires a fresh recording, and media
+   tracks stop even when the browser omits the final `stop` event; and
+9. the original email-to-Evidence-Pack browser lifecycle and complete Python
+   regression suite remain green.
 
 ## Gates before real customer audio
 

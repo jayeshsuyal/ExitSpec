@@ -93,7 +93,7 @@
                 <input type="radio" name="source_kind" value="MEETING" />
                 <span>
                   <strong>Meeting</strong>
-                  <small>Paste a redacted transcript</small>
+                  <small>Paste a transcript or run the local mic demo</small>
                   <em class="starting-choice" hidden>Starting choice</em>
                 </span>
               </label>
@@ -158,29 +158,136 @@
               </div>
 
               <div class="source-entry" id="meeting-entry" hidden>
-                <label for="meeting-transcript">Redacted transcript text</label>
-                <textarea
-                  id="meeting-transcript"
-                  maxlength="20000"
-                  rows="8"
-                  placeholder="Customer: P95 first-token latency must be below 500 ms.&#10;Engineer: We will test at concurrency 4."
-                  aria-describedby="meeting-format-help meeting-connection-help"
-                  autocomplete="off"
-                  spellcheck="true"
-                  required
+                <fieldset
+                  class="meeting-mode-chooser"
+                  id="meeting-mode-chooser"
                   disabled
-                ></textarea>
-                <p id="meeting-format-help">
-                  Use <strong>Speaker: message</strong> on each transcript line.
-                  Example: <code>Customer: Error rate must stay below 1%.</code>
-                  A single-speaker natural-text paste is also accepted without
-                  adding an invented speaker label.
-                </p>
-                <p id="meeting-connection-help">
-                  Paste text only. Audio, STT, Zoom, and Google Meet are not
-                  connected in this local version; there is no recording or
-                  upload step.
-                </p>
+                >
+                  <legend>Meeting input</legend>
+                  <label>
+                    <input
+                      id="meeting-mode-paste"
+                      type="radio"
+                      name="meeting_mode"
+                      value="PASTE"
+                      checked
+                    />
+                    <span>Paste transcript</span>
+                  </label>
+                  <label>
+                    <input
+                      id="meeting-mode-record"
+                      type="radio"
+                      name="meeting_mode"
+                      value="RECORD"
+                    />
+                    <span>Record synthetic demo</span>
+                  </label>
+                </fieldset>
+
+                <div id="meeting-paste-panel">
+                  <label for="meeting-transcript">Redacted transcript text</label>
+                  <textarea
+                    id="meeting-transcript"
+                    maxlength="20000"
+                    rows="8"
+                    placeholder="Customer: P95 first-token latency must be below 500 ms.&#10;Engineer: We will test at concurrency 4."
+                    aria-describedby="meeting-format-help meeting-connection-help"
+                    autocomplete="off"
+                    spellcheck="true"
+                    required
+                    disabled
+                  ></textarea>
+                  <p id="meeting-format-help">
+                    Use <strong>Speaker: message</strong> lines, for example
+                    <code>Customer: Error rate must stay below 1%.</code> A
+                    single-speaker natural-text paste is also accepted.
+                  </p>
+                  <p id="meeting-connection-help">
+                    Pasted text is redacted, then converted into proposals that
+                    still require human review.
+                  </p>
+                </div>
+
+                <section
+                  class="record-demo"
+                  id="meeting-record-panel"
+                  aria-labelledby="record-demo-heading"
+                  hidden
+                >
+                  <header class="record-demo-header">
+                    <div>
+                      <p class="eyebrow">Local synthetic adapter</p>
+                      <h4 id="record-demo-heading">Record one short demo clip</h4>
+                    </div>
+                    <span class="synthetic-badge">Not real STT</span>
+                  </header>
+
+                  <p class="record-disclosure" id="stt-disclosure">
+                    Loading the exact recording boundary…
+                  </p>
+
+                  <div class="fixed-output" aria-labelledby="fixed-output-heading">
+                    <strong id="fixed-output-heading">Fixed demo output</strong>
+                    <ul id="stt-fixed-output">
+                      <li>P95 time to first token must stay below 500 ms.</li>
+                      <li>Error rate must remain below 1%.</li>
+                    </ul>
+                  </div>
+
+                  <div class="record-consent" id="record-consent">
+                    <label>
+                      <input id="recording-notice-ack" type="checkbox" />
+                      <span>I understand the recording notice.</span>
+                    </label>
+                    <label>
+                      <input id="all-speakers-consent" type="checkbox" />
+                      <span>I am the only speaker and I consent.</span>
+                    </label>
+                    <label>
+                      <input id="synthetic-output-ack" type="checkbox" />
+                      <span>I understand my spoken words will not be transcribed.</span>
+                    </label>
+                  </div>
+
+                  <div class="record-controls">
+                    <button
+                      class="record-action"
+                      id="start-recording"
+                      type="button"
+                      disabled
+                    >
+                      Start recording
+                    </button>
+                    <button
+                      class="record-action record-stop"
+                      id="stop-recording"
+                      type="button"
+                      disabled
+                    >
+                      Stop
+                    </button>
+                    <span id="recording-timer" aria-hidden="true">0.0s / 8.0s</span>
+                  </div>
+                  <p
+                    class="recording-status"
+                    id="recording-status"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Review all three acknowledgements to enable the microphone.
+                  </p>
+
+                  <details class="record-details">
+                    <summary>What this demo proves</summary>
+                    <p>
+                      Consent is recorded before microphone permission; audio is
+                      byte-bound, processed once on loopback, never persisted,
+                      and cleared after the attempt.
+                      No provider, Zoom, or Google Meet connection is implied.
+                    </p>
+                  </details>
+                </section>
               </div>
 
               <div class="source-entry" id="document-entry" hidden>

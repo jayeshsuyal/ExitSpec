@@ -301,7 +301,7 @@ incident references, format, size, duration, and a bounded time window. It
 returns either a content-free typed denial or a safe record that explicitly
 states `transport_capability_issued=false`.
 
-Build the remaining train in this order:
+The four-PR local synthetic train is implemented in this order:
 
 1. **PR95 — boundary:** contract, consent, limits, provenance, private transcript
    handling, and typed denials;
@@ -313,12 +313,15 @@ Build the remaining train in this order:
    redaction, neutral speaker labels, operation-bound idempotency, attachment to
    the existing `MEETING` source path, and source-linked `NEEDS_REVIEW`
    proposals; and
-4. **PR98 — live demo and hardening:** browser-microphone demo, recovery,
-   adversarial matrix, UI uniformity, and end-to-end evidence.
+4. **PR98 — live demo and hardening (implemented on the current stack):** one
+   local operator records a bounded browser clip only after server-recorded
+   consent; the disclosed fixed synthetic transcript enters the existing
+   review-only Meeting flow with content-free receipt recovery, fail-safe track
+   shutdown, adversarial checks, and Chromium evidence.
 
-No current statement may imply working STT, a provider call, a Zoom/Meet bot,
-real customer audio, verified speaker identity, or production readiness. Those
-claims remain false until their separate C3/C4 gates pass.
+No current statement may imply speech recognition, a provider call, a Zoom/Meet
+bot, real customer audio, verified speaker identity, or production readiness.
+Those claims remain false until their separate C3/C4 gates pass.
 
 ## Public demo gate
 

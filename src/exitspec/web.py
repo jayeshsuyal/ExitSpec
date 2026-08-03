@@ -185,6 +185,12 @@ from .source_web import (
     is_source_pipeline_target,
     source_import_success_payload,
 )
+from .stt_demo_runtime import ProcessLocalSTTDemoRuntime
+from .stt_demo_web_api import (
+    handle_stt_demo_web_api_request,
+    is_stt_demo_web_api_target,
+    stt_demo_web_api_poc_id,
+)
 from .wave1_execution import (
     WAVE1_FIREWORKS_ADAPTER,
     WAVE1_FIREWORKS_ADAPTER_VERSION,
@@ -2798,6 +2804,10 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
             draft_lookup=self.draft_poc_service.get,
         )
+        self.stt_demo_runtime = ProcessLocalSTTDemoRuntime(
+            drafts=self.draft_poc_service,
+            source_intake=self.poc_source_intake,
+        )
         self.proposal_review_service = ProcessLocalProposalReviewService(
             proposal_lookup=self.poc_source_intake.proposal_inputs,
         )
@@ -3425,6 +3435,88 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
         return True
 
+    def _dispatch_stt_demo_read(self) -> bool:
+        response = handle_stt_demo_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.stt_demo_runtime,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_stt_demo_write(self) -> bool:
+        if not is_stt_demo_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_stt_demo_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.stt_demo_runtime,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = stt_demo_web_api_poc_id(parsed.path)
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Synthetic recording request is invalid."},
+            )
+            return True
+        allowed, _ = self._run_unclosed_poc_mutation(poc_id, lambda: None)
+        if not allowed:
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Synthetic recording request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Synthetic recording request is invalid."},
+            )
+            return True
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_stt_demo_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                runtime=self.server.stt_demo_runtime,
+            ),
+        )
+        if not allowed:
+            return True
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
     def _dispatch_poc_source_write(self) -> bool:
         if not is_poc_source_web_api_target(self.path):
             return False
@@ -3992,6 +4084,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if (
             code == HTTPStatus.NOT_IMPLEMENTED
             and hasattr(self, "path")
+            and is_stt_demo_web_api_target(self.path)
+            and self._dispatch_stt_demo_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
             and is_poc_source_web_api_target(self.path)
             and self._dispatch_poc_source_read()
         ):
@@ -4032,6 +4131,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_source_request():
             return
         if self._dispatch_performance_read():
+            return
+        if self._dispatch_stt_demo_read():
             return
         if self._dispatch_poc_source_read():
             return
@@ -4382,6 +4483,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_source_request():
             return
         if self._dispatch_performance_write():
+            return
+        if self._dispatch_stt_demo_write():
             return
         if self._dispatch_poc_source_write():
             return

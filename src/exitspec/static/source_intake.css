@@ -327,6 +327,234 @@
   font-size: 11px;
 }
 
+.meeting-mode-chooser {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+  border: 0;
+  padding: 0;
+}
+
+.meeting-mode-chooser:disabled {
+  opacity: 0.55;
+}
+
+.meeting-mode-chooser legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.meeting-mode-chooser label {
+  position: relative;
+  margin: 0;
+  cursor: pointer;
+}
+
+.meeting-mode-chooser input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.meeting-mode-chooser span {
+  display: block;
+  border: 1px solid var(--border);
+  padding: 6px 9px;
+  background: var(--navigation);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.meeting-mode-chooser input:checked + span {
+  border-color: var(--orange);
+  color: var(--text);
+}
+
+.meeting-mode-chooser input:focus-visible + span {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+#meeting-paste-panel > p {
+  max-width: 650px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.record-demo {
+  display: grid;
+  gap: 7px;
+  max-width: 700px;
+}
+
+.record-demo[hidden] {
+  display: none;
+}
+
+.record-demo-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.record-demo-header h4 {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.synthetic-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--orange);
+  padding: 4px 6px;
+  color: var(--orange);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 790;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.record-disclosure,
+.recording-status,
+.record-details p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.fixed-output {
+  border-left: 2px solid var(--orange);
+  padding: 6px 9px;
+  background: var(--raised);
+}
+
+.fixed-output strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.fixed-output ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 22px;
+  margin: 3px 0 0;
+  padding-left: 17px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.record-consent {
+  display: grid;
+  gap: 3px;
+}
+
+.record-consent label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.record-consent input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--orange);
+}
+
+.record-consent input:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.record-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.record-action {
+  min-height: 32px;
+  border: 1px solid var(--border-strong);
+  padding: 6px 10px;
+  background: var(--navigation);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.record-action:hover:not(:disabled) {
+  border-color: var(--orange);
+}
+
+.record-action:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.record-action:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.record-stop:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+#recording-timer {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.recording-status[data-state="recording"] {
+  color: var(--orange);
+}
+
+.recording-status[data-state="ready"] {
+  color: var(--green);
+}
+
+.record-details {
+  border-top: 1px solid var(--border);
+  padding-top: 5px;
+}
+
+.record-details summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.record-details p {
+  margin-top: 7px;
+}
+
 .source-empty {
   display: grid;
   align-content: center;
@@ -546,6 +774,20 @@
   .source-choice > span {
     min-height: 62px;
     padding-right: 96px;
+  }
+
+  .meeting-mode-chooser,
+  .record-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #recording-timer {
+    margin-left: 0;
+  }
+
+  .fixed-output ul {
+    grid-template-columns: 1fr;
   }
 }
 
