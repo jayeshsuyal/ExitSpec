@@ -11,6 +11,7 @@ a verdict.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -322,6 +323,17 @@ def _identity(value: str, field_name: str) -> str:
     return value
 
 
+def _bounded_timeout(value: object) -> float:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(float(value))
+        or not 0 < float(value) <= 300
+    ):
+        raise ValueError("transport_timeout_seconds must be between 0 and 300.")
+    return float(value)
+
+
 def _digest(domain: bytes, payload: Any) -> str:
     return hashlib.sha256(domain + canonical_json_bytes(payload)).hexdigest()
 
@@ -341,6 +353,7 @@ class STTPrivacyPolicy(_FrozenSTTModel):
     )
     max_audio_bytes: int = Field(gt=0, le=100 * 1024 * 1024)
     max_duration_ms: int = Field(gt=0, le=4 * 60 * 60 * 1000)
+    transport_timeout_seconds: float = Field(gt=0, le=300)
     retention_mode: Literal[STTRetentionMode.ZERO_RETENTION] = (
         STTRetentionMode.ZERO_RETENTION
     )
@@ -380,6 +393,11 @@ class STTPrivacyPolicy(_FrozenSTTModel):
     @classmethod
     def validate_policy_time(cls, value: datetime, info: Any) -> datetime:
         return _aware_utc(value, info.field_name)
+
+    _timeout_validator = field_validator(
+        "transport_timeout_seconds",
+        mode="before",
+    )(_bounded_timeout)
 
     @model_validator(mode="after")
     def require_bounded_review_window(self) -> "STTPrivacyPolicy":
@@ -526,6 +544,7 @@ class STTEgressAuthorizationRecord(_FrozenSTTModel):
     media_type: str
     byte_length: int = Field(gt=0)
     duration_ms: int = Field(gt=0)
+    transport_timeout_seconds: float = Field(gt=0, le=300)
     retention_mode: Literal[STTRetentionMode.ZERO_RETENTION]
     provider_data_policy_sha256: str = Field(pattern=SHA256_PATTERN)
     authority: Literal[STT_EGRESS_AUTHORITY] = STT_EGRESS_AUTHORITY
@@ -541,6 +560,11 @@ class STTEgressAuthorizationRecord(_FrozenSTTModel):
     @classmethod
     def validate_authorization_time(cls, value: datetime, info: Any) -> datetime:
         return _aware_utc(value, info.field_name)
+
+    _timeout_validator = field_validator(
+        "transport_timeout_seconds",
+        mode="before",
+    )(_bounded_timeout)
 
     @model_validator(mode="after")
     def require_positive_authorization_window(self) -> "STTEgressAuthorizationRecord":
@@ -820,6 +844,7 @@ def authorize_stt_egress(
         media_type=intent.audio.media_type,
         byte_length=intent.audio.byte_length,
         duration_ms=intent.audio.duration_ms,
+        transport_timeout_seconds=policy.transport_timeout_seconds,
         retention_mode=policy.retention_mode,
         provider_data_policy_sha256=policy.provider_data_policy_sha256,
         authorized_at=current_time,

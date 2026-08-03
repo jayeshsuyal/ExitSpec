@@ -284,7 +284,10 @@ not erase those safety records, while process restart does. There is no working
 speech-to-text or audio ingestion. A provider-neutral, synthetic-only STT
 authorization contract defines consent, policy, limits, private transcript
 handling, and typed pre-transport denials; it issues no transport capability and
-performs no provider call.
+performs no provider call. A second provider-neutral operation can bind exact
+synthetic bytes to a one-use private permit and exercise one disabled-by-default
+transport attempt. Its automated evidence uses fake transports only; no real STT
+provider, credential, endpoint, or product audio upload exists.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment

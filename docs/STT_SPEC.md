@@ -1,6 +1,7 @@
 # Speech-to-text boundary
 
-Status: contract implemented; audio transport and transcription not implemented
+Status: contract and provider-neutral synthetic audio operation implemented;
+real provider transport and product transcription not implemented
 
 ## Decision
 
@@ -80,6 +81,7 @@ There is no shortcut from STT output to any later state.
 - exact provider, model, and processing region;
 - an allowlist of canonical audio media types;
 - maximum raw-audio bytes and duration;
+- a maximum five-minute provider-transport timeout;
 - zero-retention behavior;
 - a SHA-256 binding to the reviewed provider data-policy snapshot;
 - a SHA-256 binding to the exact recording notice;
@@ -185,12 +187,92 @@ receipt contains hashes, counts, provider configuration, redaction-policy
 version, unverified speaker-mapping state, and `NEEDS_REVIEW`. It contains no
 audio bytes, transcript text, participant IDs, or raw meeting ID.
 
+## Bounded synthetic audio operation
+
+`stt_operation.py` implements the second slice without choosing or shipping a
+provider. It accepts synthetic bytes only through `STTAudioPermitIssuer`, which:
+
+1. re-evaluates the exact PR95 policy and consent intent at the server clock;
+2. requires immutable `bytes` whose length and SHA-256 exactly match the approved
+   `AudioDescriptor`;
+3. records only the authorization ID, never the audio;
+4. refuses a second permit for the same deterministic authorization;
+5. fails closed at a bounded process-local issuance capacity; and
+6. returns a private, non-serializable permit with the exact bytes.
+
+`STTOperationExecutor` is disabled by default. When explicitly enabled with a
+typed transport, it:
+
+```text
+private one-use audio permit
+        |
+        +-- disabled / invalid / expired / replayed -> no transport
+        |
+        v
+consume permit and detach bytes from permit
+        |
+        v
+one transport attempt; automatic_retries = 0
+        |
+        +-- typed provider failure -> no transcript, permit remains consumed
+        |
+        v
+validate provider request ID, language, speaker mode, segment shape and timing
+        |
+        v
+private UntrustedSTTTranscript + content-free STTOperationReceipt
+```
+
+The executor accepts neither raw bytes nor caller policy. It accepts only the
+private permit. The request releases its audio reference immediately after the
+transport returns or raises. Python cannot guarantee physical memory zeroing,
+so this is bounded reference release, not a memory-forensics claim.
+
+The operation makes at most one provider attempt. A timeout can occur after the
+provider accepted audio, so an automatic retry could disclose the same audio
+twice. Authentication, account, rate-limit, timeout, service, and transport
+failures therefore consume the permit and require a new explicit request.
+
+The transport seam is exercised with fakes only. No provider SDK, endpoint,
+credential, environment variable, pricing claim, or successful external request
+exists in this slice. Provider choice remains a separate C3 decision requiring
+current data-policy, residency, zero-retention, deletion, API, pricing, and
+failure-semantics research.
+
+### Operation failure matrix
+
+| Failure code | Transport attempts | Permit state | Next action |
+| --- | ---: | --- | --- |
+| `STT_OPERATION_DISABLED` | 0 | Available until expiry | Enable an approved transport |
+| `STT_PERMIT_INVALID` | 0 | No authority | Issue a new permit |
+| `STT_PERMIT_EXPIRED` | 0 | Consumed | Issue a new permit |
+| `STT_PERMIT_REPLAYED` | 0 | Already issued/consumed | Start a new request |
+| `STT_PERMIT_CAPACITY_EXCEEDED` | 0 | Not issued | Restart the local runtime safely |
+| `STT_AUDIO_BINDING_MISMATCH` | 0 | Not issued | Recapture and reauthorize |
+| `STT_TRANSPORT_CONFIGURATION` | 1 | Consumed | Configure reviewed transport |
+| `STT_PROVIDER_AUTHENTICATION` | 1 | Consumed | Check provider credential |
+| `STT_PROVIDER_ACCOUNT_UNAVAILABLE` | 1 | Consumed | Restore provider account |
+| `STT_PROVIDER_RATE_LIMITED` | 1 | Consumed | Start a new request later |
+| `STT_PROVIDER_TIMEOUT` | 1 | Consumed | Review provider state first |
+| `STT_PROVIDER_SERVICE_UNAVAILABLE` | 1 | Consumed | Start a new request later |
+| `STT_PROVIDER_TRANSPORT` | 1 | Consumed | Check connectivity |
+| `STT_PROVIDER_INVALID_RESPONSE` | 1 | Consumed | Review provider output |
+| `STT_OPERATION_INTERNAL` | 0 or 1 | Fail closed | Review the operation |
+
+`STTOperationReceipt` contains only authorization and provenance hashes, pinned
+provider configuration, the requested zero-retention policy, bounded audio
+metadata and timeout, segment count, elapsed time, one attempt, zero retries,
+and `TRANSCRIBED_UNTRUSTED`. It records that ExitSpec persisted neither audio nor
+transcript; it does not claim that a future provider honored retention. It
+contains no provider request ID, meeting ID, participant ID, audio, or transcript
+text.
+
 ## Four-PR delivery train
 
 | PR | Decision | Still deliberately false |
 | --- | --- | --- |
 | 95 — boundary | Consent, policy, limits, provenance, private output, and typed denials are executable | No audio upload, provider call, or UI |
-| 96 — bounded audio operation | One synthetic upload/capture can cross one permit-only adapter with fake-transport proof and disabled-by-default real configuration | No automatic proposal approval or meeting-platform bot |
+| 96 — bounded audio operation | Implemented on the current stack: exact synthetic bytes cross one private permit into one fake-proven transport attempt; execution is disabled by default | No real provider, product upload UI, automatic proposal approval, or meeting-platform bot |
 | 97 — transcript-to-source handoff | Valid provider output is immediately redacted and attached as a `MEETING` source with source-linked `NEEDS_REVIEW` proposals | No transcript-to-contract shortcut |
 | 98 — live demo and hardening | Browser microphone completes the synthetic demo loop with visible consent, bounded state, recovery, and full regression evidence | No Zoom/Meet bot, real customer audio, or production claim |
 
@@ -210,6 +292,24 @@ PR95 passes only when all of the following are true in automated tests:
    `NEEDS_REVIEW`;
 6. speaker mapping remains explicitly unverified; and
 7. the complete existing deterministic ExitSpec loop remains green.
+
+## PR96 exit gate
+
+PR96 passes only when all of the following are true in automated tests:
+
+1. exact immutable bytes matching the approved digest and length can issue one
+   private permit;
+2. mismatched or mutable bytes cannot issue a permit;
+3. one authorization cannot issue two permits and one permit cannot make two
+   transport calls, including under concurrency;
+4. the process-local issuance record is bounded, and disabled or expired
+   operations make zero transport calls;
+5. every declared provider failure is typed, content-free, single-attempt, and
+   leaves no transcript or success receipt;
+6. malformed provider output cannot become an `UntrustedSTTTranscript`;
+7. success produces only a private review-only transcript and a content-free
+   receipt with one attempt and zero automatic retries; and
+8. the complete existing deterministic ExitSpec loop remains green.
 
 ## Gates before real customer audio
 
