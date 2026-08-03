@@ -105,7 +105,7 @@ Post-implementation status is recorded separately in
 - Loopback disclosure, authorization, and bounded execution routes derived from
   the frozen policy; the browser action is disabled by default, accepts no
   request-policy fields, and has complete fake-HTTPS proof. No successful
-  real-account Fireworks smoke evidence or speech-to-text exists.
+  real-account Fireworks smoke evidence or live provider speech-to-text exists.
 
 ## Next sequence
 
@@ -309,8 +309,10 @@ Build the remaining train in this order:
    synthetic bytes through one private permit and one disabled-by-default
    provider-neutral transport attempt, with fake-transport proof and no
    automatic retry;
-3. **PR97 — transcript handoff:** immediate redaction into an existing
-   `MEETING` source and source-linked `NEEDS_REVIEW` proposals; and
+3. **PR97 — transcript handoff (implemented on the current stack):** immediate
+   redaction, neutral speaker labels, operation-bound idempotency, attachment to
+   the existing `MEETING` source path, and source-linked `NEEDS_REVIEW`
+   proposals; and
 4. **PR98 — live demo and hardening:** browser-microphone demo, recovery,
    adversarial matrix, UI uniformity, and end-to-end evidence.
 

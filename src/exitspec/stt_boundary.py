@@ -47,7 +47,9 @@ _ATTESTATION_ID_PATTERN = r"^consent_[a-z0-9][a-z0-9_-]{2,95}$"
 _MEETING_ID_PATTERN = r"^meeting_[a-z0-9][a-z0-9_-]{2,95}$"
 _PARTICIPANT_ID_PATTERN = r"^participant_[a-z0-9][a-z0-9_-]{2,95}$"
 _AUTHORIZATION_ID_PATTERN = r"^sttauth_[a-f0-9]{64}$"
+_OPERATION_ID_PATTERN = r"^sttop_[a-f0-9]{64}$"
 _SEGMENT_ID_PATTERN = r"^segment_[a-z0-9][a-z0-9_-]{2,95}$"
+_SOURCE_RECEIPT_ID_PATTERN = r"^srcpt_[a-z0-9][a-z0-9_-]{7,95}$"
 _POLICY_REFERENCE_PATTERN = r"^[a-z][a-z0-9._:/+-]{2,199}$"
 _MEDIA_TYPE_PATTERN = re.compile(r"^audio/[a-z0-9][a-z0-9.+-]{0,63}$")
 _LANGUAGE_PATTERN = r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"
@@ -666,11 +668,17 @@ class UntrustedSTTTranscript(_PrivateSTTModel):
         """Expose transcript text only for the immediate redaction handoff."""
 
         lines = []
+        neutral_labels: dict[str, str] = {}
         for segment in self.segments:
+            normalized_text = " ".join(segment.text.split())
             if segment.speaker_label is None:
-                lines.append(segment.text)
+                lines.append(f"Speaker unknown: {normalized_text}")
             else:
-                lines.append(f"{segment.speaker_label}: {segment.text}")
+                label = neutral_labels.setdefault(
+                    segment.speaker_label,
+                    f"Speaker {len(neutral_labels) + 1}",
+                )
+                lines.append(f"{label}: {normalized_text}")
         return "\n".join(lines)
 
 
@@ -678,10 +686,12 @@ class STTTranscriptReceipt(_FrozenSTTModel):
     """Content-free provenance published only after a redaction handoff."""
 
     schema_version: Literal[STT_BOUNDARY_VERSION] = STT_BOUNDARY_VERSION
+    operation_id: str = Field(pattern=_OPERATION_ID_PATTERN)
     authorization_id: str = Field(pattern=_AUTHORIZATION_ID_PATTERN)
     request_id: str = Field(pattern=_REQUEST_ID_PATTERN)
     poc_id: str = Field(pattern=POC_ID_PATTERN)
     source_kind: Literal["MEETING"] = "MEETING"
+    source_receipt_id: str = Field(pattern=_SOURCE_RECEIPT_ID_PATTERN)
     meeting_identity_sha256: str = Field(pattern=SHA256_PATTERN)
     audio_sha256: str = Field(pattern=SHA256_PATTERN)
     provider_request_id_sha256: str = Field(pattern=SHA256_PATTERN)

@@ -661,6 +661,8 @@ def test_operation_identity_is_deterministic_for_same_authorization_and_response
 
     assert first.operation_id == second.operation_id
     assert first.provider_request_id_sha256 == second.provider_request_id_sha256
+    with pytest.raises(ValidationError):
+        first.model_copy(update={"operation_id": "sttop_" + ("0" * 64)})
 
 
 @pytest.mark.parametrize(

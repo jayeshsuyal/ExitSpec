@@ -42,6 +42,7 @@ STT_OPERATION_AUTHORITY = "UNTRUSTED_SOURCE_ONLY"
 _PERMIT_SEAL = object()
 _TRANSPORT_REQUEST_SEAL = object()
 _EXECUTOR_SEAL = object()
+_OPERATION_RESULT_SEAL = object()
 _PROVIDER_REQUEST_ID_DOMAIN = b"exitspec-stt-provider-request-v1\x00"
 _OPERATION_ID_DOMAIN = b"exitspec-stt-operation-id-v1\x00"
 _OPERATION_ID_PATTERN = r"^sttop_[a-f0-9]{64}$"
@@ -681,6 +682,22 @@ class STTOperationReceipt(_FrozenOperationModel):
             raise ValueError("completed_at must be timezone-aware.")
         return value.astimezone(timezone.utc)
 
+    @model_validator(mode="after")
+    def require_deterministic_operation_id(self) -> "STTOperationReceipt":
+        expected = "sttop_" + _digest(
+            _OPERATION_ID_DOMAIN,
+            {
+                "authorization_id": self.authorization_id,
+                "provider_request_id_sha256": (
+                    self.provider_request_id_sha256
+                ),
+                "segment_count": self.segment_count,
+            },
+        )
+        if self.operation_id != expected:
+            raise ValueError("operation_id does not match its binding.")
+        return self
+
 
 class STTOperationResult:
     """Private transcript plus its separately serializable safe receipt."""
@@ -692,10 +709,13 @@ class STTOperationResult:
         *,
         receipt: STTOperationReceipt,
         transcript: UntrustedSTTTranscript,
+        _seal: object,
     ) -> None:
-        if type(receipt) is not STTOperationReceipt or type(
-            transcript
-        ) is not UntrustedSTTTranscript:
+        if (
+            _seal is not _OPERATION_RESULT_SEAL
+            or type(receipt) is not STTOperationReceipt
+            or type(transcript) is not UntrustedSTTTranscript
+        ):
             raise ValueError("STT operation result is invalid.")
         self._receipt = receipt
         self._transcript = transcript
@@ -948,7 +968,11 @@ class STTOperationExecutor:
             policy_retention_mode=authorization.retention_mode,
             completed_at=completed_at,
         )
-        return STTOperationResult(receipt=receipt, transcript=transcript)
+        return STTOperationResult(
+            receipt=receipt,
+            transcript=transcript,
+            _seal=_OPERATION_RESULT_SEAL,
+        )
 
     def __repr__(self) -> str:
         return (

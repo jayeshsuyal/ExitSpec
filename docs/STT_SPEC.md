@@ -1,7 +1,8 @@
 # Speech-to-text boundary
 
-Status: contract and provider-neutral synthetic audio operation implemented;
-real provider transport and product transcription not implemented
+Status: contract, provider-neutral synthetic audio operation, and transcript
+handoff implemented; real provider transport and product transcription not
+implemented
 
 ## Decision
 
@@ -156,7 +157,7 @@ Failure produces no authorization record and has no state mutation.
 Every denial is content-free, non-automatically-retryable, and carries one
 bounded next action. Provider-runtime failures such as authentication, quota,
 rate limit, timeout, service unavailability, and malformed output belong to the
-transport PR; they are not invented by this contract-only slice.
+separate bounded operation layer; they are not invented by the policy evaluator.
 
 ## Safe records and private transcript material
 
@@ -175,17 +176,19 @@ It is not a bearer token and cannot be consumed as a provider credential.
 `UntrustedSTTTranscript` is a request-local private object. Its ordinary string
 representation hides content, and standard dump, JSON, iteration, copy, and
 pickle paths fail closed. The only explicit content path is
-`transient_redaction_input()`, which exists for the future immediate redaction
+`transient_redaction_input()`, which is consumed by the immediate redaction
 handoff.
 
 Provider speaker labels are represented only as
 `PROVIDER_ASSIGNED_UNVERIFIED`. ExitSpec does not claim that diarization proves
 who spoke.
 
-After redaction, a future adapter may publish `STTTranscriptReceipt`. That
-receipt contains hashes, counts, provider configuration, redaction-policy
-version, unverified speaker-mapping state, and `NEEDS_REVIEW`. It contains no
-audio bytes, transcript text, participant IDs, or raw meeting ID.
+After redaction, `STTTranscriptHandoffService` publishes
+`STTTranscriptReceipt`. That receipt links the operation, authorization, and
+attached source; contains hashes, counts, provider configuration,
+redaction-policy version, unverified speaker-mapping state, and `NEEDS_REVIEW`;
+and contains no audio bytes, transcript text, participant IDs, provider speaker
+labels, or raw meeting ID.
 
 ## Bounded synthetic audio operation
 
@@ -267,13 +270,66 @@ transcript; it does not claim that a future provider honored retention. It
 contains no provider request ID, meeting ID, participant ID, audio, or transcript
 text.
 
+## Transcript-to-source handoff
+
+`stt_handoff.py` implements the third synthetic slice:
+
+```text
+sealed STTOperationResult
+        |
+        +-- receipt/transcript mismatch -> typed refusal; no source write
+        |
+        v
+neutralize unverified provider speaker labels
+        |
+        v
+deterministic redaction and exact redacted-content digest
+        |
+        v
+existing ProcessLocalPOCSourceIntake MEETING path
+        |
+        +-- exact replay -> same source and proposals
+        +-- changed content under one operation -> conflict
+        |
+        v
+linked content-free receipts + source-linked NEEDS_REVIEW proposals
+```
+
+The operation ID supplies the source identity and idempotency key. The source
+boundary redacts again and must reproduce the exact expected SHA-256 before it
+can attach content. Provider-assigned labels become stable `Speaker 1`,
+`Speaker 2`, and so on; missing mapping becomes `Speaker unknown`. These labels
+preserve dialogue shape without claiming participant identity.
+
+The handoff can create neither a criterion nor any lifecycle transition. It
+only attaches a process-local `MEETING` source and projects candidates for the
+existing employee-review screen. No candidate can approve itself, confirm a
+customer agreement, freeze a contract, run proof, or assign a verdict.
+
+`raw_transcript_retained=false` describes ExitSpec source and durable state. The
+request-local operation result still exists until its caller releases it, and
+Python cannot guarantee physical memory zeroing. The handoff drops its own raw
+text reference after redaction; it does not make a memory-forensics claim.
+
+### Handoff failure matrix
+
+| Failure code | Meaning | Source effect |
+| --- | --- | --- |
+| `STT_HANDOFF_INVALID_RESULT` | Input is not one sealed operation result | No write |
+| `STT_HANDOFF_BINDING_MISMATCH` | Receipt and private transcript disagree | No write |
+| `STT_HANDOFF_REDACTION_FAILED` | Redaction or exact source binding failed | No write |
+| `STT_HANDOFF_SOURCE_UNAVAILABLE` | Draft POC cannot accept a source | No write |
+| `STT_HANDOFF_SOURCE_CONFLICT` | One operation identity names changed content | Existing source unchanged |
+| `STT_HANDOFF_CAPACITY_EXCEEDED` | Bounded process-local source state is full | No write |
+| `STT_HANDOFF_INTERNAL` | Handoff could not complete safely | Fail closed |
+
 ## Four-PR delivery train
 
 | PR | Decision | Still deliberately false |
 | --- | --- | --- |
 | 95 — boundary | Consent, policy, limits, provenance, private output, and typed denials are executable | No audio upload, provider call, or UI |
 | 96 — bounded audio operation | Implemented on the current stack: exact synthetic bytes cross one private permit into one fake-proven transport attempt; execution is disabled by default | No real provider, product upload UI, automatic proposal approval, or meeting-platform bot |
-| 97 — transcript-to-source handoff | Valid provider output is immediately redacted and attached as a `MEETING` source with source-linked `NEEDS_REVIEW` proposals | No transcript-to-contract shortcut |
+| 97 — transcript-to-source handoff | Implemented on the current stack: valid synthetic output is immediately redacted and attached as a `MEETING` source with source-linked `NEEDS_REVIEW` proposals | No transcript-to-contract shortcut, provider, or product audio UI |
 | 98 — live demo and hardening | Browser microphone completes the synthetic demo loop with visible consent, bounded state, recovery, and full regression evidence | No Zoom/Meet bot, real customer audio, or production claim |
 
 Zoom or Google Meet is a later transport adapter. The first undeniable demo uses
@@ -309,6 +365,21 @@ PR96 passes only when all of the following are true in automated tests:
 6. malformed provider output cannot become an `UntrustedSTTTranscript`;
 7. success produces only a private review-only transcript and a content-free
    receipt with one attempt and zero automatic retries; and
+8. the complete existing deterministic ExitSpec loop remains green.
+
+## PR97 exit gate
+
+PR97 passes only when all of the following are true in automated tests:
+
+1. one sealed operation result becomes one redacted `MEETING` source;
+2. operation, authorization, transcript, and source bindings match exactly;
+3. raw transcript values and provider speaker labels never enter source or
+   public receipt state;
+4. every derived proposal is source-linked and remains `NEEDS_REVIEW`;
+5. exact serial and concurrent replay creates no duplicate source or proposal;
+6. changed content under one operation identity fails closed;
+7. redaction, draft, conflict, capacity, and internal failures are typed and
+   content-free; and
 8. the complete existing deterministic ExitSpec loop remains green.
 
 ## Gates before real customer audio

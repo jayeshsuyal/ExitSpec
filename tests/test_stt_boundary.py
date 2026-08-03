@@ -366,9 +366,11 @@ def test_speaker_mapping_is_explicitly_unverified_and_structurally_consistent():
 
 def test_public_transcript_receipt_contains_provenance_but_no_source_content():
     receipt = STTTranscriptReceipt(
+        operation_id="sttop_" + ("0" * 64),
         authorization_id="sttauth_" + ("1" * 64),
         request_id="sttreq_demo_call_001",
         poc_id="poc_stt_demo",
+        source_receipt_id="srcpt_stt_demo_001",
         meeting_identity_sha256="2" * 64,
         audio_sha256=AUDIO_SHA256,
         provider_request_id_sha256=PROVIDER_REQUEST_SHA256,
@@ -385,10 +387,12 @@ def test_public_transcript_receipt_contains_provenance_but_no_source_content():
 
     assert set(STTTranscriptReceipt.model_fields) == {
         "schema_version",
+        "operation_id",
         "authorization_id",
         "request_id",
         "poc_id",
         "source_kind",
+        "source_receipt_id",
         "meeting_identity_sha256",
         "audio_sha256",
         "provider_request_id_sha256",
