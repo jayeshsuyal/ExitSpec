@@ -119,7 +119,7 @@ def test_dashboard_has_one_real_create_action_and_three_bounded_filters():
         in javascript
     )
     assert "Open POC" in javascript
-    assert "No active POCs." in javascript
+    assert "No customer POCs yet." in javascript
 
 
 def test_dashboard_desktop_is_fixed_and_narrow_layout_reenables_body_scroll():
