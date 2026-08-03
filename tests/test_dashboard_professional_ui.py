@@ -91,6 +91,47 @@ def test_dashboard_has_one_compact_create_action_and_safe_direct_navigation():
     assert "replaceChildren" in javascript
 
 
+def test_first_run_state_explains_value_without_duplicating_actions():
+    html, css, javascript = _sources()
+
+    assert (
+        "From customer request to confirmed agreement and inspectable proof."
+        in html
+    )
+    assert 'id="continue-eyebrow"' in html
+    assert 'id="continue-summary"' in html
+    assert (
+        '"Turn a customer request into a confirmed, provable POC."'
+        in javascript
+    )
+    assert (
+        '"Start with an email, meeting transcript, document, or existing '
+        'ExitSpec contract."' in javascript
+    )
+    assert 'card.classList.toggle("is-empty", !poc);' in javascript
+    assert (
+        '$("#continue-heading").textContent = "Continue working";'
+        in javascript
+    )
+    assert (
+        '$("#dashboard-main").classList.toggle("has-empty-list", hasEmptyList);'
+        in javascript
+    )
+    assert (
+        '$("#poc-region").classList.toggle("is-empty", hasEmptyList);'
+        in javascript
+    )
+    assert "No customer POCs yet." in javascript
+    assert "Your first POC will appear here after intake begins." in javascript
+    assert ".dashboard-main.has-empty-list" in css
+    assert ".continue-card.is-empty" in css
+    narrow = css.split("@media (max-width: 620px)", 1)[1]
+    assert ".page-header {\n    align-items: stretch;\n    flex-direction: column;" in narrow
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in narrow
+    assert html.count('href="/app/pocs/new"') == 1
+    assert html.count('href="/app?mode=recording"') == 1
+
+
 def test_continue_working_uses_the_authoritative_projection_without_selection():
     _, _, javascript = _sources()
 

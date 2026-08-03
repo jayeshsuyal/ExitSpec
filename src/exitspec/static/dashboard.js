@@ -241,20 +241,32 @@
     const card = $("#continue-card");
     card.replaceChildren();
     card.setAttribute("aria-busy", "false");
+    card.classList.toggle("is-empty", !poc);
 
     if (!poc) {
+      $("#continue-eyebrow").textContent = "First POC";
+      $("#continue-heading").textContent = "Start with the customer request";
+      $("#continue-summary").textContent = "One source, one clear path.";
       const empty = element("div", "continue-empty");
       empty.append(
-        element("strong", "", "No POC needs a decision."),
+        element(
+          "h3",
+          "",
+          "Turn a customer request into a confirmed, provable POC."
+        ),
         element(
           "p",
           "",
-          "Create a POC when new customer requirements arrive."
+          "Start with an email, meeting transcript, document, or existing ExitSpec contract."
         )
       );
       card.append(empty);
       return;
     }
+
+    $("#continue-eyebrow").textContent = "Next required decision";
+    $("#continue-heading").textContent = "Continue working";
+    $("#continue-summary").textContent = "One POC, one next action.";
 
     const action = actionPresentation(poc);
     const step = journeyStep(poc);
@@ -392,6 +404,7 @@
     const pocs = (Array.isArray(workspace.pocs) ? workspace.pocs : []).filter(
       (poc) => !isGuidedDemo(poc)
     );
+    const hasEmptyList = pocs.length === 0;
     const requestedContinue = workspace.continue_working || null;
     const continuePoc = needsDecision(requestedContinue)
       ? requestedContinue
@@ -399,6 +412,8 @@
     const list = $("#poc-list");
     const empty = $("#empty-state");
 
+    $("#dashboard-main").classList.toggle("has-empty-list", hasEmptyList);
+    $("#poc-region").classList.toggle("is-empty", hasEmptyList);
     renderContinue(continuePoc);
     list.replaceChildren();
     list.setAttribute("aria-busy", "false");
@@ -410,10 +425,10 @@
 
     if (pocs.length === 0) {
       $("#empty-title").textContent = activeFilter === "Active"
-        ? "No active POCs."
+        ? "No customer POCs yet."
         : "No POCs match this view.";
       $("#empty-copy").textContent = activeFilter === "Active"
-        ? "Create a POC when new customer requirements arrive."
+        ? "Your first POC will appear here after intake begins."
         : "Choose Active to return to current customer work.";
       $("#show-active").hidden = activeFilter === "Active";
       return;
