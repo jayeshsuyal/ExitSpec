@@ -17,6 +17,8 @@ from exitspec.performance_evidence import (
     require_frozen_confirmed,
     validate_performance_context,
 )
+from exitspec.performance_population import measurement_policy_sha256
+from exitspec.performance_probe import PROBE_SCHEMA_VERSION_V2
 from exitspec.runner import load_contract
 
 
@@ -89,32 +91,7 @@ def _confirmation(contract: POCContract, *, key: str = "confirm-performance-v1")
     )
 
 
-def test_exact_workload_and_prompt_bytes_build_typed_expected_manifest():
-    contract = load_contract(PERFORMANCE_CONTRACT_PATH)
-    workload_bytes = WORKLOAD_PATH.read_bytes()
-
-    context = validate_performance_context(
-        contract,
-        workload_bytes,
-        bundle_root=PROJECT_ROOT,
-    )
-
-    assert isinstance(context, ValidatedPerformanceContext)
-    assert context.workload_sha256 == contract.workload.sha256
-    assert context.prompt_sha256 == context.workload.prompt_fixture_sha256
-    assert context.criterion.id == "INFERENCE-PERF-01"
-    assert context.probe_config.request_count == 100
-    assert context.probe_config.concurrency == 4
-    assert context.expected_manifest.model == contract.target_system.model
-    assert context.expected_manifest.request_count == 100
-    assert context.expected_manifest.warmup_included_in_measurement is False
-    assert context.expected_manifest.manifest_sha256 == (
-        "c93a54db67a73c1f2ab6c8968164bc4838e64230b25bbfc6c6e8dcccda50860a"
-    )
-
-
-def test_v2_population_policy_cannot_execute_before_v2_evaluator_support():
-    contract = load_contract(PERFORMANCE_CONTRACT_PATH)
+def _v2_contract(contract: POCContract) -> POCContract:
     payload = contract.model_dump(mode="python")
     criterion = payload["criteria"][0]
     criterion["criterion_type"] = "inference_performance_v2"
@@ -152,16 +129,70 @@ def test_v2_population_policy_cannot_execute_before_v2_evaluator_support():
                 "EXTRA_RECORD",
             ],
             "integrity_mismatch": "NOT_PROVEN",
-            "verdict": "NOT_PROVEN",
+            "disposition": "NOT_PROVEN",
         },
     }
-    versioned = POCContract.model_validate(payload)
+    return POCContract.model_validate(payload)
 
-    with pytest.raises(PerformanceEvidenceError, match="exactly one"):
+
+def test_exact_workload_and_prompt_bytes_build_typed_expected_manifest():
+    contract = load_contract(PERFORMANCE_CONTRACT_PATH)
+    workload_bytes = WORKLOAD_PATH.read_bytes()
+
+    context = validate_performance_context(
+        contract,
+        workload_bytes,
+        bundle_root=PROJECT_ROOT,
+    )
+
+    assert isinstance(context, ValidatedPerformanceContext)
+    assert context.workload_sha256 == contract.workload.sha256
+    assert context.prompt_sha256 == context.workload.prompt_fixture_sha256
+    assert context.criterion.id == "INFERENCE-PERF-01"
+    assert context.probe_config.request_count == 100
+    assert context.probe_config.concurrency == 4
+    assert context.expected_manifest.model == contract.target_system.model
+    assert context.expected_manifest.request_count == 100
+    assert context.expected_manifest.warmup_included_in_measurement is False
+    assert context.expected_manifest.manifest_sha256 == (
+        "c93a54db67a73c1f2ab6c8968164bc4838e64230b25bbfc6c6e8dcccda50860a"
+    )
+
+
+def test_v2_population_policy_is_projected_into_the_probe_manifest():
+    versioned = _v2_contract(load_contract(PERFORMANCE_CONTRACT_PATH))
+
+    context = validate_performance_context(
+        versioned,
+        WORKLOAD_PATH.read_bytes(),
+        bundle_root=PROJECT_ROOT,
+    )
+
+    policy = context.expected_manifest.measurement_policy
+    assert context.expected_manifest.schema_version == PROBE_SCHEMA_VERSION_V2
+    assert policy is not None
+    assert policy.exact_attempts == 100
+    assert policy.retries == 0
+    assert policy.preflight_included is False
+    assert policy.latency_failed_attempts == (
+        "excluded_from_latency_counted_in_reliability"
+    )
+    assert policy.reliability_denominator == "all_measured_attempts"
+    assert policy.integrity_mismatch_disposition == "NOT_PROVEN"
+    assert policy.policy_sha256 == measurement_policy_sha256(context.criterion)
+
+
+def test_v2_workload_retry_drift_is_rejected_before_execution(tmp_path):
+    contract, workload_bytes = _bundle(
+        tmp_path,
+        workload_changes={"retries": 1},
+    )
+
+    with pytest.raises(PerformanceEvidenceError, match="retries"):
         validate_performance_context(
-            versioned,
-            WORKLOAD_PATH.read_bytes(),
-            bundle_root=PROJECT_ROOT,
+            _v2_contract(contract),
+            workload_bytes,
+            bundle_root=tmp_path,
         )
 
 

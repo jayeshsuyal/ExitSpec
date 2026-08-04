@@ -27,6 +27,7 @@ from .canonical import canonical_json_bytes
 
 
 PROBE_SCHEMA_VERSION: Final = "exitspec.performance-probe.v1"
+PROBE_SCHEMA_VERSION_V2: Final = "exitspec.performance-probe.v2"
 _USER_AGENT: Final = "ExitSpec/0.1 performance-probe"
 _MAX_PROMPTS: Final = 10_000
 _MAX_PROMPT_CHARS: Final = 32_768
@@ -95,6 +96,92 @@ class SyntheticPrompt:
 
 
 @dataclass(frozen=True, slots=True)
+class ProbeMeasurementPolicy:
+    """Hash-bound execution projection of customer-confirmed counting rules."""
+
+    schema_version: str
+    policy_sha256: str
+    calculation_version: str
+    measured_phases: tuple[str, ...]
+    exact_attempts: int
+    warmups_included: bool
+    preflight_included: bool
+    retries: int
+    latency_population: str
+    latency_failed_attempts: str
+    reliability_numerator: str
+    reliability_denominator: str
+    external_error_outcomes: tuple[str, ...]
+    invalid_terminal_outcomes: tuple[str, ...]
+    invalid_record_conditions: tuple[str, ...]
+    integrity_mismatch_disposition: str
+    invalid_evidence_disposition: str
+
+    def __post_init__(self) -> None:
+        expected = (
+            self.schema_version == "exitspec.measurement-population.v1"
+            and type(self.policy_sha256) is str
+            and _SHA256.fullmatch(self.policy_sha256) is not None
+            and self.calculation_version == "exitspec.performance-verdicts.v2"
+            and self.measured_phases == ("MEASURED",)
+            and type(self.exact_attempts) is int
+            and 1 <= self.exact_attempts <= _MAX_REQUEST_COUNT
+            and self.warmups_included is False
+            and self.preflight_included is False
+            and type(self.retries) is int
+            and self.retries == 0
+            and self.latency_population
+            == "successful_measured_attempts_with_valid_ttft"
+            and self.latency_failed_attempts
+            == "excluded_from_latency_counted_in_reliability"
+            and self.reliability_numerator == "external_error_outcomes"
+            and self.reliability_denominator == "all_measured_attempts"
+            and self.external_error_outcomes
+            == (
+                "HTTP_ERROR",
+                "TIMEOUT",
+                "PROTOCOL_ERROR",
+                "TRANSPORT_ERROR",
+            )
+            and self.invalid_terminal_outcomes
+            == ("CANCELLED", "INTERNAL_ERROR")
+            and self.invalid_record_conditions
+            == ("MISSING_RECORD", "DUPLICATE_RECORD", "EXTRA_RECORD")
+            and self.integrity_mismatch_disposition == "NOT_PROVEN"
+            and self.invalid_evidence_disposition == "NOT_PROVEN"
+        )
+        if not expected:
+            raise ProbeConfigurationError(
+                "Measurement population projection is unsupported."
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "calculation_version": self.calculation_version,
+            "external_error_outcomes": list(self.external_error_outcomes),
+            "invalid_evidence_disposition": self.invalid_evidence_disposition,
+            "invalid_record_conditions": list(self.invalid_record_conditions),
+            "invalid_terminal_outcomes": list(self.invalid_terminal_outcomes),
+            "integrity_mismatch_disposition": (
+                self.integrity_mismatch_disposition
+            ),
+            "latency_failed_attempts": self.latency_failed_attempts,
+            "latency_population": self.latency_population,
+            "measured_population": {
+                "exact_attempts": self.exact_attempts,
+                "phases": list(self.measured_phases),
+                "preflight_included": self.preflight_included,
+                "retries": self.retries,
+                "warmups_included": self.warmups_included,
+            },
+            "policy_sha256": self.policy_sha256,
+            "reliability_denominator": self.reliability_denominator,
+            "reliability_numerator": self.reliability_numerator,
+            "schema_version": self.schema_version,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProbeConfig:
     """Frozen execution inputs for one bounded latency probe."""
 
@@ -106,6 +193,7 @@ class ProbeConfig:
     timeout_seconds: float = 30.0
     max_tokens: int = 64
     max_stream_bytes: int = _MAX_STREAM_BYTES
+    measurement_policy: ProbeMeasurementPolicy | None = None
 
     def __post_init__(self) -> None:
         _validate_endpoint(self.endpoint)
@@ -156,6 +244,15 @@ class ProbeConfig:
             minimum=1,
             maximum=_MAX_STREAM_BYTES,
         )
+        if self.measurement_policy is not None:
+            if type(self.measurement_policy) is not ProbeMeasurementPolicy:
+                raise ProbeConfigurationError(
+                    "measurement_policy must be a ProbeMeasurementPolicy."
+                )
+            if self.measurement_policy.exact_attempts != self.request_count:
+                raise ProbeConfigurationError(
+                    "Measurement policy attempts must match request_count."
+                )
         warmup_batches = math.ceil(self.warmup_count / self.concurrency)
         measured_batches = math.ceil(self.request_count / self.concurrency)
         worst_case_seconds = (
@@ -194,9 +291,10 @@ class ProbeManifest:
     warmup_included_in_measurement: bool
     prompts: tuple[PromptDescriptor, ...]
     prompt_set_sha256: str
+    measurement_policy: ProbeMeasurementPolicy | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "concurrency": self.concurrency,
             "endpoint": self.endpoint,
             "first_token_definition": self.first_token_definition,
@@ -214,6 +312,9 @@ class ProbeManifest:
                 self.warmup_included_in_measurement
             ),
         }
+        if self.measurement_policy is not None:
+            payload["measurement_policy"] = self.measurement_policy.to_dict()
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -582,6 +683,11 @@ def build_manifest(
     prompt_set_sha256 = hashlib.sha256(
         _canonical_json_bytes(descriptor_dicts)
     ).hexdigest()
+    schema_version = (
+        PROBE_SCHEMA_VERSION_V2
+        if config.measurement_policy is not None
+        else PROBE_SCHEMA_VERSION
+    )
     identity = {
         "concurrency": config.concurrency,
         "endpoint": config.endpoint,
@@ -592,16 +698,18 @@ def build_manifest(
         "prompt_set_sha256": prompt_set_sha256,
         "prompts": descriptor_dicts,
         "request_count": config.request_count,
-        "schema_version": PROBE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "timeout_seconds": float(config.timeout_seconds),
         "warmup_count": config.warmup_count,
         "warmup_included_in_measurement": False,
     }
+    if config.measurement_policy is not None:
+        identity["measurement_policy"] = config.measurement_policy.to_dict()
     manifest_sha256 = hashlib.sha256(
         _canonical_json_bytes(identity)
     ).hexdigest()
     return ProbeManifest(
-        schema_version=PROBE_SCHEMA_VERSION,
+        schema_version=schema_version,
         manifest_sha256=manifest_sha256,
         endpoint=config.endpoint,
         model=config.model,
@@ -615,6 +723,7 @@ def build_manifest(
         warmup_included_in_measurement=False,
         prompts=descriptors,
         prompt_set_sha256=prompt_set_sha256,
+        measurement_policy=config.measurement_policy,
     )
 
 
@@ -754,7 +863,10 @@ def _validate_probe_records(
     ):
         raise ProbeEvidenceError("Expected execution identity is invalid.")
     if (
-        manifest.schema_version != PROBE_SCHEMA_VERSION
+        manifest.schema_version not in {
+            PROBE_SCHEMA_VERSION,
+            PROBE_SCHEMA_VERSION_V2,
+        }
         or manifest.first_token_definition
         != "first_nonempty_choices_delta_content_v1"
         or manifest.warmup_included_in_measurement is not False
@@ -770,9 +882,19 @@ def _validate_probe_records(
             timeout_seconds=manifest.timeout_seconds,
             max_tokens=manifest.max_tokens,
             max_stream_bytes=manifest.max_stream_bytes,
+            measurement_policy=manifest.measurement_policy,
         )
     except ProbeConfigurationError:
         raise ProbeEvidenceError("Manifest workload bounds are invalid.") from None
+    expected_schema = (
+        PROBE_SCHEMA_VERSION_V2
+        if manifest.measurement_policy is not None
+        else PROBE_SCHEMA_VERSION
+    )
+    if manifest.schema_version != expected_schema:
+        raise ProbeEvidenceError(
+            "Manifest schema does not match its measurement policy."
+        )
     descriptor_dicts: list[dict[str, str]] = []
     for descriptor in manifest.prompts:
         if type(descriptor) is not PromptDescriptor:

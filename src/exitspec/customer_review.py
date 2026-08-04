@@ -174,7 +174,10 @@ def build_customer_review_payload(
 
 
 def _customer_criterion_payload(criterion: dict[str, Any]) -> dict[str, Any]:
-    if criterion.get("criterion_type") == "inference_performance_v1":
+    if criterion.get("criterion_type") in {
+        "inference_performance_v1",
+        "inference_performance_v2",
+    }:
         return _performance_criterion_payload(criterion)
     return _proportion_criterion_payload(criterion)
 

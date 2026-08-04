@@ -21,7 +21,8 @@ from .models import (
     ContractStatus,
     ErrorRateRule,
     FrozenExitSpecModel,
-    InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
+    MeasurementPopulationPolicyV1,
     POCContract,
     SourceReference,
     TargetSystem,
@@ -275,8 +276,48 @@ def prepare_performance_bundle(
         error_rate.threshold,
         error_rate.minimum_samples,
     )
-    criterion = InferencePerformanceCriterion(
-        criterion_type="inference_performance_v1",
+    measurement_policy = MeasurementPopulationPolicyV1.model_validate(
+        {
+            "schema_version": "exitspec.measurement-population.v1",
+            "calculation_version": "exitspec.performance-verdicts.v2",
+            "measured_population": {
+                "phases": ("MEASURED",),
+                "exact_attempts": error_rate.minimum_samples,
+                "warmups_included": False,
+                "preflight_included": False,
+                "retries": 0,
+            },
+            "latency_population": {
+                "population": "successful_measured_attempts_with_valid_ttft",
+                "failed_attempts": (
+                    "excluded_from_latency_counted_in_reliability"
+                ),
+            },
+            "reliability": {
+                "numerator": "external_error_outcomes",
+                "denominator": "all_measured_attempts",
+                "outcomes": (
+                    "HTTP_ERROR",
+                    "TIMEOUT",
+                    "PROTOCOL_ERROR",
+                    "TRANSPORT_ERROR",
+                ),
+            },
+            "invalid_evidence": {
+                "terminal_outcomes": ("CANCELLED", "INTERNAL_ERROR"),
+                "record_conditions": (
+                    "MISSING_RECORD",
+                    "DUPLICATE_RECORD",
+                    "EXTRA_RECORD",
+                ),
+                "integrity_mismatch": "NOT_PROVEN",
+                "disposition": "NOT_PROVEN",
+            },
+        },
+        strict=True,
+    )
+    criterion = InferencePerformanceCriterionV2(
+        criterion_type="inference_performance_v2",
         id="INFERENCE-PERF-01",
         title="Inference latency and reliability",
         source=source,
@@ -311,6 +352,7 @@ def prepare_performance_bundle(
             "Persist the frozen contract, workload manifest, sanitized terminal "
             "attempt records, calculation inputs, and SHA-256 digests."
         ),
+        measurement_policy=measurement_policy,
         approved=True,
     )
     limitations = (

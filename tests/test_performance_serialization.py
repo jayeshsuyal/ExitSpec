@@ -16,10 +16,11 @@ from exitspec.confirmations import (
 from exitspec.contracts import freeze_confirmed_contract
 from exitspec.models import (
     InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
     POCContract,
 )
+from exitspec.performance_population import project_measurement_policy
 from exitspec.performance_probe import (
-    PROBE_SCHEMA_VERSION,
     ProbeConfig,
     ProbeOutcome,
     ProbePhase,
@@ -94,7 +95,54 @@ def _criterion() -> InferencePerformanceCriterion:
     return criterion
 
 
-def _probe_run(*, errors: int = 0) -> ProbeRun:
+def _criterion_v2() -> InferencePerformanceCriterionV2:
+    payload = _criterion().model_dump(mode="python")
+    payload["criterion_type"] = "inference_performance_v2"
+    payload["measurement_policy"] = {
+        "schema_version": "exitspec.measurement-population.v1",
+        "calculation_version": "exitspec.performance-verdicts.v2",
+        "measured_population": {
+            "phases": ["MEASURED"],
+            "exact_attempts": 100,
+            "warmups_included": False,
+            "preflight_included": False,
+            "retries": 0,
+        },
+        "latency_population": {
+            "population": "successful_measured_attempts_with_valid_ttft",
+            "failed_attempts": (
+                "excluded_from_latency_counted_in_reliability"
+            ),
+        },
+        "reliability": {
+            "numerator": "external_error_outcomes",
+            "denominator": "all_measured_attempts",
+            "outcomes": [
+                "HTTP_ERROR",
+                "TIMEOUT",
+                "PROTOCOL_ERROR",
+                "TRANSPORT_ERROR",
+            ],
+        },
+        "invalid_evidence": {
+            "terminal_outcomes": ["CANCELLED", "INTERNAL_ERROR"],
+            "record_conditions": [
+                "MISSING_RECORD",
+                "DUPLICATE_RECORD",
+                "EXTRA_RECORD",
+            ],
+            "integrity_mismatch": "NOT_PROVEN",
+            "disposition": "NOT_PROVEN",
+        },
+    }
+    return InferencePerformanceCriterionV2.model_validate(payload)
+
+
+def _probe_run(
+    *,
+    errors: int = 0,
+    criterion: InferencePerformanceCriterionV2 | None = None,
+) -> ProbeRun:
     manifest = build_manifest(
         ProbeConfig(
             endpoint="http://127.0.0.1:8000/v1/chat/completions",
@@ -104,6 +152,11 @@ def _probe_run(*, errors: int = 0) -> ProbeRun:
             warmup_count=10,
             timeout_seconds=30,
             max_tokens=64,
+            measurement_policy=(
+                None
+                if criterion is None
+                else project_measurement_policy(criterion)
+            ),
         ),
         (
             SyntheticPrompt("synthetic-1", "Explain deterministic tests."),
@@ -123,7 +176,7 @@ def _probe_run(*, errors: int = 0) -> ProbeRun:
             )
             records.append(
                 ProbeRecord(
-                    schema_version=PROBE_SCHEMA_VERSION,
+                    schema_version=manifest.schema_version,
                     execution_id=EXECUTION_ID,
                     manifest_sha256=manifest.manifest_sha256,
                     request_id=("warmup" if phase is ProbePhase.WARMUP else "measured")
@@ -445,6 +498,26 @@ def test_verdict_projection_round_trip_is_display_only_until_recomputed():
         )
         == verdict
     )
+
+
+def test_v2_verdict_round_trip_requires_policy_bound_outcome_counts():
+    criterion = _criterion_v2()
+    run = _probe_run(errors=1, criterion=criterion)
+    verdict = evaluate_performance_criterion(criterion, run)
+
+    serialized = serialize_performance_verdict(verdict)
+    display = parse_performance_verdict_display(serialized)
+    recomputed = recompute_and_compare_performance_verdict(
+        display,
+        criterion,
+        run,
+    )
+
+    assert display.calculation_version == "exitspec.performance-verdicts.v2"
+    assert display.outcome_counts is not None
+    assert display.outcome_counts.success == 99
+    assert display.outcome_counts.http_error == 1
+    assert recomputed == verdict
 
 
 def test_forged_display_verdict_cannot_authorize_itself():

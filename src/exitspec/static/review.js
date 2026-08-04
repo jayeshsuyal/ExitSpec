@@ -464,7 +464,11 @@
   }
 
   function criterionRuleText(boundCriterion) {
-    if (boundCriterion?.criterion_type === "inference_performance_v1") {
+    if (
+      ["inference_performance_v1", "inference_performance_v2"].includes(
+        boundCriterion?.criterion_type
+      )
+    ) {
       const ttft = boundCriterion.ttft_p95 || {};
       const errorRate = boundCriterion.error_rate || {};
       const ttftOperator = ttft.operator === "lte" ? "≤" : "<";

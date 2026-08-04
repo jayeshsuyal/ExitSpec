@@ -5,9 +5,13 @@ from dataclasses import replace
 
 import pytest
 
-from exitspec.models import InferencePerformanceCriterion, VerdictStatus
+from exitspec.models import (
+    InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
+    VerdictStatus,
+)
+from exitspec.performance_population import project_measurement_policy
 from exitspec.performance_probe import (
-    PROBE_SCHEMA_VERSION,
     ProbeConfig,
     ProbeOutcome,
     ProbePhase,
@@ -81,10 +85,54 @@ def criterion(
     )
 
 
+def criterion_v2(**updates: object) -> InferencePerformanceCriterionV2:
+    base = criterion(**updates).model_dump(mode="python")
+    base["criterion_type"] = "inference_performance_v2"
+    base["measurement_policy"] = {
+        "schema_version": "exitspec.measurement-population.v1",
+        "calculation_version": "exitspec.performance-verdicts.v2",
+        "measured_population": {
+            "phases": ["MEASURED"],
+            "exact_attempts": base["error_rate"]["minimum_attempts"],
+            "warmups_included": False,
+            "preflight_included": False,
+            "retries": 0,
+        },
+        "latency_population": {
+            "population": "successful_measured_attempts_with_valid_ttft",
+            "failed_attempts": (
+                "excluded_from_latency_counted_in_reliability"
+            ),
+        },
+        "reliability": {
+            "numerator": "external_error_outcomes",
+            "denominator": "all_measured_attempts",
+            "outcomes": [
+                "HTTP_ERROR",
+                "TIMEOUT",
+                "PROTOCOL_ERROR",
+                "TRANSPORT_ERROR",
+            ],
+        },
+        "invalid_evidence": {
+            "terminal_outcomes": ["CANCELLED", "INTERNAL_ERROR"],
+            "record_conditions": [
+                "MISSING_RECORD",
+                "DUPLICATE_RECORD",
+                "EXTRA_RECORD",
+            ],
+            "integrity_mismatch": "NOT_PROVEN",
+            "disposition": "NOT_PROVEN",
+        },
+    }
+    return InferencePerformanceCriterionV2.model_validate(base)
+
+
 def probe_run(
     measured: list[tuple[object, int | None]],
     *,
     warmups: list[tuple[object, int | None]] | None = None,
+    measurement_criterion: InferencePerformanceCriterionV2 | None = None,
 ) -> ProbeRun:
     warmups = warmups or []
     config = ProbeConfig(
@@ -95,6 +143,11 @@ def probe_run(
         warmup_count=len(warmups),
         timeout_seconds=1,
         max_tokens=16,
+        measurement_policy=(
+            None
+            if measurement_criterion is None
+            else project_measurement_policy(measurement_criterion)
+        ),
     )
     manifest = build_manifest(
         config,
@@ -119,7 +172,7 @@ def probe_run(
             duration_ns = (ttft_ns + 1) if ttft_ns is not None else 1
             records.append(
                 ProbeRecord(
-                    schema_version=PROBE_SCHEMA_VERSION,
+                    schema_version=manifest.schema_version,
                     execution_id=EXECUTION_ID,
                     manifest_sha256=manifest.manifest_sha256,
                     request_id=(
@@ -215,6 +268,90 @@ def test_exactly_one_error_of_100_fails_strict_below_one_percent():
     assert result.error_rate.verdict is VerdictStatus.FAIL
     assert result.ttft_p95.verdict is VerdictStatus.NOT_PROVEN
     assert result.verdict is VerdictStatus.FAIL
+
+
+def test_v2_policy_counts_each_terminal_outcome_and_uses_all_attempts():
+    approved = criterion_v2(
+        minimum_successful_samples=95,
+        error_threshold=0.05,
+    )
+    run = probe_run(
+        [(ProbeOutcome.SUCCESS, 100_000_000)] * 96
+        + [
+            (ProbeOutcome.HTTP_ERROR, None),
+            (ProbeOutcome.TIMEOUT, None),
+            (ProbeOutcome.PROTOCOL_ERROR, None),
+            (ProbeOutcome.TRANSPORT_ERROR, None),
+        ],
+        measurement_criterion=approved,
+    )
+
+    result = evaluate_performance_criterion(approved, run)
+
+    assert result.calculation_version == "exitspec.performance-verdicts.v2"
+    assert result.attempted_count == 100
+    assert result.successful_count == 96
+    assert result.error_count == 4
+    assert result.error_rate.attempted_count == 100
+    assert result.outcome_counts is not None
+    assert result.outcome_counts.success == 96
+    assert result.outcome_counts.http_error == 1
+    assert result.outcome_counts.timeout == 1
+    assert result.outcome_counts.protocol_error == 1
+    assert result.outcome_counts.transport_error == 1
+    assert result.verdict is VerdictStatus.PASS
+
+
+def test_v2_one_timeout_of_100_fails_strict_below_one_percent():
+    approved = criterion_v2(minimum_successful_samples=99)
+    run = probe_run(
+        [(ProbeOutcome.SUCCESS, 100_000_000)] * 99
+        + [(ProbeOutcome.TIMEOUT, None)],
+        measurement_criterion=approved,
+    )
+
+    result = evaluate_performance_criterion(approved, run)
+
+    assert result.error_rate.error_count == 1
+    assert result.error_rate.attempted_count == 100
+    assert result.error_rate.verdict is VerdictStatus.FAIL
+    assert result.outcome_counts is not None
+    assert result.outcome_counts.timeout == 1
+    assert result.verdict is VerdictStatus.FAIL
+
+
+def test_v2_cancelled_or_missing_evidence_is_not_proven():
+    approved = criterion_v2(minimum_successful_samples=99)
+    cancelled = probe_run(
+        [(ProbeOutcome.SUCCESS, 100_000_000)] * 99
+        + [(ProbeOutcome.CANCELLED, None)],
+        measurement_criterion=approved,
+    )
+    complete = probe_run(
+        [(ProbeOutcome.SUCCESS, 100_000_000)] * 100,
+        measurement_criterion=approved,
+    )
+    missing = replace(complete, records=complete.records[:-1])
+
+    cancelled_result = evaluate_performance_criterion(approved, cancelled)
+    missing_result = evaluate_performance_criterion(approved, missing)
+
+    assert cancelled_result.verdict is VerdictStatus.NOT_PROVEN
+    assert cancelled_result.outcome_counts is not None
+    assert cancelled_result.outcome_counts.cancelled == 1
+    assert missing_result.verdict is VerdictStatus.NOT_PROVEN
+
+
+def test_v2_unbound_probe_manifest_is_not_proven():
+    approved = criterion_v2()
+    unbound = probe_run([(ProbeOutcome.SUCCESS, 100_000_000)] * 100)
+
+    result = evaluate_performance_criterion(approved, unbound)
+
+    assert result.verdict is VerdictStatus.NOT_PROVEN
+    assert "frozen measurement population" in result.reason or (
+        "frozen measurement population" in result.ttft_p95.reason
+    )
 
 
 def test_zero_errors_of_100_passes_strict_below_one_percent():
