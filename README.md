@@ -281,21 +281,26 @@ tests. No successful real-account Fireworks smoke evidence is claimed yet.
 Authorization, idempotency tombstones, provider-call history, and spend
 reservations are in-memory process state; reset drops active authority but does
 not erase those safety records, while process restart does. There is no working
-speech-to-text or audio ingestion. A provider-neutral, synthetic-only STT
+provider speech-to-text or product audio ingestion. A provider-neutral,
+synthetic-only STT
 authorization contract defines consent, policy, limits, private transcript
 handling, and typed pre-transport denials; it issues no transport capability and
 performs no provider call. A second provider-neutral operation can bind exact
 synthetic bytes to a one-use private permit and exercise one disabled-by-default
 transport attempt. Its automated evidence uses fake transports only; no real STT
-provider, credential, endpoint, or product audio upload exists.
+provider, credential, endpoint, or product audio upload exists. A third backend
+handoff immediately redacts valid synthetic output, neutralizes provider speaker
+labels, and attaches it through the existing `MEETING` source path. Every
+derived proposal remains source-linked `NEEDS_REVIEW` input.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
 authorization, a live email connector, mailbox OAuth or webhooks, or arbitrary
 email upload. Local employees can paste bounded email text for redacted,
-review-only requirement extraction; this is not mailbox ingestion. The performance adapter is
-bounded to one synthetic, frozen OpenAI-compatible streaming workload; no real
-vLLM/GPU endpoint result is claimed by the repository yet.
+review-only requirement extraction; this is not mailbox ingestion. The
+performance adapter is bounded to one synthetic, frozen OpenAI-compatible
+streaming workload; no real vLLM/GPU endpoint result is claimed by the
+repository yet.
 
 ## Documentation
 
@@ -310,7 +315,7 @@ vLLM/GPU endpoint result is claimed by the repository yet.
 - [Contract specification](docs/CONTRACT_SPEC.md)
 - [Measurement specification](docs/MEASUREMENT_SPEC.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
-- [Speech-to-text boundary — contract only](docs/STT_SPEC.md)
+- [Speech-to-text synthetic boundary and handoff](docs/STT_SPEC.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)
 - [Wave 2 source web contract](docs/SOURCE_WEB_CONTRACT.md)

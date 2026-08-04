@@ -73,6 +73,8 @@ _ALLOWED_EMAIL_FIXTURES: Final = frozenset(
     {"thread-root", "authority-attack"}
 )
 _RECEIPT_ID_PATTERN: Final = r"^srcpt_[a-z0-9][a-z0-9_-]{7,95}$"
+_STT_OPERATION_ID = re.compile(r"^sttop_[a-f0-9]{64}$")
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _REDACTION_VERSION: Final = "exitspec-transcript-redaction-1.0"
 _ADAPTER_VERSION: Final = "1.0.0"
 _REQUIREMENT_SIGNAL = re.compile(
@@ -627,6 +629,54 @@ class ProcessLocalPOCSourceIntake:
     ) -> POCSourceReceipt:
         """Attach labelled dialogue or one unlabelled single-speaker paste."""
 
+        return self._capture_meeting_text(
+            poc_id=poc_id,
+            transcript_text=transcript_text,
+            idempotency_key=idempotency_key,
+            adapter_name="pasted_meeting",
+        )
+
+    def capture_stt_transcript(
+        self,
+        *,
+        poc_id: str,
+        redacted_transcript_text: str,
+        expected_content_sha256: str,
+        operation_id: str,
+        idempotency_key: str,
+    ) -> POCSourceReceipt:
+        """Recheck and attach one operation-bound redacted STT transcript."""
+
+        if (
+            type(expected_content_sha256) is not str
+            or _SHA256.fullmatch(expected_content_sha256) is None
+            or type(operation_id) is not str
+            or _STT_OPERATION_ID.fullmatch(operation_id) is None
+        ):
+            raise POCSourceIntakeInvalid(
+                "The STT source binding is outside its supported contract."
+            )
+        return self._capture_meeting_text(
+            poc_id=poc_id,
+            transcript_text=redacted_transcript_text,
+            idempotency_key=idempotency_key,
+            adapter_name="synthetic_stt",
+            external_id=_external_identity("meeting.stt", operation_id),
+            expected_content_sha256=expected_content_sha256,
+        )
+
+    def _capture_meeting_text(
+        self,
+        *,
+        poc_id: str,
+        transcript_text: str,
+        idempotency_key: str,
+        adapter_name: str,
+        external_id: str | None = None,
+        expected_content_sha256: str | None = None,
+    ) -> POCSourceReceipt:
+        """Normalize one meeting source and attach only its redacted form."""
+
         bounded = _require_bounded_text(
             transcript_text,
             maximum=MEETING_INPUT_LIMIT,
@@ -670,14 +720,26 @@ class ProcessLocalPOCSourceIntake:
             )
             for ordinal, quote in enumerate(fragments, start=1)
         )
+        content_sha256 = _content_sha256(redacted_text)
+        if (
+            expected_content_sha256 is not None
+            and content_sha256 != expected_content_sha256
+        ):
+            raise POCSourceIntakeInvalid(
+                "The STT source does not match its redacted content binding."
+            )
         observed_at = self._observed_at(idempotency_key)
         prepared = PreparedPOCSource(
             kind=SourceKind.MEETING,
-            external_id=_external_identity("meeting.paste", redacted_text),
+            external_id=(
+                _external_identity("meeting.paste", redacted_text)
+                if external_id is None
+                else external_id
+            ),
             redacted_text=redacted_text,
-            content_sha256=_content_sha256(redacted_text),
+            content_sha256=content_sha256,
             candidates=candidates,
-            adapter_name="pasted_meeting",
+            adapter_name=adapter_name,
             adapter_version=_ADAPTER_VERSION,
             redaction_policy_version=_REDACTION_VERSION,
             observed_at=observed_at,

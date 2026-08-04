@@ -131,10 +131,10 @@ The domain core does not import a frontend framework or provider SDK. The browse
 calls a loopback HTTP boundary, and the server delegates to the same typed domain
 services used by the CLI.
 
-## Speech-to-text contract boundary
+## Speech-to-text synthetic boundary and handoff
 
-`stt_boundary.py` implements a provider-neutral, synthetic-only policy seam. It
-does not implement STT transport. One exact consent attestation and bounded
+`stt_boundary.py` implements a provider-neutral, synthetic-only policy seam.
+One exact consent attestation and bounded
 audio metadata intent are evaluated against a reviewed provider, model, region,
 zero-retention, recording-notice, deletion, incident-response, media-type,
 byte, duration, and time-window policy.
@@ -151,12 +151,12 @@ typed fail-closed evaluation
                    transport_capability_issued = false
 ```
 
-Raw audio is absent from the contract and no network I/O occurs. A future
+Raw audio is absent from the policy contract and no network I/O occurs there. A
 provider transcript is represented only as a private, non-serializable,
 request-local object with `UNTRUSTED_SOURCE_ONLY` authority and `NEEDS_REVIEW`
-state. The sole explicit content path is the immediate future redaction handoff.
-Only a later adapter may turn redacted text into the existing provider-neutral
-`MEETING` source.
+state. The sole explicit content path is the immediate redaction handoff in
+`stt_handoff.py`, which may turn redacted text into the existing
+provider-neutral `MEETING` source.
 
 Provider speaker labels remain `PROVIDER_ASSIGNED_UNVERIFIED`; they do not prove
 participant identity. Public STT receipts contain hashes, counts, provider
@@ -181,6 +181,16 @@ segment-shape, ordering, and audio-duration validation before it becomes a
 private `UntrustedSTTTranscript`. The separately serializable operation receipt
 contains content-free provenance only. Fake transports prove the seam; no live
 provider implementation or product upload route exists.
+
+`STTTranscriptHandoffService` accepts only a sealed operation result. It checks
+the operation/transcript bindings, replaces provider speaker labels with stable
+neutral labels, performs deterministic redaction, and rechecks the exact
+redacted digest at `ProcessLocalPOCSourceIntake`. The operation ID supplies both
+the source identity and idempotency key. Exact replay returns the same source;
+changed content under the same operation identity fails closed. The linked
+receipts contain operation, authorization, source, and content hashes but no
+audio or transcript text. Attached candidates retain `NEEDS_REVIEW` and have no
+agreement, execution, evidence, or verdict authority.
 
 ## Guided synthetic email boundary
 
@@ -536,10 +546,11 @@ dashboard projection or POC registry may coordinate identifiers and navigation;
 it may not become a parallel contract or verdict engine.
 
 The current system is one local process with filesystem artifacts and in-memory
-review state. It has no speech-to-text, live endpoint adapter, hosted identity,
-durable confirmation store, queue, object store, generic metric engine, or
-multi-tenant authorization. It also has no live email connector, mailbox OAuth,
-webhook, arbitrary upload, or real-customer-email path.
+review state. It has no live speech-to-text provider, product audio capture,
+live endpoint adapter, hosted identity, durable confirmation store, queue,
+object store, generic metric engine, or multi-tenant authorization. It also has
+no live email connector, mailbox OAuth, webhook, arbitrary upload, or
+real-customer-email path.
 
 If the product earns hosted use, the next boundaries are authenticated identity,
 append-only durable decisions, PostgreSQL metadata, object storage, isolated

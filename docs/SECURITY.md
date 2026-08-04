@@ -246,8 +246,8 @@ The current run artifacts contain the synthetic frozen contract, manifest,
 case-level synthetic evidence, calculation, verdict, and hashes. They contain no
 real customer source, live credential, provider body, or audio.
 
-The implemented STT boundary is contract-only. It evaluates synthetic audio
-metadata against exact consent, provider, model, region, zero-retention,
+The implemented STT policy boundary evaluates synthetic audio metadata against
+exact consent, provider, model, region, zero-retention,
 recording-notice, deletion, incident-response, media-type, byte, duration, and
 time-window bindings. It issues a content-free authorization record with
 `transport_capability_issued=false`; it receives no audio and performs no
@@ -276,6 +276,16 @@ audio, or physical-memory-zeroing claim exists. The receipt records the requeste
 zero-retention policy and ExitSpec persistence state; it is not evidence that a
 future provider honored retention or deletion.
 
+The transcript handoff accepts only a sealed operation result and checks its
+receipt/transcript bindings before reading private content. Provider speaker
+labels are replaced with neutral labels before deterministic redaction. The
+redacted digest is rechecked at the existing `MEETING` source boundary, and the
+operation ID binds idempotency and source identity. Exact replay is safe;
+changed content under the same operation identity is a conflict. Public handoff
+receipts link operation, authorization, and source IDs without transcript text,
+audio, provider speaker labels, participant IDs, or raw meeting identity. Every
+candidate remains `NEEDS_REVIEW`.
+
 ## Threats covered by current tests
 
 1. Stale contract version or mismatched fingerprint attempting to freeze.
@@ -303,6 +313,12 @@ future provider honored retention or deletion.
     automatic audio retry after an ambiguous provider failure.
 20. Malformed provider request identity, language, speaker mapping, segment
     shape, ordering, timing, or duration entering a transcript receipt.
+21. A transcript paired with a different operation receipt.
+22. Raw provider speaker labels or supported secrets crossing into the meeting
+    source.
+23. Concurrent or serial handoff replay creating duplicate sources or
+    proposals.
+24. Changed transcript content reusing an existing STT operation identity.
 
 ## Production security gates
 
