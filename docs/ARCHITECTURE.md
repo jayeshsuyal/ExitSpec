@@ -167,6 +167,21 @@ The full contract and four-PR delivery sequence are specified in
 [STT_SPEC.md](STT_SPEC.md). Real customer audio remains behind the C4 production
 security gates.
 
+The bounded operation layer adds `STTAudioPermitIssuer` and
+`STTOperationExecutor`. The issuer revalidates the policy intent, binds exact
+immutable synthetic bytes by length and SHA-256, and refuses duplicate permit
+issuance without storing audio. Its content-free issuance set is bounded and
+fails closed at capacity. The private permit detaches its bytes when consumed.
+The executor is disabled by default, accepts only that permit, exposes the
+reviewed transport timeout, releases the request's audio reference after one
+transport attempt, and performs no automatic retry.
+
+Provider-runtime output must survive local request-ID, language, speaker-mode,
+segment-shape, ordering, and audio-duration validation before it becomes a
+private `UntrustedSTTTranscript`. The separately serializable operation receipt
+contains content-free provenance only. Fake transports prove the seam; no live
+provider implementation or product upload route exists.
+
 ## Guided synthetic email boundary
 
 The guided entry point is `/app?intake=email`. It offers exactly two

@@ -44,6 +44,7 @@ def _policy(**updates: object) -> STTPrivacyPolicy:
         "allowed_media_types": ("audio/webm", "audio/wav"),
         "max_audio_bytes": 5_000_000,
         "max_duration_ms": 30 * 60 * 1000,
+        "transport_timeout_seconds": 30.0,
         "provider_data_policy_sha256": DATA_POLICY_SHA256,
         "consent_notice_sha256": NOTICE_SHA256,
         "deletion_policy_ref": "policy://audio-deletion-v1",
@@ -114,6 +115,7 @@ def test_happy_path_returns_a_safe_non_capability_record():
     assert record.request_id == "sttreq_demo_call_001"
     assert record.audio_sha256 == AUDIO_SHA256
     assert record.retention_mode == STTRetentionMode.ZERO_RETENTION
+    assert record.transport_timeout_seconds == 30.0
     assert record.authority == "AUDIO_EGRESS_POLICY_MATCH_ONLY"
     assert record.transcript_authority == "UNTRUSTED_SOURCE_ONLY"
     assert record.transport_capability_issued is False
@@ -133,6 +135,15 @@ def test_authorization_identity_is_deterministic_for_the_same_policy_and_intent(
 
     assert first == second
     assert first.authorization_id == second.authorization_id
+
+
+@pytest.mark.parametrize(
+    "timeout_seconds",
+    (0, -1, True, float("inf"), float("nan"), 300.1),
+)
+def test_policy_transport_timeout_is_finite_positive_and_bounded(timeout_seconds):
+    with pytest.raises(ValidationError):
+        _policy(transport_timeout_seconds=timeout_seconds)
 
 
 def test_audio_descriptor_contains_metadata_only_and_is_immutable():

@@ -305,9 +305,10 @@ Build the remaining train in this order:
 
 1. **PR95 — boundary:** contract, consent, limits, provenance, private transcript
    handling, and typed denials;
-2. **PR96 — bounded audio operation:** one synthetic upload/capture through a
-   permit-only adapter with fake-transport proof and disabled-by-default real
-   configuration;
+2. **PR96 — bounded audio operation (implemented on the current stack):** exact
+   synthetic bytes through one private permit and one disabled-by-default
+   provider-neutral transport attempt, with fake-transport proof and no
+   automatic retry;
 3. **PR97 — transcript handoff:** immediate redaction into an existing
    `MEETING` source and source-linked `NEEDS_REVIEW` proposals; and
 4. **PR98 — live demo and hardening:** browser-microphone demo, recovery,

@@ -260,6 +260,22 @@ audio, transcript text, participant IDs, and raw meeting identity. These model
 controls reduce accidental leakage; they do not replace provider, legal,
 privacy, retention, deletion, or incident-response approval for real audio.
 
+The bounded synthetic operation accepts audio only through a one-use private
+permit after exact byte-length and SHA-256 binding. Duplicate issuance and
+concurrent consumption fail closed, and the process-local content-free issuance
+set has a fixed capacity. Execution is disabled by default, accepts no raw bytes
+directly, exposes a reviewed bounded transport timeout, makes at most one
+transport attempt, and releases its audio reference after the attempt. Timeout
+and retryable-looking provider failures do not automatically resend audio
+because the provider may already have accepted the first request.
+
+Operation success publishes only a content-free receipt and a request-local
+private transcript. Fake transports are the only implementation evidence. No
+credential, provider endpoint, external request, product upload route, durable
+audio, or physical-memory-zeroing claim exists. The receipt records the requested
+zero-retention policy and ExitSpec persistence state; it is not evidence that a
+future provider honored retention or deletion.
+
 ## Threats covered by current tests
 
 1. Stale contract version or mismatched fingerprint attempting to freeze.
@@ -282,6 +298,11 @@ privacy, retention, deletion, or incident-response approval for real audio.
     duration policy.
 17. Private provider transcript serialization, content echo, or speaker-label
     overclaim.
+18. Raw bytes differing from the approved digest or length.
+19. Duplicate permit issuance, replayed consumption, concurrent consumption, or
+    automatic audio retry after an ambiguous provider failure.
+20. Malformed provider request identity, language, speaker mapping, segment
+    shape, ordering, timing, or duration entering a transcript receipt.
 
 ## Production security gates
 
