@@ -510,6 +510,15 @@ def _serialized_session(method: Any) -> Any:
     return locked
 
 
+@dataclass(frozen=True)
+class _SeededWorkspaceSnapshot:
+    """Immutable inputs captured under the seeded demo session lock."""
+
+    record: POCRegistryEntry
+    facts: POCWorkflowFacts
+    current_owner: str
+
+
 @dataclass
 class DemoSession:
     """Ephemeral, synthetic state backing one browser demo session."""
@@ -2194,18 +2203,21 @@ class DemoSession:
             "workspace": self._workspace_projection_payload(contract, proof),
         }
 
-    @_serialized_session
     def workspace_payload(
         self,
         selected_filter: DashboardFilter = DashboardFilter.ACTIVE,
     ) -> Dict[str, Any]:
-        """Return one bounded dashboard projection without changing POC state."""
+        """Return one bounded projection from an atomic, short-lived snapshot."""
 
-        reviewed_contract = self.approved_contract()
-        contract = self.frozen_contract or reviewed_contract
-        return self._workspace_projection_payload(
-            contract,
-            self._proof_payload(),
+        with self._lock:
+            reviewed_contract = self.approved_contract()
+            contract = self.frozen_contract or reviewed_contract
+            snapshot = self._workspace_projection_snapshot(
+                contract,
+                self._proof_payload(),
+            )
+        return self._render_workspace_snapshot(
+            snapshot,
             selected_filter=selected_filter,
         )
 
@@ -2217,6 +2229,19 @@ class DemoSession:
         selected_filter: DashboardFilter = DashboardFilter.ACTIVE,
     ) -> Dict[str, Any]:
         """Project the seeded POC without granting the workspace write authority."""
+
+        snapshot = self._workspace_projection_snapshot(contract, proof)
+        return self._render_workspace_snapshot(
+            snapshot,
+            selected_filter=selected_filter,
+        )
+
+    def _workspace_projection_snapshot(
+        self,
+        contract: Optional[POCContract],
+        proof: Optional[Dict[str, Any]],
+    ) -> _SeededWorkspaceSnapshot:
+        """Capture all mutable dashboard inputs inside the session transaction."""
 
         source_type = (
             WorkspaceSourceType.EMAIL
@@ -2276,16 +2301,30 @@ class DemoSession:
             ),
             action_since=updated_at,
         )
+        return _SeededWorkspaceSnapshot(
+            record=record,
+            facts=facts,
+            current_owner=owner,
+        )
+
+    @staticmethod
+    def _render_workspace_snapshot(
+        snapshot: _SeededWorkspaceSnapshot,
+        *,
+        selected_filter: DashboardFilter,
+    ) -> Dict[str, Any]:
+        """Render immutable inputs without holding the mutable session lock."""
+
         performance_record, performance_facts = (
             performance_workspace_record_and_facts()
         )
         dashboard = project_dashboard(
-            ReadOnlyPOCRegistry((record, performance_record)),
+            ReadOnlyPOCRegistry((snapshot.record, performance_record)),
             {
-                record.poc_id: facts,
+                snapshot.record.poc_id: snapshot.facts,
                 performance_record.poc_id: performance_facts,
             },
-            current_owner=owner,
+            current_owner=snapshot.current_owner,
             selected_filter=selected_filter,
         )
         return dashboard.model_dump(mode="json")
@@ -2777,6 +2816,10 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
 
     daemon_threads = True
     allow_reuse_address = True
+    # Absorb bounded browser/API bursts without pretending this local server is
+    # a production runtime. The stdlib default of five caused connection-level
+    # timeouts before ExitSpec could return a typed response.
+    request_queue_size = 128
 
     def __init__(
         self,
