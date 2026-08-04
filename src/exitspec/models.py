@@ -222,6 +222,103 @@ class ErrorRateRule(FrozenExitSpecModel):
     minimum_attempts: int = Field(gt=0, le=1_000)
     must_pass: Literal[True]
 
+
+class MeasuredPopulationPolicyV1(FrozenExitSpecModel):
+    """The exact request population eligible for one performance decision."""
+
+    phases: Tuple[Literal["MEASURED"], ...] = Field(min_length=1, max_length=1)
+    exact_attempts: int = Field(gt=0, le=1_000)
+    warmups_included: Literal[False]
+    preflight_included: Literal[False]
+    retries: Literal[0]
+
+
+class LatencyPopulationPolicyV1(FrozenExitSpecModel):
+    """The frozen subset permitted to contribute values to latency percentiles."""
+
+    population: Literal["successful_measured_attempts_with_valid_ttft"]
+    failed_attempts: Literal["excluded_from_latency_counted_in_reliability"]
+
+
+class ReliabilityPopulationPolicyV1(FrozenExitSpecModel):
+    """The frozen numerator and denominator for attempted-request reliability."""
+
+    numerator: Literal["external_error_outcomes"]
+    denominator: Literal["all_measured_attempts"]
+    outcomes: Tuple[
+        Literal[
+            "HTTP_ERROR",
+            "TIMEOUT",
+            "PROTOCOL_ERROR",
+            "TRANSPORT_ERROR",
+        ],
+        ...,
+    ] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def require_canonical_external_error_order(
+        self,
+    ) -> "ReliabilityPopulationPolicyV1":
+        if self.outcomes != (
+            "HTTP_ERROR",
+            "TIMEOUT",
+            "PROTOCOL_ERROR",
+            "TRANSPORT_ERROR",
+        ):
+            raise ValueError(
+                "Reliability outcomes must contain the canonical external-error set."
+            )
+        return self
+
+
+class InvalidEvidencePolicyV1(FrozenExitSpecModel):
+    """Run-level conditions that invalidate proof instead of changing a rate."""
+
+    terminal_outcomes: Tuple[
+        Literal["CANCELLED", "INTERNAL_ERROR"],
+        ...,
+    ] = Field(min_length=2, max_length=2)
+    record_conditions: Tuple[
+        Literal[
+            "MISSING_RECORD",
+            "DUPLICATE_RECORD",
+            "EXTRA_RECORD",
+        ],
+        ...,
+    ] = Field(min_length=3, max_length=3)
+    integrity_mismatch: Literal["NOT_PROVEN"]
+    verdict: Literal["NOT_PROVEN"]
+
+    @model_validator(mode="after")
+    def require_canonical_invalid_evidence_order(
+        self,
+    ) -> "InvalidEvidencePolicyV1":
+        if self.terminal_outcomes != ("CANCELLED", "INTERNAL_ERROR"):
+            raise ValueError(
+                "Invalid terminal outcomes must use the canonical order."
+            )
+        if self.record_conditions != (
+            "MISSING_RECORD",
+            "DUPLICATE_RECORD",
+            "EXTRA_RECORD",
+        ):
+            raise ValueError(
+                "Invalid record conditions must use the canonical order."
+            )
+        return self
+
+
+class MeasurementPopulationPolicyV1(FrozenExitSpecModel):
+    """Customer-confirmed counting semantics for inference performance v2."""
+
+    schema_version: Literal["exitspec.measurement-population.v1"]
+    calculation_version: Literal["exitspec.performance-verdicts.v2"]
+    measured_population: MeasuredPopulationPolicyV1
+    latency_population: LatencyPopulationPolicyV1
+    reliability: ReliabilityPopulationPolicyV1
+    invalid_evidence: InvalidEvidencePolicyV1
+
+
 class InferencePerformanceCriterion(FrozenExitSpecModel):
     """One must-have criterion composed of non-compensating performance rules."""
 
@@ -257,7 +354,29 @@ class InferencePerformanceCriterion(FrozenExitSpecModel):
         return self
 
 
-ContractCriterion = Union[Criterion, InferencePerformanceCriterion]
+class InferencePerformanceCriterionV2(InferencePerformanceCriterion):
+    """A performance criterion with a hash-bound measurement population."""
+
+    criterion_type: Literal["inference_performance_v2"]
+    measurement_policy: MeasurementPopulationPolicyV1
+
+    @model_validator(mode="after")
+    def bind_population_to_rules(self) -> "InferencePerformanceCriterionV2":
+        if (
+            self.measurement_policy.measured_population.exact_attempts
+            != self.error_rate.minimum_attempts
+        ):
+            raise ValueError(
+                "Measurement policy attempts must match the reliability rule."
+            )
+        return self
+
+
+ContractCriterion = Union[
+    Criterion,
+    InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
+]
 
 
 class CriterionReview(ExitSpecModel):

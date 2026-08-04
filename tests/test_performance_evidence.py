@@ -113,6 +113,58 @@ def test_exact_workload_and_prompt_bytes_build_typed_expected_manifest():
     )
 
 
+def test_v2_population_policy_cannot_execute_before_v2_evaluator_support():
+    contract = load_contract(PERFORMANCE_CONTRACT_PATH)
+    payload = contract.model_dump(mode="python")
+    criterion = payload["criteria"][0]
+    criterion["criterion_type"] = "inference_performance_v2"
+    criterion["measurement_policy"] = {
+        "schema_version": "exitspec.measurement-population.v1",
+        "calculation_version": "exitspec.performance-verdicts.v2",
+        "measured_population": {
+            "phases": ["MEASURED"],
+            "exact_attempts": 100,
+            "warmups_included": False,
+            "preflight_included": False,
+            "retries": 0,
+        },
+        "latency_population": {
+            "population": "successful_measured_attempts_with_valid_ttft",
+            "failed_attempts": (
+                "excluded_from_latency_counted_in_reliability"
+            ),
+        },
+        "reliability": {
+            "numerator": "external_error_outcomes",
+            "denominator": "all_measured_attempts",
+            "outcomes": [
+                "HTTP_ERROR",
+                "TIMEOUT",
+                "PROTOCOL_ERROR",
+                "TRANSPORT_ERROR",
+            ],
+        },
+        "invalid_evidence": {
+            "terminal_outcomes": ["CANCELLED", "INTERNAL_ERROR"],
+            "record_conditions": [
+                "MISSING_RECORD",
+                "DUPLICATE_RECORD",
+                "EXTRA_RECORD",
+            ],
+            "integrity_mismatch": "NOT_PROVEN",
+            "verdict": "NOT_PROVEN",
+        },
+    }
+    versioned = POCContract.model_validate(payload)
+
+    with pytest.raises(PerformanceEvidenceError, match="exactly one"):
+        validate_performance_context(
+            versioned,
+            WORKLOAD_PATH.read_bytes(),
+            bundle_root=PROJECT_ROOT,
+        )
+
+
 def test_approved_contract_can_author_context_but_cannot_authorize_execution():
     contract = load_contract(PERFORMANCE_CONTRACT_PATH)
     context = validate_performance_context(

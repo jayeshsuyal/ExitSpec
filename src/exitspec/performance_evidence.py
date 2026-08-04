@@ -363,7 +363,7 @@ def _select_performance_criterion(
     performance_criteria = tuple(
         criterion
         for criterion in contract.criteria
-        if isinstance(criterion, InferencePerformanceCriterion)
+        if type(criterion) is InferencePerformanceCriterion
     )
     if criterion_id is None:
         if len(performance_criteria) != 1:

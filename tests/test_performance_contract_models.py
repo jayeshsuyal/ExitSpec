@@ -5,9 +5,17 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
+from exitspec.confirmations import (
+    ConfirmationDecision,
+    confirmation_matches_contract,
+    record_confirmation,
+)
+from exitspec.contracts import contract_digest, freeze_contract
 from exitspec.models import (
     Criterion,
     InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
+    MeasurementPopulationPolicyV1,
     POCContract,
 )
 
@@ -63,6 +71,53 @@ def performance_criterion_payload() -> dict:
     }
 
 
+def measurement_population_policy_payload() -> dict:
+    return {
+        "schema_version": "exitspec.measurement-population.v1",
+        "calculation_version": "exitspec.performance-verdicts.v2",
+        "measured_population": {
+            "phases": ["MEASURED"],
+            "exact_attempts": 100,
+            "warmups_included": False,
+            "preflight_included": False,
+            "retries": 0,
+        },
+        "latency_population": {
+            "population": "successful_measured_attempts_with_valid_ttft",
+            "failed_attempts": (
+                "excluded_from_latency_counted_in_reliability"
+            ),
+        },
+        "reliability": {
+            "numerator": "external_error_outcomes",
+            "denominator": "all_measured_attempts",
+            "outcomes": [
+                "HTTP_ERROR",
+                "TIMEOUT",
+                "PROTOCOL_ERROR",
+                "TRANSPORT_ERROR",
+            ],
+        },
+        "invalid_evidence": {
+            "terminal_outcomes": ["CANCELLED", "INTERNAL_ERROR"],
+            "record_conditions": [
+                "MISSING_RECORD",
+                "DUPLICATE_RECORD",
+                "EXTRA_RECORD",
+            ],
+            "integrity_mismatch": "NOT_PROVEN",
+            "verdict": "NOT_PROVEN",
+        },
+    }
+
+
+def performance_criterion_v2_payload() -> dict:
+    payload = performance_criterion_payload()
+    payload["criterion_type"] = "inference_performance_v2"
+    payload["measurement_policy"] = measurement_population_policy_payload()
+    return payload
+
+
 def test_inference_performance_criterion_is_a_strict_tagged_composite():
     payload = performance_criterion_payload()
 
@@ -106,12 +161,132 @@ def test_performance_criterion_requires_its_tag_inside_contract(approved_contrac
 
 def test_unknown_performance_criterion_tag_is_rejected(approved_contract):
     criterion = performance_criterion_payload()
-    criterion["criterion_type"] = "inference_performance_v2"
+    criterion["criterion_type"] = "inference_performance_v3"
     payload = approved_contract.model_dump(mode="python")
     payload["criteria"] = [criterion]
 
-    with pytest.raises(ValidationError, match="inference_performance_v1"):
+    with pytest.raises(ValidationError, match="inference_performance_v2"):
         POCContract.model_validate(payload)
+
+
+def test_v2_performance_criterion_requires_the_complete_population_policy():
+    payload = performance_criterion_v2_payload()
+
+    criterion = InferencePerformanceCriterionV2.model_validate(payload)
+
+    assert criterion.criterion_type == "inference_performance_v2"
+    assert criterion.measurement_policy.measured_population.exact_attempts == 100
+    assert criterion.measurement_policy.reliability.denominator == (
+        "all_measured_attempts"
+    )
+    assert criterion.model_dump(mode="json") == payload
+
+    del payload["measurement_policy"]
+    with pytest.raises(ValidationError, match="measurement_policy"):
+        InferencePerformanceCriterionV2.model_validate(payload)
+
+
+def test_contract_union_preserves_v1_and_selects_v2_by_exact_tag(
+    approved_contract,
+):
+    payload = approved_contract.model_dump(mode="python")
+    payload["criteria"] = [
+        performance_criterion_payload(),
+        {
+            **performance_criterion_v2_payload(),
+            "id": "PERF-LATENCY-02",
+        },
+    ]
+
+    contract = POCContract.model_validate(payload)
+
+    assert type(contract.criteria[0]) is InferencePerformanceCriterion
+    assert type(contract.criteria[1]) is InferencePerformanceCriterionV2
+    serialized = contract.model_dump(mode="json")
+    assert serialized["criteria"][1]["measurement_policy"] == (
+        measurement_population_policy_payload()
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("schema_version",), "exitspec.measurement-population.v2"),
+        (("calculation_version",), "exitspec.performance-verdicts.v1"),
+        (("measured_population", "phases"), ["WARMUP"]),
+        (("measured_population", "warmups_included"), True),
+        (("measured_population", "preflight_included"), True),
+        (("measured_population", "retries"), 1),
+        (
+            ("reliability", "outcomes"),
+            ["TIMEOUT", "HTTP_ERROR", "PROTOCOL_ERROR", "TRANSPORT_ERROR"],
+        ),
+        (
+            ("invalid_evidence", "record_conditions"),
+            ["MISSING_RECORD", "EXTRA_RECORD", "DUPLICATE_RECORD"],
+        ),
+        (("invalid_evidence", "verdict"), "FAIL"),
+    ],
+)
+def test_population_policy_rejects_semantic_drift(path, value):
+    payload = measurement_population_policy_payload()
+    target = payload
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = value
+
+    with pytest.raises(ValidationError):
+        MeasurementPopulationPolicyV1.model_validate(payload)
+
+
+def test_v2_attempt_population_must_match_the_reliability_rule():
+    payload = performance_criterion_v2_payload()
+    payload["measurement_policy"]["measured_population"]["exact_attempts"] = 99
+
+    with pytest.raises(ValidationError, match="attempts must match"):
+        InferencePerformanceCriterionV2.model_validate(payload)
+
+
+def test_population_policy_is_immutable():
+    policy = MeasurementPopulationPolicyV1.model_validate(
+        measurement_population_policy_payload()
+    )
+
+    with pytest.raises(ValidationError, match="Instance is frozen"):
+        policy.measured_population.exact_attempts = 200
+    with pytest.raises(ValidationError, match="Instance is frozen"):
+        policy.reliability.denominator = "successful_attempts"
+
+
+def test_population_policy_changes_contract_hash_and_customer_confirmation(
+    approved_contract,
+):
+    original_payload = approved_contract.model_dump(mode="python")
+    original_payload["criteria"] = [performance_criterion_v2_payload()]
+    original = POCContract.model_validate(original_payload)
+    confirmation = record_confirmation(
+        original,
+        confirmer_identity="customer_vp_engineering",
+        decision=ConfirmationDecision.CONFIRM,
+        agreement_acknowledged=True,
+        rationale="The counting policy and acceptance rules are confirmed.",
+        idempotency_key="population-policy-confirmation-v1",
+    )
+
+    changed_payload = deepcopy(original_payload)
+    changed_payload["criteria"][0]["error_rate"]["minimum_attempts"] = 101
+    changed_payload["criteria"][0]["measurement_policy"][
+        "measured_population"
+    ]["exact_attempts"] = 101
+    changed = POCContract.model_validate(changed_payload)
+
+    assert contract_digest(original) != contract_digest(changed)
+    assert confirmation_matches_contract(original, confirmation)
+    assert not confirmation_matches_contract(changed, confirmation)
+
+    frozen = freeze_contract(original)
+    assert frozen.canonical_hash is not None
+    assert frozen.canonical_hash != contract_digest(changed)
 
 
 @pytest.mark.parametrize(
