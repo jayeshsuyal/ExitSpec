@@ -336,3 +336,246 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 customer_context.close()
                 employee_context.close()
                 browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_meeting_microphone_demo_records_consent_before_review_handoff(tmp_path):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+    browser_fixture = """
+      window.__sttDemoEvents = [];
+      window.__microphoneRequests = 0;
+      window.__trackStops = 0;
+      window.__failConsent = false;
+      window.__denyMicrophone = false;
+      window.__failCapture = false;
+      window.__suppressNextStopEvent = true;
+
+      const realFetch = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const path = typeof args[0] === "string" ? args[0] : args[0].url;
+        const method = (args[1] && args[1].method) ||
+          (typeof args[0] === "string" ? "GET" : args[0].method);
+        if (window.__failConsent && path.endsWith("/stt/consents")) {
+          return new Response('{"error":"synthetic consent failure"}', {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (
+          window.__failCapture &&
+          path.includes("/stt/captures/") &&
+          method === "POST"
+        ) {
+          return new Response('{"error":"synthetic upload failure"}', {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        const response = await realFetch(...args);
+        if (path.endsWith("/stt/consents") && response.ok) {
+          window.__sttDemoEvents.push("consent-recorded");
+        }
+        return response;
+      };
+
+      const track = {
+        stop() {
+          window.__trackStops += 1;
+        },
+      };
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          async getUserMedia() {
+            window.__microphoneRequests += 1;
+            window.__sttDemoEvents.push("microphone-requested");
+            if (window.__denyMicrophone) {
+              throw new DOMException("Synthetic denial", "NotAllowedError");
+            }
+            return { getTracks: () => [track] };
+          },
+        },
+      });
+
+      class FakeMediaRecorder {
+        static isTypeSupported(type) {
+          return type === "audio/webm";
+        }
+
+        constructor(stream, options) {
+          this.stream = stream;
+          this.mimeType = options.mimeType;
+          this.state = "inactive";
+          this.ondataavailable = null;
+          this.onstop = null;
+        }
+
+        start() {
+          this.state = "recording";
+          window.__sttDemoEvents.push("recording-started");
+        }
+
+        stop() {
+          if (this.state !== "recording") return;
+          this.state = "inactive";
+          const data = new Blob(
+            [new Uint8Array([26, 69, 223, 163, 69, 120, 105, 116])],
+            { type: "audio/webm" }
+          );
+          if (this.ondataavailable) this.ondataavailable({ data });
+          if (window.__suppressNextStopEvent) {
+            window.__suppressNextStopEvent = false;
+            return;
+          }
+          window.setTimeout(() => {
+            if (this.onstop) this.onstop();
+          }, 0);
+        }
+      }
+      window.MediaRecorder = FakeMediaRecorder;
+    """
+
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            page.add_init_script(browser_fixture)
+            page.set_default_timeout(10_000)
+            page.set_default_navigation_timeout(10_000)
+
+            try:
+                page.goto(f"{base_url}/app/pocs/new")
+                page.locator(
+                    'input[name="first_source_choice"][value="MEETING"]'
+                ).check()
+                page.locator("#display-name").fill(
+                    "Browser microphone acceptance POC"
+                )
+                page.locator("#customer-label").fill("Northstar")
+                page.locator("#use-case").fill(
+                    "Prove consented synthetic meeting intake."
+                )
+                page.locator("#owner").fill("field_engineer")
+                page.locator("#create-poc").click()
+
+                source_route = re.compile(
+                    rf"^{re.escape(base_url)}/app/pocs/"
+                    r"(poc_[a-z0-9][a-z0-9_-]{2,63})/sources/new$"
+                )
+                expect(page).to_have_url(source_route)
+                route_match = source_route.fullmatch(page.url)
+                assert route_match is not None
+                poc_id = route_match.group(1)
+
+                record_mode = page.locator("#meeting-mode-record")
+                expect(record_mode).to_be_enabled()
+                record_mode.check()
+                expect(page.locator("#meeting-record-panel")).to_be_visible()
+                expect(page.locator(".synthetic-badge")).to_have_text(
+                    "Not real STT"
+                )
+                expect(page.locator("#stt-disclosure")).to_contain_text(
+                    "does not transcribe spoken words"
+                )
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Record first"
+                )
+
+                page.locator("#recording-notice-ack").check()
+                page.locator("#all-speakers-consent").check()
+                page.locator("#synthetic-output-ack").check()
+                expect(page.locator("#start-recording")).to_be_enabled()
+
+                page.evaluate("window.__failConsent = true")
+                page.locator("#start-recording").click()
+                expect(page.locator("#intake-error")).to_contain_text(
+                    "microphone was not enabled"
+                )
+                assert page.evaluate("window.__microphoneRequests") == 0
+
+                page.evaluate(
+                    "window.__failConsent = false; window.__denyMicrophone = true"
+                )
+                page.locator("#start-recording").click()
+                expect(page.locator("#intake-error")).to_contain_text(
+                    "Microphone access failed"
+                )
+                assert page.evaluate("window.__microphoneRequests") == 1
+                page.locator("#meeting-mode-paste").check()
+                expect(page.locator("#meeting-transcript")).to_be_enabled()
+                page.locator("#meeting-transcript").fill(
+                    "Customer: Paste mode remains available."
+                )
+                page.locator("#meeting-mode-record").check()
+                page.evaluate("window.__denyMicrophone = false")
+
+                expect(page.locator("#start-recording")).to_be_enabled()
+                page.locator("#start-recording").click()
+
+                expect(page.locator("#recording-status")).to_contain_text(
+                    "Recording locally"
+                )
+                page.wait_for_timeout(350)
+                expect(page.locator("#stop-recording")).to_be_enabled()
+                page.locator("#stop-recording").click()
+                expect(page.locator("#intake-error")).to_contain_text(
+                    "Browser recording did not finish safely"
+                )
+                expect(page.locator("#start-recording")).to_be_enabled()
+
+                page.locator("#start-recording").click()
+                page.wait_for_timeout(350)
+                expect(page.locator("#stop-recording")).to_be_enabled()
+                page.locator("#stop-recording").click()
+                expect(page.locator("#recording-status")).to_contain_text(
+                    "Clip ready"
+                )
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Create review proposals"
+                )
+                expect(page.locator("#capture-source")).to_be_enabled()
+
+                assert page.evaluate("window.__microphoneRequests") == 3
+                assert page.evaluate("window.__sttDemoEvents")[:2] == [
+                    "consent-recorded",
+                    "microphone-requested",
+                ]
+                assert page.evaluate("window.__trackStops") >= 2
+
+                page.evaluate("window.__failCapture = true")
+                page.locator("#capture-source").click()
+                expect(page.locator("#intake-error")).to_contain_text(
+                    "Audio was cleared; record a new clip"
+                )
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Record first"
+                )
+                page.evaluate("window.__failCapture = false")
+
+                page.locator("#start-recording").click()
+                page.wait_for_timeout(350)
+                page.locator("#stop-recording").click()
+                expect(page.locator("#capture-source")).to_be_enabled()
+                assert page.evaluate("window.__microphoneRequests") == 4
+                assert page.evaluate("window.__trackStops") >= 3
+                page.locator("#capture-source").click()
+                expect(page).to_have_url(
+                    f"{base_url}/app/pocs/{poc_id}/review"
+                )
+                expect(page.locator("#proposal-heading")).to_have_text(
+                    "Proposal 1"
+                )
+                first_claim = page.locator("#normalized-claim").text_content()
+                assert first_claim is not None
+                assert "first token" in first_claim.lower()
+            finally:
+                context.close()
+                browser.close()

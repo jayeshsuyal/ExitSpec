@@ -26,8 +26,10 @@ class _MarkupInventory(HTMLParser):
         super().__init__()
         self.ids: list[str] = []
         self.labels_for: list[str] = []
+        self.implicitly_labeled_input_ids: list[str] = []
         self.input_ids: list[str] = []
         self.landmarks: list[str] = []
+        self._label_depth = 0
 
     def handle_starttag(
         self,
@@ -35,15 +37,23 @@ class _MarkupInventory(HTMLParser):
         attrs: list[tuple[str, str | None]],
     ) -> None:
         attributes = dict(attrs)
+        if tag == "label":
+            self._label_depth += 1
         if attributes.get("id"):
             element_id = str(attributes["id"])
             self.ids.append(element_id)
             if tag in {"input", "select", "textarea"}:
                 self.input_ids.append(element_id)
+                if self._label_depth:
+                    self.implicitly_labeled_input_ids.append(element_id)
         if tag == "label" and attributes.get("for"):
             self.labels_for.append(str(attributes["for"]))
         if tag in {"header", "main", "nav", "section"}:
             self.landmarks.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "label":
+            self._label_depth = max(0, self._label_depth - 1)
 
 
 def test_source_intake_is_one_accessible_bounded_task():
@@ -52,12 +62,10 @@ def test_source_intake_is_one_accessible_bounded_task():
     parser.feed(html)
 
     assert len(parser.ids) == len(set(parser.ids))
-    assert set(parser.input_ids).issubset(set(parser.labels_for)) or {
-        "email-text",
-        "meeting-transcript",
-        "document-text",
-        "contract-json",
-    }.issubset(set(parser.labels_for))
+    labeled_control_ids = set(parser.labels_for) | set(
+        parser.implicitly_labeled_input_ids
+    )
+    assert set(parser.input_ids).issubset(labeled_control_ids)
     assert '<a class="skip-link" href="#source-intake-main">' in html
     assert 'id="source-current-task"' in html
     assert 'aria-labelledby="current-task-heading"' in html
@@ -97,12 +105,16 @@ def test_four_sources_are_clear_and_product_claims_stay_honest():
     assert "Customer: Error rate must stay below 1%." in html
     assert "single-speaker natural-text paste is also accepted" in html
     assert 'aria-describedby="meeting-format-help meeting-connection-help"' in html
-    assert "Audio, STT, Zoom, and Google Meet are not" in html
+    assert 'id="meeting-mode-paste"' in html
+    assert 'id="meeting-mode-record"' in html
+    assert "Record synthetic demo" in html
+    assert "Not real STT" in html
+    assert "spoken words will not be transcribed" in html
+    assert "No provider, Zoom, or Google Meet connection is implied" in html
     assert "PDF and DOCX parsing" in html
     assert "not connected" in html
     assert "Paste one JSON object" in html
     assert 'type="file"' not in html
-    assert "Record" not in html
     assert "Upload" not in html
     assert "<canvas" not in html
     assert "<svg" not in html

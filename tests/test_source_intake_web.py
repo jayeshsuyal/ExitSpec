@@ -79,11 +79,15 @@ def test_created_draft_has_one_real_source_intake_page_and_assets(tmp_path):
     assert b"Capture one customer source" in page
     assert b"Capture source" in page
     assert b"NEEDS_REVIEW" in page
-    assert b"Audio, STT, Zoom, and Google Meet are not" in page
+    assert b"Record synthetic demo" in page
+    assert b"Not real STT" in page
+    assert b"spoken words will not be transcribed" in page
     assert stylesheet
     assert b"/sources/new" in javascript
     assert b"/sources/meeting" not in javascript
     assert b"`${sourcesApi}/meeting`" in javascript
+    assert b"`${sttApi}/disclosure`" in javascript
+    assert b"`${sttApi}/consents`" in javascript
 
 
 def test_missing_malformed_and_parameterized_source_pages_fail_closed(tmp_path):
