@@ -20,6 +20,7 @@ from exitspec.poc_performance_run_web_api import (
     handle_poc_performance_run_web_api_request,
     is_poc_performance_run_web_api_target,
 )
+from exitspec.performance_verdicts import PerformanceOutcomeCounts
 
 
 POC_ID = "poc_dynamic_api"
@@ -59,6 +60,19 @@ def _snapshot(
         attempted_count=100 if completed else None,
         successful_count=100 if completed else None,
         error_count=0 if completed else None,
+        outcome_counts=(
+            PerformanceOutcomeCounts(
+                success=100,
+                http_error=0,
+                timeout=0,
+                protocol_error=0,
+                transport_error=0,
+                cancelled=0,
+                internal_error=0,
+            )
+            if completed
+            else None
+        ),
         p95_ttft_ms="12.4" if completed else None,
         error_rate_percent="0" if completed else None,
         evidence_pack_url=(
@@ -137,6 +151,15 @@ def test_get_latest_operation_and_evidence_use_only_read_methods(monkeypatch):
     assert latest.payload["verdict"] == "PASS"
     assert latest.payload["p95_ttft_ms"] == "12.4"
     assert latest.payload["error_rate_percent"] == "0"
+    assert latest.payload["outcome_counts"] == {
+        "success": 100,
+        "http_error": 0,
+        "timeout": 0,
+        "protocol_error": 0,
+        "transport_error": 0,
+        "cancelled": 0,
+        "internal_error": 0,
+    }
     assert latest.payload["is_terminal"] is True
     assert evidence.payload == latest.payload
     assert operation.payload == latest.payload

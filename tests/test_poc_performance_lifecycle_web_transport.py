@@ -1107,6 +1107,15 @@ def test_frozen_poc_run_api_returns_only_verified_dynamic_evidence(tmp_path):
     assert latest[1]["attempted_count"] == 100
     assert latest[1]["successful_count"] == 100
     assert latest[1]["error_count"] == 0
+    assert latest[1]["outcome_counts"] == {
+        "success": 100,
+        "http_error": 0,
+        "timeout": 0,
+        "protocol_error": 0,
+        "transport_error": 0,
+        "cancelled": 0,
+        "internal_error": 0,
+    }
     assert latest[1]["p95_ttft_ms"] is not None
     assert latest[1]["error_rate_percent"] == "0"
     assert latest[1]["evidence_pack_url"].startswith("/artifacts/run_")
@@ -1380,6 +1389,8 @@ def test_unseen_email_completes_reference_evaluator_evidence_and_handoff(
     assert latest["verdict"] == "PASS"
     assert latest["attempted_count"] == 100
     assert latest["successful_count"] == 100
+    assert latest["outcome_counts"]["success"] == 100
+    assert sum(latest["outcome_counts"].values()) == 100
     assert pack[0] == 200
     assert pack[2].startswith("text/html")
     assert "Answer quality must feel delightful." in pack[1]

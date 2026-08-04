@@ -211,6 +211,7 @@ def test_prepare_customer_confirm_freeze_projects_only_exact_public_state():
     assert set(after.payload) == {
         "poc_id",
         "definitions",
+        "counting_policy",
         "not_proven_claims",
         "draft",
         "customer_review",
@@ -218,6 +219,16 @@ def test_prepare_customer_confirm_freeze_projects_only_exact_public_state():
         "frozen_contract",
     }
     assert after.payload["not_proven_claims"] == []
+    assert after.payload["counting_policy"]["exact_attempts"] == 100
+    assert after.payload["counting_policy"]["reliability_denominator"] == (
+        "all_measured_attempts"
+    )
+    assert after.payload["counting_policy"]["external_error_outcomes"] == [
+        "HTTP_ERROR",
+        "TIMEOUT",
+        "PROTOCOL_ERROR",
+        "TRANSPORT_ERROR",
+    ]
 
 
 def test_every_write_exposes_exact_idempotent_replay():

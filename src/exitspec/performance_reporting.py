@@ -30,6 +30,7 @@ from .performance_receipts import (
 )
 from .performance_verdicts import (
     PerformanceCriterionVerdict,
+    PerformanceOutcomeCounts,
     evaluate_performance_criterion,
 )
 
@@ -70,6 +71,12 @@ def render_performance_evidence_pack(
     ttft_threshold = _format_ttft(ttft.threshold_ns)
     error_observed = _format_rate(error_rate.observed_rate)
     error_threshold = _format_rate(error_rate.threshold)
+    counts = _require_outcome_counts(verdict)
+    counting_boundary, counting_identity = _counting_policy_copy(
+        context,
+        probe_run,
+        verdict,
+    )
     limitations = _ordered_limitations(
         verdict,
         contract.non_goals,
@@ -116,6 +123,21 @@ def render_performance_evidence_pack(
         "error_minimum": _safe(
             f"required attempts: {error_rate.minimum_attempts}"
         ),
+        "outcome_summary": _safe(
+            _outcome_summary(counts, verdict.attempted_count)
+        ),
+        "latency_population": _safe(
+            "Latency population: "
+            f"{verdict.successful_count} successful measured requests "
+            "with valid first-token timing."
+        ),
+        "reliability_population": _safe(
+            "Reliability population: "
+            f"all {verdict.attempted_count} measured attempts; HTTP, "
+            "timeout, protocol, and transport errors count."
+        ),
+        "counting_boundary": _safe(counting_boundary),
+        "counting_identity": _safe(counting_identity),
         "limitations": limitation_items,
     }
     html = _HTML_TEMPLATE.format_map(values)
@@ -273,6 +295,75 @@ def _ordered_limitations(
         dict.fromkeys(
             (*verdict.limitations, *contract_non_goals, *required)
         )
+    )
+
+
+def _require_outcome_counts(
+    verdict: PerformanceCriterionVerdict,
+) -> PerformanceOutcomeCounts:
+    counts = verdict.outcome_counts
+    if type(counts) is not PerformanceOutcomeCounts:
+        _reject("The recalculated outcome population is unavailable.")
+    all_outcomes = (
+        counts.success
+        + counts.http_error
+        + counts.timeout
+        + counts.protocol_error
+        + counts.transport_error
+        + counts.cancelled
+        + counts.internal_error
+    )
+    if (
+        all_outcomes != verdict.attempted_count
+        or counts.success != verdict.successful_count
+        or counts.external_error_count != verdict.error_count
+    ):
+        _reject("The recalculated outcome population is inconsistent.")
+    return counts
+
+
+def _outcome_summary(
+    counts: PerformanceOutcomeCounts,
+    attempted_count: int,
+) -> str:
+    parts = [
+        f"{attempted_count} attempts",
+        f"{counts.success} successful",
+    ]
+    labels = (
+        (counts.http_error, "HTTP error", "HTTP errors"),
+        (counts.timeout, "timeout", "timeouts"),
+        (counts.protocol_error, "protocol error", "protocol errors"),
+        (counts.transport_error, "transport error", "transport errors"),
+        (counts.cancelled, "cancelled", "cancelled"),
+        (counts.internal_error, "internal error", "internal errors"),
+    )
+    parts.extend(
+        f"{count} {singular if count == 1 else plural}"
+        for count, singular, plural in labels
+        if count > 0
+    )
+    return " · ".join(parts)
+
+
+def _counting_policy_copy(
+    context: ValidatedPerformanceContext,
+    probe_run: ProbeRun,
+    verdict: PerformanceCriterionVerdict,
+) -> tuple[str, str]:
+    policy = probe_run.manifest.measurement_policy
+    if policy is None:
+        return (
+            "Warmups and readiness preflight are outside the measured "
+            f"population · retries {context.workload.retries} · invalid "
+            "evidence is NOT PROVEN.",
+            f"Calculation policy: {verdict.calculation_version}",
+        )
+    return (
+        "Warmups and readiness preflight are excluded · "
+        f"retries {policy.retries} · invalid evidence is "
+        f"{policy.invalid_evidence_disposition}.",
+        f"Frozen population policy SHA-256: {policy.policy_sha256}",
     )
 
 
@@ -470,6 +561,31 @@ _HTML_TEMPLATE: Final = """<!doctype html>
       line-height: 1.45;
     }}
     .samples span {{ color: var(--muted); }}
+    .counting {{
+      display: grid;
+      grid-template-columns: minmax(170px, .32fr) minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 10px;
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--signal);
+      border-radius: 12px;
+      background: var(--raised);
+      padding: 14px 15px;
+    }}
+    .counting h2 {{ margin-top: 4px; font-size: .92rem; }}
+    .counting-copy {{ display: grid; gap: 4px; min-width: 0; }}
+    .counting-copy p {{
+      color: var(--secondary);
+      font-size: .74rem;
+      line-height: 1.45;
+    }}
+    .counting-copy .outcomes {{ color: var(--primary); font-weight: 750; }}
+    .counting-copy .policy-identity {{
+      overflow-wrap: anywhere;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: .66rem;
+    }}
     .details {{
       display: grid;
       grid-template-columns: minmax(0, 1.25fr) minmax(250px, .75fr);
@@ -511,14 +627,14 @@ _HTML_TEMPLATE: Final = """<!doctype html>
     }}
     .notice strong {{ color: var(--primary); }}
     @media (max-width: 760px) {{
-      .verdict, .facts, .details {{ grid-template-columns: 1fr; }}
+      .verdict, .facts, .counting, .details {{ grid-template-columns: 1fr; }}
       .context {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .schema {{ display: none; }}
     }}
     @media print {{
       :root {{ color-scheme: light; }}
       body, main {{ background: white; color: #171a18; }}
-      .summary, .fact-row, .panel {{ break-inside: avoid; }}
+      .summary, .fact-row, .counting, .panel {{ break-inside: avoid; }}
     }}
   </style>
 </head>
@@ -579,6 +695,20 @@ _HTML_TEMPLATE: Final = """<!doctype html>
         </div>
         <p class="samples">{error_samples} · <span>{error_minimum}</span></p>
       </article>
+    </section>
+
+    <section class="counting" aria-labelledby="counting-title">
+      <div>
+        <p class="eyebrow">Measurement population</p>
+        <h2 id="counting-title">How results were counted</h2>
+      </div>
+      <div class="counting-copy">
+        <p class="outcomes">{outcome_summary}</p>
+        <p>{latency_population}</p>
+        <p>{reliability_population}</p>
+        <p>{counting_boundary}</p>
+        <p class="policy-identity">{counting_identity}</p>
+      </div>
     </section>
 
     <section class="details" aria-label="Evidence identity and limitations">
