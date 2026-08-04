@@ -1,10 +1,17 @@
 import json
 import threading
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+)
 from contextlib import contextmanager
 from http.client import HTTPConnection
 from pathlib import Path
 from urllib.parse import quote
 
+import pytest
+
+import exitspec.web as web_module
 from exitspec.poc_creation import (
     DraftPOCCreateRequest,
     ProcessLocalDraftPOCService,
@@ -82,6 +89,63 @@ def _create_local_workspace_draft(
         ),
         idempotency_key=key,
     ).draft
+
+
+def _support_agent_projection(workspace: dict) -> dict:
+    return next(
+        poc
+        for poc in workspace["pocs"]
+        if poc["poc_id"] == SYNTHETIC_SUPPORT_AGENT_POC_ID
+    )
+
+
+def test_workspace_projection_releases_session_lock_after_atomic_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    session = DemoSession.synthetic_support_agent(output_root=tmp_path / "runs")
+    projection_started = threading.Event()
+    release_projection = threading.Event()
+    original_project_dashboard = web_module.project_dashboard
+
+    def blocking_project_dashboard(*args, **kwargs):
+        if not projection_started.is_set():
+            projection_started.set()
+            assert release_projection.wait(timeout=5)
+        return original_project_dashboard(*args, **kwargs)
+
+    monkeypatch.setattr(
+        web_module,
+        "project_dashboard",
+        blocking_project_dashboard,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        projection = pool.submit(session.workspace_payload)
+        assert projection_started.wait(timeout=2)
+        mutation = pool.submit(session.import_guided_source_fixture, "thread-root")
+        try:
+            mutation.result(timeout=1)
+        except FutureTimeoutError:
+            pytest.fail(
+                "Workspace rendering retained the session mutation lock."
+            )
+        finally:
+            release_projection.set()
+        before = projection.result(timeout=2)
+
+    after = session.workspace_payload()
+
+    assert _support_agent_projection(before)["source_summary"]["types"] == [
+        "meeting_transcript"
+    ]
+    assert _support_agent_projection(after)["source_summary"]["types"] == [
+        "email"
+    ]
+
+
+def test_local_demo_server_has_a_bounded_browser_burst_backlog():
+    assert 64 <= ExitSpecDemoServer.request_queue_size <= 512
 
 
 def test_seeded_demo_projects_the_support_agent_poc_without_losing_identity(
