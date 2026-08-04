@@ -32,6 +32,11 @@
     criterionOwner: $("#criterion-owner"),
     sourceLocation: $("#criterion-source-location"),
     evidencePolicy: $("#criterion-evidence-policy"),
+    countingPolicy: $("#review-counting-policy"),
+    countingPopulation: $("#review-counting-population"),
+    countingLatency: $("#review-counting-latency"),
+    countingReliability: $("#review-counting-reliability"),
+    countingBoundary: $("#review-counting-boundary"),
     previous: $("#previous-criterion"),
     next: $("#next-criterion"),
     progress: $("#criterion-progress"),
@@ -211,6 +216,84 @@
     ) || null;
   }
 
+  function hasExactKeys(value, keys) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    const actual = Object.keys(value).sort();
+    const expected = [...keys].sort();
+    return (
+      actual.length === expected.length &&
+      actual.every((key, index) => key === expected[index])
+    );
+  }
+
+  function hasTrustedCountingPolicy(criterion) {
+    if (criterion?.criterion_type !== "inference_performance_v2") {
+      return true;
+    }
+    const policy = criterion.measurement_policy;
+    const measured = policy?.measured_population;
+    const latency = policy?.latency_population;
+    const reliability = policy?.reliability;
+    const invalid = policy?.invalid_evidence;
+    return Boolean(
+      hasExactKeys(policy, [
+        "calculation_version",
+        "invalid_evidence",
+        "latency_population",
+        "measured_population",
+        "reliability",
+        "schema_version",
+      ]) &&
+        policy.schema_version === "exitspec.measurement-population.v1" &&
+        policy.calculation_version === "exitspec.performance-verdicts.v2" &&
+        hasExactKeys(measured, [
+          "exact_attempts",
+          "phases",
+          "preflight_included",
+          "retries",
+          "warmups_included",
+        ]) &&
+        Array.isArray(measured.phases) &&
+        measured.phases.join("|") === "MEASURED" &&
+        Number.isInteger(measured.exact_attempts) &&
+        measured.exact_attempts === criterion.error_rate?.minimum_attempts &&
+        measured.warmups_included === false &&
+        measured.preflight_included === false &&
+        measured.retries === 0 &&
+        hasExactKeys(latency, ["failed_attempts", "population"]) &&
+        latency.population ===
+          "successful_measured_attempts_with_valid_ttft" &&
+        latency.failed_attempts ===
+          "excluded_from_latency_counted_in_reliability" &&
+        hasExactKeys(reliability, [
+          "denominator",
+          "numerator",
+          "outcomes",
+        ]) &&
+        reliability.numerator === "external_error_outcomes" &&
+        reliability.denominator === "all_measured_attempts" &&
+        Array.isArray(reliability.outcomes) &&
+        reliability.outcomes.join("|") ===
+          "HTTP_ERROR|TIMEOUT|PROTOCOL_ERROR|TRANSPORT_ERROR" &&
+        hasExactKeys(invalid, [
+          "disposition",
+          "integrity_mismatch",
+          "record_conditions",
+          "terminal_outcomes",
+        ]) &&
+        Array.isArray(invalid.terminal_outcomes) &&
+        invalid.terminal_outcomes.join("|") ===
+          "CANCELLED|INTERNAL_ERROR" &&
+        Array.isArray(invalid.record_conditions) &&
+        invalid.record_conditions.join("|") ===
+          "MISSING_RECORD|DUPLICATE_RECORD|EXTRA_RECORD" &&
+        invalid.disposition === "NOT_PROVEN" &&
+        invalid.integrity_mismatch === "NOT_PROVEN"
+    );
+  }
+
   function normalize(payload) {
     const value = payload?.review || payload;
     const agreement = value?.agreement;
@@ -271,7 +354,10 @@
       Array.isArray(agreement.criteria) &&
       agreement.criteria.length > 0 &&
       agreement.criteria.every(
-        (criterion) => criterion && typeof criterion === "object"
+        (criterion) =>
+          criterion &&
+          typeof criterion === "object" &&
+          hasTrustedCountingPolicy(criterion)
       ) &&
       Array.isArray(agreement.owners) &&
       agreement.owners.length > 0 &&
@@ -409,7 +495,8 @@
       `I reviewed all ${record.contract.criteria.length} ` +
       `${record.contract.criteria.length === 1 ? "requirement" : "requirements"} ` +
       "plus the target system, workload, owners, exclusions, and evidence " +
-      "retention policy, and confirm this exact draft matches the intended POC.";
+      "retention policy—including how results are counted—and confirm this " +
+      "exact draft matches the intended POC.";
     renderCriterion();
     showOnly(elements.review);
   }
@@ -439,6 +526,7 @@
       ? `${boundCriterion.source.speaker} · ${boundCriterion.source.location}`
       : "Explicitly human-added requirement";
     elements.evidencePolicy.textContent = boundCriterion.evidence_policy;
+    renderCountingPolicy(boundCriterion);
     elements.previous.disabled = criterionIndex === 0;
     elements.next.disabled = criterionIndex === criteria.length - 1;
     elements.progress.setAttribute("aria-valuemax", String(criteria.length));
@@ -461,6 +549,22 @@
         elements.exclusions.append(item);
       }
     );
+  }
+
+  function renderCountingPolicy(boundCriterion) {
+    const policy = boundCriterion?.measurement_policy;
+    elements.countingPolicy.hidden = !policy;
+    if (!policy) {
+      return;
+    }
+    const attempts = policy.measured_population.exact_attempts;
+    elements.countingPopulation.textContent = `${attempts} measured attempts`;
+    elements.countingLatency.textContent =
+      "Latency uses successful measured requests with valid first-token timing.";
+    elements.countingReliability.textContent =
+      `Reliability uses all ${attempts} attempts; HTTP, timeout, protocol, and transport errors count.`;
+    elements.countingBoundary.textContent =
+      "Warmups and readiness preflight are excluded · no retries · invalid evidence is NOT PROVEN.";
   }
 
   function criterionRuleText(boundCriterion) {

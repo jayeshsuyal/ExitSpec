@@ -22,6 +22,28 @@
   ]);
   const VERDICTS = new Set(["PASS", "FAIL", "NOT_PROVEN"]);
   const METRICS = new Set(["TTFT_P95_MS", "ERROR_RATE_PERCENT"]);
+  const COUNTING_POLICY_KEYS = Object.freeze([
+    "exact_attempts",
+    "external_error_outcomes",
+    "invalid_evidence_disposition",
+    "latency_failed_attempts",
+    "latency_population",
+    "policy_sha256",
+    "preflight_included",
+    "reliability_denominator",
+    "retries",
+    "schema_version",
+    "warmups_included",
+  ]);
+  const OUTCOME_COUNT_KEYS = Object.freeze([
+    "cancelled",
+    "http_error",
+    "internal_error",
+    "protocol_error",
+    "success",
+    "timeout",
+    "transport_error",
+  ]);
   const POLL_DELAYS = Object.freeze([500, 900, 1500, 2500, 4000]);
   const MAX_POLLS = 90;
   const REASON_COPY = Object.freeze({
@@ -170,6 +192,29 @@
     return value.threshold > 0 && value.threshold <= 60000;
   }
 
+  function trustedCountingPolicy(value) {
+    return Boolean(
+      hasExactKeys(value, COUNTING_POLICY_KEYS) &&
+        value.schema_version === "exitspec.measurement-population.v1" &&
+        SHA256_PATTERN.test(value.policy_sha256) &&
+        Number.isInteger(value.exact_attempts) &&
+        value.exact_attempts >= 1 &&
+        value.exact_attempts <= 1000 &&
+        value.warmups_included === false &&
+        value.preflight_included === false &&
+        value.retries === 0 &&
+        value.latency_population ===
+          "successful_measured_attempts_with_valid_ttft" &&
+        value.latency_failed_attempts ===
+          "excluded_from_latency_counted_in_reliability" &&
+        value.reliability_denominator === "all_measured_attempts" &&
+        Array.isArray(value.external_error_outcomes) &&
+        value.external_error_outcomes.join("|") ===
+          "HTTP_ERROR|TIMEOUT|PROTOCOL_ERROR|TRANSPORT_ERROR" &&
+        value.invalid_evidence_disposition === "NOT_PROVEN"
+    );
+  }
+
   function trustedAgreement(value) {
     if (
       !value ||
@@ -177,6 +222,7 @@
       !Array.isArray(value.definitions) ||
       value.definitions.length !== 2 ||
       !value.definitions.every(trustedDefinition) ||
+      !trustedCountingPolicy(value.counting_policy) ||
       !value.draft ||
       !value.confirmation ||
       !value.frozen_contract
@@ -217,6 +263,7 @@
     "measured_requests",
     "model",
     "operation_id",
+    "outcome_counts",
     "p95_ttft_ms",
     "poc_id",
     "reason_code",
@@ -241,6 +288,19 @@
       (typeof value === "string" &&
         /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) &&
         Number.isFinite(Number(value)))
+    );
+  }
+
+  function trustedOutcomeCounts(value) {
+    return Boolean(
+      value === null ||
+        (hasExactKeys(value, OUTCOME_COUNT_KEYS) &&
+          OUTCOME_COUNT_KEYS.every(
+            (key) =>
+              Number.isInteger(value[key]) &&
+              value[key] >= 0 &&
+              value[key] <= 1000
+          ))
     );
   }
 
@@ -274,6 +334,7 @@
       !nullableCount(value.attempted_count) ||
       !nullableCount(value.successful_count) ||
       !nullableCount(value.error_count) ||
+      !trustedOutcomeCounts(value.outcome_counts) ||
       !nullableDecimal(value.p95_ttft_ms) ||
       !nullableDecimal(value.error_rate_percent)
     ) {
@@ -293,6 +354,12 @@
       return (
         value.operation_id === null &&
         value.verdict === null &&
+        value.attempted_count === null &&
+        value.successful_count === null &&
+        value.error_count === null &&
+        value.outcome_counts === null &&
+        value.p95_ttft_ms === null &&
+        value.error_rate_percent === null &&
         value.evidence_pack_url === null &&
         value.is_terminal === false
       );
@@ -304,6 +371,7 @@
         value.attempted_count === null &&
         value.successful_count === null &&
         value.error_count === null &&
+        value.outcome_counts === null &&
         value.p95_ttft_ms === null &&
         value.error_rate_percent === null &&
         value.evidence_pack_url === null &&
@@ -317,12 +385,25 @@
         value.attempted_count === null &&
         value.successful_count === null &&
         value.error_count === null &&
+        value.outcome_counts === null &&
         value.p95_ttft_ms === null &&
         value.error_rate_percent === null &&
         value.evidence_pack_url === null &&
         value.is_terminal === true
       );
     }
+    const counts = value.outcome_counts;
+    const countedAttempts =
+      counts === null
+        ? null
+        : OUTCOME_COUNT_KEYS.reduce((total, key) => total + counts[key], 0);
+    const externalErrors =
+      counts === null
+        ? null
+        : counts.http_error +
+          counts.timeout +
+          counts.protocol_error +
+          counts.transport_error;
     return Boolean(
       value.status === "COMPLETED" &&
         OPERATION_ID_PATTERN.test(value.operation_id) &&
@@ -330,8 +411,11 @@
         Number.isInteger(value.attempted_count) &&
         Number.isInteger(value.successful_count) &&
         Number.isInteger(value.error_count) &&
+        counts !== null &&
         value.attempted_count === value.measured_requests &&
-        value.successful_count + value.error_count === value.attempted_count &&
+        countedAttempts === value.attempted_count &&
+        counts.success === value.successful_count &&
+        externalErrors === value.error_count &&
         value.evidence_pack_url !== null &&
         value.is_terminal === true
     );
@@ -353,6 +437,7 @@
         run.endpoint === frozen.endpoint &&
         run.model === frozen.model &&
         run.measured_requests === error.minimum_samples &&
+        run.measured_requests === agreement.counting_policy.exact_attempts &&
         run.concurrency === ttft.concurrency &&
         ttft.concurrency === error.concurrency
     );
@@ -455,9 +540,12 @@
     const status = document.querySelector("#evidence-status");
     const verdict = document.querySelector("#evidence-verdict");
     const reason = document.querySelector("#evidence-reason");
+    const breakdown = document.querySelector("#outcome-breakdown");
     const link = document.querySelector("#evidence-pack-link");
     link.hidden = true;
     link.removeAttribute("href");
+    breakdown.hidden = true;
+    breakdown.textContent = "";
 
     if (run.status === "COMPLETED") {
       const packUrl = safeEvidenceUrl(run.evidence_pack_url);
@@ -466,6 +554,8 @@
       verdict.textContent = run.verdict.replaceAll("_", " ");
       reason.textContent =
         "This verdict was released only after artifact verification and independent recomputation.";
+      breakdown.textContent = outcomeBreakdownText(run.outcome_counts);
+      breakdown.hidden = false;
       link.href = packUrl;
       link.hidden = false;
       setJourney(true);
@@ -499,6 +589,29 @@
         ? "Execution is active. RUNNING is not a verdict."
         : "No performance conclusion exists before verified evidence.";
     setJourney(false);
+  }
+
+  function outcomeBreakdownText(counts) {
+    const parts = [
+      `${run.attempted_count} attempts`,
+      `${counts.success} successful`,
+    ];
+    const labels = [
+      ["http_error", "HTTP error", "HTTP errors"],
+      ["timeout", "timeout", "timeouts"],
+      ["protocol_error", "protocol error", "protocol errors"],
+      ["transport_error", "transport error", "transport errors"],
+      ["cancelled", "cancelled", "cancelled"],
+      ["internal_error", "internal error", "internal errors"],
+    ];
+    labels.forEach(([key, singular, plural]) => {
+      if (counts[key] > 0) {
+        parts.push(
+          `${counts[key]} ${counts[key] === 1 ? singular : plural}`
+        );
+      }
+    });
+    return parts.join(" · ");
   }
 
   function renderAction() {

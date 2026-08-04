@@ -11,7 +11,12 @@ from urllib.parse import urlparse
 from pydantic import ValidationError
 
 from .confirmations import ConfirmationDecision, ContractConfirmation
-from .models import ContractStatus, POCContract
+from .models import (
+    ContractStatus,
+    InferencePerformanceCriterionV2,
+    POCContract,
+)
+from .performance_population import measurement_policy_sha256
 from .poc_contract_definition import (
     ProcessLocalContractDefinitionService,
 )
@@ -317,6 +322,11 @@ def _snapshot_payload(
         "poc_id": poc_id,
         "definitions": definition_payloads,
         "not_proven_claims": not_proven_claims,
+        "counting_policy": (
+            None
+            if preparation is None
+            else _counting_policy_payload(preparation)
+        ),
         "draft": (None if preparation is None else _preparation_payload(preparation)),
         "customer_review": (
             None
@@ -354,6 +364,36 @@ def _preparation_payload(preparation: object) -> dict[str, Any]:
         "model": preparation.target.model,
         "reviewer": preparation.reviewer,
         "rationale": preparation.rationale,
+    }
+
+
+def _counting_policy_payload(
+    preparation: AgreementPreparation,
+) -> dict[str, Any]:
+    criteria = tuple(
+        criterion
+        for criterion in preparation.approved_contract.criteria
+        if type(criterion) is InferencePerformanceCriterionV2
+    )
+    if len(criteria) != 1:
+        raise PerformanceLifecycleError
+    criterion = criteria[0]
+    policy = criterion.measurement_policy
+    measured = policy.measured_population
+    return {
+        "schema_version": policy.schema_version,
+        "policy_sha256": measurement_policy_sha256(criterion),
+        "exact_attempts": measured.exact_attempts,
+        "warmups_included": measured.warmups_included,
+        "preflight_included": measured.preflight_included,
+        "retries": measured.retries,
+        "latency_population": policy.latency_population.population,
+        "latency_failed_attempts": policy.latency_population.failed_attempts,
+        "reliability_denominator": policy.reliability.denominator,
+        "external_error_outcomes": list(policy.reliability.outcomes),
+        "invalid_evidence_disposition": (
+            policy.invalid_evidence.disposition
+        ),
     }
 
 

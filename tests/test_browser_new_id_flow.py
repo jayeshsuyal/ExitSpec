@@ -237,6 +237,18 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(customer_page.locator("#criterion-rule")).to_contain_text(
                     "error rate"
                 )
+                expect(
+                    customer_page.locator("#review-counting-policy")
+                ).to_be_visible()
+                expect(
+                    customer_page.locator("#review-counting-population")
+                ).to_have_text("100 measured attempts")
+                expect(
+                    customer_page.locator("#review-counting-reliability")
+                ).to_contain_text("all 100 attempts")
+                expect(
+                    customer_page.locator("#review-counting-boundary")
+                ).to_contain_text("NOT PROVEN")
                 customer_page.locator("#agreement-checkbox").check()
                 customer_page.locator("#confirm-requirements").click()
                 expect(
@@ -269,6 +281,12 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(employee_page.locator("#evidence-verdict")).to_have_text(
                     "PASS", timeout=20_000
                 )
+                expect(
+                    employee_page.locator("#outcome-breakdown")
+                ).to_be_visible()
+                expect(
+                    employee_page.locator("#outcome-breakdown")
+                ).to_contain_text("100 attempts · 100 successful")
                 evidence_link = employee_page.locator("#evidence-pack-link")
                 expect(evidence_link).to_be_visible()
                 expect(evidence_link).to_have_attribute(
@@ -287,6 +305,15 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         re.compile("ExitSpec performance Evidence Pack")
                     )
                     expect(evidence_page.locator("h1")).to_have_text("PASS")
+                    expect(
+                        evidence_page.locator("#counting-title")
+                    ).to_have_text("How results were counted")
+                    expect(
+                        evidence_page.locator(".counting-copy")
+                    ).to_contain_text("100 attempts · 100 successful")
+                    expect(
+                        evidence_page.locator(".counting-copy")
+                    ).to_contain_text("all 100 measured attempts")
                 finally:
                     evidence_page.close()
 

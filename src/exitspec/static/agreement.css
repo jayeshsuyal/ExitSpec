@@ -217,6 +217,48 @@
   padding-top: 9px;
 }
 
+.counting-policy {
+  margin-top: 10px;
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--orange);
+  padding: 9px 10px;
+  background: var(--raised);
+}
+
+.counting-policy-grid {
+  display: grid;
+  grid-template-columns: 0.72fr 1fr 1.35fr;
+  gap: 8px;
+}
+
+.counting-policy-grid p {
+  min-width: 0;
+  margin: 0;
+}
+
+.counting-policy-grid strong,
+.counting-policy-grid span {
+  display: block;
+}
+
+.counting-policy-grid strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.counting-policy-grid span,
+.counting-policy-note {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.counting-policy-note {
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+}
+
 .not-proven-boundary > p:not(.section-label) {
   margin: 3px 0 0;
   color: var(--muted);
@@ -945,6 +987,7 @@
   .target-primary-fields,
   .review-fields,
   .endpoint-field-grid,
+  .counting-policy-grid,
   .target-review,
   .freeze-summary dl,
   .action-footer,

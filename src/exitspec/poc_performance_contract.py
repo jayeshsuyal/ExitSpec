@@ -358,12 +358,12 @@ def prepare_performance_bundle(
     limitations = (
         (
             "NOT_PROVEN — Prompt token range {0}-{1} is planning context "
-            "only; runner v1 binds the exact synthetic prompt fixture and "
+            "only; the runner binds the exact synthetic prompt fixture and "
             "does not prove a token distribution."
         ).format(ttft.prompt_tokens_min, ttft.prompt_tokens_max),
         (
             "NOT_PROVEN — Output minimum {0} tokens is not measured; runner "
-            "v1 only binds max_tokens={1}."
+            "only binds max_tokens={1}."
         ).format(ttft.output_tokens_min, ttft.output_tokens_max),
         (
             "NOT_PROVEN — Configured client concurrency does not by itself "

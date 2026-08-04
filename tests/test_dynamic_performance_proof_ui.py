@@ -44,6 +44,7 @@ def test_proof_page_is_one_compact_prove_decide_workbench():
         "run-proof",
         "execution-acknowledged",
         "evidence-verdict",
+        "outcome-breakdown",
         "evidence-pack-link",
         "performance-error",
     }.issubset(parser.ids)
@@ -94,6 +95,10 @@ def test_agreement_run_and_evidence_are_cross_bound_before_rendering():
     assert "run.endpoint === frozen.endpoint" in JAVASCRIPT
     assert "run.model === frozen.model" in JAVASCRIPT
     assert "run.measured_requests === error.minimum_samples" in JAVASCRIPT
+    assert (
+        "run.measured_requests === agreement.counting_policy.exact_attempts"
+        in JAVASCRIPT
+    )
 
 
 def test_execution_state_never_impersonates_an_evidence_verdict():
@@ -116,6 +121,7 @@ def test_metrics_are_absent_until_verified_completion():
         "attempted_count",
         "successful_count",
         "error_count",
+        "outcome_counts",
         "p95_ttft_ms",
         "error_rate_percent",
         "evidence_pack_url",
@@ -123,6 +129,18 @@ def test_metrics_are_absent_until_verified_completion():
         assert f"value.{field} === null" in running
     assert 'run.status !== "COMPLETED"' in JAVASCRIPT
     assert "Not measured" in JAVASCRIPT
+
+
+def test_completed_outcome_breakdown_is_exact_and_post_run_only():
+    assert "OUTCOME_COUNT_KEYS" in JAVASCRIPT
+    assert "countedAttempts === value.attempted_count" in JAVASCRIPT
+    assert "counts.success === value.successful_count" in JAVASCRIPT
+    assert "externalErrors === value.error_count" in JAVASCRIPT
+    assert 'breakdown.hidden = true;' in JAVASCRIPT
+    assert 'run.status === "COMPLETED"' in JAVASCRIPT
+    assert 'breakdown.hidden = false;' in JAVASCRIPT
+    assert "`${run.attempted_count} attempts`" in JAVASCRIPT
+    assert "`${counts.success} successful`" in JAVASCRIPT
 
 
 def test_evidence_link_is_same_origin_and_exactly_shaped():

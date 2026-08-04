@@ -294,6 +294,41 @@ def test_pack_is_compact_static_and_contains_exactly_two_fact_rows():
     assert "Criterion" in html
 
 
+@pytest.mark.parametrize(
+    ("mode", "outcome_text"),
+    [
+        ("pass", "100 attempts · 100 successful"),
+        ("fail", "100 attempts · 99 successful · 1 HTTP error"),
+        (
+            "not_proven",
+            "100 attempts · 99 successful · 1 internal error",
+        ),
+    ],
+)
+def test_pack_explains_the_exact_measurement_population(mode, outcome_text):
+    rendered, _decision, _context, _run = _pack(mode=mode)
+    html = rendered.decode("utf-8")
+
+    assert "How results were counted" in html
+    assert outcome_text in html
+    assert (
+        "Latency population: 100 successful measured requests with valid "
+        "first-token timing."
+        if mode == "pass"
+        else "Latency population: 99 successful measured requests with valid "
+        "first-token timing."
+    ) in html
+    assert (
+        "Reliability population: all 100 measured attempts; HTTP, timeout, "
+        "protocol, and transport errors count."
+    ) in html
+    assert (
+        "Warmups and readiness preflight are outside the measured population "
+        "· retries 0 · invalid evidence is NOT PROVEN."
+    ) in html
+    assert "Calculation policy: exitspec.performance-verdicts.v1" in html
+
+
 def test_pack_states_measurement_scope_and_human_authorization_boundary():
     rendered, _decision, _context, _run = _pack()
     html = rendered.decode("utf-8")

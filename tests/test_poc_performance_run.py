@@ -262,6 +262,9 @@ def test_frozen_dynamic_poc_runs_existing_authoritative_proof_loop(tmp_path):
     assert first.operation.attempted_count == 100
     assert first.operation.successful_count == 100
     assert first.operation.error_count == 0
+    assert first.operation.outcome_counts is not None
+    assert first.operation.outcome_counts.success == 100
+    assert first.operation.outcome_counts.external_error_count == 0
     assert first.operation.p95_ttft_ms is not None
     assert first.operation.error_rate_percent == "0"
     assert first.operation.evidence_pack_url is not None

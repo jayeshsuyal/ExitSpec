@@ -18,6 +18,7 @@ from .poc_performance_run import (
     POCPerformanceRunSnapshot,
     ProcessLocalPOCPerformanceRunService,
 )
+from .performance_verdicts import PerformanceOutcomeCounts
 
 
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
@@ -208,10 +209,29 @@ def _snapshot_payload(
         "attempted_count": snapshot.attempted_count,
         "successful_count": snapshot.successful_count,
         "error_count": snapshot.error_count,
+        "outcome_counts": _outcome_counts_payload(snapshot.outcome_counts),
         "p95_ttft_ms": snapshot.p95_ttft_ms,
         "error_rate_percent": snapshot.error_rate_percent,
         "evidence_pack_url": snapshot.evidence_pack_url,
         "is_terminal": snapshot.is_terminal,
+    }
+
+
+def _outcome_counts_payload(
+    counts: PerformanceOutcomeCounts | None,
+) -> dict[str, int] | None:
+    if counts is None:
+        return None
+    if type(counts) is not PerformanceOutcomeCounts:
+        raise POCPerformanceRunError
+    return {
+        "success": counts.success,
+        "http_error": counts.http_error,
+        "timeout": counts.timeout,
+        "protocol_error": counts.protocol_error,
+        "transport_error": counts.transport_error,
+        "cancelled": counts.cancelled,
+        "internal_error": counts.internal_error,
     }
 
 

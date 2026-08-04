@@ -57,12 +57,26 @@
   ]);
   const AGREEMENT_KEYS = Object.freeze([
     "confirmation",
+    "counting_policy",
     "customer_review",
     "definitions",
     "draft",
     "frozen_contract",
     "not_proven_claims",
     "poc_id",
+  ]);
+  const COUNTING_POLICY_KEYS = Object.freeze([
+    "exact_attempts",
+    "external_error_outcomes",
+    "invalid_evidence_disposition",
+    "latency_failed_attempts",
+    "latency_population",
+    "policy_sha256",
+    "preflight_included",
+    "reliability_denominator",
+    "retries",
+    "schema_version",
+    "warmups_included",
   ]);
   const POC_DRAFT_KEYS = Object.freeze([
     "archive_state",
@@ -475,6 +489,27 @@
     );
   }
 
+  function isTrustedCountingPolicy(policy) {
+    return Boolean(
+      hasExactKeys(policy, COUNTING_POLICY_KEYS) &&
+        policy.schema_version === "exitspec.measurement-population.v1" &&
+        SHA256_PATTERN.test(policy.policy_sha256) &&
+        isExactInteger(policy.exact_attempts, 1, 1000) &&
+        policy.warmups_included === false &&
+        policy.preflight_included === false &&
+        policy.retries === 0 &&
+        policy.latency_population ===
+          "successful_measured_attempts_with_valid_ttft" &&
+        policy.latency_failed_attempts ===
+          "excluded_from_latency_counted_in_reliability" &&
+        policy.reliability_denominator === "all_measured_attempts" &&
+        Array.isArray(policy.external_error_outcomes) &&
+        policy.external_error_outcomes.join("|") ===
+          "HTTP_ERROR|TIMEOUT|PROTOCOL_ERROR|TRANSPORT_ERROR" &&
+        policy.invalid_evidence_disposition === "NOT_PROVEN"
+    );
+  }
+
   function targetMatches(left, right) {
     return Boolean(
       left.target_provider === right.target_provider &&
@@ -497,6 +532,8 @@
         isSafeBoundedText(claim, 2000)
       ) ||
       (payload.draft !== null && !isTrustedDraft(payload.draft)) ||
+      (payload.counting_policy !== null &&
+        !isTrustedCountingPolicy(payload.counting_policy)) ||
       (payload.customer_review !== null &&
         !isTrustedCustomerReview(payload.customer_review)) ||
       (payload.confirmation !== null &&
@@ -521,12 +558,16 @@
     if (
       payload.draft === null &&
       (payload.customer_review !== null ||
+        payload.counting_policy !== null ||
         payload.confirmation !== null ||
         payload.frozen_contract !== null)
     ) {
       return false;
     }
     if (payload.draft !== null && payload.customer_review === null) {
+      return false;
+    }
+    if (payload.draft !== null && payload.counting_policy === null) {
       return false;
     }
     if (
@@ -864,6 +905,20 @@
     const criteria = document.querySelector("#customer-criteria-list");
     criteria.replaceChildren();
     agreementState.definitions.forEach(appendCustomerCriterion);
+    const counting = agreementState.counting_policy;
+    const countingPanel = document.querySelector("#counting-policy");
+    countingPanel.hidden = counting === null;
+    if (counting !== null) {
+      document.querySelector("#counting-attempts").textContent = String(
+        counting.exact_attempts
+      );
+      document.querySelector("#counting-latency").textContent =
+        "Successful requests with valid first-token timing";
+      document.querySelector("#counting-reliability").textContent =
+        `All ${counting.exact_attempts} attempts; HTTP, timeout, protocol, and transport errors count`;
+      document.querySelector("#counting-exclusions").textContent =
+        "Warmups and readiness preflight are excluded. No retries. Invalid or incomplete evidence is NOT PROVEN.";
+    }
     const notProven = document.querySelector(
       "#customer-not-proven-list"
     );

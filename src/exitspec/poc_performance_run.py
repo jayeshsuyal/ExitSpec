@@ -37,6 +37,7 @@ from .performance_operations import PerformanceOperation, PerformanceOperationSt
 from .performance_reporting import render_performance_evidence_pack
 from .performance_runner import PerformanceRunResult, run_performance_proof
 from .performance_serialization import serialize_contract
+from .performance_verdicts import PerformanceOutcomeCounts
 from .poc_performance_contract import (
     PreparedPerformanceBundle,
 )
@@ -108,6 +109,7 @@ class POCPerformanceRunSnapshot:
     attempted_count: int | None
     successful_count: int | None
     error_count: int | None
+    outcome_counts: PerformanceOutcomeCounts | None
     p95_ttft_ms: str | None
     error_rate_percent: str | None
     evidence_pack_url: str | None
@@ -139,6 +141,7 @@ class _RunRecord:
     attempted_count: int | None = None
     successful_count: int | None = None
     error_count: int | None = None
+    outcome_counts: PerformanceOutcomeCounts | None = None
     p95_ttft_ms: str | None = None
     error_rate_percent: str | None = None
     evidence_pack_url: str | None = None
@@ -354,6 +357,7 @@ class ProcessLocalPOCPerformanceRunService:
             record.attempted_count = terminal.get("attempted_count")
             record.successful_count = terminal.get("successful_count")
             record.error_count = terminal.get("error_count")
+            record.outcome_counts = terminal.get("outcome_counts")
             record.p95_ttft_ms = terminal.get("p95_ttft_ms")
             record.error_rate_percent = terminal.get(
                 "error_rate_percent"
@@ -473,6 +477,7 @@ class ProcessLocalPOCPerformanceRunService:
             "attempted_count": verdict.attempted_count,
             "successful_count": verdict.successful_count,
             "error_count": verdict.error_count,
+            "outcome_counts": verdict.outcome_counts,
             "p95_ttft_ms": _milliseconds(verdict.ttft_p95.observed_ns),
             "error_rate_percent": _percent(
                 verdict.error_rate.observed_rate
@@ -531,6 +536,7 @@ class ProcessLocalPOCPerformanceRunService:
             attempted_count=record.attempted_count,
             successful_count=record.successful_count,
             error_count=record.error_count,
+            outcome_counts=record.outcome_counts,
             p95_ttft_ms=record.p95_ttft_ms,
             error_rate_percent=record.error_rate_percent,
             evidence_pack_url=record.evidence_pack_url,
@@ -750,6 +756,7 @@ def _empty_snapshot(
         attempted_count=None,
         successful_count=None,
         error_count=None,
+        outcome_counts=None,
         p95_ttft_ms=None,
         error_rate_percent=None,
         evidence_pack_url=None,
