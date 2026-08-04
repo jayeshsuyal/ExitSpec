@@ -291,13 +291,31 @@ Each new criterion type requires its own schema, adapter contract, evidence
 sufficiency rules, failure semantics, report rendering, and adversarial tests.
 Free-text metric execution is not a shortcut.
 
-### 6. Consider speech-to-text last
+### 6. Speech-to-text train — boundary first
 
-Speech-to-text begins only after explicit consent, raw-audio lifecycle, data
-residency, provider disclosure, speaker identity, redaction, retention, deletion,
-and incident-response boundaries are designed and tested.
+The provider-neutral pre-transport contract is implemented in
+`stt_boundary.py` and [STT_SPEC.md](STT_SPEC.md). It binds synthetic audio
+metadata to explicit consent, exact meeting identity, provider/model/region,
+zero retention, a reviewed data-policy snapshot, recording notice, deletion and
+incident references, format, size, duration, and a bounded time window. It
+returns either a content-free typed denial or a safe record that explicitly
+states `transport_capability_issued=false`.
 
-No current product or roadmap statement should imply that STT already exists.
+Build the remaining train in this order:
+
+1. **PR95 — boundary:** contract, consent, limits, provenance, private transcript
+   handling, and typed denials;
+2. **PR96 — bounded audio operation:** one synthetic upload/capture through a
+   permit-only adapter with fake-transport proof and disabled-by-default real
+   configuration;
+3. **PR97 — transcript handoff:** immediate redaction into an existing
+   `MEETING` source and source-linked `NEEDS_REVIEW` proposals; and
+4. **PR98 — live demo and hardening:** browser-microphone demo, recovery,
+   adversarial matrix, UI uniformity, and end-to-end evidence.
+
+No current statement may imply working STT, a provider call, a Zoom/Meet bot,
+real customer audio, verified speaker identity, or production readiness. Those
+claims remain false until their separate C3/C4 gates pass.
 
 ## Public demo gate
 

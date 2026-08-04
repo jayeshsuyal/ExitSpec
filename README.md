@@ -280,8 +280,11 @@ The complete action and failure matrix use fake HTTPS connections in automated
 tests. No successful real-account Fireworks smoke evidence is claimed yet.
 Authorization, idempotency tombstones, provider-call history, and spend
 reservations are in-memory process state; reset drops active authority but does
-not erase those safety records, while process restart does. There is no
-speech-to-text or audio ingestion.
+not erase those safety records, while process restart does. There is no working
+speech-to-text or audio ingestion. A provider-neutral, synthetic-only STT
+authorization contract defines consent, policy, limits, private transcript
+handling, and typed pre-transport denials; it issues no transport capability and
+performs no provider call.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
@@ -304,6 +307,7 @@ vLLM/GPU endpoint result is claimed by the repository yet.
 - [Contract specification](docs/CONTRACT_SPEC.md)
 - [Measurement specification](docs/MEASUREMENT_SPEC.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
+- [Speech-to-text boundary — contract only](docs/STT_SPEC.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)
 - [Wave 2 source web contract](docs/SOURCE_WEB_CONTRACT.md)

@@ -131,6 +131,42 @@ The domain core does not import a frontend framework or provider SDK. The browse
 calls a loopback HTTP boundary, and the server delegates to the same typed domain
 services used by the CLI.
 
+## Speech-to-text contract boundary
+
+`stt_boundary.py` implements a provider-neutral, synthetic-only policy seam. It
+does not implement STT transport. One exact consent attestation and bounded
+audio metadata intent are evaluated against a reviewed provider, model, region,
+zero-retention, recording-notice, deletion, incident-response, media-type,
+byte, duration, and time-window policy.
+
+```text
+reviewed STT policy + consent attestation + audio metadata
+        |
+        v
+typed fail-closed evaluation
+        |
+        +-- denial: content-free code + one next action
+        |
+        +-- allow: safe policy-match record
+                   transport_capability_issued = false
+```
+
+Raw audio is absent from the contract and no network I/O occurs. A future
+provider transcript is represented only as a private, non-serializable,
+request-local object with `UNTRUSTED_SOURCE_ONLY` authority and `NEEDS_REVIEW`
+state. The sole explicit content path is the immediate future redaction handoff.
+Only a later adapter may turn redacted text into the existing provider-neutral
+`MEETING` source.
+
+Provider speaker labels remain `PROVIDER_ASSIGNED_UNVERIFIED`; they do not prove
+participant identity. Public STT receipts contain hashes, counts, provider
+configuration, and redaction provenance but no audio, transcript text,
+participant IDs, or raw meeting ID.
+
+The full contract and four-PR delivery sequence are specified in
+[STT_SPEC.md](STT_SPEC.md). Real customer audio remains behind the C4 production
+security gates.
+
 ## Guided synthetic email boundary
 
 The guided entry point is `/app?intake=email`. It offers exactly two

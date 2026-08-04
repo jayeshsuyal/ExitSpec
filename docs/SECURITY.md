@@ -246,6 +246,20 @@ The current run artifacts contain the synthetic frozen contract, manifest,
 case-level synthetic evidence, calculation, verdict, and hashes. They contain no
 real customer source, live credential, provider body, or audio.
 
+The implemented STT boundary is contract-only. It evaluates synthetic audio
+metadata against exact consent, provider, model, region, zero-retention,
+recording-notice, deletion, incident-response, media-type, byte, duration, and
+time-window bindings. It issues a content-free authorization record with
+`transport_capability_issued=false`; it receives no audio and performs no
+network I/O.
+
+Provider transcript objects are request-local and fail closed on ordinary dump,
+JSON, iteration, copy, and pickle paths. Their authority and review state are
+fixed to `UNTRUSTED_SOURCE_ONLY` and `NEEDS_REVIEW`. Public receipt models omit
+audio, transcript text, participant IDs, and raw meeting identity. These model
+controls reduce accidental leakage; they do not replace provider, legal,
+privacy, retention, deletion, or incident-response approval for real audio.
+
 ## Threats covered by current tests
 
 1. Stale contract version or mismatched fingerprint attempting to freeze.
@@ -263,6 +277,11 @@ real customer source, live credential, provider body, or audio.
 13. Provider egress using a request or trusted-policy binding different from the
     acknowledged one.
 14. Expired, invalid, malformed, or replayed provider-egress authorization.
+15. Missing, incomplete, mismatched, late, or revoked STT consent metadata.
+16. Stale or mismatched STT provider, model, region, retention, format, size, or
+    duration policy.
+17. Private provider transcript serialization, content echo, or speaker-label
+    overclaim.
 
 ## Production security gates
 
@@ -277,7 +296,8 @@ Before real customer or hosted use, ExitSpec needs:
 7. hardened CSRF/session controls and deployment threat modeling;
 8. approved real-customer redaction and privacy review;
 9. hosted worker isolation and artifact access policy; and
-10. consent, audio lifecycle, and residency controls before any speech-to-text.
+10. operational consent, audio lifecycle, residency, provider, deletion, and
+    incident-response controls before any real-customer speech-to-text.
 
 Until those gates exist, ExitSpec must remain synthetic and local in its public
 browser demonstration. The optional provider action must remain disabled by
