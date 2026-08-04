@@ -227,10 +227,16 @@ def test_exact_ttft_operator_survives_runner_valid_assembly(operator):
     assert criterion.ttft_p95.operator == operator.value.lower()
     assert criterion.error_rate.operator == "lt"
     assert criterion.error_rate.threshold == 0.01
+    assert criterion.criterion_type == "inference_performance_v2"
+    assert criterion.measurement_policy.measured_population.exact_attempts == 100
+    assert criterion.measurement_policy.reliability.denominator == (
+        "all_measured_attempts"
+    )
     assert bundle.workload.adapter == ADAPTER
     assert bundle.workload.request_count == 100
     assert bundle.workload.concurrency == 4
     assert bundle.context.contract == bundle.approved_contract
+    assert bundle.context.expected_manifest.measurement_policy is not None
     assert len(bundle.definition_bindings) == 2
     assert all("PASS" not in item for item in bundle.planning_limitations)
 

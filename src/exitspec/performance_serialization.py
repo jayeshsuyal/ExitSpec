@@ -27,14 +27,17 @@ from .confirmations import (
 from .contracts import verify_contract_digest
 from .models import (
     InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
     POCContract,
     VerdictStatus,
 )
 from .performance_probe import (
     PROBE_SCHEMA_VERSION,
+    PROBE_SCHEMA_VERSION_V2,
     ProbeConfig,
     ProbeEvidenceError,
     ProbeManifest,
+    ProbeMeasurementPolicy,
     ProbeOutcome,
     ProbePhase,
     ProbeRecord,
@@ -50,8 +53,10 @@ from .performance_receipts import (
 )
 from .performance_verdicts import (
     CALCULATION_VERSION,
+    CALCULATION_VERSION_V2,
     ErrorRateRuleResult,
     PerformanceCriterionVerdict,
+    PerformanceOutcomeCounts,
     TTFTP95RuleResult,
     evaluate_performance_criterion,
 )
@@ -65,7 +70,7 @@ PREFLIGHT_ENVELOPE_SCHEMA_VERSION: Final = (
     "exitspec.performance-preflight.v1"
 )
 
-_MANIFEST_FIELDS: Final = frozenset(
+_MANIFEST_FIELDS_V1: Final = frozenset(
     {
         "schema_version",
         "manifest_sha256",
@@ -81,6 +86,33 @@ _MANIFEST_FIELDS: Final = frozenset(
         "warmup_included_in_measurement",
         "prompts",
         "prompt_set_sha256",
+    }
+)
+_MANIFEST_FIELDS_V2: Final = _MANIFEST_FIELDS_V1 | {"measurement_policy"}
+_MEASUREMENT_POLICY_FIELDS: Final = frozenset(
+    {
+        "schema_version",
+        "policy_sha256",
+        "calculation_version",
+        "measured_population",
+        "latency_population",
+        "latency_failed_attempts",
+        "reliability_numerator",
+        "reliability_denominator",
+        "external_error_outcomes",
+        "invalid_terminal_outcomes",
+        "invalid_record_conditions",
+        "integrity_mismatch_disposition",
+        "invalid_evidence_disposition",
+    }
+)
+_MEASURED_POPULATION_FIELDS: Final = frozenset(
+    {
+        "phases",
+        "exact_attempts",
+        "warmups_included",
+        "preflight_included",
+        "retries",
     }
 )
 _PROMPT_DESCRIPTOR_FIELDS: Final = frozenset({"prompt_id", "sha256"})
@@ -123,7 +155,7 @@ _CONFIRMATION_PERSISTED_FIELDS: Final = frozenset(
         "rationale",
     }
 )
-_VERDICT_FIELDS: Final = frozenset(
+_VERDICT_FIELDS_V1: Final = frozenset(
     {
         "criterion_id",
         "verdict",
@@ -135,6 +167,18 @@ _VERDICT_FIELDS: Final = frozenset(
         "calculation_version",
         "reason",
         "limitations",
+    }
+)
+_VERDICT_FIELDS_V2: Final = _VERDICT_FIELDS_V1 | {"outcome_counts"}
+_OUTCOME_COUNT_FIELDS: Final = frozenset(
+    {
+        "success",
+        "http_error",
+        "timeout",
+        "protocol_error",
+        "transport_error",
+        "cancelled",
+        "internal_error",
     }
 )
 _TTFT_FIELDS: Final = frozenset(
@@ -194,6 +238,19 @@ class ErrorRateDisplay:
 
 
 @dataclass(frozen=True, slots=True)
+class PerformanceOutcomeCountsDisplay:
+    """Untrusted display projection of measured terminal outcomes."""
+
+    success: int
+    http_error: int
+    timeout: int
+    protocol_error: int
+    transport_error: int
+    cancelled: int
+    internal_error: int
+
+
+@dataclass(frozen=True, slots=True)
 class PerformanceVerdictDisplay:
     """An explicitly non-authoritative projection loaded from disk."""
 
@@ -207,6 +264,7 @@ class PerformanceVerdictDisplay:
     calculation_version: str
     reason: str
     limitations: tuple[str, ...]
+    outcome_counts: PerformanceOutcomeCountsDisplay | None = None
 
 
 def serialize_contract(contract: POCContract) -> bytes:
@@ -333,7 +391,19 @@ def parse_probe_manifest(data: bytes) -> ProbeManifest:
     """Parse and independently verify one canonical probe manifest."""
 
     payload = _load_canonical_object(data, artifact_name="probe manifest")
-    _require_exact_fields(payload, _MANIFEST_FIELDS, "probe manifest")
+    schema_version = _require_str(payload.get("schema_version"), "schema_version")
+    if schema_version == PROBE_SCHEMA_VERSION:
+        _require_exact_fields(payload, _MANIFEST_FIELDS_V1, "probe manifest")
+        measurement_policy = None
+    elif schema_version == PROBE_SCHEMA_VERSION_V2:
+        _require_exact_fields(payload, _MANIFEST_FIELDS_V2, "probe manifest")
+        measurement_policy = _parse_probe_measurement_policy(
+            _require_object(payload["measurement_policy"], "measurement_policy")
+        )
+    else:
+        raise PerformanceSerializationError(
+            "Probe manifest schema version is unsupported."
+        )
     prompt_values = _require_list(payload["prompts"], "manifest prompts")
     prompts: list[PromptDescriptor] = []
     for index, value in enumerate(prompt_values):
@@ -368,10 +438,7 @@ def parse_probe_manifest(data: bytes) -> ProbeManifest:
             "timeout_seconds must be a finite JSON number."
         )
     manifest = ProbeManifest(
-        schema_version=_require_str(
-            payload["schema_version"],
-            "schema_version",
-        ),
+        schema_version=schema_version,
         manifest_sha256=_require_sha256(
             payload["manifest_sha256"],
             "manifest_sha256",
@@ -406,6 +473,7 @@ def parse_probe_manifest(data: bytes) -> ProbeManifest:
             payload["prompt_set_sha256"],
             "prompt_set_sha256",
         ),
+        measurement_policy=measurement_policy,
     )
     _validate_manifest(manifest)
     return manifest
@@ -604,11 +672,45 @@ def parse_performance_verdict_display(
         data,
         artifact_name="performance verdict projection",
     )
-    _require_exact_fields(
-        payload,
-        _VERDICT_FIELDS,
-        "performance verdict projection",
+    calculation_version = _require_literal(
+        payload.get("calculation_version"),
+        {CALCULATION_VERSION, CALCULATION_VERSION_V2},
+        "calculation_version",
     )
+    if calculation_version == CALCULATION_VERSION:
+        _require_exact_fields(
+            payload,
+            _VERDICT_FIELDS_V1,
+            "performance verdict projection",
+        )
+        outcome_counts = None
+    else:
+        _require_exact_fields(
+            payload,
+            _VERDICT_FIELDS_V2,
+            "performance verdict projection",
+        )
+        counts = _require_object(payload["outcome_counts"], "outcome_counts")
+        _require_exact_fields(counts, _OUTCOME_COUNT_FIELDS, "outcome_counts")
+        outcome_counts = PerformanceOutcomeCountsDisplay(
+            success=_require_nonnegative_int(counts["success"], "outcome_counts.success"),
+            http_error=_require_nonnegative_int(
+                counts["http_error"], "outcome_counts.http_error"
+            ),
+            timeout=_require_nonnegative_int(counts["timeout"], "outcome_counts.timeout"),
+            protocol_error=_require_nonnegative_int(
+                counts["protocol_error"], "outcome_counts.protocol_error"
+            ),
+            transport_error=_require_nonnegative_int(
+                counts["transport_error"], "outcome_counts.transport_error"
+            ),
+            cancelled=_require_nonnegative_int(
+                counts["cancelled"], "outcome_counts.cancelled"
+            ),
+            internal_error=_require_nonnegative_int(
+                counts["internal_error"], "outcome_counts.internal_error"
+            ),
+        )
     ttft = _require_object(payload["ttft_p95"], "ttft_p95")
     error_rate = _require_object(payload["error_rate"], "error_rate")
     _require_exact_fields(ttft, _TTFT_FIELDS, "ttft_p95")
@@ -698,28 +800,28 @@ def parse_performance_verdict_display(
                 "error_rate.reason",
             ),
         ),
-        calculation_version=_require_literal(
-            payload["calculation_version"],
-            {CALCULATION_VERSION},
-            "calculation_version",
-        ),
+        calculation_version=calculation_version,
         reason=_require_nonempty_str(payload["reason"], "reason"),
         limitations=tuple(
             _require_nonempty_str(value, "limitation") for value in limitations
         ),
+        outcome_counts=outcome_counts,
     )
 
 
 def recompute_and_compare_performance_verdict(
     persisted: PerformanceVerdictDisplay,
-    criterion: InferencePerformanceCriterion,
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
     probe_run: ProbeRun,
 ) -> PerformanceCriterionVerdict:
     """Authorize no bytes; recompute, compare, and return the fresh verdict."""
 
     if type(persisted) is not PerformanceVerdictDisplay:
         raise TypeError("persisted must be a PerformanceVerdictDisplay.")
-    if type(criterion) is not InferencePerformanceCriterion:
+    if type(criterion) not in {
+        InferencePerformanceCriterion,
+        InferencePerformanceCriterionV2,
+    }:
         raise TypeError("criterion must be an InferencePerformanceCriterion.")
     try:
         validate_probe_run(probe_run)
@@ -783,8 +885,113 @@ def _parse_probe_record(payload: dict[str, Any]) -> ProbeRecord:
     )
 
 
+def _parse_probe_measurement_policy(
+    payload: dict[str, Any],
+) -> ProbeMeasurementPolicy:
+    _require_exact_fields(
+        payload,
+        _MEASUREMENT_POLICY_FIELDS,
+        "measurement_policy",
+    )
+    measured = _require_object(
+        payload["measured_population"],
+        "measurement_policy.measured_population",
+    )
+    _require_exact_fields(
+        measured,
+        _MEASURED_POPULATION_FIELDS,
+        "measurement_policy.measured_population",
+    )
+
+    def string_tuple(name: str) -> tuple[str, ...]:
+        return tuple(
+            _require_str(value, "measurement_policy.{0}".format(name))
+            for value in _require_list(
+                payload[name],
+                "measurement_policy.{0}".format(name),
+            )
+        )
+
+    try:
+        return ProbeMeasurementPolicy(
+            schema_version=_require_str(
+                payload["schema_version"],
+                "measurement_policy.schema_version",
+            ),
+            policy_sha256=_require_sha256(
+                payload["policy_sha256"],
+                "measurement_policy.policy_sha256",
+            ),
+            calculation_version=_require_str(
+                payload["calculation_version"],
+                "measurement_policy.calculation_version",
+            ),
+            measured_phases=tuple(
+                _require_str(value, "measurement_policy.measured_population.phases")
+                for value in _require_list(
+                    measured["phases"],
+                    "measurement_policy.measured_population.phases",
+                )
+            ),
+            exact_attempts=_require_int(
+                measured["exact_attempts"],
+                "measurement_policy.measured_population.exact_attempts",
+            ),
+            warmups_included=_require_bool(
+                measured["warmups_included"],
+                "measurement_policy.measured_population.warmups_included",
+            ),
+            preflight_included=_require_bool(
+                measured["preflight_included"],
+                "measurement_policy.measured_population.preflight_included",
+            ),
+            retries=_require_int(
+                measured["retries"],
+                "measurement_policy.measured_population.retries",
+            ),
+            latency_population=_require_str(
+                payload["latency_population"],
+                "measurement_policy.latency_population",
+            ),
+            latency_failed_attempts=_require_str(
+                payload["latency_failed_attempts"],
+                "measurement_policy.latency_failed_attempts",
+            ),
+            reliability_numerator=_require_str(
+                payload["reliability_numerator"],
+                "measurement_policy.reliability_numerator",
+            ),
+            reliability_denominator=_require_str(
+                payload["reliability_denominator"],
+                "measurement_policy.reliability_denominator",
+            ),
+            external_error_outcomes=string_tuple("external_error_outcomes"),
+            invalid_terminal_outcomes=string_tuple(
+                "invalid_terminal_outcomes"
+            ),
+            invalid_record_conditions=string_tuple(
+                "invalid_record_conditions"
+            ),
+            integrity_mismatch_disposition=_require_str(
+                payload["integrity_mismatch_disposition"],
+                "measurement_policy.integrity_mismatch_disposition",
+            ),
+            invalid_evidence_disposition=_require_str(
+                payload["invalid_evidence_disposition"],
+                "measurement_policy.invalid_evidence_disposition",
+            ),
+        )
+    except ValueError as error:
+        raise PerformanceSerializationError(
+            "Probe measurement policy is unsupported."
+        ) from error
+
+
 def _validate_manifest(manifest: ProbeManifest) -> None:
-    if manifest.schema_version != PROBE_SCHEMA_VERSION:
+    if manifest.schema_version not in {
+        PROBE_SCHEMA_VERSION,
+        PROBE_SCHEMA_VERSION_V2,
+    }:
         raise PerformanceSerializationError(
             "Probe manifest schema version is unsupported."
         )
@@ -805,11 +1012,21 @@ def _validate_manifest(manifest: ProbeManifest) -> None:
             timeout_seconds=manifest.timeout_seconds,
             max_tokens=manifest.max_tokens,
             max_stream_bytes=manifest.max_stream_bytes,
+            measurement_policy=manifest.measurement_policy,
         )
     except ValueError as exc:
         raise PerformanceSerializationError(
             "Probe manifest workload bounds are invalid."
         ) from exc
+    expected_schema = (
+        PROBE_SCHEMA_VERSION_V2
+        if manifest.measurement_policy is not None
+        else PROBE_SCHEMA_VERSION
+    )
+    if manifest.schema_version != expected_schema:
+        raise PerformanceSerializationError(
+            "Probe manifest schema does not match its measurement policy."
+        )
     if not manifest.prompts:
         raise PerformanceSerializationError("Probe manifest prompt set is empty.")
     descriptor_payload = []
@@ -853,7 +1070,7 @@ def _verdict_payload(
         raise PerformanceSerializationError("TTFT calculation type is invalid.")
     if type(verdict.error_rate) is not ErrorRateRuleResult:
         raise PerformanceSerializationError("Error-rate calculation type is invalid.")
-    return {
+    payload = {
         "attempted_count": verdict.attempted_count,
         "calculation_version": verdict.calculation_version,
         "criterion_id": verdict.criterion_id,
@@ -886,12 +1103,32 @@ def _verdict_payload(
         },
         "verdict": _enum_text(verdict.verdict),
     }
+    if verdict.calculation_version == CALCULATION_VERSION_V2:
+        counts = verdict.outcome_counts
+        if type(counts) is not PerformanceOutcomeCounts:
+            raise PerformanceSerializationError(
+                "V2 performance verdict requires exact outcome counts."
+            )
+        payload["outcome_counts"] = {
+            "cancelled": counts.cancelled,
+            "http_error": counts.http_error,
+            "internal_error": counts.internal_error,
+            "protocol_error": counts.protocol_error,
+            "success": counts.success,
+            "timeout": counts.timeout,
+            "transport_error": counts.transport_error,
+        }
+    elif verdict.calculation_version != CALCULATION_VERSION:
+        raise PerformanceSerializationError(
+            "Performance calculation version is unsupported."
+        )
+    return payload
 
 
 def _display_payload(
     display: PerformanceVerdictDisplay,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "attempted_count": display.attempted_count,
         "calculation_version": display.calculation_version,
         "criterion_id": display.criterion_id,
@@ -920,6 +1157,22 @@ def _display_payload(
         },
         "verdict": display.verdict,
     }
+    if display.calculation_version == CALCULATION_VERSION_V2:
+        counts = display.outcome_counts
+        if type(counts) is not PerformanceOutcomeCountsDisplay:
+            raise PerformanceSerializationError(
+                "V2 performance display requires exact outcome counts."
+            )
+        payload["outcome_counts"] = {
+            "cancelled": counts.cancelled,
+            "http_error": counts.http_error,
+            "internal_error": counts.internal_error,
+            "protocol_error": counts.protocol_error,
+            "success": counts.success,
+            "timeout": counts.timeout,
+            "transport_error": counts.transport_error,
+        }
+    return payload
 
 
 def _load_canonical_object(
@@ -1175,6 +1428,7 @@ def _enum_text(value: Enum) -> str:
 __all__ = [
     "ErrorRateDisplay",
     "PerformanceSerializationError",
+    "PerformanceOutcomeCountsDisplay",
     "PerformanceVerdictDisplay",
     "TTFTP95Display",
     "parse_confirmation",

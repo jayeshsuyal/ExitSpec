@@ -106,7 +106,7 @@ def measurement_population_policy_payload() -> dict:
                 "EXTRA_RECORD",
             ],
             "integrity_mismatch": "NOT_PROVEN",
-            "verdict": "NOT_PROVEN",
+            "disposition": "NOT_PROVEN",
         },
     }
 
@@ -225,7 +225,7 @@ def test_contract_union_preserves_v1_and_selects_v2_by_exact_tag(
             ("invalid_evidence", "record_conditions"),
             ["MISSING_RECORD", "EXTRA_RECORD", "DUPLICATE_RECORD"],
         ),
-        (("invalid_evidence", "verdict"), "FAIL"),
+        (("invalid_evidence", "disposition"), "FAIL"),
     ],
 )
 def test_population_policy_rejects_semantic_drift(path, value):

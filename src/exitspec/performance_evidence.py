@@ -21,9 +21,11 @@ from .models import (
     ContractStatus,
     FrozenExitSpecModel,
     InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
     POCContract,
     SHA256_PATTERN,
 )
+from .performance_population import project_measurement_policy
 from .performance_probe import (
     ProbeConfig,
     ProbeConfigurationError,
@@ -77,7 +79,7 @@ class ValidatedPerformanceContext:
     """Typed, byte-bound inputs from which a performance run may be authored."""
 
     contract: POCContract
-    criterion: InferencePerformanceCriterion
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2
     workload: PerformanceWorkloadV1
     workload_sha256: str
     workload_bytes: bytes = field(repr=False)
@@ -224,6 +226,11 @@ def _build_validated_context(
     prompts = _parse_prompts_jsonl(prompt_bytes)
 
     try:
+        measurement_policy = (
+            project_measurement_policy(criterion)
+            if type(criterion) is InferencePerformanceCriterionV2
+            else None
+        )
         probe_config = ProbeConfig(
             endpoint=workload.endpoint,
             model=workload.model,
@@ -233,6 +240,7 @@ def _build_validated_context(
             timeout_seconds=float(workload.timeout_seconds),
             max_tokens=workload.max_tokens,
             max_stream_bytes=workload.max_stream_bytes,
+            measurement_policy=measurement_policy,
         )
         expected_manifest = build_manifest(probe_config, prompts)
     except ProbeConfigurationError as error:
@@ -310,7 +318,7 @@ def require_frozen_confirmed(
 
 def _validate_alignment(
     contract: POCContract,
-    criterion: InferencePerformanceCriterion,
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
     workload: PerformanceWorkloadV1,
 ) -> None:
     if workload.adapter != criterion.adapter:
@@ -329,9 +337,14 @@ def _validate_alignment(
         raise PerformanceEvidenceError(
             "Workload model does not match the contract target model."
         )
-    if workload.retries != 0:
+    expected_retries = (
+        criterion.measurement_policy.measured_population.retries
+        if type(criterion) is InferencePerformanceCriterionV2
+        else 0
+    )
+    if workload.retries != expected_retries:
         raise PerformanceEvidenceError(
-            "Performance evidence v1 requires retries to be zero."
+            "Workload retries do not match the frozen measurement policy."
         )
     if workload.warmup_included_in_measurement is not False:
         raise PerformanceEvidenceError(
@@ -341,9 +354,14 @@ def _validate_alignment(
         raise PerformanceEvidenceError(
             "Workload first-token semantics are unsupported."
         )
-    if workload.request_count != criterion.error_rate.minimum_attempts:
+    expected_attempts = (
+        criterion.measurement_policy.measured_population.exact_attempts
+        if type(criterion) is InferencePerformanceCriterionV2
+        else criterion.error_rate.minimum_attempts
+    )
+    if workload.request_count != expected_attempts:
         raise PerformanceEvidenceError(
-            "Workload request count must exactly match the error-rate minimum attempts."
+            "Workload request count must exactly match the frozen measured population."
         )
     if criterion.ttft_p95.minimum_successful_samples > workload.request_count:
         raise PerformanceEvidenceError(
@@ -354,7 +372,7 @@ def _validate_alignment(
 def _select_performance_criterion(
     contract: POCContract,
     criterion_id: str | None,
-) -> InferencePerformanceCriterion:
+) -> InferencePerformanceCriterion | InferencePerformanceCriterionV2:
     if criterion_id is not None and (
         type(criterion_id) is not str or not criterion_id
     ):
@@ -363,7 +381,8 @@ def _select_performance_criterion(
     performance_criteria = tuple(
         criterion
         for criterion in contract.criteria
-        if type(criterion) is InferencePerformanceCriterion
+        if type(criterion)
+        in {InferencePerformanceCriterion, InferencePerformanceCriterionV2}
     )
     if criterion_id is None:
         if len(performance_criteria) != 1:

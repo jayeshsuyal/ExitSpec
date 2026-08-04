@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Final, Iterable, Literal
 
-from .models import InferencePerformanceCriterion, VerdictStatus
+from .models import (
+    InferencePerformanceCriterion,
+    InferencePerformanceCriterionV2,
+    VerdictStatus,
+)
+from .performance_population import project_measurement_policy
 from .performance_probe import (
     ProbeEvidenceError,
     ProbeOutcome,
@@ -18,6 +23,7 @@ from .performance_probe import (
 
 
 CALCULATION_VERSION: Final = "exitspec.performance-verdicts.v1"
+CALCULATION_VERSION_V2: Final = "exitspec.performance-verdicts.v2"
 _NANOSECONDS_PER_MILLISECOND: Final = Decimal(1_000_000)
 _EXTERNAL_ERROR_OUTCOMES: Final = frozenset(
     {
@@ -36,6 +42,28 @@ _TERMINAL_NOT_PROVEN_OUTCOMES: Final = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
+class PerformanceOutcomeCounts:
+    """Exact measured-request outcome counts for one decision population."""
+
+    success: int
+    http_error: int
+    timeout: int
+    protocol_error: int
+    transport_error: int
+    cancelled: int
+    internal_error: int
+
+    @property
+    def external_error_count(self) -> int:
+        return (
+            self.http_error
+            + self.timeout
+            + self.protocol_error
+            + self.transport_error
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PerformanceMeasurement:
     """The deterministic facts extracted from measured requests only."""
 
@@ -44,6 +72,7 @@ class PerformanceMeasurement:
     error_count: int
     p95_ttft_ns: int | None
     evidence_issue: str | None
+    outcome_counts: PerformanceOutcomeCounts
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +116,7 @@ class PerformanceCriterionVerdict:
     calculation_version: str
     reason: str
     limitations: tuple[str, ...]
+    outcome_counts: PerformanceOutcomeCounts | None = None
 
 
 def nearest_rank_p95_ns(values: Iterable[int]) -> int:
@@ -118,6 +148,7 @@ def measure_performance(probe_run: ProbeRun) -> PerformanceMeasurement:
         raise TypeError("probe_run must be a ProbeRun.")
 
     records, selection_issue = _measured_records(probe_run)
+    outcome_counts = _count_outcomes(records)
     if selection_issue is not None:
         return PerformanceMeasurement(
             attempted_count=len(records),
@@ -125,6 +156,7 @@ def measure_performance(probe_run: ProbeRun) -> PerformanceMeasurement:
             error_count=0,
             p95_ttft_ns=None,
             evidence_issue=selection_issue,
+            outcome_counts=outcome_counts,
         )
 
     outcome_values = tuple(_outcome_value(record.outcome) for record in records)
@@ -178,19 +210,33 @@ def measure_performance(probe_run: ProbeRun) -> PerformanceMeasurement:
         error_count=len(errors),
         p95_ttft_ns=p95_ttft_ns,
         evidence_issue=None,
+        outcome_counts=outcome_counts,
     )
 
 
 def evaluate_performance_criterion(
-    criterion: InferencePerformanceCriterion,
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
     probe_run: ProbeRun,
 ) -> PerformanceCriterionVerdict:
     """Evaluate both required rules with `FAIL > NOT_PROVEN > PASS` precedence."""
 
-    if type(criterion) is not InferencePerformanceCriterion:
+    if type(criterion) not in {
+        InferencePerformanceCriterion,
+        InferencePerformanceCriterionV2,
+    }:
         raise TypeError("criterion must be an InferencePerformanceCriterion.")
 
     measurement = measure_performance(probe_run)
+    population_issue = _population_binding_issue(criterion, probe_run)
+    if population_issue is not None:
+        measurement = PerformanceMeasurement(
+            attempted_count=measurement.attempted_count,
+            successful_count=measurement.successful_count,
+            error_count=measurement.error_count,
+            p95_ttft_ns=measurement.p95_ttft_ns,
+            evidence_issue=population_issue,
+            outcome_counts=measurement.outcome_counts,
+        )
     threshold = Decimal(str(criterion.error_rate.threshold))
     threshold_ns = _ttft_threshold_ns(criterion.ttft_p95.threshold)
 
@@ -290,11 +336,47 @@ def _issue_measurement(
         error_count=error_count,
         p95_ttft_ns=None,
         evidence_issue=issue,
+        outcome_counts=_count_outcomes(records),
     )
 
 
+def _count_outcomes(
+    records: tuple[ProbeRecord, ...],
+) -> PerformanceOutcomeCounts:
+    values = tuple(_outcome_value(record.outcome) for record in records)
+    return PerformanceOutcomeCounts(
+        success=values.count(ProbeOutcome.SUCCESS.value),
+        http_error=values.count(ProbeOutcome.HTTP_ERROR.value),
+        timeout=values.count(ProbeOutcome.TIMEOUT.value),
+        protocol_error=values.count(ProbeOutcome.PROTOCOL_ERROR.value),
+        transport_error=values.count(ProbeOutcome.TRANSPORT_ERROR.value),
+        cancelled=values.count(ProbeOutcome.CANCELLED.value),
+        internal_error=values.count(ProbeOutcome.INTERNAL_ERROR.value),
+    )
+
+
+def _population_binding_issue(
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
+    probe_run: ProbeRun,
+) -> str | None:
+    if type(criterion) is InferencePerformanceCriterion:
+        return None
+    expected = project_measurement_policy(criterion)
+    if probe_run.manifest.measurement_policy != expected:
+        return (
+            "The probe manifest does not match the frozen measurement "
+            "population policy."
+        )
+    if probe_run.manifest.request_count != expected.exact_attempts:
+        return (
+            "The measured attempt population does not match the frozen "
+            "measurement policy."
+        )
+    return None
+
+
 def _evaluate_ttft_rule(
-    criterion: InferencePerformanceCriterion,
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
     measurement: PerformanceMeasurement,
     *,
     threshold_ns: int,
@@ -345,7 +427,7 @@ def _evaluate_ttft_rule(
 
 
 def _evaluate_error_rate_rule(
-    criterion: InferencePerformanceCriterion,
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
     measurement: PerformanceMeasurement,
     *,
     threshold: Decimal,
@@ -387,7 +469,7 @@ def _evaluate_error_rate_rule(
 
 
 def _composite_verdict(
-    criterion: InferencePerformanceCriterion,
+    criterion: InferencePerformanceCriterion | InferencePerformanceCriterionV2,
     measurement: PerformanceMeasurement,
     ttft_result: TTFTP95RuleResult,
     error_result: ErrorRateRuleResult,
@@ -415,9 +497,14 @@ def _composite_verdict(
         error_count=measurement.error_count,
         ttft_p95=ttft_result,
         error_rate=error_result,
-        calculation_version=CALCULATION_VERSION,
+        calculation_version=(
+            CALCULATION_VERSION_V2
+            if type(criterion) is InferencePerformanceCriterionV2
+            else CALCULATION_VERSION
+        ),
         reason=reason,
         limitations=limitations,
+        outcome_counts=measurement.outcome_counts,
     )
 
 
@@ -453,9 +540,11 @@ def _enum_value(value: object) -> object:
 
 __all__ = [
     "CALCULATION_VERSION",
+    "CALCULATION_VERSION_V2",
     "ErrorRateRuleResult",
     "PerformanceCriterionVerdict",
     "PerformanceMeasurement",
+    "PerformanceOutcomeCounts",
     "TTFTP95RuleResult",
     "evaluate_performance_criterion",
     "measure_performance",

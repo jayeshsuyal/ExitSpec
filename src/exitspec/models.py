@@ -287,7 +287,7 @@ class InvalidEvidencePolicyV1(FrozenExitSpecModel):
         ...,
     ] = Field(min_length=3, max_length=3)
     integrity_mismatch: Literal["NOT_PROVEN"]
-    verdict: Literal["NOT_PROVEN"]
+    disposition: Literal["NOT_PROVEN"]
 
     @model_validator(mode="after")
     def require_canonical_invalid_evidence_order(
