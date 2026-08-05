@@ -89,6 +89,93 @@ def test_disclosure_and_receipts_are_exactly_validated_before_use():
     assert "payload.raw_transcript_retained === false" in capture
 
 
+def test_live_fireworks_mode_is_visibly_distinct_and_exactly_validated():
+    html = _asset(HTML_PATH)
+    javascript = _asset(JS_PATH)
+    disclosure = _function(
+        javascript,
+        "isTrustedSttDisclosure",
+        "isTrustedSttConsent",
+    )
+    consent = _function(
+        javascript,
+        "isTrustedSttConsent",
+        "isTrustedSttCaptureResponse",
+    )
+    capture = _function(
+        javascript,
+        "isTrustedSttCaptureResponse",
+        "requestJson",
+    )
+    load = _function(javascript, "loadSttDisclosure", "finishRecording")
+
+    for element_id in (
+        "meeting-record-mode-label",
+        "meeting-source-option-copy",
+        "record-adapter-label",
+        "stt-fixed-output-panel",
+        "stt-mode-badge",
+        "processing-scope-ack-copy",
+        "stt-proof-copy",
+    ):
+        assert f'id="{element_id}"' in html
+    assert "payload.mode === STT_LIVE_MODE" in disclosure
+    assert 'payload.provider === "fireworks"' in disclosure
+    assert 'payload.provider_model === "whisper-v3"' in disclosure
+    assert 'payload.provider_region === "us-virginia-1"' in disclosure
+    assert 'payload.provider_retention_mode === "ZERO_RETENTION"' in disclosure
+    assert "payload.provider_processing_acknowledged === true" in consent
+    assert "payload.spoken_words_transcribed === true" in capture
+    assert "payload.provider_transport_configured === true" in disclosure
+    assert "payload.provider_connected === true" in capture
+    assert "Fireworks STT · experimental" in load
+    assert "Record with Fireworks STT" in load
+    assert "Paste or transcribe one short synthetic clip" in load
+    assert "sent once to Fireworks" in load
+    assert "NEEDS_REVIEW" in load
+
+
+def test_provider_failures_use_allowlisted_recovery_copy_not_raw_error_text():
+    javascript = _asset(JS_PATH)
+    trusted_failure = _function(
+        javascript,
+        "trustedSttProviderFailure",
+        "isTrustedDraft",
+    )
+    request = _function(javascript, "requestJson", "newIdempotencyKey")
+    submit = _function(
+        javascript,
+        "submitRecordedDemo",
+        "safeSttFailureCopy",
+    )
+    safe_copy = _function(
+        javascript,
+        "safeSttFailureCopy",
+        "safeFailureCopy",
+    )
+
+    for failure_code in (
+        "STT_PROVIDER_CONFIGURATION",
+        "STT_PROVIDER_AUTHENTICATION",
+        "STT_PROVIDER_ACCOUNT_UNAVAILABLE",
+        "STT_PROVIDER_RATE_LIMITED",
+        "STT_PROVIDER_TIMEOUT",
+        "STT_PROVIDER_SERVICE_UNAVAILABLE",
+        "STT_PROVIDER_TRANSPORT",
+        "STT_PROVIDER_INVALID_RESPONSE",
+    ):
+        assert failure_code in javascript
+    assert 'hasExactKeys(payload, ["code", "error", "next_action"])' in trusted_failure
+    assert "payload.error" not in trusted_failure
+    assert "payload.next_action" not in trusted_failure
+    assert "payload.code" in trusted_failure
+    assert "trustedSttProviderFailure(failurePayload)" in request
+    assert "safeSttFailureCopy(error)" in submit
+    assert "STT_PROVIDER_FAILURES[error.failureCode].userMessage" in safe_copy
+    assert "restore account balance" in javascript
+    assert "errorPanel.textContent = failurePayload" not in javascript
+
+
 def test_audio_is_memory_only_and_recovery_never_resends_audio():
     javascript = _asset(JS_PATH)
     submit = _function(javascript, "submitRecordedDemo", "safeFailureCopy")
@@ -159,6 +246,19 @@ def test_recording_has_hard_duration_and_size_bounds_with_no_auto_audio_retry():
     assert "recordingWatchdog = window.setTimeout" in stop
     assert "Browser recording did not finish safely" in stop
     assert "}, 750);" in stop
+
+
+def test_recording_shows_only_the_action_available_at_each_stage():
+    javascript = _asset(JS_PATH)
+    selected = _function(
+        javascript,
+        "renderSelectedSource",
+        "clearSensitiveInputs",
+    )
+
+    assert "captureButton.hidden = !recordedAudio" in selected
+    assert "captureButton.hidden = false" in selected
+    assert 'recordedAudio\n          ? "Create review proposals"' in selected
 
 
 def test_consent_rows_have_accessible_click_targets():

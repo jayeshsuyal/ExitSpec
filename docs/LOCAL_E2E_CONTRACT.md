@@ -57,7 +57,7 @@ The local source choices are:
 | Choice | First implemented capture path | Honest unavailable boundary |
 | --- | --- | --- |
 | Email | Pasted bounded synthetic email text | Live mailbox/OAuth |
-| Meeting | Pasted or uploaded synthetic transcript | Live microphone/STT until its adapter lands |
+| Meeting | Pasted synthetic transcript or one consent-bound short browser recording; fixed fixture by default, optional Fireworks STT | Zoom/Meet/Teams, customer audio, or production recording |
 | Document | Bounded UTF-8 synthetic text document | Arbitrary binary extraction |
 | Existing contract | Strict ExitSpec contract import | Generic third-party schema conversion |
 
@@ -230,9 +230,10 @@ Notes or document
 Existing ExitSpec contract
 ```
 
-Only capabilities backed by a real local route are enabled. A planned STT,
-mailbox, Zoom, or Google Meet integration may be visible only as unavailable
-with an exact explanation.
+Only capabilities backed by a real local route are enabled. The Meeting route
+may expose the fixed browser recording or explicit experimental Fireworks STT
+mode. Mailbox, Zoom, Google Meet, and customer-audio integrations remain
+unavailable with an exact explanation.
 
 ### Workbench
 

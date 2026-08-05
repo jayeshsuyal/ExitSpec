@@ -16,6 +16,15 @@ from exitspec.poc_source_intake import ProcessLocalPOCSourceIntake
 from exitspec.stt_demo_runtime import (
     ProcessLocalSTTDemoRuntime,
     STT_DEMO_DISCLOSURE_ID,
+    STT_LIVE_DISCLOSURE_ID,
+    STT_LIVE_MODE,
+)
+from exitspec.stt_boundary import STTSpeakerMappingState
+from exitspec.stt_operation import (
+    STTOperationFailureCode,
+    STTTransportError,
+    STTTransportResponse,
+    STTTransportSegment,
 )
 from exitspec.stt_demo_web_api import (
     handle_stt_demo_web_api_request,
@@ -30,7 +39,31 @@ WEBM_SIGNATURE = b"\x1a\x45\xdf\xa3"
 AUDIO = WEBM_SIGNATURE + b"safe browser audio"
 
 
-def _runtime() -> ProcessLocalSTTDemoRuntime:
+class LiveTransport:
+    def __init__(self, failure=None):
+        self.calls = 0
+        self.failure = failure
+
+    def transcribe(self, request):
+        request.read_audio_bytes()
+        self.calls += 1
+        if self.failure is not None:
+            raise self.failure
+        return STTTransportResponse(
+            provider_request_id="fireworks-web-request-001",
+            language="en",
+            speaker_mapping=STTSpeakerMappingState.NOT_PROVIDED,
+            segments=(
+                STTTransportSegment(
+                    start_ms=0,
+                    end_ms=900,
+                    text="P95 latency must stay below 650 ms.",
+                ),
+            ),
+        )
+
+
+def _runtime(fireworks_transport=None) -> ProcessLocalSTTDemoRuntime:
     drafts = ProcessLocalDraftPOCService(clock=lambda: NOW)
     drafts.create(
         DraftPOCCreateRequest(
@@ -51,6 +84,7 @@ def _runtime() -> ProcessLocalSTTDemoRuntime:
         drafts=drafts,
         source_intake=intake,
         clock=lambda: NOW,
+        fireworks_transport=fireworks_transport,
     )
 
 
@@ -66,16 +100,23 @@ def _request(runtime, method, target, payload=None):
 
 
 def _consent(runtime):
+    live = runtime.live_provider_enabled
     return _request(
         runtime,
         "POST",
         f"/api/pocs/{POC_ID}/stt/consents",
         {
             "all_speakers_consented": True,
-            "disclosure_id": STT_DEMO_DISCLOSURE_ID,
+            "disclosure_id": (
+                STT_LIVE_DISCLOSURE_ID if live else STT_DEMO_DISCLOSURE_ID
+            ),
             "idempotency_key": "web-consent-key",
             "recording_notice_acknowledged": True,
-            "synthetic_demo_acknowledged": True,
+            **(
+                {"provider_processing_acknowledged": True}
+                if live
+                else {"synthetic_demo_acknowledged": True}
+            ),
         },
     )
 
@@ -126,6 +167,127 @@ def test_disclosure_is_explicitly_synthetic_and_non_retaining():
     ]
 
 
+def test_live_disclosure_and_receipts_are_exact_provider_safe_projections():
+    transport = LiveTransport()
+    runtime = _runtime(transport)
+
+    disclosure_status, disclosure = _request(
+        runtime,
+        "GET",
+        f"/api/pocs/{POC_ID}/stt/disclosure",
+    )
+    consent_status, consent = _consent(runtime)
+    capture_status, captured = _request(
+        runtime,
+        "POST",
+        f"/api/pocs/{POC_ID}/stt/captures/{consent['capture_id']}",
+        _capture_payload(),
+    )
+
+    assert disclosure_status == 200
+    assert disclosure["mode"] == STT_LIVE_MODE
+    assert disclosure["provider"] == "fireworks"
+    assert disclosure["provider_model"] == "whisper-v3"
+    assert disclosure["provider_region"] == "us-virginia-1"
+    assert disclosure["spoken_words_transcribed"] is True
+    assert disclosure["provider_transport_configured"] is True
+    assert disclosure["raw_audio_retained"] is False
+    assert "fixed_output" not in disclosure
+    assert consent_status == capture_status == 201
+    assert consent["provider_processing_acknowledged"] is True
+    assert consent["audio_egress_authority_issued"] is False
+    assert captured["mode"] == STT_LIVE_MODE
+    assert captured["status"] == "NEEDS_REVIEW"
+    assert captured["proposal_count"] == 1
+    assert captured["provider_connected"] is True
+    assert captured["provider_retention_mode"] == "ZERO_RETENTION"
+    assert captured["raw_audio_retained"] is False
+    assert captured["raw_transcript_retained"] is False
+    assert transport.calls == 1
+    serialized = json.dumps((disclosure, consent, captured))
+    assert AUDIO.hex() not in serialized
+    assert "650 ms" not in serialized
+
+
+def test_live_consent_rejects_the_synthetic_acknowledgement_shape():
+    runtime = _runtime(LiveTransport())
+
+    response = _request(
+        runtime,
+        "POST",
+        f"/api/pocs/{POC_ID}/stt/consents",
+        {
+            "all_speakers_consented": True,
+            "disclosure_id": STT_LIVE_DISCLOSURE_ID,
+            "idempotency_key": "wrong-live-consent-key",
+            "recording_notice_acknowledged": True,
+            "synthetic_demo_acknowledged": True,
+        },
+    )
+
+    assert response == (400, {"error": "Recording request is invalid."})
+
+
+@pytest.mark.parametrize(
+    ("failure", "status", "code"),
+    (
+        (
+            STTOperationFailureCode.AUTHENTICATION,
+            502,
+            "STT_PROVIDER_AUTHENTICATION",
+        ),
+        (
+            STTOperationFailureCode.ACCOUNT_UNAVAILABLE,
+            424,
+            "STT_PROVIDER_ACCOUNT_UNAVAILABLE",
+        ),
+        (
+            STTOperationFailureCode.RATE_LIMITED,
+            429,
+            "STT_PROVIDER_RATE_LIMITED",
+        ),
+        (
+            STTOperationFailureCode.TIMEOUT,
+            504,
+            "STT_PROVIDER_TIMEOUT",
+        ),
+        (
+            STTOperationFailureCode.SERVICE_UNAVAILABLE,
+            503,
+            "STT_PROVIDER_SERVICE_UNAVAILABLE",
+        ),
+        (
+            STTOperationFailureCode.INVALID_RESPONSE,
+            502,
+            "STT_PROVIDER_INVALID_RESPONSE",
+        ),
+    ),
+)
+def test_live_provider_failures_are_typed_and_content_free(
+    failure,
+    status,
+    code,
+):
+    transport = LiveTransport(STTTransportError(failure))
+    runtime = _runtime(transport)
+    _, consent = _consent(runtime)
+
+    actual_status, payload = _request(
+        runtime,
+        "POST",
+        f"/api/pocs/{POC_ID}/stt/captures/{consent['capture_id']}",
+        _capture_payload(),
+    )
+
+    assert actual_status == status
+    assert payload["code"] == code
+    assert set(payload) == {"code", "error", "next_action"}
+    assert transport.calls == 1
+    serialized = json.dumps(payload)
+    assert AUDIO.hex() not in serialized
+    assert "650 ms" not in serialized
+
+
 def test_consent_then_capture_returns_only_safe_review_receipts():
     runtime = _runtime()
     consent_status, consent = _consent(runtime)
@@ -173,31 +335,31 @@ def test_exact_capture_replay_is_200_and_does_not_add_authority():
             "GET",
             f"/api/pocs/{POC_ID}/stt/consents",
             None,
-            (404, {"error": "Synthetic recording route was not found."}),
+            (404, {"error": "Recording route was not found."}),
         ),
         (
             "DELETE",
             f"/api/pocs/{POC_ID}/stt/disclosure",
             None,
-            (405, {"error": "Synthetic recording method is not allowed."}),
+            (405, {"error": "Recording method is not allowed."}),
         ),
         (
             "GET",
             f"/api/pocs/{POC_ID}/stt/disclosure?provider=real",
             None,
-            (400, {"error": "Synthetic recording request is invalid."}),
+            (400, {"error": "Recording request is invalid."}),
         ),
         (
             "GET",
             f"/api/pocs/{POC_ID}/stt/disclosure/",
             None,
-            (400, {"error": "Synthetic recording request is invalid."}),
+            (400, {"error": "Recording request is invalid."}),
         ),
         (
             "GET",
             f"/api/pocs/{POC_ID}/stt//disclosure",
             None,
-            (400, {"error": "Synthetic recording request is invalid."}),
+            (400, {"error": "Recording request is invalid."}),
         ),
         (
             "POST",
@@ -210,7 +372,7 @@ def test_exact_capture_replay_is_200_and_does_not_add_authority():
                 "recording_notice_acknowledged": True,
                 "synthetic_demo_acknowledged": True,
             },
-            (400, {"error": "Synthetic recording request is invalid."}),
+            (400, {"error": "Recording request is invalid."}),
         ),
     ),
 )

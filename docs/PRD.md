@@ -291,10 +291,12 @@ The product is accepted when:
 - all six pack links resolve and every artifact listed in the hash manifest
   verifies;
 - a built wheel runs outside the repository;
-- public copy distinguishes the disabled-by-default, synthetic-only Fireworks
-  action from successful live-provider evidence and never implies
-  speech-to-text, authenticated customer identity, arbitrary metric execution,
-  live email connectivity, or production authorization; and
+- public copy distinguishes both disabled-by-default Fireworks actions from
+  successful funded live evidence; the STT card may claim one real provider
+  attempt for a consenting synthetic clip only when that mode is enabled, and
+  never implies customer-call ingestion, authenticated customer identity,
+  arbitrary metric execution, live email connectivity, or production
+  authorization; and
 - frozen Wave 2 contract status is kept separate from post-implementation
   evidence in
   `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; and
@@ -308,8 +310,10 @@ The product is accepted when:
   execution.
 - Successful real-account Fireworks evidence until the separately approved,
   funded smoke gate passes.
-- Working speech-to-text, raw-audio transport, or real customer call ingestion;
-  the current STT slice is a synthetic-only pre-transport contract.
+- Streaming speech-to-text, Zoom/Meet/Teams ingestion, customer audio, durable
+  consent, verified speaker identity, or production audio processing. The
+  current provider-backed STT path accepts only one consenting operator's short
+  synthetic browser clip and has no funded live-smoke receipt yet.
 - Live email connectors, Gmail/Outlook/IMAP access, mailbox OAuth, webhooks,
   arbitrary upload, sending/replying, or real customer email.
 - Generic metrics, arbitrary multi-criterion contracts, or latency/cost

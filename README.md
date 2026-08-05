@@ -50,6 +50,11 @@ employee-selected synthetic sample email
   verdict authority.
 - A human can also paste synthetic notes. ExitSpec redacts them before intake and
   creates unresolved source-linked candidates.
+- A Meeting source can use a pasted transcript or one short browser recording.
+  Recording requires three explicit acknowledgements before microphone access.
+  The default mode emits a disclosed fixed fixture; an opt-in experimental mode
+  sends one consenting operator's synthetic clip to Fireworks, then redacts the
+  transcript and creates the same `NEEDS_REVIEW` proposals.
 - An explicit **Draft with assisted authoring** action can run the same redacted
   notes through a local deterministic helper. It makes no external call, supports
   only exact tool selection, and leaves every proposal `NEEDS_REVIEW`.
@@ -217,6 +222,21 @@ This flag permits only the code-pinned synthetic request shown in the browser
 disclosure. It does not turn pasted notes into a caller-controlled provider
 request.
 
+Experimental Fireworks speech-to-text is a separate, disabled-by-default flag.
+After placing `FIREWORKS_API_KEY` in the server environment, start:
+
+```bash
+exitspec serve --enable-fireworks-stt
+```
+
+Choose **Meeting → Record with Fireworks STT** inside a draft POC. The browser
+shows the exact provider, model, region, and retention boundary before it asks
+for microphone permission. One short WebM clip is sent once; there is no audio
+retry. The raw audio and raw provider transcript are not persisted by ExitSpec,
+and every extracted proposal remains `NEEDS_REVIEW`. Follow the
+[Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md); the path is
+experimental until a funded smoke receipt succeeds.
+
 The command-line demos use bundled synthetic defaults; they do not require paths
 into this checkout:
 
@@ -266,32 +286,31 @@ full Python suite, the installed-wheel distribution, and patch hygiene.
 
 ## Honest scope
 
-The browser product is local, loopback-only, single-process, and synthetic. Its
-default capture and local-assisted paths make no provider call. An experimental
-Fireworks action is wired but disabled by default. When an operator explicitly
-starts the server with `--enable-fireworks` and a server-owned
-`FIREWORKS_API_KEY`, the browser can disclose and authorize one code-pinned
-synthetic request, then ask the server to execute it within a `$0.01` request
-ceiling and `$0.10` process-local reservation ceiling. Provider output still
-passes local schema, redaction, and exact-source checks and remains
-`NEEDS_REVIEW`.
+The browser product is local, loopback-only, single-process, and restricted to
+synthetic demo data. Its default capture and local-assisted paths make no
+provider call. Two separate experimental Fireworks actions are disabled by
+default: `--enable-fireworks` for bounded assisted authoring and
+`--enable-fireworks-stt` for one prerecorded transcription. Both use a
+server-owned `FIREWORKS_API_KEY`; neither exposes the credential to the browser
+or grants provider output any lifecycle authority.
 
-The complete action and failure matrix use fake HTTPS connections in automated
-tests. No successful real-account Fireworks smoke evidence is claimed yet.
-Authorization, idempotency tombstones, provider-call history, and spend
-reservations are in-memory process state; reset drops active authority but does
-not erase those safety records, while process restart does. There is no working
-provider speech-to-text or product audio ingestion. A provider-neutral,
-synthetic-only STT
-authorization contract defines consent, policy, limits, private transcript
-handling, and typed pre-transport denials; it issues no transport capability and
-performs no provider call. A second provider-neutral operation can bind exact
-synthetic bytes to a one-use private permit and exercise one disabled-by-default
-transport attempt. Its automated evidence uses fake transports only; no real STT
-provider, credential, endpoint, or product audio upload exists. A third backend
-handoff immediately redacts valid synthetic output, neutralizes provider speaker
-labels, and attaches it through the existing `MEETING` source path. Every
-derived proposal remains source-linked `NEEDS_REVIEW` input.
+The STT path now includes the browser microphone, explicit consent, exact
+WebM/digest binding, a one-use permit, a pinned Fireworks Whisper v3 transport,
+immediate redaction, and attachment through the existing `MEETING` source path.
+It makes one provider attempt with zero automatic audio retries. Credentials,
+audio, raw transcript, and provider bodies are absent from public receipts, and
+every derived proposal remains source-linked `NEEDS_REVIEW` input. Known
+credential, account, rate, timeout, service, transport, and response failures
+are typed and content-free.
+
+Automated tests prove both browser modes and the complete external wire contract
+with fake HTTPS connections. No successful funded real-account Fireworks STT
+smoke evidence is claimed yet. Fireworks' current docs advertise production
+streaming STT, while the prerecorded endpoint used here is documented only in
+its archived official cookbook; ExitSpec therefore labels this adapter
+experimental and fails closed on endpoint drift. Zoom, Google Meet, Teams,
+customer audio, durable consent, and production authorization remain outside the
+current claim.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
@@ -315,7 +334,8 @@ repository yet.
 - [Contract specification](docs/CONTRACT_SPEC.md)
 - [Measurement specification](docs/MEASUREMENT_SPEC.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
-- [Speech-to-text synthetic boundary and handoff](docs/STT_SPEC.md)
+- [Speech-to-text boundary, Fireworks adapter, and handoff](docs/STT_SPEC.md)
+- [Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)
 - [Wave 2 source web contract](docs/SOURCE_WEB_CONTRACT.md)
