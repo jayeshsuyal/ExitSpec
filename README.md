@@ -11,6 +11,13 @@ measurement; and produces an inspectable `PASS`, `FAIL`, `BLOCKED`, or
 The governing rule is simple: missing, invalid, or insufficient evidence never
 passes.
 
+ExitSpec also includes an independent, offline importer for
+`inferdrome.evidence.v1` bundles. It vendors the public schemas, verifies safe
+filesystem structure and exact-byte hashes, rejects synthetic customer
+evidence, recalculates every v1 summary from request records, cross-binds the
+result to a frozen customer-confirmed performance context, and issues an
+ingestion receipt. See [Inferdrome evidence import](docs/INFERDROME_IMPORT.md).
+
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded
 decision, one binary exit gate, adversarial verification, and inspectable

@@ -1,0 +1,1 @@
+tests/fixtures/inferdrome/**/native/*.log -diff -text
