@@ -721,6 +721,27 @@ def test_customer_request_changes_blocks_freeze_and_starts_revision(tmp_path):
             content_type=None,
             origin=None,
         )
+        revision = _request(
+            server,
+            "POST",
+            agreement_root + "/revision",
+            payload={"idempotency_key": "start-dynamic-agreement-revision"},
+        )
+        revision_action = _workspace_action(server, poc_id)
+        after_revision = _request(
+            server,
+            "GET",
+            agreement_root,
+            content_type=None,
+            origin=None,
+        )
+        retired_review = _request(
+            server,
+            "GET",
+            _review_api_path(after[1]["customer_review"]["review_url"]),
+            content_type=None,
+            origin=None,
+        )
 
     assert customer_view["review"]["status"] == "PENDING"
     assert changed[0] == 200
@@ -735,6 +756,15 @@ def test_customer_request_changes_blocks_freeze_and_starts_revision(tmp_path):
     assert after[1]["confirmation"]["decision"] == "REQUEST_CHANGES"
     assert after[1]["frozen_contract"] is None
     assert reviewed[1]["review"]["status"] == "CHANGES_REQUESTED"
+    assert revision[0] == 201
+    assert revision[1]["revision"]["contract_version"] == "2"
+    assert revision_action == "ADD_SOURCE"
+    assert after_revision[1]["draft"] is None
+    assert after_revision[1]["customer_review"] is None
+    assert after_revision[1]["confirmation"] is None
+    assert after_revision[1]["revision"]["parent_contract_version"] == "1"
+    assert after_revision[1]["superseded_version_count"] == 1
+    assert retired_review[0] == 404
 
 
 def test_local_reference_target_is_exact_bounded_and_credential_free(

@@ -35,7 +35,7 @@ ROOT = f"/api/pocs/{POC_ID}/agreement"
 PROMPTS = b'{"id":"agreement-api-001","content":"Explain TTFT briefly."}\n'
 
 
-def _runtime(*, clock=None):
+def _runtime(*, clock=None, source_store=None):
     draft_service = ProcessLocalDraftPOCService(
         clock=lambda: NOW,
         poc_id_factory=lambda: POC_ID,
@@ -50,7 +50,7 @@ def _runtime(*, clock=None):
         ),
         idempotency_key="create-agreement-api",
     )
-    source = (
+    initial_source = (
         SourceBoundProposal(
             poc_id=POC_ID,
             proposal_id="prop_agreement_ttft_001",
@@ -68,8 +68,11 @@ def _runtime(*, clock=None):
             normalized_claim="Error rate must remain below 1 percent.",
         ),
     )
+    source = list(initial_source) if source_store is None else source_store
+    if source_store is not None:
+        source_store.extend(initial_source)
     proposals = ProcessLocalProposalReviewService(
-        proposal_lookup=lambda poc_id: source if poc_id == POC_ID else (),
+        proposal_lookup=lambda poc_id: tuple(source) if poc_id == POC_ID else (),
         clock=lambda: NOW,
     )
     for index, proposal in enumerate(source):
@@ -217,7 +220,11 @@ def test_prepare_customer_confirm_freeze_projects_only_exact_public_state():
         "customer_review",
         "confirmation",
         "frozen_contract",
+        "revision",
+        "superseded_version_count",
     }
+    assert after.payload["revision"] is None
+    assert after.payload["superseded_version_count"] == 0
     assert after.payload["not_proven_claims"] == []
     assert after.payload["counting_policy"]["exact_attempts"] == 100
     assert after.payload["counting_policy"]["reliability_denominator"] == (
@@ -242,6 +249,168 @@ def test_every_write_exposes_exact_idempotent_replay():
     assert replay.status == HTTPStatus.OK
     assert replay.payload["disposition"] == "IDEMPOTENT_REPLAY"
     assert replay.payload["draft"] == first.payload["draft"]
+
+
+def test_requested_changes_open_a_source_backed_v2_without_mutating_v1():
+    source_store = []
+    runtime = _runtime(source_store=source_store)
+    lifecycle, proposals, definitions = runtime
+    _handle(runtime, "POST", ROOT, _prepare_body())
+    initial = lifecycle.snapshot(POC_ID, allow_empty=False)
+    assert initial.preparation is not None
+    first_contract = initial.preparation.approved_contract
+    first_draft_sha256 = initial.preparation.draft_sha256
+    first_review_url = _handle(runtime, "GET", ROOT).payload[
+        "customer_review"
+    ]["review_url"]
+    first_token = first_review_url.rsplit("/", 1)[-1]
+    lifecycle.record_customer_review_decision(
+        first_token,
+        decision="REQUEST_CHANGES",
+        agreement_acknowledged=False,
+        rationale="Capture the corrected workload from the customer.",
+        idempotency_key="request-agreement-api-revision",
+    )
+
+    started = _handle(
+        runtime,
+        "POST",
+        ROOT + "/revision",
+        {"idempotency_key": "start-agreement-api-revision"},
+    )
+    replay = _handle(
+        runtime,
+        "POST",
+        ROOT + "/revision",
+        {"idempotency_key": "start-agreement-api-revision"},
+    )
+    collecting = _handle(runtime, "GET", ROOT)
+
+    assert started.status == HTTPStatus.CREATED
+    assert replay.status == HTTPStatus.OK
+    assert replay.payload["disposition"] == "IDEMPOTENT_REPLAY"
+    assert replay.payload["revision"] == started.payload["revision"]
+    assert started.payload["revision"]["contract_version"] == "2"
+    assert started.payload["revision"]["parent_contract_id"] == first_contract.id
+    assert started.payload["revision"]["parent_contract_version"] == "1"
+    assert started.payload["revision"]["parent_draft_sha256"] == (
+        first_draft_sha256
+    )
+    assert collecting.payload["definitions"] == []
+    assert collecting.payload["draft"] is None
+    assert collecting.payload["customer_review"] is None
+    assert collecting.payload["confirmation"] is None
+    assert collecting.payload["superseded_version_count"] == 1
+    assert lifecycle.customer_review_poc_id(first_token) is None
+    history = lifecycle.history(POC_ID)
+    assert len(history) == 1
+    assert history[0].preparation.approved_contract == first_contract
+    assert history[0].confirmation.decision.value == "REQUEST_CHANGES"
+
+    revised_source = (
+        SourceBoundProposal(
+            poc_id=POC_ID,
+            proposal_id="prop_agreement_ttft_revision_003",
+            source_receipt_id="srcpt_agreement_api_revision_002",
+            source_kind="EMAIL",
+            source_quote="Use p95 TTFT at or below 450 ms.",
+            normalized_claim="Use p95 TTFT at or below 450 ms.",
+        ),
+        SourceBoundProposal(
+            poc_id=POC_ID,
+            proposal_id="prop_agreement_error_revision_004",
+            source_receipt_id="srcpt_agreement_api_revision_002",
+            source_kind="EMAIL",
+            source_quote="Keep attempted-request errors below 1 percent.",
+            normalized_claim="Keep attempted-request errors below 1 percent.",
+        ),
+    )
+    source_store.extend(revised_source)
+    for index, proposal in enumerate(revised_source):
+        proposals.decide(
+            POC_ID,
+            proposal.proposal_id,
+            ProposalDecision.KEEP_FOR_CONTRACT,
+            "Jayesh",
+            "Keep the customer-requested revision.",
+            f"keep-agreement-api-revision-{index}",
+        )
+    revised_common = {
+        "minimum_samples": 100,
+        "concurrency": 4,
+        "prompt_tokens_min": 512,
+        "prompt_tokens_max": 4096,
+        "output_tokens_min": 64,
+        "output_tokens_max": 64,
+        "reviewer": "Jayesh",
+        "rationale": "Defined from the customer's revision source.",
+    }
+    definitions.define(
+        POC_ID,
+        revised_source[0].proposal_id,
+        InferencePerformanceCriterionDefinition(
+            metric=InferencePerformanceMetric.TTFT_P95_MS,
+            operator=ContractDefinitionOperator.LTE,
+            threshold=450,
+            **revised_common,
+        ),
+        idempotency_key="define-agreement-api-revision-ttft",
+    )
+    definitions.define(
+        POC_ID,
+        revised_source[1].proposal_id,
+        InferencePerformanceCriterionDefinition(
+            metric=InferencePerformanceMetric.ERROR_RATE_PERCENT,
+            operator=ContractDefinitionOperator.LT,
+            threshold=1,
+            **revised_common,
+        ),
+        idempotency_key="define-agreement-api-revision-error",
+    )
+
+    ready = _handle(runtime, "GET", ROOT)
+    second = _handle(
+        runtime,
+        "POST",
+        ROOT,
+        _prepare_body(idempotency_key="prepare-agreement-api-v2"),
+    )
+    pending_v2 = _handle(runtime, "GET", ROOT)
+    second_token = pending_v2.payload["customer_review"]["review_url"].rsplit(
+        "/", 1
+    )[-1]
+    lifecycle.record_customer_review_decision(
+        second_token,
+        decision="CONFIRM",
+        agreement_acknowledged=True,
+        rationale="Version 2 matches the corrected customer requirement.",
+        idempotency_key="confirm-agreement-api-v2",
+    )
+    frozen = _handle(
+        runtime,
+        "POST",
+        ROOT + "/freeze",
+        {"idempotency_key": "freeze-agreement-api-v2"},
+    )
+
+    assert len(ready.payload["definitions"]) == 2
+    assert {item["threshold"] for item in ready.payload["definitions"]} == {
+        1.0,
+        450.0,
+    }
+    assert second.status == HTTPStatus.CREATED
+    assert second.payload["draft"]["contract_id"] == first_contract.id
+    assert second.payload["draft"]["contract_version"] == "2"
+    assert second.payload["draft"]["parent_version"] == (
+        f"{first_contract.id}@1"
+    )
+    assert frozen.payload["frozen_contract"]["contract_version"] == "2"
+    assert frozen.payload["frozen_contract"]["parent_version"] == (
+        f"{first_contract.id}@1"
+    )
+    assert lifecycle.history(POC_ID)[0].preparation.approved_contract == (
+        first_contract
+    )
 
 
 def test_expired_customer_review_can_be_reissued_idempotently():

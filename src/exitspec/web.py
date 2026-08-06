@@ -2561,11 +2561,31 @@ def _agreement_aware_workspace_projection(
     projected: POCWorkspaceProjection,
     snapshot: PerformanceLifecycleSnapshot,
     run_snapshot: POCPerformanceRunSnapshot | None = None,
+    *,
+    current_proposal_count: int | None = None,
 ) -> POCWorkspaceProjection:
     """Project the exact local agreement lifecycle onto one dashboard row."""
 
     preparation = snapshot.preparation
     if preparation is None:
+        if snapshot.revision is not None and current_proposal_count == 0:
+            payload = projected.model_dump(mode="python")
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.DEFINE,
+                    "next_action_code": WorkspaceAction.ADD_SOURCE,
+                    "next_human_action": (
+                        "Capture the customer's requested changes as a new source."
+                    ),
+                    "action_since": snapshot.revision.requested_at,
+                    "updated_at": max(
+                        projected.updated_at,
+                        snapshot.revision.requested_at,
+                    ),
+                    "attention_required": True,
+                }
+            )
+            return POCWorkspaceProjection.model_validate(payload)
         return projected
 
     payload = projected.model_dump(mode="python")
@@ -2939,8 +2959,11 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                     )
                 continue
             try:
-                proposal_items = self.proposal_review_service.list_proposals(
-                    draft.poc_id
+                self.proposal_review_service.list_proposals(draft.poc_id)
+                proposal_items = (
+                    self.performance_lifecycle_service.current_proposals(
+                        draft.poc_id
+                    )
                 )
                 pending_proposal_counts_by_poc_id[draft.poc_id] = sum(
                     item.review_state == ProposalReviewState.NEEDS_REVIEW
@@ -2951,10 +2974,10 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                     == ProposalReviewState.KEEP_FOR_CONTRACT
                     for item in proposal_items
                 )
-                defined_criterion_counts_by_poc_id[draft.poc_id] = sum(
-                    definition.poc_id == draft.poc_id
-                    for definition in (
-                        self.contract_definition_service.definitions()
+                self.contract_definition_service.definitions()
+                defined_criterion_counts_by_poc_id[draft.poc_id] = len(
+                    self.performance_lifecycle_service.current_definitions(
+                        draft.poc_id
                     )
                 )
                 agreement_snapshot = (
@@ -3025,6 +3048,10 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                             item,
                             agreement_snapshots_by_poc_id[item.poc_id],
                             performance_run_snapshots_by_poc_id[item.poc_id],
+                            current_proposal_count=(
+                                pending_proposal_counts_by_poc_id[item.poc_id]
+                                + kept_proposal_counts_by_poc_id[item.poc_id]
+                            ),
                         )
                     )
                     for item in draft_active.pocs
