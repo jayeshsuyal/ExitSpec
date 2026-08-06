@@ -57,6 +57,7 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
         "Needs attention",
         "Completed",
         "Guided demo",
+        "Evidence Packs",
         "Local demo",
     ):
         assert phrase in html
@@ -67,7 +68,6 @@ def test_dashboard_assets_are_bounded_product_specific_and_parseable():
         "Leaderboard",
         "<canvas",
         "gradient",
-        "Evidence Packs",
         "Available in the next build",
     ):
         assert excluded not in html

@@ -274,6 +274,18 @@ def test_six_dynamic_pages_share_one_workbench_shell_without_losing_ids():
         assert audit.with_class("workbench-primary-slot"), page
 
 
+def test_employee_surfaces_share_one_evidence_pack_library_destination():
+    employee_pages = (
+        "dashboard.html",
+        "index.html",
+        "performance.html",
+        *DYNAMIC_PAGES,
+    )
+    for page in employee_pages:
+        html = _read(page)
+        assert html.count('href="/app/evidence"') == 1, page
+
+
 def test_new_poc_keeps_object_identity_separate_from_the_current_question():
     audit = _audit("new_poc.html")
     identity = _one_with_class(audit, "workbench-object-identity")

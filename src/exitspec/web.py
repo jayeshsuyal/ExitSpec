@@ -63,6 +63,11 @@ from .customer_review import (
 )
 from .demo_data import support_agent_demo_paths
 from .draft_workspace import project_draft_dashboard
+from .evidence_pack_library import (
+    EvidencePackHandoffState,
+    EvidencePackLibraryItem,
+    EvidencePackLibraryProjection,
+)
 from .intake import (
     TranscriptIntakeError,
     TranscriptRedactionSummary,
@@ -161,7 +166,7 @@ from .reference_inference import (
     validate_reference_request,
 )
 from .runner import RunResult, run_demo
-from .reporting import render_customer_draft
+from .reporting import render_customer_draft, render_decision_packet
 from .review_links import (
     CustomerReviewInvitation,
     ReviewInvitationError,
@@ -220,6 +225,7 @@ from .workspace import (
     project_dashboard,
 )
 from .workspace_closure import (
+    HumanClosureDecision,
     HumanPOCClosureRecord,
     HumanPOCClosureRequest,
     POCClosureBindingMismatch,
@@ -247,6 +253,9 @@ JSON_MEDIA_TYPE = "application/json"
 LOOPBACK_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_WAVE1_PROVIDER_AUTHORIZATION_OPERATIONS = 64
 MAX_WAVE1_PROVIDER_EXECUTION_OPERATIONS = 64
+MAX_DEMO_RUN_HISTORY = 1_024
+EVIDENCE_LIBRARY_PAGE_PATH = "/app/evidence"
+EVIDENCE_LIBRARY_API_PATH = "/api/evidence-packs"
 UNSUPPORTED_MEDIA_TYPE_ERROR = "Content-Type must be application/json."
 FORBIDDEN_ORIGIN_ERROR = "Origin is not allowed."
 PROVIDER_ROUTE_PARAMETERS_ERROR = (
@@ -541,6 +550,12 @@ class DemoSession:
     revision_parent_version: Optional[str] = None
     revision_edit_applied_ids: set[str] = field(default_factory=set)
     last_run: Optional[RunResult] = None
+    _run_history: List[RunResult] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     customer_draft_path: Optional[Path] = None
     transcript_notice: str = "Built-in synthetic discovery transcript"
     transcript_redaction: Optional[TranscriptRedactionSummary] = None
@@ -1359,6 +1374,20 @@ class DemoSession:
         ]
 
     @_serialized_session
+    def run_history(self) -> Tuple[RunResult, ...]:
+        """Return immutable identities for every completed demo run in this process."""
+
+        return tuple(self._run_history)
+
+    @_serialized_session
+    def evidence_run_snapshot(
+        self,
+    ) -> Tuple[Tuple[RunResult, ...], Optional[RunResult]]:
+        """Capture immutable history and its current run under one session lock."""
+
+        return tuple(self._run_history), self.last_run
+
+    @_serialized_session
     def approved_contract(self) -> Optional[POCContract]:
         """Return the candidate contract only when every visible draft is resolved."""
 
@@ -1705,6 +1734,11 @@ class DemoSession:
             )
 
         self._clear_wave1_provider_authorization()
+        if len(self._run_history) >= MAX_DEMO_RUN_HISTORY:
+            raise DemoStateError(
+                "The bounded local Evidence Pack history is full. Existing packs "
+                "were preserved and no new run was started."
+            )
         self.output_root.mkdir(parents=True, exist_ok=True)
         run_id = "web-{0}-{1}".format(scenario, uuid.uuid4().hex[:12])
         self.last_run = None
@@ -1733,6 +1767,7 @@ class DemoSession:
                     "{0}".format(error)
                 ) from error
             self.last_run = current_run
+            self._run_history.append(current_run)
         return self.last_run
 
     @_serialized_session
@@ -3091,6 +3126,119 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         )
         return dashboard.model_dump(mode="json")
 
+    def evidence_pack_library_payload(self) -> Dict[str, Any]:
+        """List independently reverified packs without collapsing run history."""
+
+        items = []
+        support_history, support_last = self.session.evidence_run_snapshot()
+        support_current = (
+            None
+            if support_last is None
+            else self._support_evidence_binding(support_last)
+        )
+        support_closure = self.poc_closure_service.get(
+            SYNTHETIC_SUPPORT_AGENT_POC_ID
+        )
+        for result in support_history:
+            binding = self._support_evidence_binding(result)
+            if binding is None:
+                raise RuntimeError(
+                    "A recorded support-agent Evidence Pack failed verification."
+                )
+            items.append(
+                EvidencePackLibraryItem(
+                    poc_id=SYNTHETIC_SUPPORT_AGENT_POC_ID,
+                    display_name="Support-agent POC",
+                    customer_label=result.contract.customer,
+                    contract_id=binding.contract_id,
+                    contract_version=binding.contract_version,
+                    contract_hash=binding.contract_hash,
+                    run_id=binding.run_id,
+                    verdict=binding.verdict,
+                    evidence_pack_url=binding.evidence_pack_url,
+                    evidence_pack_sha256=binding.evidence_pack_sha256,
+                    handoff_state=self._evidence_pack_handoff_state(
+                        binding,
+                        support_current,
+                        support_closure,
+                    ),
+                    updated_at=result.manifest.ended_at,
+                )
+            )
+
+        for draft in self.draft_poc_service.snapshots():
+            snapshots = self.poc_performance_run_service.completed_snapshots(
+                draft.poc_id
+            )
+            if not snapshots:
+                continue
+            current = self._terminal_evidence_binding(draft.poc_id)
+            closure = self.poc_closure_service.get(draft.poc_id)
+            for snapshot in snapshots:
+                binding = self._performance_evidence_binding(snapshot)
+                if binding is None:
+                    raise RuntimeError(
+                        "A recorded performance Evidence Pack failed verification."
+                    )
+                operation = snapshot.terminal_operation
+                if type(operation) is not PerformanceOperation:
+                    raise RuntimeError(
+                        "A completed performance run has no terminal operation."
+                    )
+                items.append(
+                    EvidencePackLibraryItem(
+                        poc_id=draft.poc_id,
+                        display_name=draft.display_name,
+                        customer_label=draft.customer_label,
+                        contract_id=binding.contract_id,
+                        contract_version=binding.contract_version,
+                        contract_hash=binding.contract_hash,
+                        run_id=binding.run_id,
+                        verdict=binding.verdict,
+                        evidence_pack_url=binding.evidence_pack_url,
+                        evidence_pack_sha256=binding.evidence_pack_sha256,
+                        handoff_state=self._evidence_pack_handoff_state(
+                            binding,
+                            current,
+                            closure,
+                        ),
+                        updated_at=operation.updated_at,
+                    )
+                )
+
+        projection = EvidencePackLibraryProjection(
+            packs=tuple(
+                sorted(
+                    items,
+                    key=lambda item: (item.updated_at, item.poc_id),
+                    reverse=True,
+                )
+            )
+        )
+        return projection.model_dump(mode="json")
+
+    def _evidence_pack_handoff_state(
+        self,
+        binding: TerminalEvidenceBinding,
+        current: Optional[TerminalClosureBinding],
+        closure: Optional[HumanPOCClosureRecord],
+    ) -> EvidencePackHandoffState:
+        """Project handoff state for one exact pack, never merely for its POC."""
+
+        if closure is not None and closure.evidence_binding == binding:
+            return (
+                EvidencePackHandoffState.HANDOFF_COMPLETED
+                if closure.decision is HumanClosureDecision.HANDOFF_COMPLETED
+                else EvidencePackHandoffState.POC_STOPPED
+            )
+        if current == binding:
+            return (
+                EvidencePackHandoffState.READY_FOR_HANDOFF
+                if closure is None
+                else EvidencePackHandoffState.REVIEW_REQUIRED
+            )
+        return EvidencePackHandoffState.HISTORICAL
+
     def _project_closure(
         self,
         projection: POCWorkspaceProjection,
@@ -3108,6 +3256,132 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             current_binding,
         )
 
+    def _support_evidence_binding(
+        self,
+        result: RunResult,
+    ) -> Optional[TerminalEvidenceBinding]:
+        """Reverify one deterministic run before releasing its pack identity."""
+
+        if (
+            type(result) is not RunResult
+            or result.manifest.status
+            not in {
+                RunStatus.COMPLETED,
+                RunStatus.BLOCKED,
+                RunStatus.FAILED_INTERNAL,
+            }
+            or result.contract.canonical_hash is None
+            or len(result.contract.criteria) != 1
+            or result.output_dir.name != result.manifest.run_id
+        ):
+            return None
+        try:
+            run_dir = result.output_dir.resolve(strict=True)
+            output_root = self.session.output_root.resolve(strict=True)
+            if run_dir.parent != output_root:
+                return None
+            report_path = run_dir / "decision-packet.html"
+            inventory_path = run_dir / "artifact-hashes.json"
+            actual_report = report_path.read_bytes()
+            expected_report = render_decision_packet(
+                result.contract,
+                result.manifest,
+                result.contract.criteria[0],
+                result.measurement,
+                result.criterion_verdict,
+                result.overall_verdict,
+            ).encode("utf-8")
+            if actual_report != expected_report:
+                return None
+            inventory = json.loads(inventory_path.read_text("utf-8"))
+            if (
+                type(inventory) is not dict
+                or set(inventory) != {"algorithm", "artifacts"}
+                or inventory["algorithm"] != "sha256"
+                or type(inventory["artifacts"]) is not dict
+            ):
+                return None
+            expected_paths = {
+                "contract.json",
+                "run-manifest.json",
+                "evidence-artifacts.json",
+                "calculations.json",
+                "verdicts.json",
+                "decision-packet.html",
+            }
+            if result.measurement.evidence_refs:
+                expected_paths.add(
+                    "evidence/{0}.jsonl".format(
+                        result.contract.criteria[0].id
+                    )
+                )
+            if set(inventory["artifacts"]) != expected_paths:
+                return None
+            for relative, expected_sha256 in inventory["artifacts"].items():
+                target = _safe_child(run_dir, relative)
+                if (
+                    type(relative) is not str
+                    or type(expected_sha256) is not str
+                    or len(expected_sha256) != 64
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in expected_sha256
+                    )
+                    or target is None
+                    or not target.is_file()
+                    or hashlib.sha256(target.read_bytes()).hexdigest()
+                    != expected_sha256
+                ):
+                    return None
+        except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+        evidence_url = "/artifacts/{0}/decision-packet.html".format(
+            result.manifest.run_id
+        )
+        return TerminalEvidenceBinding(
+            poc_id=SYNTHETIC_SUPPORT_AGENT_POC_ID,
+            contract_id=result.contract.id,
+            contract_version=result.contract.version,
+            contract_hash=result.contract.canonical_hash,
+            run_id=result.manifest.run_id,
+            verdict=result.overall_verdict.verdict,
+            evidence_pack_url=evidence_url,
+            evidence_pack_sha256=hashlib.sha256(actual_report).hexdigest(),
+        )
+
+    def _performance_evidence_binding(
+        self,
+        snapshot: POCPerformanceRunSnapshot,
+    ) -> Optional[TerminalEvidenceBinding]:
+        """Resolve one completed dynamic run through its sealed artifact registry."""
+
+        if (
+            snapshot.operation_id is None
+            or snapshot.status is not POCPerformanceRunStatus.COMPLETED
+            or snapshot.verdict is None
+            or snapshot.evidence_pack_url is None
+        ):
+            return None
+        try:
+            evidence_sha256 = (
+                self.poc_performance_run_service.verified_evidence_pack_sha256(
+                    snapshot.poc_id,
+                    snapshot.operation_id,
+                )
+            )
+        except Exception:
+            return None
+        return TerminalEvidenceBinding(
+            poc_id=snapshot.poc_id,
+            contract_id=snapshot.contract_id,
+            contract_version=snapshot.contract_version,
+            contract_hash=snapshot.contract_hash,
+            run_id=snapshot.operation_id,
+            verdict=snapshot.verdict,
+            evidence_pack_url=snapshot.evidence_pack_url,
+            evidence_pack_sha256=evidence_sha256,
+        )
+
     def _terminal_evidence_binding(
         self,
         poc_id: str,
@@ -3116,36 +3390,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
 
         if poc_id == SYNTHETIC_SUPPORT_AGENT_POC_ID:
             result = self.session.last_run
-            if (
-                result is None
-                or result.manifest.status
-                not in {
-                    RunStatus.COMPLETED,
-                    RunStatus.BLOCKED,
-                    RunStatus.FAILED_INTERNAL,
-                }
-            ):
-                return None
-            proof = self.session._proof_payload()
-            if proof is None:
-                return None
-            contract_hash = result.contract.canonical_hash
-            if contract_hash is None:
-                return None
-            evidence_url = proof["report_url"]
-            evidence_sha256 = self._evidence_pack_sha256(evidence_url)
-            if evidence_sha256 is None:
-                return None
-            return TerminalEvidenceBinding(
-                poc_id=poc_id,
-                contract_id=result.contract.id,
-                contract_version=result.contract.version,
-                contract_hash=contract_hash,
-                run_id=result.manifest.run_id,
-                verdict=result.overall_verdict.verdict,
-                evidence_pack_url=evidence_url,
-                evidence_pack_sha256=evidence_sha256,
-            )
+            return None if result is None else self._support_evidence_binding(result)
 
         if poc_id == PERFORMANCE_POC_ID:
             return None
@@ -3195,46 +3440,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 **receipt_payload,
                 run_receipt_sha256=receipt_sha256,
             )
-        if (
-            snapshot.status is not POCPerformanceRunStatus.COMPLETED
-            or snapshot.verdict is None
-            or snapshot.evidence_pack_url is None
-        ):
-            return None
-        evidence_sha256 = self._evidence_pack_sha256(
-            snapshot.evidence_pack_url
-        )
-        if evidence_sha256 is None:
-            return None
-        return TerminalEvidenceBinding(
-            poc_id=poc_id,
-            contract_id=snapshot.contract_id,
-            contract_version=snapshot.contract_version,
-            contract_hash=snapshot.contract_hash,
-            run_id=snapshot.operation_id,
-            verdict=snapshot.verdict,
-            evidence_pack_url=snapshot.evidence_pack_url,
-            evidence_pack_sha256=evidence_sha256,
-        )
-
-    def _evidence_pack_sha256(self, evidence_pack_url: str) -> Optional[str]:
-        if (
-            type(evidence_pack_url) is not str
-            or not evidence_pack_url.startswith("/artifacts/")
-        ):
-            return None
-        relative = evidence_pack_url.removeprefix("/artifacts/")
-        target = _safe_child(self.session.output_root, relative)
-        if (
-            target is None
-            or not target.is_file()
-            or target.name != "decision-packet.html"
-        ):
-            return None
-        try:
-            return hashlib.sha256(target.read_bytes()).hexdigest()
-        except OSError:
-            return None
+        return self._performance_evidence_binding(snapshot)
 
     def known_workspace_poc(self, poc_id: str) -> bool:
         if poc_id in {
@@ -4196,6 +4402,17 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             and self._dispatch_dynamic_performance_run_read()
         ):
             return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
+            and urlparse(self.path).path
+            in {EVIDENCE_LIBRARY_PAGE_PATH, EVIDENCE_LIBRARY_API_PATH}
+        ):
+            self._send_json(
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "Evidence Pack library method is not allowed."},
+            )
+            return
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
@@ -4218,6 +4435,32 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_dynamic_performance_run_read():
             return
         parsed = urlparse(self.path)
+        if parsed.path == EVIDENCE_LIBRARY_PAGE_PATH:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "Evidence Pack library routes do not accept parameters."},
+                )
+                return
+            self._serve_static(parsed.path)
+            return
+        if parsed.path == EVIDENCE_LIBRARY_API_PATH:
+            if parsed.params or parsed.query or parsed.fragment:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "Evidence Pack library routes do not accept parameters."},
+                )
+                return
+            try:
+                payload = self.server.evidence_pack_library_payload()
+            except Exception:
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Evidence Pack library is unavailable."},
+                )
+                return
+            self._send_json(HTTPStatus.OK, payload)
+            return
         if parsed.path == "/app/pocs/new":
             if parsed.params or parsed.query or parsed.fragment:
                 self._send_json(
@@ -4570,6 +4813,15 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_dynamic_performance_run_write():
             return
         parsed = urlparse(self.path)
+        if parsed.path in {
+            EVIDENCE_LIBRARY_PAGE_PATH,
+            EVIDENCE_LIBRARY_API_PATH,
+        }:
+            self._send_json(
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "Evidence Pack library method is not allowed."},
+            )
+            return
         closure_poc_id = _workspace_closure_api_poc_id(parsed.path)
         if closure_poc_id is not None:
             self._record_workspace_closure(parsed, closure_poc_id)
@@ -5445,6 +5697,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 if _is_compatibility_workbench_query(query)
                 else "dashboard.html"
             )
+        elif request_path == EVIDENCE_LIBRARY_PAGE_PATH:
+            relative = "evidence_library.html"
         elif request_path == "/app/pocs/new":
             relative = "new_poc.html"
         elif _source_intake_page_poc_id(request_path) is not None:

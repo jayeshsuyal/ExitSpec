@@ -5,8 +5,6 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
 import pytest
 
 from exitspec.poc_contract_definition import (
@@ -253,6 +251,17 @@ def test_frozen_dynamic_poc_runs_existing_authoritative_proof_loop(tmp_path):
             execution_acknowledged=True,
             idempotency_key="run-dynamic-performance",
         )
+        history_after_replay = service.completed_snapshots(POC_ID)
+        first_pack_sha256 = service.verified_evidence_pack_sha256(
+            POC_ID,
+            first.operation.operation_id,
+        )
+        second = service.start(
+            POC_ID,
+            execution_acknowledged=True,
+            idempotency_key="run-dynamic-performance-again",
+        )
+        complete_history = service.completed_snapshots(POC_ID)
 
     assert before.status is POCPerformanceRunStatus.NOT_STARTED
     assert before.operation_id is None
@@ -268,10 +277,19 @@ def test_frozen_dynamic_poc_runs_existing_authoritative_proof_loop(tmp_path):
     assert first.operation.p95_ttft_ms is not None
     assert first.operation.error_rate_percent == "0"
     assert first.operation.evidence_pack_url is not None
-    assert endpoint_state.request_count == calls_after_first == 111
+    assert calls_after_first == 111
+    assert endpoint_state.request_count == 222
     assert set(endpoint_state.authorization_headers) == {None}
     assert replay.replayed is True
     assert replay.operation == first.operation
+    assert history_after_replay == (first.operation,)
+    assert len(first_pack_sha256) == 64
+    assert second.replayed is False
+    assert second.operation.status is POCPerformanceRunStatus.COMPLETED
+    assert [snapshot.operation_id for snapshot in complete_history] == [
+        first.operation.operation_id,
+        second.operation.operation_id,
+    ]
 
 
 def test_failed_preflight_is_blocked_without_fake_metrics_or_evidence(tmp_path):

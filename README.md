@@ -119,6 +119,9 @@ are source choices for the same POC object; they are not separate products.
   stopped, and that decision binds to the durable terminal run receipt.
   Closure makes every scoped lifecycle mutation fail with `409`; shipping
   remains a separate authorization.
+- `/app/evidence` provides one read-only, newest-first library of independently
+  reverified run-scoped packs. Reruns preserve prior verdicts as historical
+  evidence; handoff status follows only the exact bound pack.
 
 For the primary reference set:
 
@@ -201,7 +204,8 @@ The POC dashboard is served at `http://127.0.0.1:8765/app`; its seeded
 support-agent workbench is at
 `http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`, and its read-only
 inference-latency POC is at
-`http://127.0.0.1:8765/app/pocs/poc_inference_latency_demo`. For a clean
+`http://127.0.0.1:8765/app/pocs/poc_inference_latency_demo`. Verified run
+history is available at `http://127.0.0.1:8765/app/evidence`. For a clean
 support-agent recording, choose **Guided demo** on the dashboard or open
 `http://127.0.0.1:8765/app?mode=recording`. The guided entry resets only the
 seeded support-agent demo before opening it. Follow the
