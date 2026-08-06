@@ -78,7 +78,9 @@ DYNAMIC_PAGES = {
         "refresh-customer-review",
         "reissue-customer-review",
         "changes-requested-actions",
-        "start-new-poc",
+        "start-revision",
+        "revision-panel",
+        "continue-revision",
         "freeze-panel",
         "freeze-form",
         "freeze-contract",
@@ -392,15 +394,18 @@ def test_agreement_identity_comes_from_a_strict_poc_projection():
     assert "Array.isArray(payload)" in exact_keys
     assert "hasExactKeys(payload, POC_DRAFT_KEYS)" in identity_validator
     assert "payload.poc_id !== pocId" in identity_validator
-    for field in ("display_name", "customer_label", "owner"):
-        assert f"isSafeBoundedText(payload.{field}, 160)" in identity_validator
+    for identity_field in ("display_name", "customer_label", "owner"):
+        assert (
+            f"isSafeBoundedText(payload.{identity_field}, 160)"
+            in identity_validator
+        )
     assert 'payload.archive_state !== "ACTIVE"' in identity_validator
     assert initialise.index("isTrustedPOCDraft(draft)") < initialise.index(
         'document.querySelector("#poc-title").textContent'
     )
     assert re.search(r"\.poc_id\s*!==\s*pocId", javascript)
-    for field in ("display_name", "customer_label", "owner"):
-        assert f".{field}" in initialise
+    for identity_field in ("display_name", "customer_label", "owner"):
+        assert f".{identity_field}" in initialise
     assert 'document.querySelector("#poc-title").textContent' in initialise
     assert 'document.querySelector("#poc-context").textContent' in initialise
     assert '"Performance agreement"' not in javascript

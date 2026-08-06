@@ -24,6 +24,7 @@ from .poc_creation import POC_ID_PATTERN
 from .poc_performance_contract import PerformanceTargetInput
 from .poc_performance_lifecycle import (
     AgreementPreparation,
+    AgreementRevision,
     PerformanceLifecycleCapacityExceeded,
     PerformanceLifecycleConflict,
     PerformanceLifecycleError,
@@ -51,6 +52,7 @@ _PREPARE_FIELDS = {
 }
 _FREEZE_FIELDS = {"idempotency_key"}
 _REISSUE_REVIEW_FIELDS = {"idempotency_key"}
+_START_REVISION_FIELDS = {"idempotency_key"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +158,25 @@ def handle_performance_lifecycle_web_api_request(
                         ),
                     },
                 )
+            if action == "revision":
+                _only(body, _START_REVISION_FIELDS)
+                result = lifecycle.start_revision(
+                    poc_id,
+                    idempotency_key=body["idempotency_key"],
+                )
+                revision = result.value
+                if type(revision) is not AgreementRevision:
+                    raise PerformanceLifecycleError
+                return PerformanceLifecycleWebAPIResponse(
+                    HTTPStatus.OK if result.replayed else HTTPStatus.CREATED,
+                    {
+                        "poc_id": poc_id,
+                        "disposition": (
+                            "IDEMPOTENT_REPLAY" if result.replayed else "CREATED"
+                        ),
+                        "revision": _revision_payload(revision),
+                    },
+                )
             if action == "review":
                 _only(body, _REISSUE_REVIEW_FIELDS)
                 result = lifecycle.reissue_customer_review(
@@ -243,7 +264,7 @@ def _parse_path(path: str) -> tuple[str, str | None]:
     ):
         raise PerformanceLifecycleWebAPIRequestError
     action = None if len(parts) == 4 else parts[4]
-    if action not in {None, "freeze", "review"}:
+    if action not in {None, "freeze", "review", "revision"}:
         raise PerformanceLifecycleWebAPIRequestError
     return parts[2], action
 
@@ -266,7 +287,8 @@ def _snapshot_payload(
     proposals: ProcessLocalProposalReviewService,
     definitions: ProcessLocalContractDefinitionService,
 ) -> dict[str, Any]:
-    proposal_projection = proposals.list_proposals(poc_id)
+    proposals.list_proposals(poc_id)
+    proposal_projection = lifecycle.current_proposals(poc_id)
     current_proposals = {
         proposal.proposal_id: proposal
         for proposal in proposal_projection
@@ -282,9 +304,8 @@ def _snapshot_payload(
         )
     ]
     definition_payloads = []
-    for definition in definitions.definitions():
-        if definition.poc_id != poc_id:
-            continue
+    definitions.definitions()
+    for definition in lifecycle.current_definitions(poc_id):
         proposal = current_proposals.get(definition.proposal_id)
         if proposal is None:
             raise PerformanceLifecycleConflict
@@ -348,6 +369,12 @@ def _snapshot_payload(
             if snapshot.frozen_contract is None or preparation is None
             else _frozen_payload(snapshot.frozen_contract, preparation)
         ),
+        "revision": (
+            None
+            if snapshot.revision is None
+            else _revision_payload(snapshot.revision)
+        ),
+        "superseded_version_count": snapshot.superseded_version_count,
     }
 
 
@@ -358,12 +385,28 @@ def _preparation_payload(preparation: object) -> dict[str, Any]:
         "draft_id": preparation.draft_id,
         "draft_sha256": preparation.draft_sha256,
         "created_at": preparation.prepared_at.isoformat(),
+        "contract_id": preparation.approved_contract.id,
+        "contract_version": preparation.approved_contract.version,
+        "parent_version": preparation.approved_contract.parent_version,
         "target_provider": preparation.target.provider,
         "endpoint_class": preparation.target.endpoint_class,
         "endpoint": preparation.target.endpoint,
         "model": preparation.target.model,
         "reviewer": preparation.reviewer,
         "rationale": preparation.rationale,
+    }
+
+
+def _revision_payload(revision: AgreementRevision) -> dict[str, Any]:
+    return {
+        "revision_id": revision.revision_id,
+        "revision_number": revision.revision_number,
+        "contract_version": revision.contract_version,
+        "parent_contract_id": revision.parent_contract_id,
+        "parent_contract_version": revision.parent_contract_version,
+        "parent_draft_sha256": revision.parent_draft_sha256,
+        "requested_at": revision.requested_at.isoformat(),
+        "request_rationale": revision.request_rationale,
     }
 
 
@@ -454,6 +497,8 @@ def _frozen_payload(
         raise PerformanceLifecycleError
     return {
         "contract_id": contract.id,
+        "contract_version": contract.version,
+        "parent_version": contract.parent_version,
         "canonical_hash": contract.canonical_hash,
         "confirmation_id": contract.confirmation_id,
         "frozen_at": contract.frozen_at.isoformat(),

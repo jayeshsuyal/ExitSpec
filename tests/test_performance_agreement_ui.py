@@ -84,7 +84,9 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
     assert 'id="refresh-customer-review"' in html
     assert 'id="reissue-customer-review"' in html
     assert 'id="changes-requested-actions"' in html
-    assert 'id="start-new-poc"' in html
+    assert 'id="start-revision"' in html
+    assert 'id="revision-panel"' in html
+    assert 'id="continue-revision"' in html
     assert 'id="freeze-panel"' in html
     assert 'id="freeze-form"' in html
     assert 'id="agreement-complete"' in html
@@ -94,6 +96,7 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
         "freeze-contract",
         "refresh-customer-review",
         "reissue-customer-review",
+        "start-revision",
         "use-reference-target",
     }
     assert re.search(
@@ -110,6 +113,10 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
     assert re.search(
         r'id="reissue-customer-review"[\s\S]*?>\s*'
         r"Issue new review link\s*</button>",
+        html,
+    )
+    assert re.search(
+        r'id="start-revision"[\s\S]*?>\s*Start revision\s*</button>',
         html,
     )
     assert re.search(r">\s*Freeze confirmed contract\s*</button>", html)
@@ -253,6 +260,8 @@ def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
         "customer_review",
         "confirmation",
         "frozen_contract",
+        "revision",
+        "superseded_version_count",
     ):
         assert f'"{exact_key}"' in keys
     assert "hasExactKeys(payload, AGREEMENT_KEYS)" in validator
@@ -280,6 +289,8 @@ def test_get_projection_is_exact_bounded_unique_and_lifecycle_consistent():
     assert 'payload.customer_review.status !== "CHANGES_REQUESTED"' in validator
     assert 'payload.confirmation.decision !== "CONFIRM"' in validator
     assert "!targetMatches(payload.frozen_contract, payload.draft)" in validator
+    assert "isTrustedRevision(payload.revision)" in validator
+    assert "payload.superseded_version_count" in validator
 
 
 def test_definition_projection_is_exact_source_anchored_and_metric_bounded():
@@ -331,6 +342,12 @@ def test_definition_projection_is_exact_source_anchored_and_metric_bounded():
 
 def test_all_lifecycle_receipts_have_exact_safe_shapes():
     javascript = _asset(JS_PATH)
+    poc_draft_keys = javascript.split(
+        "const POC_DRAFT_KEYS = Object.freeze([", 1
+    )[1].split("]);", 1)[0]
+    agreement_draft_keys = javascript.split(
+        "const DRAFT_KEYS = Object.freeze([", 1
+    )[1].split("]);", 1)[0]
     draft_validator = _function(
         javascript,
         "isTrustedDraft",
@@ -347,9 +364,15 @@ def test_all_lifecycle_receipts_have_exact_safe_shapes():
         "targetMatches",
     )
 
+    assert '"contract_id"' not in poc_draft_keys
+    assert '"contract_version"' not in poc_draft_keys
+    assert '"contract_id"' in agreement_draft_keys
+    assert '"contract_version"' in agreement_draft_keys
+    assert '"parent_version"' in agreement_draft_keys
     assert "hasExactKeys(draft, DRAFT_KEYS)" in draft_validator
     assert "DRAFT_ID_PATTERN.test(draft.draft_id)" in draft_validator
     assert "SHA256_PATTERN.test(draft.draft_sha256)" in draft_validator
+    assert "hasValidVersionLineage(draft)" in draft_validator
     for field, maximum in (
         ("target_provider", "160"),
         ("endpoint_class", "160"),
@@ -376,6 +399,7 @@ def test_all_lifecycle_receipts_have_exact_safe_shapes():
         in frozen_validator
     )
     assert "SHA256_PATTERN.test(contract.canonical_hash)" in frozen_validator
+    assert "hasValidVersionLineage(contract)" in frozen_validator
     assert "isExactTargetUrl(contract.endpoint)" in frozen_validator
     assert "isTrustedTimestamp(contract.frozen_at)" in frozen_validator
 
@@ -541,6 +565,44 @@ def test_freeze_body_is_only_one_retry_stable_operation_key():
     assert "agreement-freeze" in submit
 
 
+def test_revision_is_explicit_retry_stable_and_bound_to_the_rejected_version():
+    javascript = _asset(JS_PATH)
+    revision = _function(
+        javascript,
+        "startRevision",
+        "setCurrentStep",
+    )
+    validator = _function(
+        javascript,
+        "isTrustedRevisionActionResponse",
+        "requestJson",
+    )
+    payload = revision.split("payload: {", 1)[1].split("},", 1)[0]
+
+    assert re.fullmatch(
+        r"\s*idempotency_key:\s*idempotencyKey\s*",
+        payload,
+    )
+    assert 'agreementState.confirmation?.decision !== "REQUEST_CHANGES"' in (
+        revision
+    )
+    assert 'newOperationKey("agreement-revision")' in revision
+    assert "requestJson(revisionApi" in revision
+    assert "JSON.stringify(pendingRevisionAttempt.payload)" in revision
+    assert "isTrustedRevisionActionResponse(response)" in revision
+    assert "window.location.replace(destination);" in revision
+    assert 'hasExactKeys(payload, ["disposition", "poc_id", "revision"])' in (
+        validator
+    )
+    assert 'agreementState?.confirmation?.decision === "REQUEST_CHANGES"' in (
+        validator
+    )
+    assert "payload.revision.parent_contract_id" in validator
+    assert "agreementState.draft.contract_id" in validator
+    assert "payload.revision.parent_draft_sha256" in validator
+    assert "agreementState.draft.draft_sha256" in validator
+
+
 def test_retry_attempts_reuse_exact_in_memory_payloads():
     javascript = _asset(JS_PATH)
 
@@ -548,6 +610,7 @@ def test_retry_attempts_reuse_exact_in_memory_payloads():
         ("pendingDraftAttempt", "agreement-draft"),
         ("pendingReviewReissueAttempt", "agreement-review-reissue"),
         ("pendingFreezeAttempt", "agreement-freeze"),
+        ("pendingRevisionAttempt", "agreement-revision"),
     ):
         assert f"if (!{pending_name})" in javascript
         assert f"{pending_name} = {{" in javascript
@@ -671,7 +734,7 @@ def test_authoritative_refresh_focus_and_decision_states_control_the_next_step()
         review_branch
     )
     assert '"Customer requested changes"' in review_branch
-    assert 'document.querySelector("#start-new-poc").focus' in review_branch
+    assert "startRevisionButton.focus" in review_branch
     assert 'customerReview.status === "EXPIRED"' in review_renderer
     assert 'customerReviewState.textContent = "Waiting for customer"' in (
         review_renderer
@@ -802,6 +865,7 @@ def test_transport_is_same_origin_json_only_no_store_and_redirect_closed():
     assert "value === agreementApi" in path_validator
     assert "value === reviewApi" in path_validator
     assert "value === freezeApi" in path_validator
+    assert "value === revisionApi" in path_validator
     assert "confirmationApi" not in javascript
     assert "/agreement/confirm" not in javascript
 

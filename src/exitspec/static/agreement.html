@@ -348,12 +348,14 @@
                     >
                       <strong>Customer requested changes</strong>
                       <p>
-                        This local agreement is immutable. Start a new POC with
-                        the requested changes.
+                        Version 1 stays immutable. Start a revision, then capture
+                        the customer's update as a new source.
                       </p>
-                      <a class="primary-action" id="start-new-poc" href="/app/pocs/new">
-                        Start a new POC
-                      </a>
+                      <button
+                        class="primary-action"
+                        id="start-revision"
+                        type="button"
+                      >Start revision</button>
                     </div>
                   </section>
 
@@ -427,6 +429,28 @@
                       </div>
                     </article>
                   </details>
+                </div>
+              </section>
+
+              <section
+                class="action-panel revision-panel"
+                id="revision-panel"
+                tabindex="-1"
+                aria-labelledby="revision-heading"
+                hidden
+              >
+                <header>
+                  <p class="eyebrow">New agreement version</p>
+                  <h3 id="revision-heading">Capture the requested changes</h3>
+                  <p id="revision-copy">
+                    The prior agreement is preserved. Continue from the POC
+                    workspace to add and review a new customer source.
+                  </p>
+                </header>
+                <div class="review-actions">
+                  <a class="primary-action" id="continue-revision" href="/app">
+                    Continue revision
+                  </a>
                 </div>
               </section>
 

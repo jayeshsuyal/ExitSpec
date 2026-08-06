@@ -46,6 +46,7 @@ MAX_REVIEWER_LENGTH = 160
 MAX_RATIONALE_LENGTH = 2_000
 MAX_IDEMPOTENCY_KEY_LENGTH = 200
 DEFAULT_MAX_AGREEMENTS = 1_024
+MAX_REVISIONS_PER_POC = 32
 
 
 class PerformanceLifecycleError(RuntimeError):
@@ -82,6 +83,9 @@ class AgreementPreparation:
     rationale: str
     prepared_at: datetime
     target: PerformanceTargetInput
+    input_fingerprint: str = field(repr=False)
+    proposal_ids: tuple[str, ...] = field(repr=False)
+    definition_ids: tuple[str, ...] = field(repr=False)
     bundle: PreparedPerformanceBundle = field(repr=False)
 
     @property
@@ -94,6 +98,42 @@ class AgreementPreparation:
 
 
 @dataclass(frozen=True, slots=True)
+class AgreementRevision:
+    """Explicit boundary for collecting source-backed changes to a new version."""
+
+    revision_id: str
+    revision_number: int
+    parent_contract_id: str
+    parent_contract_version: str
+    parent_draft_sha256: str
+    requested_at: datetime
+    request_rationale: str
+    baseline_proposal_ids: tuple[str, ...] = field(repr=False)
+    baseline_definition_ids: tuple[str, ...] = field(repr=False)
+
+    @property
+    def contract_version(self) -> str:
+        return str(self.revision_number + 1)
+
+    @property
+    def parent_version(self) -> str:
+        return "{0}@{1}".format(
+            self.parent_contract_id,
+            self.parent_contract_version,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AgreementVersionRecord:
+    """One immutable superseded agreement version retained for audit history."""
+
+    preparation: AgreementPreparation
+    review_invitation: CustomerReviewInvitation
+    confirmation: ContractConfirmation
+    superseded_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class PerformanceLifecycleSnapshot:
     """Exact current state without execution or verdict projection."""
 
@@ -102,6 +142,8 @@ class PerformanceLifecycleSnapshot:
     review_expired: bool
     confirmation: ContractConfirmation | None
     frozen_contract: POCContract | None
+    revision: AgreementRevision | None
+    superseded_version_count: int
 
     @property
     def poc_id(self) -> str | None:
@@ -114,6 +156,7 @@ class LifecycleWriteResult:
 
     value: (
         AgreementPreparation
+        | AgreementRevision
         | CustomerReviewInvitation
         | ContractConfirmation
         | POCContract
@@ -180,6 +223,31 @@ def _request_digest(payload: dict[str, object]) -> str:
     ).hexdigest()
 
 
+def _input_fingerprint(
+    proposals: Sequence[ProposalReviewItem],
+    definitions: Sequence[ContractDefinitionReceipt],
+) -> str:
+    """Bind preparation to every proposal and definition in its revision scope."""
+
+    proposal_payloads = sorted(
+        (proposal.model_dump(mode="json") for proposal in proposals),
+        key=lambda item: str(item["proposal_id"]),
+    )
+    definition_payloads = sorted(
+        (definition.model_dump(mode="json") for definition in definitions),
+        key=lambda item: str(item["definition_id"]),
+    )
+    return hashlib.sha256(
+        b"exitspec-performance-agreement-inputs-v1\x00"
+        + canonical_json_bytes(
+            {
+                "proposals": proposal_payloads,
+                "definitions": definition_payloads,
+            }
+        )
+    ).hexdigest()
+
+
 class ProcessLocalPerformanceLifecycleService:
     """Thread-safe bounded agreement lifecycle for local demo POCs."""
 
@@ -220,6 +288,8 @@ class ProcessLocalPerformanceLifecycleService:
         self._review_token_secret = secrets.token_bytes(32)
         self._confirmations: dict[str, ContractConfirmation] = {}
         self._frozen: dict[str, POCContract] = {}
+        self._revisions: dict[str, AgreementRevision] = {}
+        self._history: dict[str, tuple[AgreementVersionRecord, ...]] = {}
         self._prepare_idempotency: dict[str, _IdempotencyRecord] = {}
         self._review_idempotency: dict[str, _IdempotencyRecord] = {}
         self._review_idempotency_results: dict[
@@ -227,17 +297,19 @@ class ProcessLocalPerformanceLifecycleService:
         ] = {}
         self._confirm_idempotency: dict[str, _IdempotencyRecord] = {}
         self._freeze_idempotency: dict[str, _IdempotencyRecord] = {}
+        self._revision_idempotency: dict[str, _IdempotencyRecord] = {}
+        self._revision_idempotency_results: dict[str, AgreementRevision] = {}
         self._lock = RLock()
 
-    def _assemble(
+    def _scoped_inputs(
         self,
         poc_id: str,
-        target: PerformanceTargetInput,
-        prepared_at: datetime,
-    ) -> PreparedPerformanceBundle:
+    ) -> tuple[
+        tuple[ProposalReviewItem, ...],
+        tuple[ContractDefinitionReceipt, ...],
+    ]:
         try:
-            draft = self._draft_lookup(poc_id)
-            proposals = self._proposal_lookup(poc_id)
+            proposals = tuple(self._proposal_lookup(poc_id))
             definitions = tuple(
                 definition
                 for definition in self._definition_lookup()
@@ -247,6 +319,84 @@ class ProcessLocalPerformanceLifecycleService:
             raise PerformanceLifecycleConflict(
                 "Current POC inputs are unavailable."
             ) from error
+        if (
+            any(
+                type(proposal) is not ProposalReviewItem
+                or proposal.poc_id != poc_id
+                for proposal in proposals
+            )
+            or any(
+                type(definition) is not ContractDefinitionReceipt
+                or definition.poc_id != poc_id
+                for definition in definitions
+            )
+        ):
+            raise PerformanceLifecycleConflict(
+                "Current POC inputs are unavailable."
+            )
+        revision = self._revisions.get(poc_id)
+        if revision is None:
+            return proposals, definitions
+        baseline_proposals = frozenset(revision.baseline_proposal_ids)
+        baseline_definitions = frozenset(revision.baseline_definition_ids)
+        return (
+            tuple(
+                proposal
+                for proposal in proposals
+                if proposal.proposal_id not in baseline_proposals
+            ),
+            tuple(
+                definition
+                for definition in definitions
+                if definition.definition_id not in baseline_definitions
+            ),
+        )
+
+    def current_proposals(self, poc_id: str) -> tuple[ProposalReviewItem, ...]:
+        """Return only proposals eligible for the current agreement version."""
+
+        with self._lock:
+            return self._scoped_inputs(poc_id)[0]
+
+    def current_definitions(
+        self,
+        poc_id: str,
+    ) -> tuple[ContractDefinitionReceipt, ...]:
+        """Return only definitions eligible for the current agreement version."""
+
+        with self._lock:
+            return self._scoped_inputs(poc_id)[1]
+
+    def _contract_identity(
+        self,
+        poc_id: str,
+    ) -> tuple[str | None, str, str | None]:
+        revision = self._revisions.get(poc_id)
+        if revision is None:
+            return None, "1", None
+        return (
+            revision.parent_contract_id,
+            revision.contract_version,
+            revision.parent_version,
+        )
+
+    def _assemble(
+        self,
+        poc_id: str,
+        target: PerformanceTargetInput,
+        prepared_at: datetime,
+        proposals: Sequence[ProposalReviewItem],
+        definitions: Sequence[ContractDefinitionReceipt],
+    ) -> PreparedPerformanceBundle:
+        try:
+            draft = self._draft_lookup(poc_id)
+        except Exception as error:
+            raise PerformanceLifecycleConflict(
+                "Current POC inputs are unavailable."
+            ) from error
+        contract_id, contract_version, parent_version = self._contract_identity(
+            poc_id
+        )
         try:
             return prepare_performance_bundle(
                 draft=draft,
@@ -255,6 +405,9 @@ class ProcessLocalPerformanceLifecycleService:
                 target=target,
                 prompt_bytes=self._prompt_bytes,
                 prepared_at=prepared_at,
+                contract_id=contract_id,
+                contract_version=contract_version,
+                parent_version=parent_version,
             )
         except Exception as error:
             raise PerformanceLifecycleConflict(
@@ -268,12 +421,20 @@ class ProcessLocalPerformanceLifecycleService:
             raise PerformanceLifecycleNotFound(
                 "Agreement preparation was not found."
             ) from error
+        proposals, definitions = self._scoped_inputs(poc_id)
         current = self._assemble(
             poc_id,
             preparation.target,
             preparation.prepared_at,
+            proposals,
+            definitions,
         )
-        if current.bundle_fingerprint != preparation.bundle.bundle_fingerprint:
+        if (
+            _input_fingerprint(proposals, definitions)
+            != preparation.input_fingerprint
+            or current.bundle_fingerprint
+            != preparation.bundle.bundle_fingerprint
+        ):
             raise PerformanceLifecycleStale(
                 "Agreement inputs changed after preparation."
             )
@@ -305,16 +466,22 @@ class ProcessLocalPerformanceLifecycleService:
             single_line=False,
         )
         key_digest = _idempotency_digest(idempotency_key)
-        request_sha256 = _request_digest(
-            {
-                "operation": "PREPARE",
-                "poc_id": poc_id,
-                "target": target.model_dump(mode="json"),
-                "reviewer": reviewer_text,
-                "rationale": rationale_text,
-            }
-        )
         with self._lock:
+            contract_id, contract_version, parent_version = (
+                self._contract_identity(poc_id)
+            )
+            request_sha256 = _request_digest(
+                {
+                    "operation": "PREPARE",
+                    "poc_id": poc_id,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "parent_version": parent_version,
+                    "target": target.model_dump(mode="json"),
+                    "reviewer": reviewer_text,
+                    "rationale": rationale_text,
+                }
+            )
             prior = self._prepare_idempotency.get(key_digest)
             if prior is not None:
                 if prior.poc_id != poc_id or prior.request_sha256 != request_sha256:
@@ -327,15 +494,29 @@ class ProcessLocalPerformanceLifecycleService:
                 raise PerformanceLifecycleConflict(
                     "This POC already has an immutable prepared agreement."
                 )
-            if len(self._preparations) >= self._max_agreements:
+            known_poc_ids = set(self._preparations).union(self._history)
+            if (
+                poc_id not in known_poc_ids
+                and len(known_poc_ids) >= self._max_agreements
+            ):
                 raise PerformanceLifecycleCapacityExceeded(
                     "Agreement capacity is exhausted."
                 )
             prepared_at = self._clock()
-            bundle = self._assemble(poc_id, target, prepared_at)
+            proposals, definitions = self._scoped_inputs(poc_id)
+            bundle = self._assemble(
+                poc_id,
+                target,
+                prepared_at,
+                proposals,
+                definitions,
+            )
+            input_fingerprint = _input_fingerprint(proposals, definitions)
             receipt_payload = {
                 "poc_id": poc_id,
                 "bundle_fingerprint": bundle.bundle_fingerprint,
+                "contract_version": bundle.approved_contract.version,
+                "input_fingerprint": input_fingerprint,
                 "reviewer": reviewer_text,
                 "rationale": rationale_text,
                 "prepared_at": prepared_at.isoformat(),
@@ -351,6 +532,16 @@ class ProcessLocalPerformanceLifecycleService:
                 rationale=rationale_text,
                 prepared_at=prepared_at,
                 target=target,
+                input_fingerprint=input_fingerprint,
+                proposal_ids=tuple(
+                    sorted(proposal.proposal_id for proposal in proposals)
+                ),
+                definition_ids=tuple(
+                    sorted(
+                        definition.definition_id
+                        for definition in definitions
+                    )
+                ),
                 bundle=bundle,
             )
             invitation_id = "review-{0}".format(secrets.token_hex(12))
@@ -467,11 +658,16 @@ class ProcessLocalPerformanceLifecycleService:
         """Replace only an expired, undecided capability for the same agreement."""
 
         key_digest = _idempotency_digest(idempotency_key)
-        request_sha256 = _request_digest(
-            {"operation": "REISSUE_CUSTOMER_REVIEW", "poc_id": poc_id}
-        )
         with self._lock:
             preparation = self._current_preparation(poc_id)
+            request_sha256 = _request_digest(
+                {
+                    "operation": "REISSUE_CUSTOMER_REVIEW",
+                    "poc_id": poc_id,
+                    "draft_id": preparation.draft_id,
+                    "contract_version": preparation.approved_contract.version,
+                }
+            )
             checked_at = self._clock()
             prior = self._review_idempotency.get(key_digest)
             if prior is not None:
@@ -592,17 +788,19 @@ class ProcessLocalPerformanceLifecycleService:
                 single_line=False,
             )
         key_digest = _idempotency_digest(idempotency_key)
-        request_sha256 = _request_digest(
-            {
-                "operation": "CUSTOMER_REVIEW_DECISION",
-                "poc_id": poc_id,
-                "decision": requested_decision.value,
-                "agreement_acknowledged": agreement_acknowledged,
-                "rationale": rationale_text,
-            }
-        )
         with self._lock:
             preparation = self._current_preparation(poc_id)
+            request_sha256 = _request_digest(
+                {
+                    "operation": "CUSTOMER_REVIEW_DECISION",
+                    "poc_id": poc_id,
+                    "draft_id": preparation.draft_id,
+                    "contract_version": preparation.approved_contract.version,
+                    "decision": requested_decision.value,
+                    "agreement_acknowledged": agreement_acknowledged,
+                    "rationale": rationale_text,
+                }
+            )
             invitation = self._review_invitations[poc_id]
             decided_at = self._clock()
             invitation.require_valid(token, now=decided_at)
@@ -633,6 +831,137 @@ class ProcessLocalPerformanceLifecycleService:
             )
             return LifecycleWriteResult(confirmation, False)
 
+    def start_revision(
+        self,
+        poc_id: str,
+        *,
+        idempotency_key: object,
+    ) -> LifecycleWriteResult:
+        """Supersede a rejected draft and open a source-backed contract version."""
+
+        if type(poc_id) is not str:
+            raise PerformanceLifecycleInvalid("poc_id is invalid.")
+        key_digest = _idempotency_digest(idempotency_key)
+        request_sha256 = _request_digest(
+            {"operation": "START_REVISION", "poc_id": poc_id}
+        )
+        with self._lock:
+            prior = self._revision_idempotency.get(key_digest)
+            if prior is not None:
+                if prior.poc_id != poc_id or prior.request_sha256 != request_sha256:
+                    raise PerformanceLifecycleConflict(
+                        "Idempotency key conflicts with another revision."
+                    )
+                revision = self._revision_idempotency_results[key_digest]
+                current = self._revisions.get(poc_id)
+                if current is None or current.revision_id != revision.revision_id:
+                    raise PerformanceLifecycleConflict(
+                        "This revision operation is no longer current."
+                    )
+                return LifecycleWriteResult(revision, True)
+
+            try:
+                preparation = self._preparations[poc_id]
+                invitation = self._review_invitations[poc_id]
+                confirmation = self._confirmations[poc_id]
+            except KeyError as error:
+                raise PerformanceLifecycleConflict(
+                    "A customer change request is required before revision."
+                ) from error
+            if (
+                confirmation.decision is not ConfirmationDecision.REQUEST_CHANGES
+                or poc_id in self._frozen
+            ):
+                raise PerformanceLifecycleConflict(
+                    "A customer change request is required before revision."
+                )
+            try:
+                parent_contract_version = int(
+                    preparation.approved_contract.version
+                )
+            except ValueError as error:
+                raise PerformanceLifecycleConflict(
+                    "The current agreement version cannot be revised safely."
+                ) from error
+            history = self._history.get(poc_id, ())
+            if len(history) >= MAX_REVISIONS_PER_POC:
+                raise PerformanceLifecycleCapacityExceeded(
+                    "This POC has reached its revision capacity."
+                )
+            requested_at = self._clock()
+            if (
+                type(requested_at) is not datetime
+                or requested_at.tzinfo is None
+                or requested_at.utcoffset() is None
+            ):
+                raise PerformanceLifecycleError(
+                    "The agreement revision clock is unavailable."
+                )
+            previous_revision = self._revisions.get(poc_id)
+            baseline_proposal_ids = set(preparation.proposal_ids)
+            baseline_definition_ids = set(preparation.definition_ids)
+            if previous_revision is not None:
+                baseline_proposal_ids.update(
+                    previous_revision.baseline_proposal_ids
+                )
+                baseline_definition_ids.update(
+                    previous_revision.baseline_definition_ids
+                )
+            revision_number = parent_contract_version
+            revision_payload = {
+                "poc_id": poc_id,
+                "revision_number": revision_number,
+                "parent_contract_id": preparation.approved_contract.id,
+                "parent_contract_version": (
+                    preparation.approved_contract.version
+                ),
+                "parent_draft_sha256": preparation.draft_sha256,
+                "requested_at": requested_at.isoformat(),
+                "request_rationale": confirmation.rationale,
+                "baseline_proposal_ids": sorted(baseline_proposal_ids),
+                "baseline_definition_ids": sorted(baseline_definition_ids),
+            }
+            revision_sha256 = hashlib.sha256(
+                b"exitspec-performance-agreement-revision-v1\x00"
+                + canonical_json_bytes(revision_payload)
+            ).hexdigest()
+            revision = AgreementRevision(
+                revision_id="agrrev_{0}".format(revision_sha256[:32]),
+                revision_number=revision_number,
+                parent_contract_id=preparation.approved_contract.id,
+                parent_contract_version=preparation.approved_contract.version,
+                parent_draft_sha256=preparation.draft_sha256,
+                requested_at=requested_at,
+                request_rationale=confirmation.rationale,
+                baseline_proposal_ids=tuple(sorted(baseline_proposal_ids)),
+                baseline_definition_ids=tuple(sorted(baseline_definition_ids)),
+            )
+            version_record = AgreementVersionRecord(
+                preparation=preparation,
+                review_invitation=invitation,
+                confirmation=confirmation,
+                superseded_at=requested_at,
+            )
+
+            self._history[poc_id] = history + (version_record,)
+            self._revisions[poc_id] = revision
+            self._preparations.pop(poc_id, None)
+            self._review_invitations.pop(poc_id, None)
+            self._confirmations.pop(poc_id, None)
+            self._frozen.pop(poc_id, None)
+            self._revision_idempotency[key_digest] = _IdempotencyRecord(
+                request_sha256,
+                poc_id,
+            )
+            self._revision_idempotency_results[key_digest] = revision
+            return LifecycleWriteResult(revision, False)
+
+    def history(self, poc_id: str) -> tuple[AgreementVersionRecord, ...]:
+        """Return immutable superseded versions without making one current."""
+
+        with self._lock:
+            return self._history.get(poc_id, ())
+
     def freeze(
         self,
         poc_id: str,
@@ -640,9 +969,16 @@ class ProcessLocalPerformanceLifecycleService:
         idempotency_key: object,
     ) -> LifecycleWriteResult:
         key_digest = _idempotency_digest(idempotency_key)
-        request_sha256 = _request_digest({"operation": "FREEZE", "poc_id": poc_id})
         with self._lock:
             preparation = self._current_preparation(poc_id)
+            request_sha256 = _request_digest(
+                {
+                    "operation": "FREEZE",
+                    "poc_id": poc_id,
+                    "draft_id": preparation.draft_id,
+                    "contract_version": preparation.approved_contract.version,
+                }
+            )
             try:
                 confirmation = self._confirmations[poc_id]
             except KeyError as error:
@@ -687,7 +1023,15 @@ class ProcessLocalPerformanceLifecycleService:
                     raise PerformanceLifecycleNotFound(
                         "Agreement preparation was not found."
                     )
-                return PerformanceLifecycleSnapshot(None, None, False, None, None)
+                return PerformanceLifecycleSnapshot(
+                    None,
+                    None,
+                    False,
+                    None,
+                    None,
+                    self._revisions.get(poc_id),
+                    len(self._history.get(poc_id, ())),
+                )
             preparation = self._current_preparation(poc_id)
             invitation = self._review_invitations.get(poc_id)
             return PerformanceLifecycleSnapshot(
@@ -699,6 +1043,8 @@ class ProcessLocalPerformanceLifecycleService:
                 ),
                 self._confirmations.get(poc_id),
                 self._frozen.get(poc_id),
+                self._revisions.get(poc_id),
+                len(self._history.get(poc_id, ())),
             )
 
     def frozen_bundle(
@@ -728,6 +1074,8 @@ class ProcessLocalPerformanceLifecycleService:
 
 __all__ = [
     "AgreementPreparation",
+    "AgreementRevision",
+    "AgreementVersionRecord",
     "LifecycleWriteResult",
     "PerformanceLifecycleCapacityExceeded",
     "PerformanceLifecycleConflict",

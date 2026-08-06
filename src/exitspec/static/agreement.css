@@ -697,6 +697,18 @@
   max-width: 210px;
 }
 
+.revision-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.revision-panel .review-actions {
+  grid-template-columns: minmax(180px, 240px);
+  align-content: center;
+  justify-content: center;
+  margin: 0;
+  padding: 18px;
+}
+
 .agreement-details {
   margin-top: 10px;
   border: 1px solid var(--border);

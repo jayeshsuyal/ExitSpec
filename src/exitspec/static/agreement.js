@@ -5,6 +5,7 @@
   const PROPOSAL_ID_PATTERN = /^prop_[a-z0-9][a-z0-9_-]{7,95}$/;
   const DEFINITION_ID_PATTERN = /^cdef_[a-f0-9]{32}$/;
   const DRAFT_ID_PATTERN = /^agd_[a-f0-9]{32,64}$/;
+  const REVISION_ID_PATTERN = /^agrrev_[a-f0-9]{32}$/;
   const CONFIRMATION_ID_PATTERN = /^cnf_[a-f0-9]{64}$/;
   const REVIEW_ID_PATTERN = /^review-[a-f0-9]{24}$/;
   const REVIEW_URL_PATTERN = /^\/review\/[A-Za-z0-9_-]{32,512}$/;
@@ -64,6 +65,8 @@
     "frozen_contract",
     "not_proven_claims",
     "poc_id",
+    "revision",
+    "superseded_version_count",
   ]);
   const COUNTING_POLICY_KEYS = Object.freeze([
     "exact_attempts",
@@ -112,12 +115,15 @@
     "unit",
   ]);
   const DRAFT_KEYS = Object.freeze([
+    "contract_id",
+    "contract_version",
     "created_at",
     "draft_id",
     "draft_sha256",
     "endpoint",
     "endpoint_class",
     "model",
+    "parent_version",
     "rationale",
     "reviewer",
     "target_provider",
@@ -142,11 +148,23 @@
     "canonical_hash",
     "confirmation_id",
     "contract_id",
+    "contract_version",
     "endpoint",
     "endpoint_class",
     "frozen_at",
     "model",
+    "parent_version",
     "target_provider",
+  ]);
+  const REVISION_KEYS = Object.freeze([
+    "contract_version",
+    "parent_contract_id",
+    "parent_contract_version",
+    "parent_draft_sha256",
+    "request_rationale",
+    "requested_at",
+    "revision_id",
+    "revision_number",
   ]);
   const routeMatch =
     window.location.search === "" && window.location.hash === ""
@@ -158,6 +176,7 @@
   const agreementApi = pocId ? `/api/pocs/${pocId}/agreement` : null;
   const reviewApi = agreementApi ? `${agreementApi}/review` : null;
   const freezeApi = agreementApi ? `${agreementApi}/freeze` : null;
+  const revisionApi = agreementApi ? `${agreementApi}/revision` : null;
 
   const workbench = document.querySelector("#agreement-workbench");
   const draftForm = document.querySelector("#create-draft-form");
@@ -198,6 +217,9 @@
   const changesRequestedActions = document.querySelector(
     "#changes-requested-actions"
   );
+  const startRevisionButton = document.querySelector("#start-revision");
+  const revisionPanel = document.querySelector("#revision-panel");
+  const continueRevision = document.querySelector("#continue-revision");
   const freezePanel = document.querySelector("#freeze-panel");
   const freezeForm = document.querySelector("#freeze-form");
   const freezeButton = document.querySelector("#freeze-contract");
@@ -219,6 +241,7 @@
   let pendingDraftAttempt = null;
   let pendingReviewReissueAttempt = null;
   let pendingFreezeAttempt = null;
+  let pendingRevisionAttempt = null;
 
   class SafeRequestError extends Error {
     constructor(statusCode, retrySameAttempt) {
@@ -266,6 +289,25 @@
       value >= minimum &&
       value <= maximum
     );
+  }
+
+  function isContractVersion(value) {
+    return typeof value === "string" && /^[1-9]\d*$/.test(value);
+  }
+
+  function hasValidVersionLineage(value) {
+    if (
+      !value ||
+      !isSingleLineText(value.contract_id, 160) ||
+      !isContractVersion(value.contract_version)
+    ) {
+      return false;
+    }
+    const numericVersion = Number(value.contract_version);
+    return numericVersion === 1
+      ? value.parent_version === null
+      : value.parent_version ===
+          `${value.contract_id}@${numericVersion - 1}`;
   }
 
   function isTrustedTimestamp(value) {
@@ -338,7 +380,8 @@
           (value === pocApi ||
             value === agreementApi ||
             value === reviewApi ||
-            value === freezeApi)
+            value === freezeApi ||
+            value === revisionApi)
       );
     } catch {
       return false;
@@ -435,6 +478,7 @@
       hasExactKeys(draft, DRAFT_KEYS) &&
         DRAFT_ID_PATTERN.test(draft.draft_id) &&
         SHA256_PATTERN.test(draft.draft_sha256) &&
+        hasValidVersionLineage(draft) &&
         isTrustedTimestamp(draft.created_at) &&
         isSingleLineText(draft.target_provider, 160) &&
         isSingleLineText(draft.endpoint_class, 160) &&
@@ -478,7 +522,7 @@
   function isTrustedFrozenContract(contract) {
     return Boolean(
       hasExactKeys(contract, FROZEN_CONTRACT_KEYS) &&
-        isSingleLineText(contract.contract_id, 160) &&
+        hasValidVersionLineage(contract) &&
         SHA256_PATTERN.test(contract.canonical_hash) &&
         CONFIRMATION_ID_PATTERN.test(contract.confirmation_id) &&
         isTrustedTimestamp(contract.frozen_at) &&
@@ -487,6 +531,25 @@
         isExactTargetUrl(contract.endpoint) &&
         isSingleLineText(contract.model, 300)
     );
+  }
+
+  function isTrustedRevision(revision) {
+    if (
+      !hasExactKeys(revision, REVISION_KEYS) ||
+      !REVISION_ID_PATTERN.test(revision.revision_id) ||
+      !isExactInteger(revision.revision_number, 1, 32) ||
+      !isSingleLineText(revision.parent_contract_id, 160) ||
+      !isContractVersion(revision.parent_contract_version) ||
+      !isContractVersion(revision.contract_version) ||
+      Number(revision.contract_version) !== revision.revision_number + 1 ||
+      Number(revision.parent_contract_version) !== revision.revision_number ||
+      !SHA256_PATTERN.test(revision.parent_draft_sha256) ||
+      !isTrustedTimestamp(revision.requested_at) ||
+      !isSafeBoundedText(revision.request_rationale, 2000)
+    ) {
+      return false;
+    }
+    return true;
   }
 
   function isTrustedCountingPolicy(policy) {
@@ -539,7 +602,12 @@
       (payload.confirmation !== null &&
         !isTrustedConfirmation(payload.confirmation)) ||
       (payload.frozen_contract !== null &&
-        !isTrustedFrozenContract(payload.frozen_contract))
+        !isTrustedFrozenContract(payload.frozen_contract)) ||
+      (payload.revision !== null && !isTrustedRevision(payload.revision)) ||
+      !isExactInteger(payload.superseded_version_count, 0, 32) ||
+      (payload.revision === null && payload.superseded_version_count !== 0) ||
+      (payload.revision !== null &&
+        payload.superseded_version_count !== payload.revision.revision_number)
     ) {
       return false;
     }
@@ -568,6 +636,16 @@
       return false;
     }
     if (payload.draft !== null && payload.counting_policy === null) {
+      return false;
+    }
+    if (
+      payload.draft !== null &&
+      payload.revision !== null &&
+      (payload.draft.contract_id !== payload.revision.parent_contract_id ||
+        payload.draft.contract_version !== payload.revision.contract_version ||
+        payload.draft.parent_version !==
+          `${payload.revision.parent_contract_id}@${payload.revision.parent_contract_version}`)
+    ) {
       return false;
     }
     if (
@@ -613,7 +691,15 @@
         payload.draft.endpoint === attempt.payload.endpoint &&
         payload.draft.model === attempt.payload.model &&
         payload.draft.reviewer === attempt.payload.reviewer &&
-        payload.draft.rationale === attempt.payload.rationale
+        payload.draft.rationale === attempt.payload.rationale &&
+        (agreementState?.revision === null
+          ? payload.draft.contract_version === "1" &&
+            payload.draft.parent_version === null
+          : agreementState?.revision !== null &&
+            payload.draft.contract_id ===
+              agreementState.revision.parent_contract_id &&
+            payload.draft.contract_version ===
+              agreementState.revision.contract_version)
     );
   }
 
@@ -628,6 +714,9 @@
         agreementState.confirmation &&
         payload.frozen_contract.confirmation_id ===
           agreementState.confirmation.confirmation_id &&
+        payload.frozen_contract.contract_id === agreementState.draft.contract_id &&
+        payload.frozen_contract.contract_version ===
+          agreementState.draft.contract_version &&
         targetMatches(payload.frozen_contract, agreementState.draft)
     );
   }
@@ -639,6 +728,23 @@
         DISPOSITIONS.includes(payload.disposition) &&
         isTrustedCustomerReview(payload.customer_review) &&
         payload.customer_review.status === "PENDING"
+    );
+  }
+
+  function isTrustedRevisionActionResponse(payload) {
+    return Boolean(
+      hasExactKeys(payload, ["disposition", "poc_id", "revision"]) &&
+        payload.poc_id === pocId &&
+        DISPOSITIONS.includes(payload.disposition) &&
+        isTrustedRevision(payload.revision) &&
+        agreementState?.draft !== null &&
+        agreementState?.confirmation?.decision === "REQUEST_CHANGES" &&
+        payload.revision.parent_contract_id ===
+          agreementState.draft.contract_id &&
+        payload.revision.parent_contract_version ===
+          agreementState.draft.contract_version &&
+        payload.revision.parent_draft_sha256 ===
+          agreementState.draft.draft_sha256
     );
   }
 
@@ -968,6 +1074,10 @@
         : "pending";
     pendingReviewActions.hidden = changesRequested;
     changesRequestedActions.hidden = !changesRequested;
+    startRevisionButton.disabled = !changesRequested || inFlight !== null;
+    startRevisionButton.textContent = pendingRevisionAttempt
+      ? "Retry start revision"
+      : "Start revision";
     customerReviewLink.hidden = expired;
     refreshCustomerReviewButton.hidden = expired;
     refreshCustomerReviewButton.disabled = inFlight !== null;
@@ -978,7 +1088,9 @@
       customerReviewState.textContent = "Review complete";
       customerReviewHeading.textContent = "Customer requested changes";
       confirmationStatus.textContent =
-        "This agreement cannot be frozen or edited in place.";
+        inFlight === "revision"
+          ? "Preserving this version and opening the revision…"
+          : "This version cannot be frozen or edited in place.";
       return;
     }
 
@@ -1069,6 +1181,54 @@
     }
   }
 
+  async function startRevision() {
+    if (
+      inFlight !== null ||
+      !agreementState ||
+      agreementState.confirmation?.decision !== "REQUEST_CHANGES" ||
+      agreementState.frozen_contract !== null
+    ) {
+      return;
+    }
+    if (!pendingRevisionAttempt) {
+      const idempotencyKey = newOperationKey("agreement-revision");
+      if (!idempotencyKey) {
+        confirmationStatus.textContent =
+          "A safe revision operation key could not be created.";
+        return;
+      }
+      pendingRevisionAttempt = {
+        payload: { idempotency_key: idempotencyKey },
+      };
+    }
+    inFlight = "revision";
+    clearError();
+    renderCustomerReviewState();
+    try {
+      const response = await requestJson(revisionApi, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingRevisionAttempt.payload),
+      });
+      if (!isTrustedRevisionActionResponse(response)) {
+        throw new SafeRequestError(200, true);
+      }
+      pendingRevisionAttempt = null;
+      const destination = `/app/pocs/${encodeURIComponent(pocId)}/sources/new`;
+      window.location.replace(destination);
+    } catch (error) {
+      inFlight = null;
+      if (error instanceof SafeRequestError && !error.retrySameAttempt) {
+        pendingRevisionAttempt = null;
+      }
+      confirmationStatus.textContent =
+        "The revision was not started. Retry the same attempt safely.";
+      errorPanel.textContent = safeFailureCopy(error, "revision");
+      errorPanel.hidden = false;
+      startRevisionButton.disabled = false;
+    }
+  }
+
   function setCurrentStep(stepName) {
     const steps = [
       ["draft", document.querySelector("#step-draft")],
@@ -1088,7 +1248,13 @@
   }
 
   function showOnly(panel) {
-    [draftForm, confirmationPanel, freezePanel, completionPanel].forEach(
+    [
+      draftForm,
+      confirmationPanel,
+      revisionPanel,
+      freezePanel,
+      completionPanel,
+    ].forEach(
       (item) => {
         item.hidden = item !== panel;
       }
@@ -1148,13 +1314,30 @@
           : "Get the customer decision";
       document.querySelector("#current-task-copy").textContent =
         changesRequested
-          ? "This immutable local POC stops here. Start a new POC to revise it."
+          ? "Preserve this version, then capture the requested change as new source evidence."
           : "Share the separate review link. Freeze unlocks only after confirmation.";
       if (!changesRequested) {
         customerReviewLink.focus({ preventScroll: true });
       } else {
-        document.querySelector("#start-new-poc").focus({ preventScroll: true });
+        startRevisionButton.focus({ preventScroll: true });
       }
+      return;
+    }
+
+    if (
+      agreementState.revision !== null &&
+      !hasExecutableDefinitionPair(agreementState.definitions)
+    ) {
+      showOnly(revisionPanel);
+      setCurrentStep("draft");
+      document.querySelector("#current-task-heading").textContent =
+        `Build agreement version ${agreementState.revision.contract_version}`;
+      document.querySelector("#current-task-copy").textContent =
+        "Capture, review, and define the customer's requested changes before drafting.";
+      document.querySelector("#revision-copy").textContent =
+        `Version ${agreementState.revision.parent_contract_version} is preserved. Continue from the workspace to build version ${agreementState.revision.contract_version}.`;
+      continueRevision.href = "/app";
+      revisionPanel.focus();
       return;
     }
 
@@ -1186,6 +1369,7 @@
     customerReviewLink.setAttribute("aria-disabled", "true");
     refreshCustomerReviewButton.disabled = true;
     reissueCustomerReviewButton.disabled = true;
+    startRevisionButton.disabled = true;
     freezeButton.disabled = true;
     draftStatus.textContent = "Agreement drafting is unavailable.";
     confirmationStatus.textContent = "Agreement confirmation is unavailable.";
@@ -1210,6 +1394,7 @@
 
   refreshCustomerReviewButton.addEventListener("click", refreshCustomerReview);
   reissueCustomerReviewButton.addEventListener("click", reissueCustomerReview);
+  startRevisionButton.addEventListener("click", startRevision);
 
   draftForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1355,7 +1540,14 @@
   });
 
   async function initialise() {
-    if (!pocId || !pocApi || !agreementApi || !reviewApi || !freezeApi) {
+    if (
+      !pocId ||
+      !pocApi ||
+      !agreementApi ||
+      !reviewApi ||
+      !freezeApi ||
+      !revisionApi
+    ) {
       blockAgreement(
         "This agreement address is invalid. Return to the POC workspace."
       );
@@ -1389,6 +1581,7 @@
     pendingDraftAttempt = null;
     pendingReviewReissueAttempt = null;
     pendingFreezeAttempt = null;
+    pendingRevisionAttempt = null;
     draftControls.forEach((control) => {
       control.value = "";
     });

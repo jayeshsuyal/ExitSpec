@@ -162,6 +162,9 @@ def prepare_performance_bundle(
     warmup_count: int = 10,
     timeout_seconds: float = 30.0,
     max_stream_bytes: int = MAX_STREAM_BYTES,
+    contract_id: str | None = None,
+    contract_version: str = "1",
+    parent_version: str | None = None,
 ) -> PreparedPerformanceBundle:
     """Create one exact approved contract and validate it with the real runner."""
 
@@ -195,6 +198,39 @@ def prepare_performance_bundle(
         raise PerformanceContractAssemblyError(
             "Server-owned workload configuration is outside runner bounds."
         )
+    if (
+        type(contract_version) is not str
+        or not contract_version.isdigit()
+        or int(contract_version) < 1
+        or str(int(contract_version)) != contract_version
+        or (
+            contract_id is None
+            and (contract_version != "1" or parent_version is not None)
+        )
+        or (
+            contract_id is not None
+            and (
+                type(contract_id) is not str
+                or not contract_id.startswith("agreement-")
+                or not 3 <= len(contract_id) <= 64
+            )
+        )
+        or (contract_version == "1" and parent_version is not None)
+        or (
+            contract_version != "1"
+            and (
+                contract_id is None
+                or parent_version
+                != "{0}@{1}".format(
+                    contract_id,
+                    int(contract_version) - 1,
+                )
+            )
+        )
+    ):
+        raise PerformanceContractAssemblyError(
+            "Contract revision identity is outside supported bounds."
+        )
 
     kept = _kept_proposals(draft.poc_id, proposals)
     ttft, error_rate, bindings = _definition_pair(
@@ -220,7 +256,11 @@ def prepare_performance_bundle(
         b"exitspec-performance-bundle-identity-v1\x00" + identity_seed
     ).hexdigest()
     workload_id = "perf-{0}".format(identity[:20])
-    contract_id = "agreement-{0}".format(identity[:20])
+    resolved_contract_id = (
+        "agreement-{0}".format(identity[:20])
+        if contract_id is None
+        else contract_id
+    )
     prompt_path = "generated/{0}/prompts-v1.jsonl".format(draft.poc_id)
     workload_path = "generated/{0}/workload-v1.json".format(draft.poc_id)
 
@@ -373,8 +413,8 @@ def prepare_performance_bundle(
         *_excluded_claim_limitations(proposals),
     )
     contract = POCContract(
-        id=contract_id,
-        version="1",
+        id=resolved_contract_id,
+        version=contract_version,
         status=ContractStatus.APPROVED,
         created_at=prepared_at,
         approved_at=prepared_at,
@@ -396,6 +436,7 @@ def prepare_performance_bundle(
             "Retain the approved synthetic prompt fixture and redacted "
             "measurement artifacts; never persist credentials or response text."
         ),
+        parent_version=parent_version,
     )
     context = validate_performance_context_bytes(
         contract,
