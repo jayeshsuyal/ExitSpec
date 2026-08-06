@@ -179,10 +179,15 @@ does so contradicts the frozen rule and is rejected as a valid recording.
 - A backup local pack may be prepared for event reliability, but it must come
   from the same frozen deterministic sample.
 
-Manual real-browser observations of six representative task states are
-acceptance evidence for those states, not exhaustive every-state coverage or CI
-browser automation. The frozen contract still requires its no-scroll oracle at
-every guided step. The separate machine-readable implementation record is
-`examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; the
-frozen Wave 2 contracts remain unchanged, including the source-web contract's
-historical pre-implementation fields.
+The Wave 2 record retains its historical manual observations. The v0.1 release
+gate additionally runs clean-process Chromium coverage for the dynamic email
+and synthetic meeting journeys, plus the complete Python and distribution
+suites. The frozen no-scroll, narrow-width, compatibility, and authority gates
+remain executable requirements rather than screenshot claims.
+
+Separate machine-readable status records are:
+
+- `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; and
+- `examples/product/poc-workspace-implementation-evidence-v1.json`.
+
+Neither record rewrites its frozen acceptance contract.

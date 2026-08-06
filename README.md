@@ -200,6 +200,16 @@ python3 -m pip install -e '.[dev]'
 exitspec serve --open-browser
 ```
 
+For a release candidate, install the browser extra and run the single v0.1
+gate. This makes both clean-process Chromium journeys mandatory in addition to
+the complete engineering gate:
+
+```bash
+python3 -m pip install -e '.[dev,browser]'
+python3 -m playwright install chromium
+./scripts/v0_1_release_gate.sh
+```
+
 The POC dashboard is served at `http://127.0.0.1:8765/app`; its seeded
 support-agent workbench is at
 `http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`, and its read-only
@@ -278,8 +288,10 @@ The wheel includes the deterministic discovery pack, review plan, contract seed,
 frozen contracts, fixtures, validated inference-performance workspace bundle,
 and browser assets. Installed `define`, `demo`, and `serve` flows therefore work
 outside the repository. CI runs the same `engineering_gate.sh` entry point used
-locally on Python 3.12 and 3.13. The gate checks browser JavaScript syntax, the
-full Python suite, the installed-wheel distribution, and patch hygiene.
+locally on Python 3.12 and 3.13, plus a separate clean-process Chromium job. The
+release wrapper composes both locally. See the
+[v0.1 release gate](docs/RELEASE_V0_1.md) and the machine-readable
+[workspace implementation evidence](examples/product/poc-workspace-implementation-evidence-v1.json).
 
 ## Verdicts
 
@@ -333,6 +345,7 @@ repository yet.
 - [Engineering playbook](docs/ENGINEERING_PLAYBOOK.md)
 - [Demo plan](docs/DEMO_PLAN.md)
 - [Three-minute product demo](docs/DEMO_RUNBOOK.md)
+- [v0.1 release gate](docs/RELEASE_V0_1.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Contract specification](docs/CONTRACT_SPEC.md)
@@ -345,6 +358,8 @@ repository yet.
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)
 - [Wave 2 source web contract](docs/SOURCE_WEB_CONTRACT.md)
 - [Wave 2 email demo runbook](docs/WAVE2_EMAIL_DEMO_RUNBOOK.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security reporting](SECURITY.md)
 
 ## License
 

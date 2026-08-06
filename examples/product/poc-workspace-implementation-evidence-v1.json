@@ -1,0 +1,342 @@
+{
+  "schema_version": "1.0.0",
+  "evidence_id": "exitspec-poc-workspace-implementation-v1",
+  "evidence_version": "1.0.0",
+  "recorded_on": "2026-08-05",
+  "status": "REPRODUCIBLE_IMPLEMENTATION_EVIDENCE",
+  "release_scope": {
+    "classification": "LOCAL_OPEN_SOURCE_DEMO",
+    "package_version": "0.1.0",
+    "implementation_baseline_commit": "44dcfb95c8dd9704081867d11335b377c2549865",
+    "expected_release_tag": "v0.1.0",
+    "release_gate_command": "./scripts/v0_1_release_gate.sh",
+    "external_provider_required": false,
+    "production_ready": false,
+    "frozen_contracts_mutated": false
+  },
+  "contract_baseline": {
+    "contract_id": "poc-workspace-acceptance-v1",
+    "path": "examples/product/poc-workspace-acceptance-v1.json",
+    "sha256": "4327bba2283912ab89ac2f5958bdcc2e8be81101e646697ae0fcc864f531a209",
+    "status": "FROZEN",
+    "mutation_policy": "immutable historical contract",
+    "historical_implementation_status_preserved": true
+  },
+  "release_gate": {
+    "clean_process_browser_test": "tests/test_browser_new_id_flow.py::test_new_id_email_flow_reaches_completed_pass_evidence_pack",
+    "synthetic_meeting_browser_test": "tests/test_browser_new_id_flow.py::test_meeting_microphone_demo_records_consent_before_review_handoff",
+    "built_wheel_test": "tests/test_distribution.py::test_wheel_runs_demo_and_materializes_session_data_outside_checkout",
+    "browser_environment_flag": "EXITSPEC_BROWSER_E2E=1",
+    "provider_mode": "disabled",
+    "input_classification": "approved synthetic data only"
+  },
+  "acceptance_gate_evidence": [
+    {
+      "gate_id": "WS-01",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "POCs are the primary product objects and email, meeting, document, and existing-contract inputs remain source choices inside a POC.",
+      "code_refs": [
+        "src/exitspec/static/dashboard.html",
+        "src/exitspec/static/new_poc.html",
+        "src/exitspec/poc_source_intake.py"
+      ],
+      "positive_test_refs": [
+        "tests/test_dashboard_professional_ui.py::test_dashboard_is_a_direct_continuation_work_queue",
+        "tests/test_poc_creation.py::test_first_source_choice_only_selects_the_next_intake_route"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_poc_source_intake.py::test_same_source_isolated_beneath_two_pocs_and_key_reuse_cannot_cross"
+      ]
+    },
+    {
+      "gate_id": "WS-02",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "The dashboard has one New POC action, at most one continuation card, one bounded POC list, and exactly three filters.",
+      "code_refs": [
+        "src/exitspec/static/dashboard.html",
+        "src/exitspec/static/dashboard.js",
+        "src/exitspec/workspace.py"
+      ],
+      "positive_test_refs": [
+        "tests/test_dashboard_assets.py::test_dashboard_has_one_real_create_action_and_three_bounded_filters",
+        "tests/test_workspace_projection.py::test_dashboard_order_and_continue_card_are_deterministic"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_dashboard_web.py::test_workspace_api_rejects_unbounded_or_ambiguous_filters"
+      ]
+    },
+    {
+      "gate_id": "WS-03",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Each dashboard row exposes the exact derived next action or blocker without requiring the POC to be opened.",
+      "code_refs": [
+        "src/exitspec/workspace.py",
+        "src/exitspec/static/dashboard.js"
+      ],
+      "positive_test_refs": [
+        "tests/test_workspace_projection.py::test_projection_serializes_required_workspace_contract_fields",
+        "tests/test_dashboard_professional_ui.py::test_continue_working_uses_the_authoritative_projection_without_selection"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_workspace_projection.py::test_inconsistent_underlying_truth_never_guesses_advanced_phase"
+      ]
+    },
+    {
+      "gate_id": "WS-04",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Creating a local POC writes identity only and creates no source, agreement, confirmation, freeze, measurement, evidence, or provider authority.",
+      "code_refs": [
+        "src/exitspec/poc_creation.py",
+        "src/exitspec/static/new_poc.js"
+      ],
+      "positive_test_refs": [
+        "tests/test_poc_creation_web.py::test_post_creates_identity_only_and_get_is_read_only",
+        "tests/test_poc_creation.py::test_creation_domain_exposes_zero_downstream_authority"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_poc_creation_web.py::test_conflicting_idempotency_key_fails_without_duplicate"
+      ]
+    },
+    {
+      "gate_id": "WS-05",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_E2E",
+      "claim": "The approved synthetic email path runs inside one POC and remains review-only until explicit human actions advance the existing agreement spine.",
+      "code_refs": [
+        "src/exitspec/poc_source_intake.py",
+        "src/exitspec/source_web.py",
+        "src/exitspec/web.py"
+      ],
+      "positive_test_refs": [
+        "tests/test_browser_new_id_flow.py::test_new_id_email_flow_reaches_completed_pass_evidence_pack",
+        "tests/test_poc_source_intake.py::test_only_approved_email_fixtures_become_review_proposals"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_poc_source_intake.py::test_authority_attack_cannot_approve_freeze_run_or_assign_pass"
+      ]
+    },
+    {
+      "gate_id": "WS-06",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_E2E",
+      "claim": "A synthetic meeting transcript attaches to the selected POC through the same review-only source boundary without requiring raw audio.",
+      "code_refs": [
+        "src/exitspec/poc_source_intake.py",
+        "src/exitspec/stt_handoff.py",
+        "src/exitspec/static/source_intake.js"
+      ],
+      "positive_test_refs": [
+        "tests/test_poc_source_intake.py::test_meeting_is_redacted_parsed_and_deterministically_anchored",
+        "tests/test_browser_new_id_flow.py::test_meeting_microphone_demo_records_consent_before_review_handoff"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_poc_source_intake.py::test_meeting_refuses_malformed_or_oversized_input_without_a_write"
+      ]
+    },
+    {
+      "gate_id": "WS-07",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Material source or customer changes create explicit successor agreement versions and never mutate the bound confirmed or frozen version.",
+      "code_refs": [
+        "src/exitspec/poc_proposal_review.py",
+        "src/exitspec/poc_performance_lifecycle.py",
+        "src/exitspec/confirmations.py"
+      ],
+      "positive_test_refs": [
+        "tests/test_poc_performance_lifecycle_web_api.py::test_requested_changes_open_a_source_backed_v2_without_mutating_v1",
+        "tests/test_poc_proposal_review.py::test_new_source_adds_needs_review_without_mutating_prior_decision"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_poc_source_intake.py::test_changed_contract_identity_requires_explicit_revision"
+      ]
+    },
+    {
+      "gate_id": "WS-08",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Agreement lifecycle and evidence verdict are projected and rendered as separate states.",
+      "code_refs": [
+        "src/exitspec/workspace.py",
+        "src/exitspec/static/dashboard.js",
+        "src/exitspec/static/proof.js"
+      ],
+      "positive_test_refs": [
+        "tests/test_dashboard_professional_ui.py::test_agreement_and_evidence_are_distinct_non_invented_boundaries",
+        "tests/test_workspace_projection.py::test_terminal_verdicts_project_decide_without_changing_verdict"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_dynamic_performance_proof_ui.py::test_execution_state_never_impersonates_an_evidence_verdict"
+      ]
+    },
+    {
+      "gate_id": "WS-09",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "Primary product surfaces use the frozen graphite and orange visual contract while reserving success green for PASS.",
+      "code_refs": [
+        "src/exitspec/static/dashboard.css",
+        "src/exitspec/static/workbench.css",
+        "src/exitspec/static/review.css"
+      ],
+      "positive_test_refs": [
+        "tests/test_dashboard_assets.py::test_dashboard_palette_matches_the_frozen_graphite_orange_contract",
+        "tests/test_product_ui_uniformity.py::test_static_theme_avoids_gimmicks_and_tiny_product_copy"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_web_assets.py::test_workbench_keeps_detail_progressive_and_uses_proof_sheet_palette"
+      ]
+    },
+    {
+      "gate_id": "WS-10",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_E2E",
+      "claim": "The normal 1280 by 720 dashboard and guided workbench use a bounded application shell without workflow-length body scrolling.",
+      "code_refs": [
+        "src/exitspec/static/dashboard.css",
+        "src/exitspec/static/workbench.css",
+        "src/exitspec/static/styles.css"
+      ],
+      "positive_test_refs": [
+        "tests/test_workbench_continuity_ui.py::test_workbench_is_bounded_at_1280x720_and_reflows_when_narrow_or_zoomed",
+        "tests/test_browser_new_id_flow.py::test_new_id_email_flow_reaches_completed_pass_evidence_pack"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_dashboard_assets.py::test_dashboard_desktop_is_fixed_and_narrow_layout_reenables_body_scroll"
+      ]
+    },
+    {
+      "gate_id": "WS-11",
+      "status": "PROVEN_BY_REFERENCED_TESTS",
+      "claim": "At narrow width the product reflows without horizontal body overflow, keeps visible focus, and does not rely on colour alone.",
+      "code_refs": [
+        "src/exitspec/static/dashboard.css",
+        "src/exitspec/static/workbench.css",
+        "src/exitspec/static/proof.css"
+      ],
+      "positive_test_refs": [
+        "tests/test_dashboard_assets.py::test_dashboard_focus_and_non_color_status_contracts_are_explicit",
+        "tests/test_dynamic_performance_proof_ui.py::test_proof_ui_reuses_graphite_orange_theme_and_accessible_focus"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_dashboard_professional_ui.py::test_dashboard_is_bounded_on_desktop_and_reflows_at_320px"
+      ]
+    },
+    {
+      "gate_id": "WS-12",
+      "status": "PROVEN_BY_REFERENCED_TESTS_AND_BROWSER_E2E",
+      "claim": "Dashboard, recording, review, dynamic POC, Evidence Pack, and compatibility routes resolve without conflating their identities.",
+      "code_refs": [
+        "src/exitspec/web.py",
+        "src/exitspec/static/dashboard.js",
+        "src/exitspec/static/review.js"
+      ],
+      "positive_test_refs": [
+        "tests/test_dashboard_web.py::test_compatibility_queries_continue_to_open_the_workbench",
+        "tests/test_browser_new_id_flow.py::test_new_id_email_flow_reaches_completed_pass_evidence_pack"
+      ],
+      "adversarial_test_refs": [
+        "tests/test_dashboard_web.py::test_unknown_poc_route_fails_closed",
+        "tests/test_web_assets.py::test_customer_confirmation_returns_only_to_valid_seeded_or_dynamic_pocs"
+      ]
+    }
+  ],
+  "adversarial_release_scenarios": [
+    {
+      "scenario_id": "clean_start_dynamic_email_pass_and_handoff",
+      "expected": "A fresh process creates a new POC and reaches a verified PASS Evidence Pack and completed human handoff.",
+      "test_refs": [
+        "tests/test_browser_new_id_flow.py::test_new_id_email_flow_reaches_completed_pass_evidence_pack"
+      ]
+    },
+    {
+      "scenario_id": "synthetic_meeting_consent_and_review_handoff",
+      "expected": "The default microphone demo records consent before attaching a synthetic, review-only meeting source.",
+      "test_refs": [
+        "tests/test_browser_new_id_flow.py::test_meeting_microphone_demo_records_consent_before_review_handoff"
+      ]
+    },
+    {
+      "scenario_id": "versioned_customer_change",
+      "expected": "A requested material change produces a successor agreement and cannot mutate or authorize its predecessor.",
+      "test_refs": [
+        "tests/test_poc_performance_lifecycle_web_api.py::test_requested_changes_open_a_source_backed_v2_without_mutating_v1",
+        "tests/test_confirmation_web.py::test_request_changes_can_start_a_structured_new_contract_version"
+      ]
+    },
+    {
+      "scenario_id": "strict_fail",
+      "expected": "One measured error in 100 fails the frozen strict error-rate rule.",
+      "test_refs": [
+        "tests/test_performance_runner.py::test_exactly_one_measured_error_of_one_hundred_fails_strict_rule"
+      ]
+    },
+    {
+      "scenario_id": "external_block",
+      "expected": "A failed endpoint preflight is BLOCKED and starts no measured population.",
+      "test_refs": [
+        "tests/test_performance_runner.py::test_failed_preflight_is_blocked_and_never_starts_measurement"
+      ]
+    },
+    {
+      "scenario_id": "invalid_evidence_not_proven",
+      "expected": "Malformed or internally invalid evidence is NOT_PROVEN and never becomes PASS.",
+      "test_refs": [
+        "tests/test_performance_runner.py::test_malformed_preflight_is_not_proven_not_external_block"
+      ]
+    },
+    {
+      "scenario_id": "artifact_tamper_rejected",
+      "expected": "Mutation of any hashed artifact is rejected before a result or Evidence Pack URL is released.",
+      "test_refs": [
+        "tests/test_performance_artifacts.py::test_tampering_any_hashed_artifact_is_rejected",
+        "tests/test_performance_web_adapters.py::test_tampered_artifact_fails_before_url_release"
+      ]
+    },
+    {
+      "scenario_id": "replay_is_idempotent",
+      "expected": "Exact source replay creates no duplicate source and preserves the original receipt.",
+      "test_refs": [
+        "tests/test_poc_source_web_transport.py::test_transport_replay_does_not_create_a_second_source"
+      ]
+    },
+    {
+      "scenario_id": "reset_revokes_stale_review_authority",
+      "expected": "Reset invalidates the old review link and confirmation state before another workflow begins.",
+      "test_refs": [
+        "tests/test_confirmation_web.py::test_reset_invalidates_customer_review_link_and_confirmation_state"
+      ]
+    },
+    {
+      "scenario_id": "built_wheel_outside_checkout",
+      "expected": "The packaged CLI runs and materializes synthetic session data outside the source checkout.",
+      "test_refs": [
+        "tests/test_distribution.py::test_wheel_runs_demo_and_materializes_session_data_outside_checkout"
+      ]
+    }
+  ],
+  "limitations": [
+    {
+      "limitation_id": "local_process_scope",
+      "statement": "The browser workspace, review links, decisions, and POC history are local, process-scoped, unauthenticated, and non-durable."
+    },
+    {
+      "limitation_id": "synthetic_data_only",
+      "statement": "The release gate uses approved synthetic email, transcript, prompt, and reference fixtures only."
+    },
+    {
+      "limitation_id": "no_live_connectors",
+      "statement": "No Gmail, Outlook, Zoom, Google Meet, Teams, mailbox OAuth, webhook, or meeting-bot integration is claimed."
+    },
+    {
+      "limitation_id": "provider_smoke_pending",
+      "statement": "Fireworks authoring and prerecorded STT remain optional and disabled by default; no successful funded live-account smoke is claimed."
+    },
+    {
+      "limitation_id": "no_real_inference_result",
+      "statement": "The local performance target proves the ExitSpec loop, not vLLM, GPU, provider, or production performance."
+    },
+    {
+      "limitation_id": "no_production_authorization",
+      "statement": "PASS never authorizes deployment, spend, procurement, security approval, or production traffic."
+    },
+    {
+      "limitation_id": "not_production_ready",
+      "statement": "This v0.1 scope is a reproducible local open-source demo, not an authenticated, tenant-isolated, production deployment."
+    }
+  ]
+}

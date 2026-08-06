@@ -40,20 +40,26 @@ POC Acceptance Evidence Pack
 Missing, invalid, or insufficient evidence never becomes `PASS`. Agreement,
 measurement, verdict, and business authorization are separate authorities.
 
-## Accepted POC workspace target
+## Implemented local POC workspace
 
-The implemented local product still owns one process-scoped demo session. The
-next architecture target is accepted in
+The implemented local product owns one process-scoped demo session. Its
+workspace architecture is defined in
 [POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and frozen in
 [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
-The overall workspace remains contract-only. Its first two implementation
-slices are now present: `workspace.py` provides immutable registry entries, an
-immutable registry snapshot, strict workflow facts, deterministic POC
-projections, bounded filters, and continue-card ordering; `/app` renders the
-projection as the read-only POC dashboard. Neither surface has mutation methods.
+The acceptance file remains an immutable historical contract, including its
+pre-implementation status block. The separate
+[workspace implementation evidence](../examples/product/poc-workspace-implementation-evidence-v1.json)
+maps every frozen gate to executable positive and adversarial proof.
 
-The target introduces a POC aggregate above the existing source, agreement, run,
-and evidence services:
+`workspace.py` provides immutable registry entries, strict workflow facts,
+deterministic POC projections, bounded filters, and continue-card ordering;
+`/app` renders that projection as the read-only POC dashboard. Draft creation,
+source capture, proposal review, criterion definition, customer agreement,
+freeze, proof, Evidence Pack history, and closure delegate to their dedicated
+domain services rather than giving the dashboard write authority.
+
+The workspace introduces a POC aggregate above the existing source, agreement,
+run, and evidence services:
 
 ```text
 POC workspace projection
