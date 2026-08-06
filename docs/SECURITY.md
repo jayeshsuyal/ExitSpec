@@ -270,11 +270,21 @@ and retryable-looking provider failures do not automatically resend audio
 because the provider may already have accepted the first request.
 
 Operation success publishes only a content-free receipt and a request-local
-private transcript. Fake transports are the only implementation evidence. No
-credential, provider endpoint, external request, product upload route, durable
-audio, or physical-memory-zeroing claim exists. The receipt records the requested
-zero-retention policy and ExitSpec persistence state; it is not evidence that a
-future provider honored retention or deletion.
+private transcript. The provider-neutral seam is fake-proven, and one opt-in
+`FireworksSTTTransport` now pins the reviewed prerecorded host, path, model,
+region, multipart shape, timeout, and zero-retry behavior. Its credential is
+server-owned and read only when `--enable-fireworks-stt` is explicit. Automated
+tests use fake HTTPS connections; no funded live success is claimed. The
+receipt records the requested zero-retention policy and ExitSpec persistence
+state; it is not evidence that Fireworks honored retention or deletion for a
+particular request.
+
+The browser upload route accepts only one same-origin, consent-bound,
+EBML-signature `audio/webm` clip of at most 64 KiB and eight browser-declared
+seconds. The server never redirects or automatically retries audio. Known
+Fireworks credential, account, rate, timeout, service, transport, and malformed
+response failures are mapped to content-free codes; raw provider bodies are not
+rendered. The live mode remains synthetic-data-only and disabled by default.
 
 The transcript handoff accepts only a sealed operation result and checks its
 receipt/transcript bindings before reading private content. Provider speaker
@@ -319,6 +329,11 @@ candidate remains `NEEDS_REVIEW`.
 23. Concurrent or serial handoff replay creating duplicate sources or
     proposals.
 24. Changed transcript content reusing an existing STT operation identity.
+25. Fireworks STT redirect, duplicate JSON key, oversized body, malformed
+    segment timing, unbound request ID, or undocumented request field crossing
+    the provider boundary.
+26. Browser microphone access before exact provider-processing consent, or a
+    known provider failure causing the same audio to be resent.
 
 ## Production security gates
 
@@ -336,7 +351,7 @@ Before real customer or hosted use, ExitSpec needs:
 10. operational consent, audio lifecycle, residency, provider, deletion, and
     incident-response controls before any real-customer speech-to-text.
 
-Until those gates exist, ExitSpec must remain synthetic and local in its public
-browser demonstration. The optional provider action must remain disabled by
-default and must not be presented as successful live evidence or as
-production-safe.
+Until those gates exist, ExitSpec must remain restricted to synthetic data in
+its public browser demonstration. Optional provider actions must remain
+disabled by default and must not be presented as funded live evidence or as
+production-safe until their separate smoke receipts succeed.

@@ -1,10 +1,10 @@
-"""Process-local browser demo adapter for the synthetic STT spine.
+"""Process-local browser adapters for the ExitSpec STT spine.
 
-This module joins the reviewed policy boundary, one-use audio operation, and
-review-only transcript handoff without pretending to perform speech
-recognition. Browser audio is used only to prove consent, byte binding, and
-zero-retention control flow. A code-pinned synthetic transcript is always the
-output and is permanently untrusted.
+The default path remains a fixed, synthetic transcript fixture. An explicit
+server-owned Fireworks transport switches the runtime to one real prerecorded
+transcription of a consenting operator's synthetic demo clip. Both modes reuse
+the same consent, byte-binding, one-attempt, zero-retention, redaction, and
+review-only handoff boundaries; neither transcript can approve a contract.
 """
 
 from __future__ import annotations
@@ -28,6 +28,13 @@ from .poc_creation import (
     POC_ID_PATTERN,
 )
 from .poc_source_intake import ProcessLocalPOCSourceIntake
+from .providers.fireworks_stt import (
+    FIREWORKS_STT_DATA_POLICY_SHA256,
+    FIREWORKS_STT_MODEL,
+    FIREWORKS_STT_POLICY_CHECKED_AT,
+    FIREWORKS_STT_PROVIDER,
+    FIREWORKS_STT_REGION,
+)
 from .stt_boundary import (
     AudioDescriptor,
     MeetingConsentAttestation,
@@ -46,7 +53,9 @@ from .stt_operation import (
     STTAudioPermitIssuer,
     STTOperationError,
     STTOperationExecutor,
+    STTOperationFailureCode,
     STTTransportRequest,
+    STTTransport,
     STTTransportResponse,
     STTTransportSegment,
 )
@@ -61,6 +70,9 @@ STT_DEMO_MIN_DURATION_MS = 250
 STT_DEMO_MAX_DURATION_MS = 8_000
 STT_DEMO_CONSENT_TTL_SECONDS = 120
 STT_DEMO_DURATION_SOURCE = "BROWSER_MONOTONIC_CLOCK_DECLARED"
+STT_LIVE_VERSION = "exitspec-stt-browser-fireworks/1.0"
+STT_LIVE_DISCLOSURE_ID = "stt_fireworks_disclosure_v1"
+STT_LIVE_MODE = "FIREWORKS_PRERECORDED_TRANSCRIPTION"
 
 _NOTICE = (
     "This local demo records one consenting operator for at most eight "
@@ -69,11 +81,18 @@ _NOTICE = (
     "attempt, and does not transcribe spoken words. It always emits the "
     "disclosed fixed requirements for human review."
 )
+_LIVE_NOTICE = (
+    "This demo sends one consenting operator's synthetic WebM clip (up to "
+    "eight seconds) once to Fireworks Whisper v3 in us-virginia-1. The "
+    "zero-data-retention policy was checked on 2026-08-05. ExitSpec persists "
+    "no raw audio or transcript; output is untrusted and requires review."
+)
 _FIXED_OUTPUT = (
     "P95 time to first token must stay below 500 ms.",
     "Error rate must remain below 1%.",
 )
 _NOTICE_SHA256 = hashlib.sha256(_NOTICE.encode("utf-8")).hexdigest()
+_LIVE_NOTICE_SHA256 = hashlib.sha256(_LIVE_NOTICE.encode("utf-8")).hexdigest()
 _DATA_POLICY_SHA256 = hashlib.sha256(
     b"exitspec-local-synthetic-zero-retention-v1"
 ).hexdigest()
@@ -90,7 +109,7 @@ _WEBM_EBML_SIGNATURE = b"\x1a\x45\xdf\xa3"
 
 
 class STTDemoFailureCode(str, Enum):
-    """Stable content-free refusal classes for the local browser adapter."""
+    """Stable content-free refusal classes for the browser adapter."""
 
     INVALID_REQUEST = "STT_DEMO_INVALID_REQUEST"
     DRAFT_UNAVAILABLE = "STT_DEMO_DRAFT_UNAVAILABLE"
@@ -107,11 +126,19 @@ class STTDemoFailureCode(str, Enum):
     UNSUPPORTED_MEDIA = "STT_DEMO_UNSUPPORTED_MEDIA"
     OPERATION_FAILED = "STT_DEMO_OPERATION_FAILED"
     HANDOFF_FAILED = "STT_DEMO_HANDOFF_FAILED"
+    PROVIDER_CONFIGURATION = "STT_PROVIDER_CONFIGURATION"
+    PROVIDER_AUTHENTICATION = "STT_PROVIDER_AUTHENTICATION"
+    PROVIDER_ACCOUNT_UNAVAILABLE = "STT_PROVIDER_ACCOUNT_UNAVAILABLE"
+    PROVIDER_RATE_LIMITED = "STT_PROVIDER_RATE_LIMITED"
+    PROVIDER_TIMEOUT = "STT_PROVIDER_TIMEOUT"
+    PROVIDER_SERVICE_UNAVAILABLE = "STT_PROVIDER_SERVICE_UNAVAILABLE"
+    PROVIDER_TRANSPORT = "STT_PROVIDER_TRANSPORT"
+    PROVIDER_INVALID_RESPONSE = "STT_PROVIDER_INVALID_RESPONSE"
 
 
 _FAILURE_DETAILS: dict[STTDemoFailureCode, tuple[str, str]] = {
     STTDemoFailureCode.INVALID_REQUEST: (
-        "The synthetic recording request was not accepted.",
+        "The recording request was not accepted.",
         "review_the_recording_request",
     ),
     STTDemoFailureCode.DRAFT_UNAVAILABLE: (
@@ -119,7 +146,7 @@ _FAILURE_DETAILS: dict[STTDemoFailureCode, tuple[str, str]] = {
         "return_to_the_poc_workspace",
     ),
     STTDemoFailureCode.CAPACITY_EXCEEDED: (
-        "The local synthetic recording runtime is at capacity.",
+        "The local recording runtime is at capacity.",
         "restart_the_local_demo_safely",
     ),
     STTDemoFailureCode.DISCLOSURE_MISMATCH: (
@@ -139,7 +166,7 @@ _FAILURE_DETAILS: dict[STTDemoFailureCode, tuple[str, str]] = {
         "start_a_new_recording",
     ),
     STTDemoFailureCode.CAPTURE_IN_PROGRESS: (
-        "The synthetic capture is already being processed.",
+        "The recording capture is already being processed.",
         "wait_before_starting_a_new_recording",
     ),
     STTDemoFailureCode.CAPTURE_CONSUMED: (
@@ -163,12 +190,68 @@ _FAILURE_DETAILS: dict[STTDemoFailureCode, tuple[str, str]] = {
         "use_a_chromium_webm_recording",
     ),
     STTDemoFailureCode.OPERATION_FAILED: (
-        "The synthetic speech-to-text operation did not complete safely.",
+        "The speech-to-text operation did not complete safely.",
         "start_a_new_recording",
     ),
     STTDemoFailureCode.HANDOFF_FAILED: (
-        "The synthetic transcript could not be attached for review.",
+        "The transcript could not be attached for review.",
         "review_the_draft_and_start_again",
+    ),
+    STTDemoFailureCode.PROVIDER_CONFIGURATION: (
+        "The reviewed Fireworks speech-to-text transport is unavailable.",
+        "check_fireworks_stt_configuration",
+    ),
+    STTDemoFailureCode.PROVIDER_AUTHENTICATION: (
+        "Fireworks rejected the server-owned speech-to-text credential.",
+        "replace_the_fireworks_api_key",
+    ),
+    STTDemoFailureCode.PROVIDER_ACCOUNT_UNAVAILABLE: (
+        "The Fireworks account cannot run speech-to-text right now.",
+        "restore_fireworks_account_balance",
+    ),
+    STTDemoFailureCode.PROVIDER_RATE_LIMITED: (
+        "Fireworks rate-limited the speech-to-text request.",
+        "record_a_new_clip_later",
+    ),
+    STTDemoFailureCode.PROVIDER_TIMEOUT: (
+        "The Fireworks speech-to-text request timed out after one attempt.",
+        "review_provider_state_before_recording_again",
+    ),
+    STTDemoFailureCode.PROVIDER_SERVICE_UNAVAILABLE: (
+        "Fireworks speech-to-text is temporarily unavailable.",
+        "record_a_new_clip_later_or_paste_a_transcript",
+    ),
+    STTDemoFailureCode.PROVIDER_TRANSPORT: (
+        "The Fireworks speech-to-text connection failed safely.",
+        "check_connectivity_then_record_a_new_clip",
+    ),
+    STTDemoFailureCode.PROVIDER_INVALID_RESPONSE: (
+        "The Fireworks transcript response was not accepted.",
+        "paste_a_transcript_or_review_provider_output",
+    ),
+}
+
+
+_OPERATION_FAILURE_MAP: dict[STTOperationFailureCode, STTDemoFailureCode] = {
+    STTOperationFailureCode.TRANSPORT_CONFIGURATION: (
+        STTDemoFailureCode.PROVIDER_CONFIGURATION
+    ),
+    STTOperationFailureCode.AUTHENTICATION: (
+        STTDemoFailureCode.PROVIDER_AUTHENTICATION
+    ),
+    STTOperationFailureCode.ACCOUNT_UNAVAILABLE: (
+        STTDemoFailureCode.PROVIDER_ACCOUNT_UNAVAILABLE
+    ),
+    STTOperationFailureCode.RATE_LIMITED: (
+        STTDemoFailureCode.PROVIDER_RATE_LIMITED
+    ),
+    STTOperationFailureCode.TIMEOUT: STTDemoFailureCode.PROVIDER_TIMEOUT,
+    STTOperationFailureCode.SERVICE_UNAVAILABLE: (
+        STTDemoFailureCode.PROVIDER_SERVICE_UNAVAILABLE
+    ),
+    STTOperationFailureCode.TRANSPORT: STTDemoFailureCode.PROVIDER_TRANSPORT,
+    STTOperationFailureCode.INVALID_RESPONSE: (
+        STTDemoFailureCode.PROVIDER_INVALID_RESPONSE
     ),
 }
 
@@ -243,6 +326,44 @@ class STTDemoDisclosure(_FrozenDemoModel):
         return self
 
 
+class STTLiveDisclosure(_FrozenDemoModel):
+    """Exact Fireworks processing disclosure shown before microphone access."""
+
+    schema_version: Literal[STT_LIVE_VERSION] = STT_LIVE_VERSION
+    disclosure_id: Literal[STT_LIVE_DISCLOSURE_ID] = STT_LIVE_DISCLOSURE_ID
+    mode: Literal[STT_LIVE_MODE] = STT_LIVE_MODE
+    notice: Literal[_LIVE_NOTICE] = _LIVE_NOTICE
+    provider: Literal[FIREWORKS_STT_PROVIDER] = FIREWORKS_STT_PROVIDER
+    provider_model: Literal[FIREWORKS_STT_MODEL] = FIREWORKS_STT_MODEL
+    provider_region: Literal[FIREWORKS_STT_REGION] = FIREWORKS_STT_REGION
+    provider_policy_checked_at: Literal[FIREWORKS_STT_POLICY_CHECKED_AT] = (
+        FIREWORKS_STT_POLICY_CHECKED_AT
+    )
+    provider_retention_mode: Literal[STTRetentionMode.ZERO_RETENTION] = (
+        STTRetentionMode.ZERO_RETENTION
+    )
+    media_type: Literal[STT_DEMO_MEDIA_TYPE] = STT_DEMO_MEDIA_TYPE
+    min_duration_ms: Literal[STT_DEMO_MIN_DURATION_MS] = (
+        STT_DEMO_MIN_DURATION_MS
+    )
+    max_duration_ms: Literal[STT_DEMO_MAX_DURATION_MS] = (
+        STT_DEMO_MAX_DURATION_MS
+    )
+    max_audio_bytes: Literal[STT_DEMO_MAX_AUDIO_BYTES] = (
+        STT_DEMO_MAX_AUDIO_BYTES
+    )
+    duration_source: Literal[STT_DEMO_DURATION_SOURCE] = (
+        STT_DEMO_DURATION_SOURCE
+    )
+    webm_signature_required: Literal[True] = True
+    consent_required_before_microphone: Literal[True] = True
+    one_local_operator_only: Literal[True] = True
+    spoken_words_transcribed: Literal[True] = True
+    provider_transport_configured: Literal[True] = True
+    raw_audio_retained: Literal[False] = False
+    raw_transcript_retained: Literal[False] = False
+
+
 class STTDemoConsentReceipt(_FrozenDemoModel):
     """Content-free authority to request one short browser capture."""
 
@@ -257,6 +378,25 @@ class STTDemoConsentReceipt(_FrozenDemoModel):
     synthetic_demo_acknowledged: Literal[True] = True
     microphone_authority_issued: Literal[True] = True
     audio_egress_authority_issued: Literal[False] = False
+    synthetic_only: Literal[True] = True
+
+
+class STTLiveConsentReceipt(_FrozenDemoModel):
+    """Content-free consent to capture one synthetic clip for Fireworks."""
+
+    schema_version: Literal[STT_LIVE_VERSION] = STT_LIVE_VERSION
+    capture_id: str = Field(pattern=_CAPTURE_ID.pattern)
+    poc_id: str = Field(pattern=POC_ID_PATTERN)
+    disclosure_id: Literal[STT_LIVE_DISCLOSURE_ID] = STT_LIVE_DISCLOSURE_ID
+    state: Literal["READY"] = "READY"
+    expires_at: datetime
+    recording_notice_acknowledged: Literal[True] = True
+    all_speakers_consented: Literal[True] = True
+    provider_processing_acknowledged: Literal[True] = True
+    microphone_authority_issued: Literal[True] = True
+    audio_egress_authority_issued: Literal[False] = False
+    provider: Literal[FIREWORKS_STT_PROVIDER] = FIREWORKS_STT_PROVIDER
+    provider_model: Literal[FIREWORKS_STT_MODEL] = FIREWORKS_STT_MODEL
     synthetic_only: Literal[True] = True
 
 
@@ -283,13 +423,42 @@ class STTDemoCaptureReceipt(_FrozenDemoModel):
     raw_transcript_retained: Literal[False] = False
 
 
+class STTLiveCaptureReceipt(_FrozenDemoModel):
+    """Safe review-only result after one real Fireworks transcription."""
+
+    schema_version: Literal[STT_LIVE_VERSION] = STT_LIVE_VERSION
+    capture_id: str = Field(pattern=_CAPTURE_ID.pattern)
+    operation_id: str = Field(pattern=_OPERATION_ID.pattern)
+    idempotent_replay: bool
+    poc_id: str = Field(pattern=POC_ID_PATTERN)
+    source_kind: Literal["MEETING"] = "MEETING"
+    source_receipt_id: str = Field(pattern=_SOURCE_RECEIPT_ID.pattern)
+    proposal_count: int = Field(ge=0, le=64)
+    status: Literal["NEEDS_REVIEW"] = "NEEDS_REVIEW"
+    mode: Literal[STT_LIVE_MODE] = STT_LIVE_MODE
+    duration_source: Literal[STT_DEMO_DURATION_SOURCE] = (
+        STT_DEMO_DURATION_SOURCE
+    )
+    webm_signature_verified: Literal[True] = True
+    spoken_words_transcribed: Literal[True] = True
+    provider_connected: Literal[True] = True
+    provider: Literal[FIREWORKS_STT_PROVIDER] = FIREWORKS_STT_PROVIDER
+    provider_model: Literal[FIREWORKS_STT_MODEL] = FIREWORKS_STT_MODEL
+    provider_region: Literal[FIREWORKS_STT_REGION] = FIREWORKS_STT_REGION
+    provider_retention_mode: Literal[STTRetentionMode.ZERO_RETENTION] = (
+        STTRetentionMode.ZERO_RETENTION
+    )
+    raw_audio_retained: Literal[False] = False
+    raw_transcript_retained: Literal[False] = False
+
+
 @dataclass(slots=True)
 class _CaptureSession:
     consent: MeetingConsentAttestation
-    receipt: STTDemoConsentReceipt
+    receipt: STTDemoConsentReceipt | STTLiveConsentReceipt
     request_sha256: str | None = None
     state: str = "READY"
-    result: STTDemoCaptureReceipt | None = None
+    result: STTDemoCaptureReceipt | STTLiveCaptureReceipt | None = None
 
 
 class _FixedSyntheticTransport:
@@ -363,8 +532,10 @@ class ProcessLocalSTTDemoRuntime:
         "_drafts",
         "_executor",
         "_handoff",
+        "_live_provider_enabled",
         "_lock",
         "_max_sessions",
+        "_notice_sha256",
         "_permit_issuer",
         "_policy",
         "_sessions",
@@ -377,6 +548,7 @@ class ProcessLocalSTTDemoRuntime:
         source_intake: ProcessLocalPOCSourceIntake,
         clock: Callable[[], datetime] = _utc_now,
         max_sessions: int = 512,
+        fireworks_transport: STTTransport | None = None,
     ) -> None:
         if type(drafts) is not ProcessLocalDraftPOCService:
             raise TypeError("drafts must be a ProcessLocalDraftPOCService.")
@@ -388,6 +560,10 @@ class ProcessLocalSTTDemoRuntime:
             raise TypeError("clock must be callable.")
         if type(max_sessions) is not int or not 1 <= max_sessions <= 10_000:
             raise ValueError("max_sessions is outside supported bounds.")
+        if fireworks_transport is not None and not callable(
+            getattr(fireworks_transport, "transcribe", None)
+        ):
+            raise TypeError("fireworks_transport must implement STTTransport.")
 
         policy_time = _read_clock(clock)
         self._clock = clock
@@ -396,20 +572,56 @@ class ProcessLocalSTTDemoRuntime:
         self._lock = threading.RLock()
         self._sessions: dict[str, _CaptureSession] = {}
         self._consent_idempotency: dict[str, tuple[str, str]] = {}
+        self._live_provider_enabled = fireworks_transport is not None
+        self._notice_sha256 = (
+            _LIVE_NOTICE_SHA256
+            if self._live_provider_enabled
+            else _NOTICE_SHA256
+        )
         self._policy = STTPrivacyPolicy(
-            policy_id="stt_policy_local_browser_demo_v1",
+            policy_id=(
+                "stt_policy_fireworks_browser_demo_v1"
+                if self._live_provider_enabled
+                else "stt_policy_local_browser_demo_v1"
+            ),
             policy_version="v1",
-            provider="exitspec.synthetic",
-            provider_model="fixture-transcript-v1",
-            region="loopback-local",
+            provider=(
+                FIREWORKS_STT_PROVIDER
+                if self._live_provider_enabled
+                else "exitspec.synthetic"
+            ),
+            provider_model=(
+                FIREWORKS_STT_MODEL
+                if self._live_provider_enabled
+                else "fixture-transcript-v1"
+            ),
+            region=(
+                FIREWORKS_STT_REGION
+                if self._live_provider_enabled
+                else "loopback-local"
+            ),
             allowed_media_types=(STT_DEMO_MEDIA_TYPE,),
             max_audio_bytes=STT_DEMO_MAX_AUDIO_BYTES,
             max_duration_ms=STT_DEMO_MAX_DURATION_MS,
-            transport_timeout_seconds=5.0,
-            provider_data_policy_sha256=_DATA_POLICY_SHA256,
-            consent_notice_sha256=_NOTICE_SHA256,
-            deletion_policy_ref="policy://local-zero-retention-v1",
-            incident_response_policy_ref="policy://local-demo-incident-v1",
+            transport_timeout_seconds=(
+                30.0 if self._live_provider_enabled else 5.0
+            ),
+            provider_data_policy_sha256=(
+                FIREWORKS_STT_DATA_POLICY_SHA256
+                if self._live_provider_enabled
+                else _DATA_POLICY_SHA256
+            ),
+            consent_notice_sha256=self._notice_sha256,
+            deletion_policy_ref=(
+                "policy://fireworks-zero-retention-2026-08-05"
+                if self._live_provider_enabled
+                else "policy://local-zero-retention-v1"
+            ),
+            incident_response_policy_ref=(
+                "policy://fireworks-stt-live-smoke-v1"
+                if self._live_provider_enabled
+                else "policy://local-demo-incident-v1"
+            ),
             reviewed_at=policy_time - timedelta(days=1),
             expires_at=policy_time + timedelta(days=30),
         )
@@ -419,7 +631,11 @@ class ProcessLocalSTTDemoRuntime:
             max_issued=max_sessions,
         )
         self._executor = STTOperationExecutor(
-            _FixedSyntheticTransport(),
+            (
+                fireworks_transport
+                if fireworks_transport is not None
+                else _FixedSyntheticTransport()
+            ),
             enabled=True,
             clock=self._clock,
         )
@@ -429,11 +645,22 @@ class ProcessLocalSTTDemoRuntime:
         )
 
     @property
-    def disclosure(self) -> STTDemoDisclosure:
-        return STTDemoDisclosure()
+    def disclosure(self) -> STTDemoDisclosure | STTLiveDisclosure:
+        return (
+            STTLiveDisclosure()
+            if self._live_provider_enabled
+            else STTDemoDisclosure()
+        )
 
-    def disclosure_for(self, poc_id: object) -> STTDemoDisclosure:
-        """Return the fixed disclosure only for one active draft POC."""
+    @property
+    def live_provider_enabled(self) -> bool:
+        return self._live_provider_enabled
+
+    def disclosure_for(
+        self,
+        poc_id: object,
+    ) -> STTDemoDisclosure | STTLiveDisclosure:
+        """Return the exact active recording disclosure for one draft POC."""
 
         self._require_active_draft(poc_id)
         return self.disclosure
@@ -458,28 +685,49 @@ class ProcessLocalSTTDemoRuntime:
         disclosure_id: object,
         recording_notice_acknowledged: object,
         all_speakers_consented: object,
-        synthetic_demo_acknowledged: object,
+        synthetic_demo_acknowledged: object = None,
+        provider_processing_acknowledged: object = None,
         idempotency_key: object,
-    ) -> STTDemoConsentReceipt:
+    ) -> STTDemoConsentReceipt | STTLiveConsentReceipt:
         """Record exact consent before the browser may request a microphone."""
 
         validated_poc_id = self._require_active_draft(poc_id)
-        if disclosure_id != STT_DEMO_DISCLOSURE_ID:
+        expected_disclosure_id = (
+            STT_LIVE_DISCLOSURE_ID
+            if self._live_provider_enabled
+            else STT_DEMO_DISCLOSURE_ID
+        )
+        if disclosure_id != expected_disclosure_id:
             raise STTDemoError(STTDemoFailureCode.DISCLOSURE_MISMATCH)
-        if (
+        shared_consent_missing = (
             recording_notice_acknowledged is not True
             or all_speakers_consented is not True
-            or synthetic_demo_acknowledged is not True
-        ):
+        )
+        processing_scope_missing = (
+            provider_processing_acknowledged is not True
+            if self._live_provider_enabled
+            else synthetic_demo_acknowledged is not True
+        )
+        contradictory_scope = (
+            synthetic_demo_acknowledged is True
+            if self._live_provider_enabled
+            else provider_processing_acknowledged is True
+        )
+        if shared_consent_missing or processing_scope_missing or contradictory_scope:
             raise STTDemoError(STTDemoFailureCode.CONSENT_REQUIRED)
 
         key_sha256 = _idempotency_digest(idempotency_key)
         request_payload = {
             "poc_id": validated_poc_id,
-            "disclosure_id": STT_DEMO_DISCLOSURE_ID,
+            "disclosure_id": expected_disclosure_id,
             "recording_notice_acknowledged": True,
             "all_speakers_consented": True,
-            "synthetic_demo_acknowledged": True,
+            "processing_scope": (
+                "FIREWORKS_PROVIDER"
+                if self._live_provider_enabled
+                else "FIXED_SYNTHETIC_OUTPUT"
+            ),
+            "processing_scope_acknowledged": True,
         }
         request_sha256 = _digest(_CONSENT_DOMAIN, request_payload)
         capture_sha256 = _digest(
@@ -510,17 +758,26 @@ class ProcessLocalSTTDemoRuntime:
                 participant_ids=("participant_local_operator",),
                 consented_participant_ids=("participant_local_operator",),
                 recording_notice_acknowledged=True,
-                consent_notice_sha256=_NOTICE_SHA256,
+                consent_notice_sha256=self._notice_sha256,
                 state=STTConsentState.GRANTED,
                 attested_by="synthetic:self_attested_operator",
                 attested_at=now,
             )
-            receipt = STTDemoConsentReceipt(
-                capture_id=capture_id,
-                poc_id=validated_poc_id,
-                expires_at=(
-                    now + timedelta(seconds=STT_DEMO_CONSENT_TTL_SECONDS)
-                ),
+            expires_at = now + timedelta(
+                seconds=STT_DEMO_CONSENT_TTL_SECONDS
+            )
+            receipt = (
+                STTLiveConsentReceipt(
+                    capture_id=capture_id,
+                    poc_id=validated_poc_id,
+                    expires_at=expires_at,
+                )
+                if self._live_provider_enabled
+                else STTDemoConsentReceipt(
+                    capture_id=capture_id,
+                    poc_id=validated_poc_id,
+                    expires_at=expires_at,
+                )
             )
             self._sessions[capture_id] = _CaptureSession(
                 consent=consent,
@@ -543,8 +800,8 @@ class ProcessLocalSTTDemoRuntime:
         media_type: object,
         audio_sha256: object,
         idempotency_key: object,
-    ) -> STTDemoCaptureReceipt:
-        """Consume one consented clip and attach the fixed review-only source."""
+    ) -> STTDemoCaptureReceipt | STTLiveCaptureReceipt:
+        """Consume one consented clip and attach one review-only source."""
 
         validated_poc_id = self._require_active_draft(poc_id)
         if type(capture_id) is not str or _CAPTURE_ID.fullmatch(capture_id) is None:
@@ -609,7 +866,7 @@ class ProcessLocalSTTDemoRuntime:
             session.state = "PROCESSING"
             consent = session.consent
 
-        result: STTDemoCaptureReceipt | None = None
+        result: STTDemoCaptureReceipt | STTLiveCaptureReceipt | None = None
         failure: STTDemoFailureCode | None = None
         try:
             captured_at = _read_clock(self._clock)
@@ -636,16 +893,26 @@ class ProcessLocalSTTDemoRuntime:
             operation = self._executor.execute(permit)
             handoff = self._handoff.handoff(operation)
             source = handoff.source_receipt
-            result = STTDemoCaptureReceipt(
-                capture_id=capture_id,
-                operation_id=operation.receipt.operation_id,
-                idempotent_replay=source.idempotent_replay,
-                poc_id=source.poc_id,
-                source_receipt_id=source.source_receipt_id,
-                proposal_count=source.proposal_count,
+            receipt_values = {
+                "capture_id": capture_id,
+                "operation_id": operation.receipt.operation_id,
+                "idempotent_replay": source.idempotent_replay,
+                "poc_id": source.poc_id,
+                "source_receipt_id": source.source_receipt_id,
+                "proposal_count": source.proposal_count,
+            }
+            result = (
+                STTLiveCaptureReceipt(**receipt_values)
+                if self._live_provider_enabled
+                else STTDemoCaptureReceipt(**receipt_values)
             )
-        except (STTEgressDenied, STTOperationError):
+        except STTEgressDenied:
             failure = STTDemoFailureCode.OPERATION_FAILED
+        except STTOperationError as error:
+            failure = _OPERATION_FAILURE_MAP.get(
+                error.failure_code,
+                STTDemoFailureCode.OPERATION_FAILED,
+            )
         except STTTranscriptHandoffError:
             failure = STTDemoFailureCode.HANDOFF_FAILED
         except Exception:
@@ -671,7 +938,7 @@ class ProcessLocalSTTDemoRuntime:
         *,
         poc_id: object,
         capture_id: object,
-    ) -> STTDemoCaptureReceipt:
+    ) -> STTDemoCaptureReceipt | STTLiveCaptureReceipt:
         """Return one content-free completed receipt without receiving audio."""
 
         validated_poc_id = self._require_active_draft(poc_id)
@@ -703,9 +970,15 @@ __all__ = [
     "STT_DEMO_MIN_DURATION_MS",
     "STT_DEMO_MODE",
     "STT_DEMO_VERSION",
+    "STT_LIVE_DISCLOSURE_ID",
+    "STT_LIVE_MODE",
+    "STT_LIVE_VERSION",
     "STTDemoCaptureReceipt",
     "STTDemoConsentReceipt",
     "STTDemoDisclosure",
     "STTDemoError",
     "STTDemoFailureCode",
+    "STTLiveCaptureReceipt",
+    "STTLiveConsentReceipt",
+    "STTLiveDisclosure",
 ]

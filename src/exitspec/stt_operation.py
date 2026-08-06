@@ -1,9 +1,9 @@
-"""One-use, provider-neutral synthetic audio operation for ExitSpec STT.
+"""One-use, provider-neutral audio operation for ExitSpec STT.
 
 The operation is disabled by default and accepts only a private permit issued
-from the PR95 policy boundary.  It contains no provider SDK or network
-implementation.  Tests supply a fake transport to prove exact byte binding,
-single consumption, failure behavior, and private transcript handling.
+from the reviewed policy boundary. Provider implementations remain isolated
+behind a narrow transport protocol. Tests prove exact byte binding, single
+consumption, failure behavior, and private transcript handling.
 """
 
 from __future__ import annotations
@@ -146,6 +146,7 @@ _TRANSPORT_FAILURE_CODES = frozenset(
         STTOperationFailureCode.TIMEOUT,
         STTOperationFailureCode.SERVICE_UNAVAILABLE,
         STTOperationFailureCode.TRANSPORT,
+        STTOperationFailureCode.INVALID_RESPONSE,
     }
 )
 
@@ -374,7 +375,7 @@ class STTTransportRequest:
 
 
 class STTTransport(Protocol):
-    """Provider-neutral transport seam; real implementations land separately."""
+    """Provider-neutral transport seam for synthetic and reviewed adapters."""
 
     def transcribe(self, request: STTTransportRequest) -> STTTransportResponse:
         ...

@@ -197,7 +197,7 @@ def _redact_transcript(
         intake = redact_and_parse_pasted_transcript(
             transient_text,
             transcript_id="source-stt-meeting",
-            title="Synthetic speech-to-text meeting transcript",
+            title="Speech-to-text meeting transcript",
         )
     except Exception:
         failed = True

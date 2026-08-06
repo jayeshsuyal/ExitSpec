@@ -9,8 +9,45 @@
   const STT_OPERATION_ID_PATTERN = /^sttop_[a-f0-9]{64}$/;
   const STT_DISCLOSURE_ID = "stt_demo_disclosure_v1";
   const STT_MODE = "FIXED_SYNTHETIC_TRANSCRIPT";
+  const STT_LIVE_SCHEMA = "exitspec-stt-browser-fireworks/1.0";
+  const STT_LIVE_DISCLOSURE_ID = "stt_fireworks_disclosure_v1";
+  const STT_LIVE_MODE = "FIREWORKS_PRERECORDED_TRANSCRIPTION";
   const STT_MEDIA_TYPE = "audio/webm";
   const STT_DURATION_SOURCE = "BROWSER_MONOTONIC_CLOCK_DECLARED";
+  const STT_PROVIDER_FAILURES = Object.freeze({
+    STT_PROVIDER_CONFIGURATION: Object.freeze({
+      userMessage:
+        "Fireworks STT is not configured. Audio was cleared; use Paste transcript or ask the demo operator to check the server configuration.",
+    }),
+    STT_PROVIDER_AUTHENTICATION: Object.freeze({
+      userMessage:
+        "Fireworks rejected the server credential. Audio was cleared; replace the API key before recording again, or use Paste transcript.",
+    }),
+    STT_PROVIDER_ACCOUNT_UNAVAILABLE: Object.freeze({
+      userMessage:
+        "The Fireworks account cannot run STT right now. Audio was cleared; restore account balance before recording again, or use Paste transcript.",
+    }),
+    STT_PROVIDER_RATE_LIMITED: Object.freeze({
+      userMessage:
+        "Fireworks rate-limited this request. Audio was cleared; record a new clip later, or use Paste transcript now.",
+    }),
+    STT_PROVIDER_TIMEOUT: Object.freeze({
+      userMessage:
+        "Fireworks STT timed out after one attempt. Audio was cleared; check provider status before recording again, or use Paste transcript.",
+    }),
+    STT_PROVIDER_SERVICE_UNAVAILABLE: Object.freeze({
+      userMessage:
+        "Fireworks STT is temporarily unavailable. Audio was cleared; record a new clip later, or use Paste transcript now.",
+    }),
+    STT_PROVIDER_TRANSPORT: Object.freeze({
+      userMessage:
+        "The Fireworks connection failed safely. Audio was cleared; check connectivity before recording again, or use Paste transcript.",
+    }),
+    STT_PROVIDER_INVALID_RESPONSE: Object.freeze({
+      userMessage:
+        "The Fireworks transcript could not be trusted. Audio was cleared; use Paste transcript or review the provider integration.",
+    }),
+  });
   const SOURCE_KINDS = Object.freeze([
     "EMAIL",
     "MEETING",
@@ -19,7 +56,7 @@
   ]);
   const SOURCE_LABELS = Object.freeze({
     EMAIL: "Email",
-    MEETING: "Meeting transcript",
+    MEETING: "Meeting",
     DOCUMENT: "Notes or document",
     EXISTING_CONTRACT: "Existing contract",
   });
@@ -107,11 +144,12 @@
   let recordingWatchdog = null;
 
   class SafeRequestError extends Error {
-    constructor(statusCode, retrySameAttempt) {
+    constructor(statusCode, retrySameAttempt, failureCode = null) {
       super("Source request failed.");
       this.name = "SafeRequestError";
       this.statusCode = statusCode;
       this.retrySameAttempt = retrySameAttempt;
+      this.failureCode = failureCode;
     }
   }
 
@@ -190,6 +228,13 @@
     );
   }
 
+  function trustedSttProviderFailure(payload) {
+    return hasExactKeys(payload, ["code", "error", "next_action"]) &&
+      Object.prototype.hasOwnProperty.call(STT_PROVIDER_FAILURES, payload.code)
+      ? payload.code
+      : null;
+  }
+
   function isTrustedDraft(payload) {
     return Boolean(
       payload &&
@@ -253,33 +298,9 @@
   }
 
   function isTrustedSttDisclosure(payload) {
-    return Boolean(
-      hasExactKeys(payload, [
-        "consent_required_before_microphone",
-        "disclosure_id",
-        "duration_source",
-        "fixed_output",
-        "max_audio_bytes",
-        "max_duration_ms",
-        "media_type",
-        "min_duration_ms",
-        "mode",
-        "notice",
-        "one_local_operator_only",
-        "provider_connected",
-        "raw_audio_retained",
-        "raw_transcript_retained",
-        "schema_version",
-        "spoken_words_transcribed",
-        "webm_signature_required",
-      ]) &&
-        payload.schema_version === "exitspec-stt-browser-demo/1.0" &&
-        payload.disclosure_id === STT_DISCLOSURE_ID &&
-        payload.mode === STT_MODE &&
-        isSafeBoundedText(payload.notice, 800) &&
-        Array.isArray(payload.fixed_output) &&
-        payload.fixed_output.length === 2 &&
-        payload.fixed_output.every((item) => isSafeBoundedText(item, 240)) &&
+    const common = Boolean(
+      payload &&
+        isSafeBoundedText(payload.notice, 1200) &&
         payload.media_type === STT_MEDIA_TYPE &&
         payload.duration_source === STT_DURATION_SOURCE &&
         payload.webm_signature_required === true &&
@@ -293,16 +314,124 @@
         payload.max_audio_bytes <= 65536 &&
         payload.consent_required_before_microphone === true &&
         payload.one_local_operator_only === true &&
-        payload.spoken_words_transcribed === false &&
-        payload.provider_connected === false &&
         payload.raw_audio_retained === false &&
         payload.raw_transcript_retained === false
+    );
+    if (!common) {
+      return false;
+    }
+    if (payload.mode === STT_MODE) {
+      return Boolean(
+        hasExactKeys(payload, [
+          "consent_required_before_microphone",
+          "disclosure_id",
+          "duration_source",
+          "fixed_output",
+          "max_audio_bytes",
+          "max_duration_ms",
+          "media_type",
+          "min_duration_ms",
+          "mode",
+          "notice",
+          "one_local_operator_only",
+          "provider_connected",
+          "raw_audio_retained",
+          "raw_transcript_retained",
+          "schema_version",
+          "spoken_words_transcribed",
+          "webm_signature_required",
+        ]) &&
+          payload.schema_version === "exitspec-stt-browser-demo/1.0" &&
+          payload.disclosure_id === STT_DISCLOSURE_ID &&
+          Array.isArray(payload.fixed_output) &&
+          payload.fixed_output.length === 2 &&
+          payload.fixed_output.every((item) => isSafeBoundedText(item, 240)) &&
+          payload.spoken_words_transcribed === false &&
+          payload.provider_connected === false
+      );
+    }
+    return Boolean(
+      hasExactKeys(payload, [
+        "consent_required_before_microphone",
+        "disclosure_id",
+        "duration_source",
+        "max_audio_bytes",
+        "max_duration_ms",
+        "media_type",
+        "min_duration_ms",
+        "mode",
+        "notice",
+        "one_local_operator_only",
+        "provider",
+        "provider_model",
+        "provider_policy_checked_at",
+        "provider_region",
+        "provider_retention_mode",
+        "provider_transport_configured",
+        "raw_audio_retained",
+        "raw_transcript_retained",
+        "schema_version",
+        "spoken_words_transcribed",
+        "webm_signature_required",
+      ]) &&
+        payload.schema_version === STT_LIVE_SCHEMA &&
+        payload.disclosure_id === STT_LIVE_DISCLOSURE_ID &&
+        payload.mode === STT_LIVE_MODE &&
+        payload.provider === "fireworks" &&
+        payload.provider_model === "whisper-v3" &&
+        payload.provider_region === "us-virginia-1" &&
+        payload.provider_policy_checked_at === "2026-08-05" &&
+        payload.provider_retention_mode === "ZERO_RETENTION" &&
+        payload.spoken_words_transcribed === true &&
+        payload.provider_transport_configured === true
     );
   }
 
   function isTrustedSttConsent(payload) {
     const expiresAt = payload ? Date.parse(payload.expires_at) : Number.NaN;
     const currentTime = Date.now();
+    const shared = Boolean(
+      payload &&
+        payload.poc_id === pocId &&
+        STT_CAPTURE_ID_PATTERN.test(payload.capture_id) &&
+        payload.state === "READY" &&
+        Number.isFinite(expiresAt) &&
+        expiresAt > currentTime &&
+        expiresAt <= currentTime + 120000 &&
+        payload.recording_notice_acknowledged === true &&
+        payload.all_speakers_consented === true &&
+        payload.microphone_authority_issued === true &&
+        payload.audio_egress_authority_issued === false &&
+        payload.synthetic_only === true
+    );
+    if (!shared) {
+      return false;
+    }
+    if (sttDisclosure && sttDisclosure.mode === STT_LIVE_MODE) {
+      return Boolean(
+        hasExactKeys(payload, [
+          "all_speakers_consented",
+          "audio_egress_authority_issued",
+          "capture_id",
+          "disclosure_id",
+          "expires_at",
+          "microphone_authority_issued",
+          "poc_id",
+          "provider",
+          "provider_model",
+          "provider_processing_acknowledged",
+          "recording_notice_acknowledged",
+          "schema_version",
+          "state",
+          "synthetic_only",
+        ]) &&
+          payload.schema_version === STT_LIVE_SCHEMA &&
+          payload.disclosure_id === STT_LIVE_DISCLOSURE_ID &&
+          payload.provider === "fireworks" &&
+          payload.provider_model === "whisper-v3" &&
+          payload.provider_processing_acknowledged === true
+      );
+    }
     return Boolean(
       hasExactKeys(payload, [
         "all_speakers_consented",
@@ -319,23 +448,66 @@
         "synthetic_only",
       ]) &&
         payload.schema_version === "exitspec-stt-browser-demo/1.0" &&
-        payload.poc_id === pocId &&
         payload.disclosure_id === STT_DISCLOSURE_ID &&
-        STT_CAPTURE_ID_PATTERN.test(payload.capture_id) &&
-        payload.state === "READY" &&
-        Number.isFinite(expiresAt) &&
-        expiresAt > currentTime &&
-        expiresAt <= currentTime + 120000 &&
-        payload.recording_notice_acknowledged === true &&
-        payload.all_speakers_consented === true &&
-        payload.synthetic_demo_acknowledged === true &&
-        payload.microphone_authority_issued === true &&
-        payload.audio_egress_authority_issued === false &&
-        payload.synthetic_only === true
+        payload.synthetic_demo_acknowledged === true
     );
   }
 
   function isTrustedSttCaptureResponse(payload, captureId) {
+    const shared = Boolean(
+      payload &&
+        payload.capture_id === captureId &&
+        STT_OPERATION_ID_PATTERN.test(payload.operation_id) &&
+        payload.poc_id === pocId &&
+        payload.source_kind === "MEETING" &&
+        RECEIPT_ID_PATTERN.test(payload.source_receipt_id) &&
+        Number.isSafeInteger(payload.proposal_count) &&
+        payload.proposal_count >= 0 &&
+        payload.proposal_count <= 64 &&
+        payload.status === "NEEDS_REVIEW" &&
+        payload.duration_source === STT_DURATION_SOURCE &&
+        payload.webm_signature_verified === true &&
+        typeof payload.idempotent_replay === "boolean" &&
+        payload.raw_audio_retained === false &&
+        payload.raw_transcript_retained === false
+    );
+    if (!shared) {
+      return false;
+    }
+    if (sttDisclosure && sttDisclosure.mode === STT_LIVE_MODE) {
+      return Boolean(
+        hasExactKeys(payload, [
+          "capture_id",
+          "duration_source",
+          "idempotent_replay",
+          "mode",
+          "operation_id",
+          "poc_id",
+          "proposal_count",
+          "provider",
+          "provider_connected",
+          "provider_model",
+          "provider_region",
+          "provider_retention_mode",
+          "raw_audio_retained",
+          "raw_transcript_retained",
+          "schema_version",
+          "source_kind",
+          "source_receipt_id",
+          "spoken_words_transcribed",
+          "status",
+          "webm_signature_verified",
+        ]) &&
+          payload.schema_version === STT_LIVE_SCHEMA &&
+          payload.mode === STT_LIVE_MODE &&
+          payload.spoken_words_transcribed === true &&
+          payload.provider_connected === true &&
+          payload.provider === "fireworks" &&
+          payload.provider_model === "whisper-v3" &&
+          payload.provider_region === "us-virginia-1" &&
+          payload.provider_retention_mode === "ZERO_RETENTION"
+      );
+    }
     return Boolean(
       hasExactKeys(payload, [
         "capture_id",
@@ -356,23 +528,9 @@
         "webm_signature_verified",
       ]) &&
         payload.schema_version === "exitspec-stt-browser-demo/1.0" &&
-        payload.capture_id === captureId &&
-        STT_OPERATION_ID_PATTERN.test(payload.operation_id) &&
-        payload.poc_id === pocId &&
-        payload.source_kind === "MEETING" &&
-        RECEIPT_ID_PATTERN.test(payload.source_receipt_id) &&
-        Number.isSafeInteger(payload.proposal_count) &&
-        payload.proposal_count >= 0 &&
-        payload.proposal_count <= 64 &&
-        payload.status === "NEEDS_REVIEW" &&
         payload.mode === STT_MODE &&
-        payload.duration_source === STT_DURATION_SOURCE &&
-        payload.webm_signature_verified === true &&
-        typeof payload.idempotent_replay === "boolean" &&
         payload.spoken_words_transcribed === false &&
-        payload.provider_connected === false &&
-        payload.raw_audio_retained === false &&
-        payload.raw_transcript_retained === false
+        payload.provider_connected === false
     );
   }
 
@@ -413,7 +571,13 @@
         response.status >= 500 ||
         response.status === 408 ||
         response.status === 429;
-      throw new SafeRequestError(response.status, retrySameAttempt);
+      const failurePayload = await response.json().catch(() => null);
+      const failureCode = trustedSttProviderFailure(failurePayload);
+      throw new SafeRequestError(
+        response.status,
+        failureCode ? false : retrySameAttempt,
+        failureCode
+      );
     }
     const payload = await response.json().catch(() => null);
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -580,7 +744,7 @@
     if (sttUnavailable || !supportsSyntheticRecording()) {
       recordingStatus.dataset.state = "blocked";
       recordingStatus.textContent =
-        "Synthetic recording is unavailable here. Use Paste transcript.";
+        "Browser recording is unavailable here. Use Paste transcript.";
     } else if (recording) {
       recordingStatus.dataset.state = "recording";
       recordingStatus.textContent =
@@ -588,7 +752,9 @@
     } else if (recordedAudio) {
       recordingStatus.dataset.state = "ready";
       recordingStatus.textContent =
-        "Clip ready. Create review proposals to run the fixed synthetic handoff.";
+        sttDisclosure && sttDisclosure.mode === STT_LIVE_MODE
+          ? "Clip ready. The next action sends it once to Fireworks, redacts the transcript, and creates review proposals."
+          : "Clip ready. Create review proposals to run the fixed synthetic handoff.";
     } else if (inFlight) {
       recordingStatus.dataset.state = "pending";
       recordingStatus.textContent = "Recording consent before microphone access…";
@@ -617,17 +783,42 @@
       }
       sttDisclosure = disclosure;
       document.querySelector("#stt-disclosure").textContent = disclosure.notice;
-      const outputItems = Array.from(
-        document.querySelectorAll("#stt-fixed-output li")
-      );
-      disclosure.fixed_output.forEach((item, index) => {
-        outputItems[index].textContent = item;
-      });
+      const liveProvider = disclosure.mode === STT_LIVE_MODE;
+      document.querySelector("#record-adapter-label").textContent = liveProvider
+        ? "Provider-backed transcription"
+        : "Local synthetic adapter";
+      document.querySelector("#meeting-record-mode-label").textContent = liveProvider
+        ? "Record with Fireworks STT"
+        : "Record synthetic demo";
+      document.querySelector("#meeting-source-option-copy").textContent = liveProvider
+        ? "Paste or transcribe one short synthetic clip"
+        : "Paste a transcript or run the local mic demo";
+      document.querySelector("#record-demo-heading").textContent = liveProvider
+        ? "Transcribe one short synthetic clip"
+        : "Record one short demo clip";
+      document.querySelector("#stt-mode-badge").textContent = liveProvider
+        ? "Fireworks STT · experimental"
+        : "Not real STT";
+      document.querySelector("#stt-fixed-output-panel").hidden = liveProvider;
+      document.querySelector("#processing-scope-ack-copy").textContent = liveProvider
+        ? "I understand this synthetic clip will be sent once to Fireworks for transcription."
+        : "I understand my spoken words will not be transcribed.";
+      document.querySelector("#stt-proof-copy").textContent = liveProvider
+        ? "Consent is recorded before microphone permission; the exact clip is byte-bound, sent once to the pinned Fireworks endpoint, never persisted by ExitSpec, and the redacted transcript remains NEEDS_REVIEW."
+        : "Consent is recorded before microphone permission; audio is byte-bound, processed once on loopback, never persisted, and cleared after the attempt. No provider, Zoom, or Google Meet connection is implied.";
+      if (!liveProvider) {
+        const outputItems = Array.from(
+          document.querySelectorAll("#stt-fixed-output li")
+        );
+        disclosure.fixed_output.forEach((item, index) => {
+          outputItems[index].textContent = item;
+        });
+      }
     } catch {
       sttDisclosure = null;
       sttUnavailable = true;
       document.querySelector("#stt-disclosure").textContent =
-        "The synthetic recording boundary could not be validated. Paste a transcript instead.";
+        "The recording boundary could not be validated. Paste a transcript instead.";
     }
     renderSelectedSource();
   }
@@ -721,7 +912,9 @@
           disclosure_id: sttDisclosure.disclosure_id,
           idempotency_key: newScopedIdempotencyKey("stt-consent"),
           recording_notice_acknowledged: true,
-          synthetic_demo_acknowledged: true,
+          ...(sttDisclosure.mode === STT_LIVE_MODE
+            ? { provider_processing_acknowledged: true }
+            : { synthetic_demo_acknowledged: true }),
         }),
       });
       if (!isTrustedSttConsent(consent)) {
@@ -876,15 +1069,17 @@
         throw new SafeRequestError(200, false);
       }
       renderSuccess(response);
-    } catch {
+    } catch (error) {
       discardRecordedAudio();
-      const recovered = await recoverSttCapture(endpoint, captureId);
+      const recovered =
+        error instanceof SafeRequestError && error.failureCode
+          ? null
+          : await recoverSttCapture(endpoint, captureId);
       if (recovered) {
         renderSuccess(recovered);
         return;
       }
-      errorPanel.textContent =
-        "The recording attempt did not produce a trusted handoff. Audio was cleared; record a new clip or paste a transcript.";
+      errorPanel.textContent = safeSttFailureCopy(error);
       errorPanel.hidden = false;
     } finally {
       audioBytes = null;
@@ -895,6 +1090,20 @@
         renderSelectedSource();
       }
     }
+  }
+
+  function safeSttFailureCopy(error) {
+    if (
+      error instanceof SafeRequestError &&
+      error.failureCode &&
+      Object.prototype.hasOwnProperty.call(
+        STT_PROVIDER_FAILURES,
+        error.failureCode
+      )
+    ) {
+      return STT_PROVIDER_FAILURES[error.failureCode].userMessage;
+    }
+    return "The recording attempt did not produce a trusted handoff. Audio was cleared; record a new clip or use Paste transcript.";
   }
 
   function safeFailureCopy(error) {
@@ -963,6 +1172,7 @@
     renderMeetingMode();
 
     if (recordingPath) {
+      captureButton.hidden = !recordedAudio;
       captureButton.disabled =
         inFlight || recording || !recordedAudio || !captureConsent;
       captureButton.textContent = inFlight
@@ -973,13 +1183,16 @@
           ? "Create review proposals"
           : "Record first";
       status.textContent = recording
-        ? "Recording the local demo clip…"
+        ? "Recording the consented browser clip…"
         : recordedAudio
-          ? "Clip ready. The next action creates review-only proposals."
+          ? sttDisclosure && sttDisclosure.mode === STT_LIVE_MODE
+            ? "Clip ready. The next action performs one Fireworks transcription and creates review-only proposals."
+            : "Clip ready. The next action creates review-only proposals."
           : "Record one short clip after reviewing the disclosure.";
       return;
     }
 
+    captureButton.hidden = false;
     captureButton.disabled =
       !selectedSource ||
       inFlight ||

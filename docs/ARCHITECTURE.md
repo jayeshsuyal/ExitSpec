@@ -139,7 +139,7 @@ The domain core does not import a frontend framework or provider SDK. The browse
 calls a loopback HTTP boundary, and the server delegates to the same typed domain
 services used by the CLI.
 
-## Speech-to-text synthetic boundary and handoff
+## Speech-to-text boundary, transport, and handoff
 
 `stt_boundary.py` implements a provider-neutral, synthetic-only policy seam.
 One exact consent attestation and bounded
@@ -171,7 +171,7 @@ participant identity. Public STT receipts contain hashes, counts, provider
 configuration, and redaction provenance but no audio, transcript text,
 participant IDs, or raw meeting ID.
 
-The full contract and four-PR delivery sequence are specified in
+The full contract and five-slice delivery sequence are specified in
 [STT_SPEC.md](STT_SPEC.md). Real customer audio remains behind the C4 production
 security gates.
 
@@ -187,8 +187,12 @@ transport attempt, and performs no automatic retry.
 Provider-runtime output must survive local request-ID, language, speaker-mode,
 segment-shape, ordering, and audio-duration validation before it becomes a
 private `UntrustedSTTTranscript`. The separately serializable operation receipt
-contains content-free provenance only. Fake transports prove the seam; no live
-provider implementation or product upload route exists.
+contains content-free provenance only. Fake transports prove the seam. An
+explicit `--enable-fireworks-stt` composition adds one pinned, single-attempt
+Fireworks Whisper v3 HTTPS adapter and the browser provides one consent-bound,
+bounded WebM upload route for synthetic demo audio. Endpoint/model choice and
+automatic audio retries remain unavailable, and no funded live success is
+claimed.
 
 `STTTranscriptHandoffService` accepts only a sealed operation result. It checks
 the operation/transcript bindings, replaces provider speaker labels with stable
@@ -542,11 +546,11 @@ on checkout-relative example paths. CI runs on Python 3.12 and 3.13 and gates:
 
 ## Deliberate limits and scale path
 
-The create flow, multi-source navigation, and synthetic meeting-transcript
-source addition are not yet implemented. The read-only registry, projection,
-dashboard, route split, and graphite/orange visual contract are implemented
-against current local process state plus one validated bundled performance
-agreement; the frozen overall contract remains unchanged.
+The create flow, multi-source navigation, pasted meeting source, browser
+recording source, registry projection, dashboard, route split, and
+graphite/orange visual contract are implemented against local process state plus
+one validated bundled performance agreement; the frozen overall contract
+remains unchanged.
 
 The workspace implementation must reuse the existing source, review,
 confirmation, freeze, measurement, verdict, and artifact authorities. A
@@ -554,13 +558,14 @@ dashboard projection or POC registry may coordinate identifiers and navigation;
 it may not become a parallel contract or verdict engine.
 
 The current system is one local process with filesystem artifacts and in-memory
-review state. It has no live speech-to-text provider, product audio capture,
-live endpoint adapter, hosted identity, durable confirmation store, queue,
-object store, generic metric engine, or multi-tenant authorization. It also has
-no live email connector, mailbox OAuth, webhook, arbitrary upload, or
-real-customer-email path. It has no external-evidence importer. That importer is
-deferred until Inferdrome provides the pinned-vLLM capability results and first
-untouched native golden fixture required by the
+review state. It has an opt-in real-provider STT adapter for synthetic browser
+audio, but no funded smoke receipt, customer-audio authorization, streaming
+meeting transport, hosted identity, durable confirmation store, queue, object
+store, generic metric engine, or multi-tenant authorization. It also has no live
+email connector, mailbox OAuth, webhook, arbitrary upload, or real-customer
+email path. It has no external-evidence importer. That importer is deferred
+until Inferdrome provides the pinned-vLLM capability results and first untouched
+native golden fixture required by the
 [External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md).
 
 If the product earns hosted use, the next boundaries are authenticated identity,

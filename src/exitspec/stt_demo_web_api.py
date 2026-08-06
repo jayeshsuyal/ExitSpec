@@ -1,4 +1,4 @@
-"""Pure HTTP projection for the local synthetic STT browser adapter."""
+"""Pure HTTP projection for the local ExitSpec STT browser adapter."""
 
 from __future__ import annotations
 
@@ -101,14 +101,14 @@ def handle_stt_demo_web_api_request(
     except STTDemoWebAPIRequestError:
         return _error(
             HTTPStatus.BAD_REQUEST,
-            "Synthetic recording request is invalid.",
+            "Recording request is invalid.",
         )
     except STTDemoError as error:
         return _runtime_error(error)
     except (TypeError, ValueError):
         return _error(
             HTTPStatus.BAD_REQUEST,
-            "Synthetic recording request is invalid.",
+            "Recording request is invalid.",
         )
 
 
@@ -184,17 +184,22 @@ def _dispatch(
             )
         return _error(
             HTTPStatus.NOT_FOUND,
-            "Synthetic recording route was not found.",
+            "Recording route was not found.",
         )
 
     if method != "POST":
         return _error(
             HTTPStatus.METHOD_NOT_ALLOWED,
-            "Synthetic recording method is not allowed.",
+            "Recording method is not allowed.",
         )
 
     body = _require_object_payload(payload)
     if route == "consents":
+        scope_field = (
+            "provider_processing_acknowledged"
+            if runtime.live_provider_enabled
+            else "synthetic_demo_acknowledged"
+        )
         _require_only_fields(
             body,
             {
@@ -202,7 +207,7 @@ def _dispatch(
                 "disclosure_id",
                 "idempotency_key",
                 "recording_notice_acknowledged",
-                "synthetic_demo_acknowledged",
+                scope_field,
             },
         )
         receipt = runtime.record_consent(
@@ -213,7 +218,10 @@ def _dispatch(
             ),
             all_speakers_consented=body["all_speakers_consented"],
             synthetic_demo_acknowledged=(
-                body["synthetic_demo_acknowledged"]
+                body.get("synthetic_demo_acknowledged")
+            ),
+            provider_processing_acknowledged=(
+                body.get("provider_processing_acknowledged")
             ),
             idempotency_key=body["idempotency_key"],
         )
@@ -260,7 +268,7 @@ def _dispatch(
 
     return _error(
         HTTPStatus.NOT_FOUND,
-        "Synthetic recording route was not found.",
+        "Recording route was not found.",
     )
 
 
@@ -329,6 +337,20 @@ def _runtime_error(error: STTDemoError) -> STTDemoWebAPIResponse:
         STTDemoFailureCode.HANDOFF_FAILED: (
             HTTPStatus.SERVICE_UNAVAILABLE
         ),
+        STTDemoFailureCode.PROVIDER_CONFIGURATION: (
+            HTTPStatus.SERVICE_UNAVAILABLE
+        ),
+        STTDemoFailureCode.PROVIDER_AUTHENTICATION: HTTPStatus.BAD_GATEWAY,
+        STTDemoFailureCode.PROVIDER_ACCOUNT_UNAVAILABLE: (
+            HTTPStatus.FAILED_DEPENDENCY
+        ),
+        STTDemoFailureCode.PROVIDER_RATE_LIMITED: HTTPStatus.TOO_MANY_REQUESTS,
+        STTDemoFailureCode.PROVIDER_TIMEOUT: HTTPStatus.GATEWAY_TIMEOUT,
+        STTDemoFailureCode.PROVIDER_SERVICE_UNAVAILABLE: (
+            HTTPStatus.SERVICE_UNAVAILABLE
+        ),
+        STTDemoFailureCode.PROVIDER_TRANSPORT: HTTPStatus.BAD_GATEWAY,
+        STTDemoFailureCode.PROVIDER_INVALID_RESPONSE: HTTPStatus.BAD_GATEWAY,
     }
     return STTDemoWebAPIResponse(
         statuses[error.failure_code],
