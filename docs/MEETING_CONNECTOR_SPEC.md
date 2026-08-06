@@ -2,8 +2,9 @@
 
 ## Status and decision
 
-This document defines the first provider-neutral meeting-stream boundary and
-the Zoom RTMS capability decision checked on **2026-08-06**.
+This document defines the first provider-neutral meeting-stream boundary, the
+Zoom RTMS capability decision checked on **2026-08-06**, and the implemented
+synthetic-only authentication seam for opaque webhook bytes.
 
 The first platform integration will use **Zoom Realtime Media Streams (RTMS),
 transcript only**, for an explicitly synthetic meeting with consenting test
@@ -101,6 +102,21 @@ only after it has:
 The browser cannot construct or submit this binding. A Zoom connection without
 the earlier ExitSpec consent authorization remains powerless.
 
+### Implemented opaque webhook authentication seam
+
+[`zoom_webhook_auth.py`](../src/exitspec/zoom_webhook_auth.py) now implements
+only the first cryptographic step above. It verifies the Zoom `v0` HMAC over an
+exact bounded byte string and timestamp, applies a reviewed freshness window,
+and records exact process-local replay. Its content-free receipt explicitly has
+no permission to parse the payload, create a transport binding, append to the
+meeting inbox, or affect any agreement, measurement, or verdict.
+
+This seam has no HTTP route and no Zoom event model. Its exact signing-input
+extraction still must be proven against an untouched Zoom golden fixture before
+a network adapter may call it. The complete rule, threat boundary, and
+adversarial cases are in
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md).
+
 ## Provider-neutral event contract
 
 The executable contract is implemented in
@@ -149,10 +165,10 @@ rewrite a previously sealed record.
 
 ## Durable connector inbox
 
-PR109 implements the server-internal inbox in
+PR110 implements the server-internal inbox in
 [`meeting_event_inbox.py`](../src/exitspec/meeting_event_inbox.py). It accepts
-only events that first pass the PR108 transport-envelope validation. It does
-not accept raw Zoom packets and does not define a Zoom wire schema.
+only events that first pass the PR108 provider-neutral envelope validation. It
+does not accept raw Zoom packets and does not define a Zoom wire schema.
 
 The durable identity binds the complete capture authorization, verified
 transport binding, adapter and versions, stream identity, consent-bound limits,
@@ -217,8 +233,8 @@ decision:
   scope;
 - `meeting.rtms_started` and `meeting.rtms_stopped` are required lifecycle
   events;
-- webhook authenticity uses `x-zm-signature` with HMAC SHA-256 over the exact
-  timestamp and body;
+- Zoom's public sample constructs `x-zm-signature` with HMAC SHA-256 over a
+  versioned timestamp and serialized request body;
 - the RTMS start event supplies the meeting, stream, and signaling-server
   binding;
 - transcript packets use media type `8`, message type `17`, and documented
@@ -255,14 +271,16 @@ ExitSpec has completed its own consent gate.
 
 ## Privacy and retention
 
-The initial adapter must not persist raw webhook bodies, native Zoom packets,
-raw meeting IDs, participant IDs, participant names, or transcript text in
-public records. The synthetic-only inbox may temporarily persist the private
-provider-neutral canonical event needed for ordering and restart recovery. Its
-retention is frozen between 60 seconds and 24 hours, files are owner-only, and
-expiry uses SQLite secure deletion followed by WAL truncation. This is not an
-encrypted production vault or a claim of forensic erasure on every storage
-medium; production customer data remains prohibited.
+The implemented authentication seam does not retain its request-local opaque
+body; it keeps only a digest, byte count, timestamps, identities, and explicit
+zero-authority facts. The future adapter must not persist raw webhook bodies,
+native Zoom packets, raw meeting IDs, participant IDs, participant names, or
+transcript text in public records. The synthetic-only inbox may temporarily
+persist the private provider-neutral canonical event needed for ordering and
+restart recovery. Its retention is frozen between 60 seconds and 24 hours,
+files are owner-only, and expiry uses SQLite secure deletion followed by WAL
+truncation. This is not an encrypted production vault or a claim of forensic
+erasure on every storage medium; production customer data remains prohibited.
 
 The future handoff must immediately neutralize speaker labels, redact
 transcript text, attach one `MEETING` source, purge the private annex, and retain
@@ -279,6 +297,8 @@ data are prohibited until Wave 7B passes.
 
 The code and capability manifest require proof for:
 
+- malformed, forged, stale, future, mutated-body, and exact-replay webhook
+  authentication attempts;
 - reordered exact duplicates;
 - a changed duplicate identity;
 - a missing canonical sequence;
@@ -319,19 +339,22 @@ enough.
 1. **PR108 — connector contract and capability spike:** provider-neutral
    models, two-stage authorization, sealing rules, frozen acceptance cases, and
    no network runtime.
-2. **PR109 — durable connector inbox (implemented):** append-only ingress
+2. **PR110 — durable connector inbox (implemented):** append-only ingress
    receipts, API idempotency, provider-duplicate accounting, permanent
    conflict/capacity taints, restart recovery, and bounded private retention.
-3. **PR110 — Zoom golden-fixture mapper:** raw Zoom packets map into the
-   provider-neutral contract using the pinned fixture; fake transport only.
-4. **PR111 — Zoom webhook and RTMS transport:** secrets remain server-owned;
-   signatures, freshness, OAuth, REST start/stop, handshakes, reconnect, and
+3. **Opaque webhook authentication boundary (implemented):** exact supplied
+   bytes, `v0` HMAC, policy lifetime, freshness, bounded process-local replay,
+   content-free receipts, and no route, parsing, transport, or inbox authority.
+4. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
+   the provider-neutral contract using the pinned fixture; fake transport only.
+5. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
+   signing-input extraction, OAuth, REST start/stop, handshakes, reconnect, and
    shutdown fail closed.
-5. **PR112 — source bridge:** sealed transcript windows enter the existing
+6. **Source bridge:** sealed transcript windows enter the existing
    redacted `MEETING` source and proposal-review path.
-6. **PR113 — guided product UI:** connect, consent, capture, draft-now,
+7. **Guided product UI:** connect, consent, capture, draft-now,
    finalization, and safe recovery states without changing the product spine.
-7. **PR114 — synthetic live E2E and hardening:** one real Zoom meeting with two
+8. **Synthetic live E2E and hardening:** one real Zoom meeting with two
    consenting synthetic participants completes the existing ExitSpec demo loop.
 
 ## Exit gate for the complete Zoom train

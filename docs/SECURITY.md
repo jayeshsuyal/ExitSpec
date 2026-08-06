@@ -296,6 +296,17 @@ receipts link operation, authorization, and source IDs without transcript text,
 audio, provider speaker labels, participant IDs, or raw meeting identity. Every
 candidate remains `NEEDS_REVIEW`.
 
+The synthetic Zoom webhook authenticator is a separate pre-transport seam. It
+accepts exact opaque bytes, a canonical timestamp, and an exact lowercase
+`v0` signature; verifies HMAC-SHA256 with a server-owned secret; enforces an
+active reviewed policy, freshness, future skew, clock rollback, and bounded
+process-local replay; and returns a content-free receipt. It retains no raw
+body and refuses ordinary secret-copy and pickle paths. Successful
+authentication grants no payload-parsing, transport-binding, inbox-write,
+agreement, measurement, or verdict authority. There is no HTTP route or live
+Zoom claim, and process-local replay state is not a production control. See
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md).
+
 ## Threats covered by current tests
 
 1. Stale contract version or mismatched fingerprint attempting to freeze.
@@ -334,6 +345,10 @@ candidate remains `NEEDS_REVIEW`.
     the provider boundary.
 26. Browser microphone access before exact provider-processing consent, or a
     known provider failure causing the same audio to be resent.
+27. Forged, malformed, stale, future, byte-mutated, oversized, replayed, or
+    capacity-exhausting opaque Zoom webhook authentication input.
+28. Zoom webhook receipt mutation, raw-body reflection, secret serialization,
+    clock rollback, or authenticated input acquiring downstream authority.
 
 ## Production security gates
 
