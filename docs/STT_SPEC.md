@@ -1,8 +1,9 @@
 # Speech-to-text boundary
 
-Status: four-slice local synthetic demo implemented; real provider transport,
-speech recognition, customer audio, and meeting-platform integration not
-implemented
+Status: five-slice synthetic-data demo implemented. The default browser path is
+provider-free; an explicit server flag enables one real Fireworks prerecorded
+transcription of a consenting operator's synthetic clip. A funded live smoke,
+real customer audio, and meeting-platform integration are not yet proven.
 
 ## Decision
 
@@ -55,7 +56,7 @@ customer audio remains behind the C4 production gates in
 | `MeetingConsentAttestation` | Bind one meeting, participant set, notice, attester, and time | Infer consent from attendance, silence, or a transcript |
 | `AudioDescriptor` | Bind a digest, size, duration, media type, capture time, and meeting ID | Carry or serialize raw audio bytes |
 | `authorize_stt_egress` | Return a safe policy-match record or one typed denial | Perform network I/O or issue a transport capability |
-| Future STT transport | Consume a separately designed one-use private capability | Accept caller-selected provider policy or log audio |
+| `FireworksSTTTransport` | Consume one private request and call one pinned Fireworks endpoint | Accept caller-selected host/model/policy, redirect, retry, or log audio |
 | `UntrustedSTTTranscript` | Hold normalized provider output request-locally for immediate redaction | Serialize, persist, approve, confirm, freeze, measure, or judge |
 | `STTTranscriptReceipt` | Preserve content-free provenance after redaction | Contain audio, transcript text, participant IDs, or verified speaker identity |
 
@@ -237,11 +238,10 @@ provider accepted audio, so an automatic retry could disclose the same audio
 twice. Authentication, account, rate-limit, timeout, service, and transport
 failures therefore consume the permit and require a new explicit request.
 
-The transport seam is exercised with fakes only. No provider SDK, endpoint,
-credential, environment variable, pricing claim, or successful external request
-exists in this slice. Provider choice remains a separate C3 decision requiring
-current data-policy, residency, zero-retention, deletion, API, pricing, and
-failure-semantics research.
+The provider-neutral operation seam remains fake-proven independently. The
+separate `FireworksSTTTransport` below is the only current network adapter. No
+successful funded external request or STT pricing claim is committed as
+evidence yet.
 
 ### Operation failure matrix
 
@@ -270,6 +270,40 @@ and `TRANSCRIBED_UNTRUSTED`. It records that ExitSpec persisted neither audio no
 transcript; it does not claim that a future provider honored retention. It
 contains no provider request ID, meeting ID, participant ID, audio, or transcript
 text.
+
+## Experimental Fireworks prerecorded transport
+
+`providers/fireworks_stt.py` implements the fifth, opt-in network slice. It is
+not a general audio client. The server constructs it only when
+`--enable-fireworks-stt` is present and `FIREWORKS_API_KEY` is valid. The
+browser never receives the credential.
+
+The adapter pins:
+
+- `POST https://audio-prod.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions`;
+- model `whisper-v3`, language `en`, `verbose_json`, word/segment timestamps,
+  and diarization;
+- region `us-virginia-1` and the reviewed zero-data-retention policy digest;
+- one HTTPS attempt, no redirect, no automatic retry, and a 30-second timeout;
+- a bounded multipart request and bounded JSON response; and
+- strict segment ordering, timing, text, language, speaker-label, request-ID,
+  and duplicate-key validation.
+
+[Fireworks currently advertises streaming STT](https://docs.fireworks.ai/examples/cookbooks)
+in its cookbook catalog, but its current documentation index does not expose
+the old prerecorded API reference. The pinned request shape therefore follows
+[Fireworks' archived official prerecorded-STT cookbook](https://github.com/fw-ai/cookbook/blob/main/archived/learn/audio/audio_prerecorded_speech_to_text/audio_prerecorded_speech_to_text.ipynb)
+and remains labeled experimental until the funded smoke runbook succeeds.
+Endpoint drift becomes a typed configuration failure; ExitSpec does not
+silently switch hosts or models.
+
+HTTP failures follow
+[Fireworks' documented inference error classes](https://docs.fireworks.ai/guides/inference-error-codes)
+and become content-free product outcomes. In particular, `401/403`
+means credential failure, `402/412` means account or billing state, `429` means
+rate limiting, `408/504` means timeout, and `500/502/503` means service
+unavailability. A failed or ambiguous request consumes the one-use permit and
+cannot resend the same audio automatically.
 
 ## Transcript-to-source handoff
 
@@ -324,10 +358,11 @@ text reference after redaction; it does not make a memory-forensics claim.
 | `STT_HANDOFF_CAPACITY_EXCEEDED` | Bounded process-local source state is full | No write |
 | `STT_HANDOFF_INTERNAL` | Handoff could not complete safely | Fail closed |
 
-## Browser-microphone synthetic demo
+## Browser-microphone demo
 
-`stt_demo_runtime.py` and `stt_demo_web_api.py` implement the fourth slice. It
-proves the product control loop, not speech-recognition quality:
+`stt_demo_runtime.py` and `stt_demo_web_api.py` implement the browser slice. The
+default mode proves the product control loop without claiming speech-recognition
+quality:
 
 ```text
 fixed disclosure shown
@@ -363,6 +398,16 @@ receipts. The browser path is an alternate input inside the existing Meeting
 source card; Paste transcript remains available and both inputs converge on the
 same proposal-review page.
 
+With `--enable-fireworks-stt`, the same Meeting card changes visibly to
+`Fireworks STT · experimental`. Before microphone permission, the operator must
+acknowledge that the synthetic clip will be sent once to Fireworks. The fixed
+output disappears; the provider transcript is immediately redacted and enters
+the same `NEEDS_REVIEW` proposal queue. The completion receipt says
+`spoken_words_transcribed=true`, `provider_connected=true`, and still says
+`raw_audio_retained=false` and `raw_transcript_retained=false` for ExitSpec.
+Known account, credential, rate, timeout, transport, service, and response
+failures receive bounded recovery copy; raw provider bodies are never rendered.
+
 The HTTP surface is deliberately narrow:
 
 - `GET /api/pocs/{poc_id}/stt/disclosure` returns exact copy and bounds for one
@@ -391,7 +436,7 @@ the operation layer, Python and browser runtimes do not guarantee physical
 memory zeroing, so this is a zero-persistence and bounded-reference claim, not
 a memory-forensics claim.
 
-## Four-PR delivery train
+## Five-slice delivery train
 
 | PR | Decision | Still deliberately false |
 | --- | --- | --- |
@@ -399,6 +444,7 @@ a memory-forensics claim.
 | 96 — bounded audio operation | Implemented on the current stack: exact synthetic bytes cross one private permit into one fake-proven transport attempt; execution is disabled by default | No real provider, product upload UI, automatic proposal approval, or meeting-platform bot |
 | 97 — transcript-to-source handoff | Implemented on the current stack: valid synthetic output is immediately redacted and attached as a `MEETING` source with source-linked `NEEDS_REVIEW` proposals | No transcript-to-contract shortcut, provider, or product audio UI |
 | 98 — live demo and hardening | Implemented on the current stack: browser microphone completes the fixed synthetic loop with visible consent, bounded process-local state, safe recovery, and Chromium regression evidence | No speech recognition, real provider, Zoom/Meet bot, customer audio, or production claim |
+| 103 — Fireworks prerecorded transport | Implemented on the current stack: an explicit server flag wires one pinned, single-attempt Fireworks transcription of a consenting synthetic operator clip into the same review queue | No funded live-smoke success, customer audio, streaming STT, Zoom/Meet bot, or production claim |
 
 Zoom or Google Meet is a later transport adapter. The first undeniable demo uses
 the browser microphone because it proves the product loop without OAuth,
@@ -472,6 +518,26 @@ PR98 passes only when all of the following are true in automated tests:
 9. the original email-to-Evidence-Pack browser lifecycle and complete Python
    regression suite remain green.
 
+## PR103 exit gate
+
+PR103 passes only when all of the following are true:
+
+1. Fireworks STT is disabled by default and an invalid or missing credential
+   leaves Paste transcript and fixed synthetic recording available;
+2. the exact host, path, model, region, retention snapshot, multipart fields,
+   timeout, and zero-retry policy are pinned and fake-proven;
+3. live-mode disclosure and provider-processing acknowledgement succeed before
+   browser microphone permission;
+4. one provider transcript becomes only redacted, source-linked
+   `NEEDS_REVIEW` proposals;
+5. every documented provider failure is typed, single-attempt, content-free,
+   and shown with safe recovery guidance;
+6. neither credentials, audio, raw transcript, provider body, nor speaker labels
+   enter public receipts or browser persistence;
+7. synthetic and provider-backed modes both complete through the real HTTP
+   surface in automated tests; and
+8. the complete existing ExitSpec regression gate remains green.
+
 ## Gates before real customer audio
 
 The contract is necessary but not sufficient for C4 real-customer processing.
@@ -488,4 +554,6 @@ Before that claim, ExitSpec still requires:
 - speaker-identity limitations communicated to the reviewer; and
 - a second-human privacy/security approval and operational rollback.
 
-Until those gates pass, all STT demonstrations remain local and synthetic.
+Until those gates pass, all STT input must remain synthetic demo data. The
+opt-in Fireworks mode performs real external processing, but it is not evidence
+that ExitSpec is approved for customer meetings or production audio.

@@ -10,6 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from exitspec.stt_boundary import STTSpeakerMappingState
+from exitspec.stt_operation import (
+    STTTransportResponse,
+    STTTransportSegment,
+)
 from exitspec.web import MAX_REQUEST_BYTES, DemoSession, ExitSpecDemoServer
 
 
@@ -17,10 +22,35 @@ WEBM_SIGNATURE = b"\x1a\x45\xdf\xa3"
 AUDIO = WEBM_SIGNATURE + b"loopback browser audio"
 
 
+class LiveTransport:
+    def __init__(self):
+        self.calls = 0
+
+    def transcribe(self, request):
+        request.read_audio_bytes()
+        self.calls += 1
+        return STTTransportResponse(
+            provider_request_id="fireworks-http-request-001",
+            language="en",
+            speaker_mapping=STTSpeakerMappingState.NOT_PROVIDED,
+            segments=(
+                STTTransportSegment(
+                    start_ms=0,
+                    end_ms=900,
+                    text="P95 latency must stay below 625 ms.",
+                ),
+            ),
+        )
+
+
 @contextmanager
-def _running_server(tmp_path: Path):
+def _running_server(tmp_path: Path, *, stt_fireworks_transport=None):
     session = DemoSession.synthetic_support_agent(output_root=tmp_path / "runs")
-    server = ExitSpecDemoServer(("127.0.0.1", 0), session)
+    server = ExitSpecDemoServer(
+        ("127.0.0.1", 0),
+        session,
+        stt_fireworks_transport=stt_fireworks_transport,
+    )
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
@@ -90,17 +120,25 @@ def _create_draft(server: ExitSpecDemoServer) -> str:
     return payload["poc_id"]
 
 
-def _consent(server: ExitSpecDemoServer, poc_id: str):
+def _consent(server: ExitSpecDemoServer, poc_id: str, *, live: bool = False):
     return _request(
         server,
         "POST",
         f"/api/pocs/{poc_id}/stt/consents",
         payload={
             "all_speakers_consented": True,
-            "disclosure_id": "stt_demo_disclosure_v1",
+            "disclosure_id": (
+                "stt_fireworks_disclosure_v1"
+                if live
+                else "stt_demo_disclosure_v1"
+            ),
             "idempotency_key": "transport-consent-key",
             "recording_notice_acknowledged": True,
-            "synthetic_demo_acknowledged": True,
+            **(
+                {"provider_processing_acknowledged": True}
+                if live
+                else {"synthetic_demo_acknowledged": True}
+            ),
         },
     )
 
@@ -169,6 +207,56 @@ def test_real_transport_completes_disclosure_consent_capture_and_source_list(
     )
     serialized = json.dumps((disclosure, consent, captured, listed))
     assert AUDIO.hex() not in serialized
+
+
+def test_live_provider_transport_is_wired_through_http_to_review_queue(tmp_path):
+    transport = LiveTransport()
+    with _running_server(
+        tmp_path,
+        stt_fireworks_transport=transport,
+    ) as server:
+        poc_id = _create_draft(server)
+        disclosure = _request(
+            server,
+            "GET",
+            f"/api/pocs/{poc_id}/stt/disclosure",
+            content_type=None,
+            origin=None,
+        )
+        consent = _consent(server, poc_id, live=True)
+        capture_id = consent[1]["capture_id"]
+        captured = _request(
+            server,
+            "POST",
+            f"/api/pocs/{poc_id}/stt/captures/{capture_id}",
+            payload=_capture_payload(),
+        )
+        listed = _request(
+            server,
+            "GET",
+            f"/api/pocs/{poc_id}/sources",
+            content_type=None,
+            origin=None,
+        )
+
+    assert disclosure[0] == 200
+    assert disclosure[1]["mode"] == "FIREWORKS_PRERECORDED_TRANSCRIPTION"
+    assert disclosure[1]["provider_transport_configured"] is True
+    assert disclosure[1]["spoken_words_transcribed"] is True
+    assert "fixed_output" not in disclosure[1]
+    assert consent[0] == captured[0] == 201
+    assert consent[1]["provider_processing_acknowledged"] is True
+    assert captured[1]["status"] == "NEEDS_REVIEW"
+    assert captured[1]["proposal_count"] == 1
+    assert captured[1]["provider"] == "fireworks"
+    assert captured[1]["raw_audio_retained"] is False
+    assert listed[1]["sources"][0]["source_receipt_id"] == (
+        captured[1]["source_receipt_id"]
+    )
+    assert transport.calls == 1
+    serialized = json.dumps((disclosure, consent, captured, listed))
+    assert AUDIO.hex() not in serialized
+    assert "625 ms" not in serialized
 
 
 @pytest.mark.parametrize(
@@ -258,7 +346,7 @@ def test_duplicate_json_header_idempotency_and_authority_fields_are_rejected(
             },
         )
 
-    expected = (400, {"error": "Synthetic recording request is invalid."})
+    expected = (400, {"error": "Recording request is invalid."})
     assert duplicate == header == authority == expected
     assert "private" not in json.dumps(duplicate)
 
@@ -303,17 +391,17 @@ def test_oversized_body_query_and_unsupported_method_fail_closed(tmp_path):
 
     assert oversized == (
         413,
-        {"error": "Synthetic recording request is too large."},
+        {"error": "Recording request is too large."},
     )
     assert query == (
         400,
-        {"error": "Synthetic recording request is invalid."},
+        {"error": "Recording request is invalid."},
     )
     assert unsupported == (
         405,
-        {"error": "Synthetic recording method is not allowed."},
+        {"error": "Recording method is not allowed."},
     )
     assert trailing == doubled == (
         400,
-        {"error": "Synthetic recording request is invalid."},
+        {"error": "Recording request is invalid."},
     )

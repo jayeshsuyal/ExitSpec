@@ -463,3 +463,31 @@ def test_serve_demo_keeps_bundled_resources_alive_through_reset_and_close(
         server.server_close()
 
     assert lifecycle == {"open": False, "closed": True}
+
+
+def test_serve_demo_explicitly_wires_or_safely_falls_back_from_fireworks_stt(
+    tmp_path,
+):
+    live_server = web_module.serve_demo(
+        host="127.0.0.1",
+        port=0,
+        output_root=tmp_path / "live-runs",
+        enable_fireworks_stt=True,
+        fireworks_stt_api_key="fw_test_server_owned_stt_key",
+    )
+    try:
+        assert live_server.stt_demo_runtime.live_provider_enabled is True
+    finally:
+        live_server.server_close()
+
+    fallback_server = web_module.serve_demo(
+        host="127.0.0.1",
+        port=0,
+        output_root=tmp_path / "fallback-runs",
+        enable_fireworks_stt=True,
+        fireworks_stt_api_key=None,
+    )
+    try:
+        assert fallback_server.stt_demo_runtime.live_provider_enabled is False
+    finally:
+        fallback_server.server_close()

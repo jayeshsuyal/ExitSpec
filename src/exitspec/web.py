@@ -153,7 +153,7 @@ from .provider_egress import (
     ProviderEgressAcknowledgement,
     ProviderEgressAcknowledgementError,
 )
-from .providers import ProviderError, StructuredJSONRequest
+from .providers import FireworksSTTTransport, ProviderError, StructuredJSONRequest
 from .reference_inference import (
     REFERENCE_ENDPOINT_PATH,
     ReferenceInferenceRequestError,
@@ -191,6 +191,7 @@ from .stt_demo_web_api import (
     is_stt_demo_web_api_target,
     stt_demo_web_api_poc_id,
 )
+from .stt_operation import STTTransportError
 from .wave1_execution import (
     WAVE1_FIREWORKS_ADAPTER,
     WAVE1_FIREWORKS_ADAPTER_VERSION,
@@ -2852,6 +2853,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         ] = None,
         performance_runtime: Optional[PerformanceWebRuntime] = None,
         performance_fireworks_api_key: object = None,
+        stt_fireworks_transport: object = None,
     ) -> None:
         configuration = (
             Wave1ProviderExecutionConfiguration()
@@ -2870,6 +2872,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         self.stt_demo_runtime = ProcessLocalSTTDemoRuntime(
             drafts=self.draft_poc_service,
             source_intake=self.poc_source_intake,
+            fireworks_transport=stt_fireworks_transport,
         )
         self.proposal_review_service = ProcessLocalProposalReviewService(
             proposal_lookup=self.poc_source_intake.proposal_inputs,
@@ -3551,7 +3554,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self.headers.get_all("Idempotency-Key"):
             self._send_json(
                 HTTPStatus.BAD_REQUEST,
-                {"error": "Synthetic recording request is invalid."},
+                {"error": "Recording request is invalid."},
             )
             return True
         allowed, _ = self._run_unclosed_poc_mutation(poc_id, lambda: None)
@@ -3562,13 +3565,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         except OverflowError:
             self._send_json(
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                {"error": "Synthetic recording request is too large."},
+                {"error": "Recording request is too large."},
             )
             return True
         except ValueError:
             self._send_json(
                 HTTPStatus.BAD_REQUEST,
-                {"error": "Synthetic recording request is invalid."},
+                {"error": "Recording request is invalid."},
             )
             return True
         allowed, response = self._run_unclosed_poc_mutation(
@@ -5868,6 +5871,9 @@ def serve_demo(
     *,
     enable_fireworks: bool = False,
     fireworks_api_key: object = None,
+    enable_fireworks_stt: bool = False,
+    fireworks_stt_api_key: object = None,
+    fireworks_stt_connection_factory: object = None,
 ) -> ExitSpecDemoServer:
     """Start the local-only server. The caller owns ``serve_forever`` lifecycle."""
 
@@ -5888,6 +5894,15 @@ def serve_demo(
             enabled=enable_fireworks,
             api_key=fireworks_api_key,
         )
+        stt_transport = None
+        if enable_fireworks_stt:
+            try:
+                stt_transport = FireworksSTTTransport(
+                    api_key=fireworks_stt_api_key,
+                    connection_factory=fireworks_stt_connection_factory,
+                )
+            except STTTransportError:
+                stt_transport = None
         server = ExitSpecDemoServer(
             (host, port),
             session,
@@ -5896,6 +5911,7 @@ def serve_demo(
             performance_fireworks_api_key=(
                 fireworks_api_key if enable_fireworks else None
             ),
+            stt_fireworks_transport=stt_transport,
         )
     except Exception:
         resource_stack.close()

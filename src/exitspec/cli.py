@@ -169,6 +169,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Requires FIREWORKS_API_KEY in the server environment."
         ),
     )
+    serve.add_argument(
+        "--enable-fireworks-stt",
+        action="store_true",
+        help=(
+            "Send one consented synthetic browser clip to the pinned "
+            "experimental Fireworks Whisper v3 transport. Requires "
+            "FIREWORKS_API_KEY in the server environment."
+        ),
+    )
     return parser
 
 
@@ -257,7 +266,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command == "serve":
         fireworks_api_key = (
             os.environ.get("FIREWORKS_API_KEY")
-            if args.enable_fireworks
+            if args.enable_fireworks or args.enable_fireworks_stt
             else None
         )
         server = serve_demo(
@@ -266,7 +275,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             output_root=args.output_dir,
             open_browser=args.open_browser,
             enable_fireworks=args.enable_fireworks,
-            fireworks_api_key=fireworks_api_key,
+            fireworks_api_key=(
+                fireworks_api_key if args.enable_fireworks else None
+            ),
+            enable_fireworks_stt=args.enable_fireworks_stt,
+            fireworks_stt_api_key=(
+                fireworks_api_key if args.enable_fireworks_stt else None
+            ),
         )
         del fireworks_api_key
         print("ExitSpec local demo: http://{0}:{1}".format(args.host, server.server_port))
@@ -284,6 +299,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         else:
             print(
                 "Fireworks disabled. The deterministic local path remains available."
+            )
+        stt_runtime = getattr(server, "stt_demo_runtime", None)
+        if getattr(stt_runtime, "live_provider_enabled", False):
+            print(
+                "Experimental Fireworks STT enabled for consented synthetic "
+                "browser clips. Transcripts remain untrusted and review-only."
+            )
+        elif args.enable_fireworks_stt:
+            print(
+                "Fireworks STT requested but not configured. Paste transcript "
+                "and fixed synthetic recording remain available."
             )
         print("Press Ctrl+C to stop.")
         try:

@@ -20,6 +20,18 @@ from exitspec.stt_demo_runtime import (
     STT_DEMO_MEDIA_TYPE,
     STTDemoError,
     STTDemoFailureCode,
+    STT_LIVE_DISCLOSURE_ID,
+    STT_LIVE_MODE,
+)
+from exitspec.stt_boundary import (
+    STTRetentionMode,
+    STTSpeakerMappingState,
+)
+from exitspec.stt_operation import (
+    STTOperationFailureCode,
+    STTTransportError,
+    STTTransportResponse,
+    STTTransportSegment,
 )
 
 
@@ -36,7 +48,12 @@ class MutableClock:
         return self.value
 
 
-def _runtime(*, clock=None, poc_id: str = "poc_stt_browser_demo"):
+def _runtime(
+    *,
+    clock=None,
+    poc_id: str = "poc_stt_browser_demo",
+    fireworks_transport=None,
+):
     selected_clock = clock or (lambda: NOW)
     drafts = ProcessLocalDraftPOCService(clock=selected_clock)
     drafts.create(
@@ -59,6 +76,7 @@ def _runtime(*, clock=None, poc_id: str = "poc_stt_browser_demo"):
             drafts=drafts,
             source_intake=intake,
             clock=selected_clock,
+            fireworks_transport=fireworks_transport,
         ),
         drafts,
         intake,
@@ -66,14 +84,58 @@ def _runtime(*, clock=None, poc_id: str = "poc_stt_browser_demo"):
 
 
 def _consent(runtime, *, poc_id="poc_stt_browser_demo", key="consent-key-001"):
+    values = {
+        "poc_id": poc_id,
+        "disclosure_id": (
+            STT_LIVE_DISCLOSURE_ID
+            if runtime.live_provider_enabled
+            else STT_DEMO_DISCLOSURE_ID
+        ),
+        "recording_notice_acknowledged": True,
+        "all_speakers_consented": True,
+        "idempotency_key": key,
+    }
+    if runtime.live_provider_enabled:
+        values["provider_processing_acknowledged"] = True
+    else:
+        values["synthetic_demo_acknowledged"] = True
     return runtime.record_consent(
-        poc_id=poc_id,
-        disclosure_id=STT_DEMO_DISCLOSURE_ID,
-        recording_notice_acknowledged=True,
-        all_speakers_consented=True,
-        synthetic_demo_acknowledged=True,
-        idempotency_key=key,
+        **values,
     )
+
+
+class LiveRecordingTransport:
+    def __init__(self, outcome=None):
+        self.calls = 0
+        self.outcome = outcome
+        self.authorization = None
+
+    def transcribe(self, request):
+        audio = request.read_audio_bytes()
+        assert audio.startswith(WEBM_SIGNATURE)
+        self.calls += 1
+        self.authorization = request.authorization
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return STTTransportResponse(
+            provider_request_id="fireworks-live-request-001",
+            language="en",
+            speaker_mapping=STTSpeakerMappingState.PROVIDER_ASSIGNED_UNVERIFIED,
+            segments=(
+                STTTransportSegment(
+                    start_ms=0,
+                    end_ms=400,
+                    speaker_label="speaker-a",
+                    text="P95 time to first token must stay below 700 ms.",
+                ),
+                STTTransportSegment(
+                    start_ms=400,
+                    end_ms=900,
+                    speaker_label="speaker-b",
+                    text="Error rate must remain below 2%.",
+                ),
+            ),
+        )
 
 
 def _capture(
@@ -117,6 +179,147 @@ def test_disclosure_truthfully_freezes_the_local_demo_boundary():
         type(disclosure)(
             fixed_output=("Caller selected output.", "Unsafe output."),
         )
+
+
+def test_live_disclosure_truthfully_freezes_fireworks_processing_boundary():
+    transport = LiveRecordingTransport()
+    runtime, _, _ = _runtime(fireworks_transport=transport)
+
+    disclosure = runtime.disclosure
+
+    assert runtime.live_provider_enabled is True
+    assert disclosure.schema_version == "exitspec-stt-browser-fireworks/1.0"
+    assert disclosure.disclosure_id == STT_LIVE_DISCLOSURE_ID
+    assert disclosure.mode == STT_LIVE_MODE
+    assert disclosure.provider == "fireworks"
+    assert disclosure.provider_model == "whisper-v3"
+    assert disclosure.provider_region == "us-virginia-1"
+    assert disclosure.provider_policy_checked_at == "2026-08-05"
+    assert disclosure.provider_retention_mode is STTRetentionMode.ZERO_RETENTION
+    assert disclosure.spoken_words_transcribed is True
+    assert disclosure.provider_transport_configured is True
+    assert disclosure.raw_audio_retained is False
+    assert disclosure.raw_transcript_retained is False
+    assert "fixed_output" not in disclosure.model_dump(mode="json")
+    assert transport.calls == 0
+
+
+def test_live_consent_requires_exact_provider_scope_before_microphone():
+    runtime, _, _ = _runtime(fireworks_transport=LiveRecordingTransport())
+
+    receipt = _consent(runtime)
+
+    assert receipt.disclosure_id == STT_LIVE_DISCLOSURE_ID
+    assert receipt.provider_processing_acknowledged is True
+    assert receipt.provider == "fireworks"
+    assert receipt.provider_model == "whisper-v3"
+    assert receipt.microphone_authority_issued is True
+    assert receipt.audio_egress_authority_issued is False
+
+    with pytest.raises(STTDemoError) as wrong_scope:
+        runtime.record_consent(
+            poc_id="poc_stt_browser_demo",
+            disclosure_id=STT_LIVE_DISCLOSURE_ID,
+            recording_notice_acknowledged=True,
+            all_speakers_consented=True,
+            synthetic_demo_acknowledged=True,
+            idempotency_key="live-wrong-scope-key",
+        )
+    assert wrong_scope.value.failure_code is STTDemoFailureCode.CONSENT_REQUIRED
+
+
+def test_live_capture_uses_provider_words_and_still_creates_review_only_source():
+    transport = LiveRecordingTransport()
+    runtime, _, intake = _runtime(fireworks_transport=transport)
+    consent = _consent(runtime)
+
+    result = _capture(runtime, consent.capture_id)
+
+    assert transport.calls == 1
+    assert transport.authorization.provider == "fireworks"
+    assert transport.authorization.provider_model == "whisper-v3"
+    assert transport.authorization.region == "us-virginia-1"
+    assert transport.authorization.retention_mode is STTRetentionMode.ZERO_RETENTION
+    assert result.mode == STT_LIVE_MODE
+    assert result.source_kind == "MEETING"
+    assert result.status == "NEEDS_REVIEW"
+    assert result.proposal_count == 2
+    assert result.spoken_words_transcribed is True
+    assert result.provider_connected is True
+    assert result.provider == "fireworks"
+    assert result.raw_audio_retained is False
+    assert result.raw_transcript_retained is False
+    claims = tuple(
+        proposal.normalized_claim
+        for proposal in intake.proposal_inputs("poc_stt_browser_demo")
+    )
+    assert any("700 ms" in claim for claim in claims)
+    assert any("2%" in claim for claim in claims)
+    assert all(proposal.state == "NEEDS_REVIEW" for proposal in intake.proposal_inputs("poc_stt_browser_demo"))
+    serialized = json.dumps(result.model_dump(mode="json"))
+    assert AUDIO.hex() not in serialized
+    assert "700 ms" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("operation_failure", "demo_failure"),
+    (
+        (
+            STTOperationFailureCode.TRANSPORT_CONFIGURATION,
+            STTDemoFailureCode.PROVIDER_CONFIGURATION,
+        ),
+        (
+            STTOperationFailureCode.AUTHENTICATION,
+            STTDemoFailureCode.PROVIDER_AUTHENTICATION,
+        ),
+        (
+            STTOperationFailureCode.ACCOUNT_UNAVAILABLE,
+            STTDemoFailureCode.PROVIDER_ACCOUNT_UNAVAILABLE,
+        ),
+        (
+            STTOperationFailureCode.RATE_LIMITED,
+            STTDemoFailureCode.PROVIDER_RATE_LIMITED,
+        ),
+        (
+            STTOperationFailureCode.TIMEOUT,
+            STTDemoFailureCode.PROVIDER_TIMEOUT,
+        ),
+        (
+            STTOperationFailureCode.SERVICE_UNAVAILABLE,
+            STTDemoFailureCode.PROVIDER_SERVICE_UNAVAILABLE,
+        ),
+        (
+            STTOperationFailureCode.TRANSPORT,
+            STTDemoFailureCode.PROVIDER_TRANSPORT,
+        ),
+        (
+            STTOperationFailureCode.INVALID_RESPONSE,
+            STTDemoFailureCode.PROVIDER_INVALID_RESPONSE,
+        ),
+    ),
+)
+def test_live_provider_failures_are_typed_content_free_and_never_retried(
+    operation_failure,
+    demo_failure,
+):
+    transport = LiveRecordingTransport(STTTransportError(operation_failure))
+    runtime, _, intake = _runtime(fireworks_transport=transport)
+    consent = _consent(runtime)
+
+    with pytest.raises(STTDemoError) as caught:
+        _capture(runtime, consent.capture_id)
+
+    assert caught.value.failure_code is demo_failure
+    assert transport.calls == 1
+    assert intake.list_receipts("poc_stt_browser_demo") == ()
+    rendered = str(caught.value) + repr(caught.value)
+    assert AUDIO.hex() not in rendered
+    assert "P95" not in rendered
+
+    with pytest.raises(STTDemoError) as replay:
+        _capture(runtime, consent.capture_id)
+    assert replay.value.failure_code is STTDemoFailureCode.CAPTURE_CONSUMED
+    assert transport.calls == 1
 
 
 def test_consented_capture_reuses_pr95_to_pr97_and_creates_review_only_source():

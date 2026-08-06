@@ -93,7 +93,7 @@
                 <input type="radio" name="source_kind" value="MEETING" />
                 <span>
                   <strong>Meeting</strong>
-                  <small>Paste a transcript or run the local mic demo</small>
+                  <small id="meeting-source-option-copy">Paste a transcript or run the local mic demo</small>
                   <em class="starting-choice" hidden>Starting choice</em>
                 </span>
               </label>
@@ -181,7 +181,7 @@
                       name="meeting_mode"
                       value="RECORD"
                     />
-                    <span>Record synthetic demo</span>
+                    <span id="meeting-record-mode-label">Record synthetic demo</span>
                   </label>
                 </fieldset>
 
@@ -217,17 +217,21 @@
                 >
                   <header class="record-demo-header">
                     <div>
-                      <p class="eyebrow">Local synthetic adapter</p>
+                      <p class="eyebrow" id="record-adapter-label">Local synthetic adapter</p>
                       <h4 id="record-demo-heading">Record one short demo clip</h4>
                     </div>
-                    <span class="synthetic-badge">Not real STT</span>
+                    <span class="synthetic-badge" id="stt-mode-badge">Not real STT</span>
                   </header>
 
                   <p class="record-disclosure" id="stt-disclosure">
                     Loading the exact recording boundary…
                   </p>
 
-                  <div class="fixed-output" aria-labelledby="fixed-output-heading">
+                  <div
+                    class="fixed-output"
+                    id="stt-fixed-output-panel"
+                    aria-labelledby="fixed-output-heading"
+                  >
                     <strong id="fixed-output-heading">Fixed demo output</strong>
                     <ul id="stt-fixed-output">
                       <li>P95 time to first token must stay below 500 ms.</li>
@@ -246,7 +250,7 @@
                     </label>
                     <label>
                       <input id="synthetic-output-ack" type="checkbox" />
-                      <span>I understand my spoken words will not be transcribed.</span>
+                      <span id="processing-scope-ack-copy">I understand my spoken words will not be transcribed.</span>
                     </label>
                   </div>
 
@@ -280,7 +284,7 @@
 
                   <details class="record-details">
                     <summary>What this demo proves</summary>
-                    <p>
+                    <p id="stt-proof-copy">
                       Consent is recorded before microphone permission; audio is
                       byte-bound, processed once on loopback, never persisted,
                       and cleared after the attempt.
