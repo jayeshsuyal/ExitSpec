@@ -350,13 +350,15 @@ live smoke, streaming STT, a Zoom/Meet bot, real customer audio, verified
 speaker identity, or production readiness until their separate C3/C4 gates
 pass.
 
-### 7. Zoom meeting connector train — auth seam, contract, and inbox implemented
+### 7. Zoom meeting connector train — core source bridge implemented
 
 The provider-neutral meeting connector contract, opaque synthetic webhook
-authentication seam, durable synthetic-only inbox, and dated Zoom RTMS
-capability spike are implemented in `meeting_connector.py`,
-`zoom_webhook_auth.py`, `meeting_event_inbox.py`,
-[MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md), and
+authentication seam, durable synthetic-only inbox, sealed-window source bridge,
+and dated Zoom RTMS capability spike are implemented in
+`meeting_connector.py`, `zoom_webhook_auth.py`, `meeting_event_inbox.py`,
+`meeting_source_handoff.py`,
+[MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md),
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md), and
 [`zoom-rtms-capability-spike-v1.json`](../examples/meeting/zoom-rtms-capability-spike-v1.json).
 The inbox separates API replay from provider duplicate delivery, keeps one
 canonical private event plus immutable content-free receipts, permanently
@@ -365,8 +367,12 @@ secure-deletes expired private payloads. These slices remain synthetic-only and
 make no Zoom network call. The auth seam verifies exact supplied bytes,
 freshness, and bounded process-local replay but has no route, event parser,
 transport binding, or inbox-write authority. Its signing-input extraction still
-requires an untouched golden fixture. See
-[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md).
+requires an untouched golden fixture. The source bridge verifies sealer
+authority, neutralizes labels, redacts immediately, attaches one replay-safe
+`MEETING` source, and leaves every proposal `NEEDS_REVIEW`. It has no HTTP route
+or durable-inbox deletion authority. See
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md) and
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md).
 
 The remaining train is:
 
@@ -374,7 +380,9 @@ The remaining train is:
 2. exact HTTP signing-input extraction proven against that fixture, plus
    server-owned OAuth, on-demand RTMS start/stop, authenticated WebSocket,
    reconnect, and shutdown transport;
-3. immediate redaction and handoff into the existing `MEETING` source path;
+3. a durable orchestrator from inbox recovery through sealing and the
+   implemented source bridge, with atomic or recoverable source durability and
+   private-annex deletion semantics;
 4. compact consent/capture/finalization UI inside the existing POC workbench;
 5. one real Zoom meeting with two consenting synthetic participants; and
 6. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.

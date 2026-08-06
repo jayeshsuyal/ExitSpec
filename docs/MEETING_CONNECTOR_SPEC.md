@@ -3,8 +3,9 @@
 ## Status and decision
 
 This document defines the first provider-neutral meeting-stream boundary, the
-Zoom RTMS capability decision checked on **2026-08-06**, and the implemented
-synthetic-only authentication seam for opaque webhook bytes.
+Zoom RTMS capability decision checked on **2026-08-06**, the implemented
+synthetic-only authentication seam for opaque webhook bytes, and the
+implemented provider-neutral sealed-window-to-source bridge.
 
 The first platform integration will use **Zoom Realtime Media Streams (RTMS),
 transcript only**, for an explicitly synthetic meeting with consenting test
@@ -56,6 +57,7 @@ evidence, or assign a verdict.
 | Zoom RTMS | Delivery of provider packets and provider participant labels | ExitSpec consent, source authority, agreement state, measurement, or verdict |
 | Zoom adapter | Webhook verification, WebSocket handshake, raw-packet parsing, and mapping into the provider-neutral contract | Customer confirmation, freeze, proof, or `PASS` |
 | Meeting connector core | Capture authorization, exact bindings, event integrity, participant-set enforcement, limits, and sealed-window receipt | OAuth credentials, network transport, redaction policy, or downstream decisions |
+| Meeting source bridge | Sealer-authority verification, neutral labels, immediate redaction, exact source binding, and replay-safe attachment | Inbox deletion, agreement, execution, evidence, or verdict authority |
 | Existing source pipeline | Immediate redaction, source attachment, proposal provenance, and `NEEDS_REVIEW` state | Automatic proposal approval |
 | Existing ExitSpec spine | Human review, exact customer confirmation, freeze, measurement, verdict, Evidence Pack, and handoff | Treating transcript text as authority |
 
@@ -161,7 +163,9 @@ The first sealed-window rules are deliberately strict:
   transcript.
 
 An exact replay creates the same event-stream digest. Recalculation does not
-rewrite a previously sealed record.
+rewrite a previously sealed record. The sealer also binds a private in-process
+authority marker and integrity projection so a directly constructed or
+post-seal-mutated object cannot enter the implemented source bridge.
 
 ## Durable connector inbox
 
@@ -282,13 +286,21 @@ files are owner-only, and expiry uses SQLite secure deletion followed by WAL
 truncation. This is not an encrypted production vault or a claim of forensic
 erasure on every storage medium; production customer data remains prohibited.
 
-The future handoff must immediately neutralize speaker labels, redact
-transcript text, attach one `MEETING` source, purge the private annex, and retain
-only content-free provenance plus the existing redacted source. The PR108
+The implemented source bridge immediately neutralizes speaker labels, redacts
+transcript text, and attaches one process-local `MEETING` source while retaining
+only content-free handoff provenance plus the existing redacted source. It does
+not mutate or purge the durable inbox annex. That boundary is explicit because
+deleting durable private input after a process-local source write could lose
+both reconstructability and the redacted source after a crash. The inbox's
+existing bounded TTL remains in force; a future live orchestrator must first
+make the redacted source durable or define an atomic recoverable handoff before
+post-handoff deletion can be claimed. The complete rule is in
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md). The PR108
 sealed receipt field `raw_transcript_persisted=false` means the released sealed
 artifact does not retain raw transcript text. It does not claim that the
-short-lived pre-handoff inbox never existed. A final externally released
-handoff must not claim that field while its private annex remains retained.
+short-lived pre-handoff inbox never existed or has already been purged. The
+separate handoff receipt therefore exposes the inbox-retention boundary
+explicitly instead of treating that field as deletion evidence.
 
 No raw audio is requested. Customer meetings, customer identities, and customer
 data are prohibited until Wave 7B passes.
@@ -350,8 +362,10 @@ enough.
 5. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
    signing-input extraction, OAuth, REST start/stop, handshakes, reconnect, and
    shutdown fail closed.
-6. **Source bridge:** sealed transcript windows enter the existing
-   redacted `MEETING` source and proposal-review path.
+6. **Source bridge (implemented):** sealer-minted transcript windows enter the
+   existing redacted `MEETING` source and proposal-review path with stable
+   stream identity, exact replay, changed-content conflict, neutral labels, and
+   content-free provenance. It has no route or inbox-deletion authority.
 7. **Guided product UI:** connect, consent, capture, draft-now,
    finalization, and safe recovery states without changing the product spine.
 8. **Synthetic live E2E and hardening:** one real Zoom meeting with two

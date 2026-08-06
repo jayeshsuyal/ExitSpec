@@ -10,13 +10,21 @@ measurement, evidence, or verdict authority.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Iterator, Literal, Mapping, Never, Self, Sequence
 
-from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .canonical import canonical_json_bytes
 from .models import FrozenExitSpecModel, SHA256_PATTERN
@@ -35,7 +43,10 @@ _EVENT_DOMAIN = b"exitspec-meeting-event-v1\x00"
 _EVENT_STREAM_DOMAIN = b"exitspec-meeting-event-stream-v1\x00"
 _MEETING_DOMAIN = b"exitspec-meeting-identity-v1\x00"
 _PARTICIPANT_SET_DOMAIN = b"exitspec-meeting-participant-set-v1\x00"
+_SEALED_TRANSCRIPT_DOMAIN = b"exitspec-sealed-meeting-transcript-v1\x00"
 _STREAM_DOMAIN = b"exitspec-meeting-stream-identity-v1\x00"
+
+_SEALED_TRANSCRIPT_SEAL = object()
 
 _ADAPTER_PATTERN = r"^[a-z][a-z0-9._-]{2,79}$"
 _BINDING_ID_PATTERN = r"^meetbind_[a-f0-9]{64}$"
@@ -687,6 +698,9 @@ class MeetingTranscriptWindowReceipt(_FrozenMeetingModel):
 class SealedMeetingTranscript(_PrivateMeetingModel):
     """Private sealed transcript awaiting immediate redaction and source handoff."""
 
+    _sealer_authority: object | None = PrivateAttr(default=None)
+    _sealer_integrity_sha256: str | None = PrivateAttr(default=None)
+
     authorization_id: str = Field(pattern=r"^meetauth_[a-f0-9]{64}$")
     request_id: str = Field(pattern=_REQUEST_ID_PATTERN)
     poc_id: str = Field(pattern=POC_ID_PATTERN)
@@ -732,6 +746,54 @@ class SealedMeetingTranscript(_PrivateMeetingModel):
             text = " ".join((segment.transcript_text or "").split())
             lines.append(f"{speaker}: {text}")
         return "\n".join(lines)
+
+    def _bind_sealer_authority(self, *, _seal: object) -> "SealedMeetingTranscript":
+        if _seal is not _SEALED_TRANSCRIPT_SEAL:
+            raise PrivateMeetingConnectorValidationError()
+        object.__setattr__(self, "_sealer_authority", _seal)
+        object.__setattr__(
+            self,
+            "_sealer_integrity_sha256",
+            _sealed_transcript_integrity_sha256(self),
+        )
+        return self
+
+    def _verify_sealer_authority(self) -> bool:
+        """Prove this instance came from the sealer and remains unchanged."""
+
+        expected = self._sealer_integrity_sha256
+        return (
+            self._sealer_authority is _SEALED_TRANSCRIPT_SEAL
+            and type(expected) is str
+            and hmac.compare_digest(
+                expected,
+                _sealed_transcript_integrity_sha256(self),
+            )
+        )
+
+
+def _sealed_transcript_integrity_sha256(
+    transcript: SealedMeetingTranscript,
+) -> str:
+    return _digest(
+        _SEALED_TRANSCRIPT_DOMAIN,
+        {
+            "authorization_id": transcript.authorization_id,
+            "meeting_identity_sha256": meeting_identity_sha256(
+                transcript.meeting_id
+            ),
+            "poc_id": transcript.poc_id,
+            "receipt": transcript.receipt.model_dump(mode="json"),
+            "request_id": transcript.request_id,
+            "segment_fingerprints": [
+                segment.fingerprint_sha256()
+                for segment in transcript.segments
+            ],
+            "stream_identity_sha256": stream_identity_sha256(
+                transcript.stream_id
+            ),
+        },
+    )
 
 
 def authorize_meeting_capture(
@@ -1066,7 +1128,7 @@ def seal_meeting_transcript_window(
         stream_id=unique_events[0].stream_id,
         receipt=receipt,
         segments=transcript_events,
-    )
+    )._bind_sealer_authority(_seal=_SEALED_TRANSCRIPT_SEAL)
 
 
 __all__ = [

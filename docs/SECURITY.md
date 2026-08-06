@@ -296,6 +296,19 @@ receipts link operation, authorization, and source IDs without transcript text,
 audio, provider speaker labels, participant IDs, or raw meeting identity. Every
 candidate remains `NEEDS_REVIEW`.
 
+The separate provider-neutral meeting source bridge accepts only an unchanged
+`SealedMeetingTranscript` minted by the meeting sealer. A private in-process
+marker and integrity projection bind its public receipt and every private
+segment fingerprint. The bridge neutralizes provider labels, redacts
+immediately, rechecks the exact redacted digest at source intake, and derives
+replay identity from the POC and stable stream digest. Direct construction,
+post-seal mutation, concurrent replay, and changed content under one stream are
+fail-closed. Its public receipt grants no inbox deletion or lifecycle
+authority. Because the redacted source is process-local, the durable inbox
+annex remains under its existing TTL; immediate post-handoff purge is not yet
+claimed. See
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md).
+
 The synthetic Zoom webhook authenticator is a separate pre-transport seam. It
 accepts exact opaque bytes, a canonical timestamp, and an exact lowercase
 `v0` signature; verifies HMAC-SHA256 with a server-owned secret; enforces an
@@ -349,6 +362,16 @@ Zoom claim, and process-local replay state is not a production control. See
     capacity-exhausting opaque Zoom webhook authentication input.
 28. Zoom webhook receipt mutation, raw-body reflection, secret serialization,
     clock rollback, or authenticated input acquiring downstream authority.
+29. Directly constructed or post-seal-mutated meeting transcripts entering the
+    source path.
+30. Provider speaker labels, participant identities, email addresses, or
+    supported secret patterns crossing the meeting handoff boundary.
+31. Serial or concurrent meeting-window replay creating duplicate sources or
+    proposals.
+32. Changed transcript content under one stable meeting stream silently
+    creating a second source.
+33. Meeting source failures echoing private content or transcript instructions
+    acquiring confirmation, freeze, execution, or verdict authority.
 
 ## Production security gates
 
