@@ -1,20 +1,55 @@
 # External Evidence Protocol
 
-- Status: Accepted architecture; importer implementation deferred
+- Status: Accepted architecture; bounded v1 importer authorized
 - Date: 2026-08-05
+- Implementation amendment: 2026-08-06
 - Decision owners: ExitSpec maintainers
 - Scope: Future evidence produced outside ExitSpec, beginning with Inferdrome
 
 ## Purpose
 
-ExitSpec may eventually evaluate evidence produced by Inferdrome or another
-external measurement system. This document fixes the authority, compatibility,
-trust, privacy, and immutability rules for that future boundary without defining
-a wire format.
+ExitSpec may evaluate evidence produced by Inferdrome or another external
+measurement system. This document fixes the authority, compatibility, trust,
+privacy, and immutability rules for that boundary. The original decision
+deferred every wire-format and runtime choice until a pinned producer fixture
+existed. The implementation amendment below records the narrow evidence that
+unlocked the first offline importer; it does not weaken the original rules.
 
-This is a constitutional architecture decision, not an importer specification.
-It does not define `inferdrome.evidence.v1`, add an ingestion status to the
-runtime, change a frozen contract, or authorize any external bundle today.
+This remains the constitutional architecture decision rather than the importer
+API specification. The bounded implementation is documented separately in
+[`INFERDROME_IMPORT.md`](INFERDROME_IMPORT.md). It does not change an existing
+frozen customer contract or authorize arbitrary external bundles.
+
+## Implementation amendment: bounded Inferdrome v1 importer
+
+The first importer gate is satisfied only for the exact synthetic capability
+fixtures and schema digests reviewed on 2026-08-06. The reviewed evidence
+includes:
+
+1. native vLLM `0.26.0` as the exact pinned producer version;
+2. the untouched detailed native artifact at
+   `tests/fixtures/inferdrome/vllm-template/native/benchmark-result.json`;
+3. explicit available and unavailable observations in the canonical fixture;
+4. the native metric identity `vllm_first_choices_event_v0_26`, which remains
+   incompatible with `first_nonempty_choices_delta_content_v1`;
+5. explicit request ordering and request-ID derivation in
+   `request-plan.json`;
+6. artifact-level privacy classification recording that native response
+   content is present; and
+7. the sealed fake and pinned-vLLM golden fixtures under
+   `tests/fixtures/inferdrome/`.
+
+That evidence authorizes only the offline, bounded `inferdrome.evidence.v1`
+reader in `inferdrome_bundle.py` and `inferdrome_import.py`, together with the
+eight exact vendored schema digests it verifies. The importer executes no
+producer code, performs no network request, admits no synthetic fixture as
+customer evidence, and must independently recalculate supported measurements.
+
+Any new producer or producer version, schema version, adapter, artifact role,
+metric definition, population, reducer, provenance requirement, or privacy
+class remains unsupported until a separate reviewed fixture and compatibility
+decision explicitly authorize it. Missing identity never inherits this v1
+authorization.
 
 ## Governing invariant
 
@@ -257,11 +292,11 @@ Before releasing a verdict, ExitSpec must independently:
 Producer summaries can be compared for diagnostics but cannot replace any of
 these steps.
 
-## Deferred importer gate
+## Importer gate
 
-ExitSpec must not define `inferdrome.evidence.v1`, implement an importer, add a
-runtime ingestion state, or freeze a field mapping until Inferdrome completes a
-pinned-vLLM capability spike and supplies all of the following:
+ExitSpec must not define a new evidence version, extend an importer, add a
+runtime ingestion state, or freeze a new field mapping until the external
+producer completes a pinned capability spike and supplies all of the following:
 
 1. the exact pinned vLLM version or immutable source revision;
 2. one untouched native detailed-output artifact;
@@ -272,20 +307,21 @@ pinned-vLLM capability spike and supplies all of the following:
 6. a privacy classification of every native and normalized artifact; and
 7. the first reviewable golden fixture.
 
-Only that fixture may ground the first importer schema and compatibility tests.
-Field names must be learned from evidence, not invented in advance.
+Only that fixture may ground a new importer schema or compatibility rule. Field
+names must be learned from evidence, not invented in advance. The v1 amendment
+above records the sole currently authorized satisfaction of this gate.
 
 ## Non-goals of this decision
 
-This decision does not:
+This decision and its v1 amendment do not:
 
-- implement or authorize an importer;
-- freeze a wire schema or field mapping;
+- authorize an online importer, producer execution, or network ingestion path;
+- authorize an unpinned producer, schema, adapter, or field mapping;
 - modify the current `vllm_streaming_latency` adapter;
 - rename any frozen identifier or artifact;
 - change current performance populations, reducers, verdicts, or Evidence
   Packs;
-- claim native vLLM compatibility;
+- claim that native vLLM TTFT satisfies ExitSpec's current TTFT criterion;
 - authenticate Inferdrome or a target endpoint;
 - authorize sensitive native-output ingestion; or
 - define cross-run aggregation.

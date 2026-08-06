@@ -291,12 +291,15 @@ not change agreement, freeze, or verdict authority.
 
 ### 5. Expand the evidence model deliberately
 
-An Inferdrome external-evidence importer is deferred under the
-[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md). Do not define its
-wire schema until the pinned-vLLM capability spike supplies the exact vLLM
-version, untouched native detailed output, field-availability analysis, verified
-TTFT semantics, request ordering and ID behavior, privacy classification, and
-first golden fixture.
+The first bounded Inferdrome importer is implemented under the
+[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md) after the
+pinned-vLLM `0.26.0` capability fixture supplied the exact producer version,
+untouched native detailed output, field-availability analysis, verified TTFT
+semantics, request ordering and ID behavior, privacy classification, and first
+golden fixture. It is offline, schema-pinned, synthetic-fixture tested, and
+independently recalculates supported measurements. New producer versions,
+schemas, adapters, online ingestion, and sensitive bundles remain deferred
+behind the same fixture-first gate.
 
 Add, in order:
 
