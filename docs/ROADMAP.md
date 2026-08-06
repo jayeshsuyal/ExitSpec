@@ -135,9 +135,10 @@ Build the local synthetic/demo track in this order:
    POC without modifying either frozen Wave 2 contract;
 6. **Complete:** add a pasted or deterministic synthetic meeting transcript as a second
    source type, without raw audio;
-7. enforce new agreement versions and new customer decisions for material
-   multi-source changes;
-8. add the Evidence Pack library projection;
+7. **Complete:** enforce new agreement versions and new customer decisions for
+   material multi-source changes;
+8. **Complete:** add the read-only Evidence Pack library projection with
+   immutable run history and fail-closed artifact reverification;
 9. **Complete ahead of sequence:** restore the graphite/orange visual contract
    across the dashboard, employee workbench, and existing customer review; and
 10. publish adversarial implementation evidence for every frozen workspace gate.

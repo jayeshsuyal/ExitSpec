@@ -8,7 +8,7 @@ credential, output path, or request-count authority.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 import hashlib
@@ -136,6 +136,9 @@ class _RunRecord:
     execution_fingerprint: str
     operation_id: str
     status: POCPerformanceRunStatus
+    bundle: PreparedPerformanceBundle = field(repr=False)
+    confirmation: ContractConfirmation = field(repr=False)
+    frozen_contract: POCContract = field(repr=False)
     reason_code: str | None = None
     verdict: VerdictStatus | None = None
     attempted_count: int | None = None
@@ -212,7 +215,7 @@ class ProcessLocalPOCPerformanceRunService:
         self._lock = RLock()
 
     def snapshot(self, poc_id: str) -> POCPerformanceRunSnapshot:
-        bundle, _, frozen = self._frozen_bundle(poc_id)
+        bundle, confirmation, frozen = self._frozen_bundle(poc_id)
         with self._lock:
             operation_id = self._latest_by_poc.get(poc_id)
             if operation_id is None:
@@ -221,7 +224,19 @@ class ProcessLocalPOCPerformanceRunService:
                     bundle,
                     frozen,
                 )
-            return self._snapshot_locked(self._records[operation_id])
+            record = self._records[operation_id]
+            current_fingerprint = _execution_fingerprint(
+                poc_id,
+                bundle,
+                confirmation,
+                frozen,
+            )
+            if not hmac.compare_digest(
+                record.execution_fingerprint,
+                current_fingerprint,
+            ):
+                return _empty_snapshot(poc_id, bundle, frozen)
+            return self._snapshot_locked(record)
 
     def operation_snapshot(
         self,
@@ -235,6 +250,68 @@ class ProcessLocalPOCPerformanceRunService:
             if record is None or record.poc_id != poc_id:
                 raise POCPerformanceRunNotFound
             return self._snapshot_locked(record)
+
+    def completed_snapshots(
+        self,
+        poc_id: str,
+    ) -> tuple[POCPerformanceRunSnapshot, ...]:
+        """Return every completed Evidence Pack run without collapsing history."""
+
+        if type(poc_id) is not str:
+            raise POCPerformanceRunNotFound
+        with self._lock:
+            records = tuple(
+                record
+                for record in self._records.values()
+                if record.poc_id == poc_id
+                and record.status is POCPerformanceRunStatus.COMPLETED
+            )
+            return tuple(
+                self._snapshot_locked(record)
+                for record in records
+            )
+
+    def verified_evidence_pack_sha256(
+        self,
+        poc_id: str,
+        operation_id: str,
+    ) -> str:
+        """Reverify one sealed pack against its runner-owned registry identity."""
+
+        if type(operation_id) is not str:
+            raise POCPerformanceRunNotFound
+        with self._lock:
+            record = self._records.get(operation_id)
+            if record is None or record.poc_id != poc_id:
+                raise POCPerformanceRunNotFound
+            snapshot = self._snapshot_locked(record)
+        operation = snapshot.terminal_operation
+        if (
+            snapshot.status is not POCPerformanceRunStatus.COMPLETED
+            or snapshot.evidence_pack_url is None
+            or type(operation) is not PerformanceOperation
+            or operation.status is not PerformanceOperationStatus.COMPLETED
+            or operation.artifact_registry_sha256 is None
+            or snapshot.evidence_pack_url
+            != "/artifacts/{0}/decision-packet.html".format(operation.run_id)
+        ):
+            raise POCPerformanceRunConflict
+        try:
+            verified = self._artifact_reader(
+                self._output_root / operation.run_id
+            )
+        except Exception as error:
+            raise POCPerformanceRunConflict from error
+        if (
+            type(verified) is not VerifiedPerformanceArtifacts
+            or verified.run_id != operation.run_id
+            or not hmac.compare_digest(
+                operation.artifact_registry_sha256,
+                hashlib.sha256(verified.registry_json).hexdigest(),
+            )
+        ):
+            raise POCPerformanceRunConflict
+        return hashlib.sha256(verified.decision_packet_html).hexdigest()
 
     def start(
         self,
@@ -282,6 +359,9 @@ class ProcessLocalPOCPerformanceRunService:
                 execution_fingerprint=fingerprint,
                 operation_id=operation_id,
                 status=POCPerformanceRunStatus.RUNNING,
+                bundle=bundle,
+                confirmation=confirmation,
+                frozen_contract=frozen,
             )
             self._records[operation_id] = record
             self._latest_by_poc[poc_id] = operation_id
@@ -494,7 +574,9 @@ class ProcessLocalPOCPerformanceRunService:
         self,
         record: _RunRecord,
     ) -> POCPerformanceRunSnapshot:
-        bundle, confirmation, frozen = self._frozen_bundle(record.poc_id)
+        bundle = record.bundle
+        confirmation = record.confirmation
+        frozen = record.frozen_contract
         if not hmac.compare_digest(
             record.execution_fingerprint,
             _execution_fingerprint(

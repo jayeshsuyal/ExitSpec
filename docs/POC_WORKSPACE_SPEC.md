@@ -113,6 +113,14 @@ frozen contract version and its approved adapter policy. An Evidence Pack is
 published for one consistency-checked run. The dashboard may summarize the
 latest valid result, but it must never rewrite or hide historical verdicts.
 
+The read-only `/app/evidence` library lists every pack retained by the bounded
+process-local run authorities, newest first. It independently reverifies a pack
+before releasing its link, labels non-current runs as historical, and projects
+handoff state only for the exact evidence binding that was reviewed. It does
+not scan artifact directories, recalculate verdicts, or create a second artifact
+authority. A failed integrity check makes the complete library unavailable
+rather than publishing a partial or unverified list.
+
 Agreement lifecycle and evidence verdict remain separate domain concepts:
 
 ```text
@@ -447,8 +455,11 @@ The minimum human acceptance script is:
    second POC;
 7. prove that the new source cannot mutate a confirmed or frozen version;
 8. complete the existing confirmation, freeze, proof, and Evidence Pack loop;
-9. distinguish agreement status from evidence verdict; and
-10. complete the normal seeded path without infinite body scrolling.
+9. rerun one frozen contract and verify that `/app/evidence` preserves both
+   immutable run-scoped packs;
+10. distinguish agreement status, evidence verdict, and human handoff state;
+    and
+11. complete the normal seeded path without infinite body scrolling.
 
 ## Non-goals
 

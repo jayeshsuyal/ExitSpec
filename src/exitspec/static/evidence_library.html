@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Open verified, run-scoped ExitSpec Evidence Packs from one read-only library."
+    />
+    <title>ExitSpec — Evidence Packs</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/evidence_library.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#evidence-library-main">
+      Skip to Evidence Packs
+    </a>
+
+    <div class="dashboard-shell evidence-library-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app">POCs</a>
+          <a href="/app/evidence" aria-current="page">Evidence Packs</a>
+        </nav>
+
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="evidence-library-main" id="evidence-library-main">
+        <header class="page-header evidence-page-header">
+          <div>
+            <p class="eyebrow">Verified proof</p>
+            <h1>Evidence Packs</h1>
+            <p>Reopen the exact proof behind a customer POC decision.</p>
+          </div>
+          <p class="library-boundary">Read-only · Run-scoped</p>
+        </header>
+
+        <section
+          class="library-summary"
+          aria-labelledby="library-summary-heading"
+        >
+          <div>
+            <p class="summary-label">Available now</p>
+            <p class="summary-value" id="pack-count" aria-live="polite">—</p>
+            <h2 class="visually-hidden" id="library-summary-heading">
+              Evidence Pack library summary
+            </h2>
+          </div>
+          <p class="authorization-boundary" id="authorization-boundary">
+            Validating the evidence boundary…
+          </p>
+        </section>
+
+        <section
+          class="evidence-library-region"
+          aria-labelledby="evidence-list-heading"
+        >
+          <header class="evidence-list-header">
+            <div>
+              <h2 id="evidence-list-heading">Verified run history</h2>
+              <p id="evidence-list-summary">Loading Evidence Packs…</p>
+            </div>
+            <p>Newest first</p>
+          </header>
+
+          <div class="evidence-list-labels" aria-hidden="true">
+            <span>POC / customer</span>
+            <span>Contract</span>
+            <span>Verdict</span>
+            <span>Handoff</span>
+            <span></span>
+          </div>
+
+          <div class="evidence-list-panel">
+            <ul
+              class="evidence-pack-list"
+              id="evidence-pack-list"
+              aria-label="Verified Evidence Packs"
+              aria-busy="true"
+            >
+              <li class="evidence-loading">Validating available packs…</li>
+            </ul>
+
+            <div class="evidence-empty" id="evidence-empty" hidden>
+              <strong>No verified Evidence Packs yet.</strong>
+              <p>Complete one frozen proof to publish the first pack.</p>
+              <a href="/app">Return to POCs</a>
+            </div>
+          </div>
+        </section>
+
+        <p class="workspace-error" id="evidence-library-error" role="alert" hidden></p>
+      </main>
+    </div>
+
+    <script src="/evidence_library.js"></script>
+  </body>
+</html>
