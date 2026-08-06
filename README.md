@@ -326,18 +326,21 @@ production streaming STT, while the prerecorded endpoint used here is
 documented only in its archived official cookbook; ExitSpec therefore labels
 this adapter experimental and fails closed on endpoint drift. A
 provider-neutral, synthetic-only meeting contract, durable local event inbox,
-and sealed-window source bridge now exist for the future Zoom train. The bridge
+sealed-window source bridge, and inbox-to-source orchestration core now exist
+for the future Zoom train. The bridge
 verifies sealer integrity, neutralizes provider labels, redacts immediately,
 and attaches one replay-safe `MEETING` source whose candidates remain
 `NEEDS_REVIEW`. A separate synthetic-only seam verifies an exact supplied byte
 string against the Zoom `v0` webhook HMAC, freshness, and process-local replay
 bounds, but it exposes no route and has no event-parsing, transport,
-inbox-write, or lifecycle authority. The source bridge also has no route or
-inbox-deletion authority; the private annex remains under its bounded TTL
-because the current redacted source is process-local. There is still no Zoom
-OAuth, live webhook, RTMS connection, or raw-packet mapper. Google Meet, Teams,
-customer audio, durable consent, and production authorization remain outside
-the current claim.
+inbox-write, or lifecycle authority. The orchestration core safely composes
+restart recovery, current-consent sealing, and the unchanged source handoff,
+but has no route or inbox-deletion authority. It serializes only within one
+service instance; the private annex remains under its bounded TTL because the
+current redacted source is process-local. There is still no durable completion
+record, Zoom OAuth, live webhook, RTMS connection, or raw-packet mapper. Google
+Meet, Teams, customer audio, durable consent, and production authorization
+remain outside the current claim.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
@@ -366,6 +369,7 @@ repository yet.
 - [Speech-to-text boundary, Fireworks adapter, and handoff](docs/STT_SPEC.md)
 - [Provider-neutral meeting connector and Zoom RTMS plan](docs/MEETING_CONNECTOR_SPEC.md)
 - [Meeting sealed-window source handoff](docs/MEETING_SOURCE_HANDOFF_SPEC.md)
+- [Meeting synthetic inbox-to-source orchestration](docs/MEETING_SOURCE_ORCHESTRATION_SPEC.md)
 - [Zoom webhook authentication boundary](docs/ZOOM_WEBHOOK_AUTH_SPEC.md)
 - [Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)

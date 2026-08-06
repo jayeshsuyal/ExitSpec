@@ -10,6 +10,11 @@ provider SDK, Zoom packet mapper, or live meeting transport.
 
 This bridge is an authority boundary, not an automatic agreement generator.
 
+The synthetic composition from durable inbox recovery through this bridge is
+implemented separately in
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
+That service does not change this bridge's authority or retention semantics.
+
 ## Product contract
 
 ```text
@@ -126,10 +131,12 @@ both the source and the ability to reconstruct it after a crash. The receipt
 therefore says `inbox_retention_authority=UNCHANGED` and
 `may_delete_private_inbox_payloads=false`.
 
-The live connector orchestrator remains deferred. It must either make the
-redacted source durable before deleting the private annex or define an atomic,
-recoverable handoff protocol. Until then, ExitSpec must not claim immediate
-post-handoff inbox purge or a complete live Zoom lifecycle.
+The synthetic inbox-to-source orchestration core is now implemented, but the
+production durability boundary remains deferred. A live coordinator must make
+the completion marker and redacted source durable before deleting the private
+annex, or define an atomic, recoverable handoff protocol. Until then, ExitSpec
+must not claim immediate post-handoff inbox purge, cross-process exactly-once
+completion, or a complete live Zoom lifecycle.
 
 ## Fail-closed outcomes
 
@@ -171,8 +178,8 @@ The following remain outside this implementation:
 - a pinned raw Zoom packet-to-canonical-event mapper;
 - HTTP signing-input extraction proven against that fixture;
 - Zoom OAuth, REST start/stop, and authenticated signaling/transcript sockets;
-- a durable orchestrator from inbox recovery through sealing and handoff;
-- an atomic redacted-source durability and private-annex deletion policy;
+- a durable completion marker and durable redacted-source store;
+- an atomic or recoverable private-annex deletion protocol;
 - product UI for connect, consent, capture, finalization, and recovery; and
 - one real synthetic Zoom meeting completing the unchanged ExitSpec loop.
 

@@ -58,6 +58,7 @@ evidence, or assign a verdict.
 | Zoom adapter | Webhook verification, WebSocket handshake, raw-packet parsing, and mapping into the provider-neutral contract | Customer confirmation, freeze, proof, or `PASS` |
 | Meeting connector core | Capture authorization, exact bindings, event integrity, participant-set enforcement, limits, and sealed-window receipt | OAuth credentials, network transport, redaction policy, or downstream decisions |
 | Meeting source bridge | Sealer-authority verification, neutral labels, immediate redaction, exact source binding, and replay-safe attachment | Inbox deletion, agreement, execution, evidence, or verdict authority |
+| Meeting source orchestration | Durable-inbox recovery, current-consent sealing, source-handoff composition, and a content-free linked result | Network transport, cross-process exactly-once completion, inbox deletion, agreement, execution, evidence, or verdict authority |
 | Existing source pipeline | Immediate redaction, source attachment, proposal provenance, and `NEEDS_REVIEW` state | Automatic proposal approval |
 | Existing ExitSpec spine | Human review, exact customer confirmation, freeze, measurement, verdict, Evidence Pack, and handoff | Treating transcript text as authority |
 
@@ -302,6 +303,13 @@ short-lived pre-handoff inbox never existed or has already been purged. The
 separate handoff receipt therefore exposes the inbox-retention boundary
 explicitly instead of treating that field as deletion evidence.
 
+The implemented synthetic orchestration core now composes durable inbox
+recovery, independent event revalidation, current-consent sealing, and that
+source bridge. It returns only linked content-free receipts and serializes
+finalization within one service instance. It does not add a route, delete the
+private annex, or claim a cross-process durable completion record. See
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
+
 No raw audio is requested. Customer meetings, customer identities, and customer
 data are prohibited until Wave 7B passes.
 
@@ -366,9 +374,14 @@ enough.
    existing redacted `MEETING` source and proposal-review path with stable
    stream identity, exact replay, changed-content conflict, neutral labels, and
    content-free provenance. It has no route or inbox-deletion authority.
-7. **Guided product UI:** connect, consent, capture, draft-now,
+7. **Synthetic source orchestration (implemented):** recover and independently
+   revalidate the durable inbox, recheck current consent while sealing, invoke
+   the source bridge, and return one digest-bound zero-authority result. This is
+   process-local coordination, not the live Zoom transport or a cross-process
+   exactly-once claim.
+8. **Guided product UI:** connect, consent, capture, draft-now,
    finalization, and safe recovery states without changing the product spine.
-8. **Synthetic live E2E and hardening:** one real Zoom meeting with two
+9. **Synthetic live E2E and hardening:** one real Zoom meeting with two
    consenting synthetic participants completes the existing ExitSpec demo loop.
 
 ## Exit gate for the complete Zoom train
