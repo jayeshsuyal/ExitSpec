@@ -117,11 +117,14 @@ The product direction is frozen in
 [POC_WORKSPACE_SPEC.md](POC_WORKSPACE_SPEC.md) and
 [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json).
 The contract remains `contract_only` for the complete workspace. The read-only
-registry, deterministic projection, POC dashboard, route split, and
-graphite/orange visual contract are implemented; creation and multi-source
-mutation remain unimplemented.
+historical status inside that frozen file is intentionally unchanged. The local
+registry, deterministic projection, dashboard, creation flow, multi-source
+workspace, versioning, Evidence Pack library, route compatibility, and
+graphite/orange visual contract are implemented. Current status is recorded
+separately in the
+[workspace implementation evidence](../examples/product/poc-workspace-implementation-evidence-v1.json).
 
-Build the local synthetic/demo track in this order:
+The local synthetic/demo track was built in this order:
 
 1. **Complete:** read-only POC registry and deterministic next-action
    projection, integrated into `/api/state.workspace` for the one seeded POC;
@@ -141,7 +144,9 @@ Build the local synthetic/demo track in this order:
    immutable run history and fail-closed artifact reverification;
 9. **Complete ahead of sequence:** restore the graphite/orange visual contract
    across the dashboard, employee workbench, and existing customer review; and
-10. publish adversarial implementation evidence for every frozen workspace gate.
+10. **Complete:** publish adversarial implementation evidence for every frozen
+    workspace gate and compose the full engineering and Chromium checks behind
+    `./scripts/v0_1_release_gate.sh`.
 
 This local train does not authorize real email, live meetings, raw audio,
 customer-bound delivery, authenticated identity, or durable production storage.
@@ -153,6 +158,11 @@ continue through the existing agreement-to-evidence spine, and distinguish
 agreement status from evidence verdict while every compatibility, authority,
 versioning, 1280×720, narrow-width, and graphite/orange rule in the frozen
 contract passes.
+
+The local v0.1 release candidate is now governed by
+[RELEASE_V0_1.md](RELEASE_V0_1.md). Persistence, hosted identity, real-customer
+connectors, and real inference benchmarking remain later gates rather than
+release-blocking scope creep.
 
 ### 1. Production-grade customer confirmation
 

@@ -8,11 +8,13 @@ authorization.
 
 ## Before the take
 
-1. Start the local server and set the browser to 1280×720 at 100% zoom.
-2. Open `http://127.0.0.1:8765/app`.
-3. Choose **Guided demo**. This resets only the seeded support-agent POC and
+1. Verify the exact recording revision once with
+   `./scripts/v0_1_release_gate.sh`.
+2. Start the local server and set the browser to 1280×720 at 100% zoom.
+3. Open `http://127.0.0.1:8765/app`.
+4. Choose **Guided demo**. This resets only the seeded support-agent POC and
    opens its 75-second guided workbench.
-4. Keep Fireworks disabled. The core demonstration is deterministic and does
+5. Keep Fireworks disabled. The core demonstration is deterministic and does
    not need a funded provider account.
 
 ## Exact script

@@ -442,10 +442,16 @@ python3 -m pytest tests/test_distribution.py
 python3 -m pytest --ignore=tests/test_distribution.py
 node --check src/exitspec/static/app.js
 node --check src/exitspec/static/dashboard.js
+node --check src/exitspec/static/new_poc.js
+node --check src/exitspec/static/source_intake.js
+node --check src/exitspec/static/proposal_review.js
+node --check src/exitspec/static/contract_definition.js
 node --check src/exitspec/static/performance.js
 node --check src/exitspec/static/agreement.js
 node --check src/exitspec/static/proof.js
 node --check src/exitspec/static/review.js
+node --check src/exitspec/static/evidence_library.js
+node --check src/exitspec/static/closure.js
 git diff --check
 ```
 
@@ -466,13 +472,20 @@ Without `EXITSPEC_BROWSER_E2E=1`, that test is skipped intentionally. CI runs it
 once on Python 3.12 in a dedicated Chromium job; the normal Python 3.12 and 3.13
 engineering-gate matrix remains authoritative for the dependency-light product.
 
+For the v0.1 release candidate, one wrapper makes Chromium mandatory and then
+executes the complete engineering gate:
+
+```bash
+./scripts/v0_1_release_gate.sh
+```
+
 These commands are the floor, not the entire gate. A PR also runs focused tests
 for the behavior and failure classes it changes. Browser behavior requires
 browser inspection; external integrations require transport-boundary tests; data
 migrations require forward and rollback proof.
 
-The planned automated release-gate command should compose these checks rather
-than introduce different truth.
+The release wrapper composes these checks rather than introducing different
+truth.
 
 ## Conditional verification by change type
 

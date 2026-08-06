@@ -116,8 +116,20 @@ run_gate \
   node --check src/exitspec/static/dashboard.js
 
 run_gate \
+  "New POC JavaScript syntax" \
+  node --check src/exitspec/static/new_poc.js
+
+run_gate \
   "POC source intake JavaScript syntax" \
   node --check src/exitspec/static/source_intake.js
+
+run_gate \
+  "POC proposal review JavaScript syntax" \
+  node --check src/exitspec/static/proposal_review.js
+
+run_gate \
+  "POC contract definition JavaScript syntax" \
+  node --check src/exitspec/static/contract_definition.js
 
 run_gate \
   "Performance workspace JavaScript syntax" \
@@ -134,5 +146,13 @@ run_gate \
 run_gate \
   "Customer review JavaScript syntax" \
   node --check src/exitspec/static/review.js
+
+run_gate \
+  "Evidence Pack library JavaScript syntax" \
+  node --check src/exitspec/static/evidence_library.js
+
+run_gate \
+  "POC closure JavaScript syntax" \
+  node --check src/exitspec/static/closure.js
 
 printf '\nExitSpec engineering gate passed.\n'

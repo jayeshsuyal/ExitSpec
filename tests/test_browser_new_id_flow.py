@@ -58,6 +58,64 @@ def _expect_suggested_definition(expect, page, normalized_claim: str) -> str:
     )
 
 
+def _capture_browser_errors(page) -> list[str]:
+    errors: list[str] = []
+
+    def capture_console(message) -> None:
+        if message.type == "error":
+            errors.append(f"console: {message.text}")
+
+    page.on("console", capture_console)
+    page.on("pageerror", lambda error: errors.append(f"page: {error}"))
+    return errors
+
+
+def _layout_metrics(page) -> dict[str, int]:
+    return page.evaluate(
+        """() => {
+          const root = document.scrollingElement || document.documentElement;
+          return {
+            innerWidth: window.innerWidth,
+            innerHeight: window.innerHeight,
+            clientWidth: root.clientWidth,
+            clientHeight: root.clientHeight,
+            scrollWidth: root.scrollWidth,
+            scrollHeight: root.scrollHeight,
+          };
+        }"""
+    )
+
+
+def _assert_bounded_employee_shell(page) -> None:
+    metrics = _layout_metrics(page)
+    assert metrics["innerWidth"] == 1280
+    assert metrics["innerHeight"] == 720
+    assert metrics["scrollWidth"] <= metrics["clientWidth"]
+    assert metrics["scrollHeight"] <= metrics["clientHeight"]
+
+
+def _assert_narrow_keyboard_contract(expect, page) -> None:
+    page.set_viewport_size({"width": 320, "height": 900})
+    metrics = _layout_metrics(page)
+    assert metrics["innerWidth"] == 320
+    assert metrics["scrollWidth"] <= metrics["clientWidth"]
+
+    create_link = page.locator(".new-poc-link")
+    create_link.focus()
+    expect(create_link).to_be_focused()
+    focus_style = create_link.evaluate(
+        """element => {
+          const style = getComputedStyle(element);
+          return {
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+          };
+        }"""
+    )
+    assert focus_style["outlineStyle"] != "none"
+    assert focus_style["outlineWidth"] != "0px"
+
+
 @pytest.mark.skipif(
     os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
     reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
@@ -78,6 +136,9 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
             )
             employee_page = employee_context.new_page()
             customer_page = customer_context.new_page()
+            employee_errors = _capture_browser_errors(employee_page)
+            customer_errors = _capture_browser_errors(customer_page)
+            evidence_errors: list[str] = []
             employee_page.set_default_timeout(10_000)
             employee_page.set_default_navigation_timeout(10_000)
             customer_page.set_default_timeout(10_000)
@@ -86,8 +147,10 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
             try:
                 employee_page.goto(f"{base_url}/app")
                 expect(employee_page.locator("#dashboard-main")).to_be_visible()
+                _assert_bounded_employee_shell(employee_page)
                 employee_page.locator(".new-poc-link").click()
                 expect(employee_page).to_have_url(f"{base_url}/app/pocs/new")
+                _assert_bounded_employee_shell(employee_page)
 
                 employee_page.locator(
                     'input[name="first_source_choice"][value="EMAIL"]'
@@ -114,6 +177,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     employee_page.locator("#source-current-task")
                 ).to_have_attribute("aria-busy", "false")
                 expect(employee_page.locator("#email-entry")).to_be_visible()
+                _assert_bounded_employee_shell(employee_page)
                 employee_page.locator("#email-text").fill(EMAIL_TEXT)
                 expect(
                     employee_page.locator("#capture-source")
@@ -125,6 +189,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#proposal-current-task")
                 ).to_have_attribute("aria-busy", "false")
+                _assert_bounded_employee_shell(employee_page)
 
                 reviewed_claims: list[str] = []
                 for position in (1, 2):
@@ -151,6 +216,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         expect(
                             employee_page.locator("#proposal-heading")
                         ).to_have_text("Proposal 2")
+                        _assert_bounded_employee_shell(employee_page)
 
                 assert {"first token", "error rate"} == {
                     cue
@@ -163,6 +229,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#definition-current-task")
                 ).to_have_attribute("aria-busy", "false")
+                _assert_bounded_employee_shell(employee_page)
 
                 defined_claims: list[str] = []
                 for position in (1, 2):
@@ -190,6 +257,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         expect(
                             employee_page.locator("#proposal-heading")
                         ).to_have_text("Criterion 2")
+                        _assert_bounded_employee_shell(employee_page)
 
                 assert set(defined_claims) == set(reviewed_claims)
 
@@ -198,6 +266,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#agreement-workbench")
                 ).to_have_attribute("aria-busy", "false")
+                _assert_bounded_employee_shell(employee_page)
                 expect(
                     employee_page.locator("#use-reference-target")
                 ).to_be_enabled()
@@ -216,6 +285,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#confirmation-panel")
                 ).to_be_visible()
+                _assert_bounded_employee_shell(employee_page)
                 customer_review_link = employee_page.locator(
                     "#customer-review-link"
                 )
@@ -261,6 +331,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 employee_page.reload(wait_until="domcontentloaded")
                 expect(employee_page).to_have_url(agreement_route)
                 expect(employee_page.locator("#freeze-panel")).to_be_visible()
+                _assert_bounded_employee_shell(employee_page)
                 expect(
                     employee_page.locator("#freeze-contract")
                 ).to_be_enabled()
@@ -271,6 +342,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#performance-main")
                 ).to_have_attribute("aria-busy", "false")
+                _assert_bounded_employee_shell(employee_page)
                 expect(
                     employee_page.locator("#execution-acknowledged")
                 ).to_be_enabled()
@@ -287,6 +359,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#outcome-breakdown")
                 ).to_contain_text("100 attempts · 100 successful")
+                _assert_bounded_employee_shell(employee_page)
                 evidence_link = employee_page.locator("#evidence-pack-link")
                 expect(evidence_link).to_be_visible()
                 expect(evidence_link).to_have_attribute(
@@ -299,6 +372,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 assert evidence_href is not None
 
                 evidence_page = employee_context.new_page()
+                evidence_errors = _capture_browser_errors(evidence_page)
                 try:
                     evidence_page.goto(urljoin(base_url, evidence_href))
                     expect(evidence_page).to_have_title(
@@ -359,6 +433,11 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(completed_row).to_contain_text(
                     "Shipping was not authorized."
                 )
+                _assert_bounded_employee_shell(employee_page)
+                _assert_narrow_keyboard_contract(expect, employee_page)
+                assert employee_errors == []
+                assert customer_errors == []
+                assert evidence_errors == []
             finally:
                 customer_context.close()
                 employee_context.close()

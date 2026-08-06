@@ -6,6 +6,11 @@
 - Governing acceptance contract:
   [`poc-workspace-acceptance-v1.json`](../examples/product/poc-workspace-acceptance-v1.json)
 
+Implementation note (2026-08-05): the local synthetic workspace train is
+complete. The frozen acceptance file keeps its historical `contract_only`
+status unchanged; current proof is recorded separately in
+[`poc-workspace-implementation-evidence-v1.json`](../examples/product/poc-workspace-implementation-evidence-v1.json).
+
 ## Decision
 
 ExitSpec is a POC-first product. A POC is the stable primary product object; email,
@@ -478,30 +483,31 @@ This specification does not claim:
 - automatic email delivery; or
 - production deployment authorization.
 
-## Planned PR train
+## Local implementation train — complete
 
-No implementation PR begins until this specification and its acceptance contract
-are reviewed together.
+Implementation followed this specification and its acceptance contract in the
+ordered slices below.
 
-1. **Workspace contract and fixtures** — freeze object, route, state, visual, and
-   acceptance semantics.
-2. **Dashboard projection** — read-only POC registry and deterministic next
+1. **Complete — Workspace contract and fixtures** — freeze object, route,
+   state, visual, and acceptance semantics.
+2. **Complete — Dashboard projection** — read-only POC registry and deterministic next
    action.
-3. **Dashboard shell** — `/app`, filters, continue card, and bounded POC list.
-4. **Create-POC identity** — local draft creation with no source or authority
+3. **Complete — Dashboard shell** — `/app`, filters, continue card, and bounded
+   POC list.
+4. **Complete — Create-POC identity** — local draft creation with no source or authority
    side effects.
-5. **Source chooser** — Email, Meeting or transcript, Notes or document, and
+5. **Complete — Source chooser** — Email, Meeting or transcript, Notes or document, and
    Start manually with honest availability.
-6. **Email bridge** — move the existing synthetic email loop under one seeded
+6. **Complete — Email bridge** — move the existing synthetic email loop under one seeded
    POC without weakening its frozen Wave 2 contract.
-7. **Synthetic transcript source** — add a second source type through the
+7. **Complete — Synthetic transcript source** — add a second source type through the
    provider-neutral source model, without raw audio.
-8. **Multi-source versioning** — require explicit new agreement versions and new
+8. **Complete — Multi-source versioning** — require explicit new agreement versions and new
    customer decisions for material changes.
-9. **Evidence Pack library** — list and open immutable run-scoped packs.
-10. **Visual restoration and accessibility** — graphite/orange tokens, keyboard
+9. **Complete — Evidence Pack library** — list and open immutable run-scoped packs.
+10. **Complete — Visual restoration and accessibility** — graphite/orange tokens, keyboard
     and responsive gates, and no-scroll acceptance.
-11. **Hardening and implementation evidence** — adversarial browser, state,
+11. **Complete — Hardening and implementation evidence** — adversarial browser, state,
     packaging, and failure evidence.
 
 Production persistence and authenticated customer confirmation remain a

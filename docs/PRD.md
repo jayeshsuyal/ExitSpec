@@ -63,12 +63,15 @@ executable 95%/200 proposal plus a latency sentence that remains context because
 no latency adapter exists. **Untrusted-instructions test** proves that source
 language cannot approve, confirm, freeze, measure, or assign a verdict.
 
-## Accepted workspace direction
+## Implemented local workspace
 
-The next product surface is governed by the
+The local product surface is governed by the
 [POC Workspace Specification](POC_WORKSPACE_SPEC.md) and its frozen
 [acceptance contract](../examples/product/poc-workspace-acceptance-v1.json).
-That contract is accepted but not implemented.
+The frozen contract intentionally preserves its historical pre-implementation
+status fields. The local synthetic workspace is implemented, and its separate
+acceptance-to-test record is
+[`poc-workspace-implementation-evidence-v1.json`](../examples/product/poc-workspace-implementation-evidence-v1.json).
 
 ExitSpec is POC-first:
 
@@ -84,13 +87,12 @@ POC
 ```
 
 Email and meetings are source types inside one POC, not separate POC products.
-The target `/app` surface is a bounded POC dashboard with at most one **Next
+The `/app` surface is a bounded POC dashboard with at most one **Next
 up** task, one non-duplicative POC list, and the three filters **Active**,
 **Needs attention**, and **Completed**. Unimplemented destinations and actions
 remain absent instead of appearing as disabled product promises. **New POC**
-becomes the persistent primary action when local creation authority lands. The current
-`/app?intake=email` and `/app?mode=recording` entries remain compatibility paths
-until the dashboard and create flow reach parity.
+is the persistent primary action. The `/app?intake=email` and
+`/app?mode=recording` entries remain supported compatibility paths.
 
 The workspace phase `Define`, `Prove`, or `Decide` is a read-only projection for
 navigation. It cannot replace or mutate contract lifecycle, customer decision,
@@ -300,9 +302,12 @@ The product is accepted when:
 - frozen Wave 2 contract status is kept separate from post-implementation
   evidence in
   `examples/support-agent/evidence/wave-2-implementation-evidence-v1.json`; and
-- the frozen POC workspace acceptance contract remains explicitly
-  `contract_only` until dashboard, creation, multi-source, compatibility, visual,
-  accessibility, and browser gates have implementation evidence.
+- the frozen POC workspace acceptance contract remains an immutable historical
+  `contract_only` record, while current implementation status and every
+  `WS-01` through `WS-12` proof live in the separate workspace implementation
+  evidence record; and
+- `./scripts/v0_1_release_gate.sh` passes on the exact release revision with
+  mandatory clean-process Chromium coverage.
 
 ## Non-goals for the current product
 

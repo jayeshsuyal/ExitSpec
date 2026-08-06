@@ -82,36 +82,13 @@ def _assert_baseline_commands(shell_text: str) -> None:
         "--ignore",
         "tests/test_distribution.py",
     ), "Gate must run the remaining Python tests"
-    assert has_line(
-        "node",
-        "--check",
-        "src/exitspec/static/app.js",
-    ), "Gate must syntax-check app.js"
-    assert has_line(
-        "node",
-        "--check",
-        "src/exitspec/static/dashboard.js",
-    ), "Gate must syntax-check dashboard.js"
-    assert has_line(
-        "node",
-        "--check",
-        "src/exitspec/static/performance.js",
-    ), "Gate must syntax-check performance.js"
-    assert has_line(
-        "node",
-        "--check",
-        "src/exitspec/static/agreement.js",
-    ), "Gate must syntax-check agreement.js"
-    assert has_line(
-        "node",
-        "--check",
-        "src/exitspec/static/proof.js",
-    ), "Gate must syntax-check proof.js"
-    assert has_line(
-        "node",
-        "--check",
-        "src/exitspec/static/review.js",
-    ), "Gate must syntax-check review.js"
+    for javascript_path in sorted(
+        (PROJECT_ROOT / "src/exitspec/static").glob("*.js")
+    ):
+        repository_path = javascript_path.relative_to(PROJECT_ROOT).as_posix()
+        assert has_line("node", "--check", repository_path), (
+            f"Gate must syntax-check {repository_path}"
+        )
     assert has_line("git", "diff", "--check"), "Gate must reject an unclean diff"
 
 
