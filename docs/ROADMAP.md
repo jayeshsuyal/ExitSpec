@@ -104,8 +104,10 @@ Post-implementation status is recorded separately in
   safely narrows it to account unavailability.
 - Loopback disclosure, authorization, and bounded execution routes derived from
   the frozen policy; the browser action is disabled by default, accepts no
-  request-policy fields, and has complete fake-HTTPS proof. No successful
-  real-account Fireworks smoke evidence or live provider speech-to-text exists.
+  request-policy fields, and has complete fake-HTTPS proof. A separate explicit
+  flag now wires one pinned Fireworks prerecorded-STT transport for consenting
+  synthetic browser audio. No successful funded authoring or STT smoke evidence
+  exists yet.
 
 ## Next sequence
 
@@ -301,7 +303,7 @@ incident references, format, size, duration, and a bounded time window. It
 returns either a content-free typed denial or a safe record that explicitly
 states `transport_capability_issued=false`.
 
-The four-PR local synthetic train is implemented in this order:
+The five-slice synthetic-data train is implemented in this order:
 
 1. **PR95 — boundary:** contract, consent, limits, provenance, private transcript
    handling, and typed denials;
@@ -317,11 +319,18 @@ The four-PR local synthetic train is implemented in this order:
    local operator records a bounded browser clip only after server-recorded
    consent; the disclosed fixed synthetic transcript enters the existing
    review-only Meeting flow with content-free receipt recovery, fail-safe track
-   shutdown, adversarial checks, and Chromium evidence.
+   shutdown, adversarial checks, and Chromium evidence; and
+5. **PR103 — Fireworks prerecorded transport (implemented, funded smoke
+   pending):** one explicit server flag replaces the fixed fixture with a
+   pinned, single-attempt Fireworks Whisper v3 transcription of the consenting
+   operator's synthetic clip. Output is immediately redacted and remains
+   `NEEDS_REVIEW`; typed provider failures never resend audio.
 
-No current statement may imply speech recognition, a provider call, a Zoom/Meet
-bot, real customer audio, verified speaker identity, or production readiness.
-Those claims remain false until their separate C3/C4 gates pass.
+The repository may now claim a real provider-capable STT path for synthetic
+demo data, backed by fake HTTPS proof. It may not claim a successful funded
+live smoke, streaming STT, a Zoom/Meet bot, real customer audio, verified
+speaker identity, or production readiness until their separate C3/C4 gates
+pass.
 
 ## Public demo gate
 

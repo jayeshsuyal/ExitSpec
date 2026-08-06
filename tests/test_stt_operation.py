@@ -75,6 +75,20 @@ class RecordingTransport:
         return "RecordingTransport(<private>)"
 
 
+def test_transport_can_report_a_typed_invalid_provider_response():
+    permit, _ = _permit()
+    transport = RecordingTransport(
+        STTTransportError(STTOperationFailureCode.INVALID_RESPONSE)
+    )
+
+    with pytest.raises(STTOperationError) as caught:
+        _executor(transport).execute(permit)
+
+    assert caught.value.failure_code is STTOperationFailureCode.INVALID_RESPONSE
+    assert caught.value.attempts == 1
+    assert len(transport.calls) == 1
+
+
 class BlockingTransport(RecordingTransport):
     def __init__(self) -> None:
         super().__init__()
