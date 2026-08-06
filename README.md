@@ -324,9 +324,11 @@ with fake HTTPS connections. No successful funded real-account Fireworks STT
 smoke evidence is claimed yet. Fireworks' current docs advertise production
 streaming STT, while the prerecorded endpoint used here is documented only in
 its archived official cookbook; ExitSpec therefore labels this adapter
-experimental and fails closed on endpoint drift. Zoom, Google Meet, Teams,
-customer audio, durable consent, and production authorization remain outside the
-current claim.
+experimental and fails closed on endpoint drift. A provider-neutral,
+synthetic-only meeting contract and durable local event inbox now exist for the
+future Zoom train, but there is still no Zoom OAuth, webhook, RTMS connection,
+or raw-packet mapper. Google Meet, Teams, customer audio, durable consent, and
+production authorization remain outside the current claim.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment

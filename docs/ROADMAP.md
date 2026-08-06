@@ -350,25 +350,28 @@ live smoke, streaming STT, a Zoom/Meet bot, real customer audio, verified
 speaker identity, or production readiness until their separate C3/C4 gates
 pass.
 
-### 7. Zoom meeting connector train — contract started
+### 7. Zoom meeting connector train — contract and durable inbox implemented
 
-The provider-neutral meeting connector contract and the dated Zoom RTMS
-capability spike are implemented in `meeting_connector.py`,
+The provider-neutral meeting connector contract, durable synthetic-only inbox,
+and dated Zoom RTMS capability spike are implemented in `meeting_connector.py`,
+`meeting_event_inbox.py`,
 [MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md), and
 [`zoom-rtms-capability-spike-v1.json`](../examples/meeting/zoom-rtms-capability-spike-v1.json).
-This first slice is synthetic-only and makes no Zoom network call.
+The inbox separates API replay from provider duplicate delivery, keeps one
+canonical private event plus immutable content-free receipts, permanently
+taints conflict or capacity-truncated streams, revalidates after restart, and
+secure-deletes expired private payloads. These slices remain synthetic-only and
+make no Zoom network call.
 
 The remaining train is:
 
-1. durable append-only connector inbox with replay, conflict, restart, and
-   retention behavior;
-2. raw Zoom packet mapper against the first sanitized untouched golden fixture;
-3. server-owned OAuth, signed webhook, on-demand RTMS start/stop, authenticated
+1. raw Zoom packet mapper against the first sanitized untouched golden fixture;
+2. server-owned OAuth, signed webhook, on-demand RTMS start/stop, authenticated
    WebSocket, reconnect, and shutdown transport;
-4. immediate redaction and handoff into the existing `MEETING` source path;
-5. compact consent/capture/finalization UI inside the existing POC workbench;
-6. one real Zoom meeting with two consenting synthetic participants; and
-7. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
+3. immediate redaction and handoff into the existing `MEETING` source path;
+4. compact consent/capture/finalization UI inside the existing POC workbench;
+5. one real Zoom meeting with two consenting synthetic participants; and
+6. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
 
 Do not freeze a raw Zoom wire schema before the golden fixture resolves packet
 ordering, duplicate identity, participant stability, partial/final transcript
