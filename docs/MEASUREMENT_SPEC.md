@@ -28,7 +28,9 @@ Adapters are independently versioned and tested. A generated adapter is untruste
 
 The browser Brick 1 flow implements the deterministic local
 exact-tool-selection adapter. The separate `exitspec performance` command
-implements the first bounded OpenAI-compatible streaming-latency adapter.
+implements the first bounded OpenAI-compatible streaming-latency adapter. Its
+frozen adapter ID, `vllm_streaming_latency`, names ExitSpec's custom probe; it
+does not invoke or wrap native `vllm bench serve`.
 
 ## Proportion criteria
 
@@ -81,6 +83,15 @@ the client does not wait for the server to close a persistent SSE connection.
 One monotonic absolute timeout covers connection setup, request write, response
 headers, and the streamed body; later phases receive only the remaining time.
 
+The exact frozen definition ID is
+`first_nonempty_choices_delta_content_v1`. Role-only, `null`-content, and
+empty-string-content events do not stop this probe's TTFT clock. Native
+`vllm bench serve` currently records OpenAI chat-completions TTFT on the first
+event with a non-empty `choices` list, even when its content is empty. The two
+metrics are semantically incompatible and must never satisfy one another's
+criteria. Existing `vllm_streaming_latency`, `vllm-ttft-v2`, manifest, reducer,
+test, and evidence identifiers remain unchanged.
+
 The current composite criterion is:
 
 ```text
@@ -114,6 +125,20 @@ Future performance versions may add complete p50/p95/p99 distributions,
 throughput, output-token distributions, warm/cold state, environment metadata,
 and confidence intervals. Those are not claimed by v1.
 
+## External evidence import (deferred)
+
+The future Inferdrome boundary is governed by
+[EXTERNAL_EVIDENCE_PROTOCOL.md](EXTERNAL_EVIDENCE_PROTOCOL.md). Inferdrome may
+produce measurements and sealed artifacts, but ExitSpec must independently
+validate semantic compatibility, reconstruct supported populations, recalculate
+measurements, and exclusively issue acceptance verdicts. Invalid, unsafe,
+unsupported, or incompatible external bundles are rejected before acceptance;
+they do not receive an acceptance verdict.
+
+No external importer or wire schema exists. Implementation remains blocked on
+an Inferdrome pinned-vLLM capability spike and its first untouched native golden
+fixture.
+
 ## Cost criteria (planned)
 
 Separate estimated token cost, tool/platform cost, retry cost, total cost, cost per request, cost per successful task, and billed cost where available. Price snapshots identify provider, model, unit, and effective date.
@@ -123,6 +148,11 @@ Separate estimated token cost, tool/platform cost, retry cost, total cost, cost 
 An absence-of-detection result means only that the declared detector and redaction policy found no PII in the persisted artifact. The report must include detector/version, policy, coverage limitations, and positive-control test evidence.
 
 ## Failure taxonomy
+
+This table describes the current in-process adapter and run boundary. Its
+existing invalid-evidence behavior remains unchanged. A future external bundle
+first passes the separate ingestion boundary defined in the external-evidence
+protocol; `INGESTION_REJECTED` there is not an acceptance verdict.
 
 | Class | Example | Criterion impact |
 | --- | --- | --- |

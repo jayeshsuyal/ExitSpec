@@ -333,6 +333,7 @@ repository yet.
 - [Roadmap](docs/ROADMAP.md)
 - [Contract specification](docs/CONTRACT_SPEC.md)
 - [Measurement specification](docs/MEASUREMENT_SPEC.md)
+- [External evidence protocol](docs/EXTERNAL_EVIDENCE_PROTOCOL.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
 - [Speech-to-text boundary, Fireworks adapter, and handoff](docs/STT_SPEC.md)
 - [Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md)

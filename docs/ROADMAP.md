@@ -280,6 +280,13 @@ not change agreement, freeze, or verdict authority.
 
 ### 5. Expand the evidence model deliberately
 
+An Inferdrome external-evidence importer is deferred under the
+[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md). Do not define its
+wire schema until the pinned-vLLM capability spike supplies the exact vLLM
+version, untouched native detailed output, field-availability analysis, verified
+TTFT semantics, request ordering and ID behavior, privacy classification, and
+first golden fixture.
+
 Add, in order:
 
 1. multi-criterion contracts and report aggregation;
