@@ -350,6 +350,31 @@ live smoke, streaming STT, a Zoom/Meet bot, real customer audio, verified
 speaker identity, or production readiness until their separate C3/C4 gates
 pass.
 
+### 7. Zoom meeting connector train — contract started
+
+The provider-neutral meeting connector contract and the dated Zoom RTMS
+capability spike are implemented in `meeting_connector.py`,
+[MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md), and
+[`zoom-rtms-capability-spike-v1.json`](../examples/meeting/zoom-rtms-capability-spike-v1.json).
+This first slice is synthetic-only and makes no Zoom network call.
+
+The remaining train is:
+
+1. durable append-only connector inbox with replay, conflict, restart, and
+   retention behavior;
+2. raw Zoom packet mapper against the first sanitized untouched golden fixture;
+3. server-owned OAuth, signed webhook, on-demand RTMS start/stop, authenticated
+   WebSocket, reconnect, and shutdown transport;
+4. immediate redaction and handoff into the existing `MEETING` source path;
+5. compact consent/capture/finalization UI inside the existing POC workbench;
+6. one real Zoom meeting with two consenting synthetic participants; and
+7. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
+
+Do not freeze a raw Zoom wire schema before the golden fixture resolves packet
+ordering, duplicate identity, participant stability, partial/final transcript
+behavior, timestamp semantics, reconnect, and late-event behavior. Real customer
+meetings remain blocked on Wave 7B.
+
 ## Public demo gate
 
 A release candidate is demo-ready when a fresh operator can:

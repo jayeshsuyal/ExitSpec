@@ -353,6 +353,7 @@ repository yet.
 - [External evidence protocol](docs/EXTERNAL_EVIDENCE_PROTOCOL.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
 - [Speech-to-text boundary, Fireworks adapter, and handoff](docs/STT_SPEC.md)
+- [Provider-neutral meeting connector and Zoom RTMS plan](docs/MEETING_CONNECTOR_SPEC.md)
 - [Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)
