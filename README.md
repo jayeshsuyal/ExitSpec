@@ -314,6 +314,7 @@ repository yet.
 - [Roadmap](docs/ROADMAP.md)
 - [Contract specification](docs/CONTRACT_SPEC.md)
 - [Measurement specification](docs/MEASUREMENT_SPEC.md)
+- [External evidence protocol](docs/EXTERNAL_EVIDENCE_PROTOCOL.md)
 - [Provider boundary](docs/PROVIDER_SPEC.md)
 - [Speech-to-text synthetic boundary and handoff](docs/STT_SPEC.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)

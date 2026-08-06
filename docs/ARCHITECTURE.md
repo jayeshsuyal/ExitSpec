@@ -127,6 +127,14 @@ mailbox/meeting connections, and new external authority remain excluded.
 | Verdict engine | Apply the frozen deterministic rule | Deployment, spend, or procurement authorization |
 | Evidence renderer | Present verified inputs, calculation, limits, and artifacts | Expand the scope of what was proved |
 
+Future evidence produced by Inferdrome or another external system follows the
+[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md). The producer may
+create measurements, native artifacts, canonical records, and provenance
+claims. ExitSpec independently validates and recalculates admitted evidence and
+remains the only acceptance-verdict authority. An invalid or incompatible
+external bundle is rejected before verdicting; a producer verdict is never an
+ExitSpec verdict.
+
 The domain core does not import a frontend framework or provider SDK. The browser
 calls a loopback HTTP boundary, and the server delegates to the same typed domain
 services used by the CLI.
@@ -550,7 +558,10 @@ review state. It has no live speech-to-text provider, product audio capture,
 live endpoint adapter, hosted identity, durable confirmation store, queue,
 object store, generic metric engine, or multi-tenant authorization. It also has
 no live email connector, mailbox OAuth, webhook, arbitrary upload, or
-real-customer-email path.
+real-customer-email path. It has no external-evidence importer. That importer is
+deferred until Inferdrome provides the pinned-vLLM capability results and first
+untouched native golden fixture required by the
+[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md).
 
 If the product earns hosted use, the next boundaries are authenticated identity,
 append-only durable decisions, PostgreSQL metadata, object storage, isolated
