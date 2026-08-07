@@ -842,6 +842,55 @@ def _require_binding(
         raise MeetingConnectorDenied(MeetingConnectorFailureCode.REQUEST_EXPIRED)
 
 
+def validate_meeting_transport_binding(
+    authorization: MeetingCaptureAuthorization,
+    binding: MeetingTransportBinding,
+) -> None:
+    """Validate one authenticated transport without granting source authority."""
+
+    if (
+        type(authorization) is not MeetingCaptureAuthorization
+        or type(binding) is not MeetingTransportBinding
+    ):
+        raise MeetingConnectorDenied(
+            MeetingConnectorFailureCode.BINDING_MISMATCH
+        )
+    _require_binding(authorization, binding)
+
+
+def validate_meeting_event_envelope(
+    authorization: MeetingCaptureAuthorization,
+    binding: MeetingTransportBinding,
+    event: MeetingTranscriptEvent,
+) -> None:
+    """Validate one event's authenticated envelope before durable receipt.
+
+    This checks only transport and identity binding. It does not establish a
+    complete transcript population, participant continuity, source authority,
+    contract agreement, measurement authority, or verdict authority.
+    """
+
+    validate_meeting_transport_binding(authorization, binding)
+    if type(event) is not MeetingTranscriptEvent:
+        raise MeetingConnectorDenied(MeetingConnectorFailureCode.EVENT_CONFLICT)
+    if event.sequence > authorization.max_event_count:
+        raise MeetingConnectorDenied(MeetingConnectorFailureCode.LIMIT_EXCEEDED)
+    if (
+        event.adapter_id != authorization.adapter_id
+        or event.adapter_version != authorization.adapter_version
+        or event.transport_binding_id != binding.binding_id
+        or meeting_identity_sha256(event.meeting_id)
+        != authorization.meeting_identity_sha256
+        or stream_identity_sha256(event.stream_id)
+        != binding.stream_identity_sha256
+    ):
+        raise MeetingConnectorDenied(MeetingConnectorFailureCode.BINDING_MISMATCH)
+    if not (
+        binding.established_at <= event.received_at <= binding.expires_at
+    ):
+        raise MeetingConnectorDenied(MeetingConnectorFailureCode.TIMELINE_INVALID)
+
+
 def seal_meeting_transcript_window(
     authorization: MeetingCaptureAuthorization,
     binding: MeetingTransportBinding,
@@ -1043,4 +1092,6 @@ __all__ = [
     "participant_set_sha256",
     "seal_meeting_transcript_window",
     "stream_identity_sha256",
+    "validate_meeting_event_envelope",
+    "validate_meeting_transport_binding",
 ]

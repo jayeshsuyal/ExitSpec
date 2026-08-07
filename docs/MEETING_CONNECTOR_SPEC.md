@@ -147,6 +147,46 @@ The first sealed-window rules are deliberately strict:
 An exact replay creates the same event-stream digest. Recalculation does not
 rewrite a previously sealed record.
 
+## Durable connector inbox
+
+PR109 implements the server-internal inbox in
+[`meeting_event_inbox.py`](../src/exitspec/meeting_event_inbox.py). It accepts
+only events that first pass the PR108 transport-envelope validation. It does
+not accept raw Zoom packets and does not define a Zoom wire schema.
+
+The durable identity binds the complete capture authorization, verified
+transport binding, adapter and versions, stream identity, consent-bound limits,
+event identity, and event fingerprint. Ingestion then distinguishes two cases:
+
+- replaying the same ingress idempotency key with the same input returns the
+  original receipt, writes no second ingress or event record, and never extends
+  private retention; and
+- delivering the same event under a new ingress key records one
+  `EXACT_DUPLICATE` receipt while retaining one canonical event.
+
+Reusing an ingress key with changed input, changing content under one event
+identity, or placing a different event identity at an occupied sequence creates
+an immutable `TAINTED_CONFLICT` marker. Exhausting the global ingress bound,
+the frozen per-stream event bound, or the transcript-character bound creates an
+immutable `TAINTED_CAPACITY` marker. A tainted stream cannot be recovered or
+sealed after restart; dropping the losing event can never repair it.
+
+The SQLite layout separates:
+
+- immutable, content-free stream bindings;
+- one canonical event receipt per stream-scoped event identity and sequence;
+- append-only ingress receipts for accepted and exact-duplicate deliveries;
+- append-only conflict or capacity markers; and
+- one private payload annex used only for ordering, restart recovery, and the
+  later redaction handoff.
+
+Recovery independently checks the schema, frozen stream binding, every ingress
+digest, every private payload digest, the canonical codec, and the PR108 event
+envelope. It then reconstructs exact-duplicate delivery counts and returns a
+private non-serializable population to the unchanged PR108 sealer. Temporary
+gaps and reordered arrival are allowed in the inbox; completeness remains the
+sealer's responsibility.
+
 ## Consent semantics
 
 Zoom documents a participant-visible RTMS disclosure and activity indicators.
@@ -215,12 +255,22 @@ ExitSpec has completed its own consent gate.
 
 ## Privacy and retention
 
-The initial adapter must not persist raw webhook bodies, raw meeting IDs,
-participant IDs, participant names, or transcript packets in public records.
-Raw packets may exist only in the bounded connector inbox needed for ordering
-and replay. The future handoff must immediately neutralize speaker labels,
-redact transcript text, attach one `MEETING` source, and retain only
-content-free provenance plus the existing redacted source.
+The initial adapter must not persist raw webhook bodies, native Zoom packets,
+raw meeting IDs, participant IDs, participant names, or transcript text in
+public records. The synthetic-only inbox may temporarily persist the private
+provider-neutral canonical event needed for ordering and restart recovery. Its
+retention is frozen between 60 seconds and 24 hours, files are owner-only, and
+expiry uses SQLite secure deletion followed by WAL truncation. This is not an
+encrypted production vault or a claim of forensic erasure on every storage
+medium; production customer data remains prohibited.
+
+The future handoff must immediately neutralize speaker labels, redact
+transcript text, attach one `MEETING` source, purge the private annex, and retain
+only content-free provenance plus the existing redacted source. The PR108
+sealed receipt field `raw_transcript_persisted=false` means the released sealed
+artifact does not retain raw transcript text. It does not claim that the
+short-lived pre-handoff inbox never existed. A final externally released
+handoff must not claim that field while its private annex remains retained.
 
 No raw audio is requested. Customer meetings, customer identities, and customer
 data are prohibited until Wave 7B passes.
@@ -269,8 +319,9 @@ enough.
 1. **PR108 — connector contract and capability spike:** provider-neutral
    models, two-stage authorization, sealing rules, frozen acceptance cases, and
    no network runtime.
-2. **PR109 — durable connector inbox:** append-only event receipt,
-   idempotency, conflict detection, restart recovery, and bounded retention.
+2. **PR109 — durable connector inbox (implemented):** append-only ingress
+   receipts, API idempotency, provider-duplicate accounting, permanent
+   conflict/capacity taints, restart recovery, and bounded private retention.
 3. **PR110 — Zoom golden-fixture mapper:** raw Zoom packets map into the
    provider-neutral contract using the pinned fixture; fake transport only.
 4. **PR111 — Zoom webhook and RTMS transport:** secrets remain server-owned;

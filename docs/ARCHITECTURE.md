@@ -221,19 +221,29 @@ exact participant consent
         -> short-lived capture-only authorization
         -> verified webhook + authenticated stream binding
         -> private provider-neutral transcript events
+        -> durable bounded inbox + immutable ingress receipts
+        -> restart recovery + independent event revalidation
         -> deduplicated, contiguous, bounded sealed window
         -> future redaction handoff into the existing MEETING source
 ```
 
-The first contract is synthetic-only and performs no OAuth, webhook, REST,
-WebSocket, persistence, or source attachment. Raw meeting identifiers,
+The PR108 contract and PR109 inbox are synthetic-only and perform no OAuth,
+webhook, REST, WebSocket, or source attachment. PR109 adds a local SQLite
+ingestion ledger, not a provider transport. Raw meeting identifiers,
 participant identities, provider labels, and transcript text remain private and
-refuse ordinary serialization. Public receipts contain hashes, counts, limits,
-and explicit zero-authority fields only.
+refuse ordinary serialization. Immutable ingress receipts contain hashes,
+counts, times, dispositions, and explicit zero-authority fields only. A separate
+private payload annex exists only for bounded restart recovery and is removed
+after expiry through secure-delete plus WAL truncation.
 
-Exact duplicate events are idempotent. Changed duplicates, missing canonical
-sequences, incomplete lifecycle, mismatched bindings, and participant-set drift
-fail closed. Transcript text remains `UNTRUSTED_SOURCE_ONLY` and
+One ingress idempotency key replay writes no second ingress or event record and
+never extends private retention. A new ingress key carrying an identical event
+records an exact provider duplicate without duplicating the canonical event.
+Changed event identities, changed sequence occupants, changed idempotency
+inputs, or capacity truncation create an immutable stream taint that survives
+restart and prevents sealing. Missing canonical sequences, incomplete
+lifecycle, mismatched bindings, and participant-set drift still fail at the
+unchanged PR108 sealer. Transcript text remains `UNTRUSTED_SOURCE_ONLY` and
 `NEEDS_REVIEW`, even when it contains instructions to confirm, freeze, run, or
 return `PASS`.
 
