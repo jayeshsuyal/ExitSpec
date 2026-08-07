@@ -210,6 +210,38 @@ receipts contain operation, authorization, source, and content hashes but no
 audio or transcript text. Attached candidates retain `NEEDS_REVIEW` and have no
 agreement, execution, evidence, or verdict authority.
 
+## Provider-neutral meeting connector boundary
+
+`meeting_connector.py` starts the Zoom train without changing the source or
+agreement spine. It separates consent-bound permission to request capture from
+the later proof that a particular provider stream was authenticated:
+
+```text
+exact participant consent
+        -> short-lived capture-only authorization
+        -> verified webhook + authenticated stream binding
+        -> private provider-neutral transcript events
+        -> deduplicated, contiguous, bounded sealed window
+        -> future redaction handoff into the existing MEETING source
+```
+
+The first contract is synthetic-only and performs no OAuth, webhook, REST,
+WebSocket, persistence, or source attachment. Raw meeting identifiers,
+participant identities, provider labels, and transcript text remain private and
+refuse ordinary serialization. Public receipts contain hashes, counts, limits,
+and explicit zero-authority fields only.
+
+Exact duplicate events are idempotent. Changed duplicates, missing canonical
+sequences, incomplete lifecycle, mismatched bindings, and participant-set drift
+fail closed. Transcript text remains `UNTRUSTED_SOURCE_ONLY` and
+`NEEDS_REVIEW`, even when it contains instructions to confirm, freeze, run, or
+return `PASS`.
+
+The architecture, current Zoom RTMS capability snapshot, deferred raw-wire
+mapping, and PR train are defined in
+[MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md). Real customer meetings
+remain behind Wave 7B.
+
 ## Guided synthetic email boundary
 
 The guided entry point is `/app?intake=email`. It offers exactly two

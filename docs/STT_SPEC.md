@@ -449,6 +449,9 @@ a memory-forensics claim.
 Zoom or Google Meet is a later transport adapter. The first undeniable demo uses
 the browser microphone because it proves the product loop without OAuth,
 calendar, bot admission, webhook ordering, reconnect, or vendor review noise.
+The provider-neutral Zoom RTMS train now begins separately in
+[MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md); it reuses the existing
+`MEETING` source authority but does not weaken this audio/STT boundary.
 
 ## PR95 exit gate
 
