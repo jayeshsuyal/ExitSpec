@@ -665,6 +665,39 @@ class ProcessLocalPOCSourceIntake:
             expected_content_sha256=expected_content_sha256,
         )
 
+    def capture_meeting_connector_transcript(
+        self,
+        *,
+        poc_id: str,
+        redacted_transcript_text: str,
+        expected_content_sha256: str,
+        stream_identity_sha256: str,
+        idempotency_key: str,
+    ) -> POCSourceReceipt:
+        """Recheck and attach one sealed connector transcript projection."""
+
+        if (
+            type(expected_content_sha256) is not str
+            or _SHA256.fullmatch(expected_content_sha256) is None
+            or type(stream_identity_sha256) is not str
+            or _SHA256.fullmatch(stream_identity_sha256) is None
+        ):
+            raise POCSourceIntakeInvalid(
+                "The meeting connector source binding is outside its "
+                "supported contract."
+            )
+        return self._capture_meeting_text(
+            poc_id=poc_id,
+            transcript_text=redacted_transcript_text,
+            idempotency_key=idempotency_key,
+            adapter_name="synthetic_meeting_connector",
+            external_id=_external_identity(
+                "meeting.connector",
+                stream_identity_sha256,
+            ),
+            expected_content_sha256=expected_content_sha256,
+        )
+
     def _capture_meeting_text(
         self,
         *,
@@ -726,7 +759,8 @@ class ProcessLocalPOCSourceIntake:
             and content_sha256 != expected_content_sha256
         ):
             raise POCSourceIntakeInvalid(
-                "The STT source does not match its redacted content binding."
+                "The meeting source does not match its redacted content "
+                "binding."
             )
         observed_at = self._observed_at(idempotency_key)
         prepared = PreparedPOCSource(

@@ -353,6 +353,54 @@ live smoke, streaming STT, a Zoom/Meet bot, real customer audio, verified
 speaker identity, or production readiness until their separate C3/C4 gates
 pass.
 
+### 7. Zoom meeting connector train — core orchestration implemented
+
+The provider-neutral meeting connector contract, opaque synthetic webhook
+authentication seam, durable synthetic-only inbox, sealed-window source bridge,
+synthetic inbox-to-source orchestration core, and dated Zoom RTMS capability
+spike are implemented in
+`meeting_connector.py`, `zoom_webhook_auth.py`, `meeting_event_inbox.py`,
+`meeting_source_handoff.py`, `meeting_source_orchestration.py`,
+[MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md),
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md),
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md),
+and
+[`zoom-rtms-capability-spike-v1.json`](../examples/meeting/zoom-rtms-capability-spike-v1.json).
+The inbox separates API replay from provider duplicate delivery, keeps one
+canonical private event plus immutable content-free receipts, permanently
+taints conflict or capacity-truncated streams, revalidates after restart, and
+secure-deletes expired private payloads. These slices remain synthetic-only and
+make no Zoom network call. The auth seam verifies exact supplied bytes,
+freshness, and bounded process-local replay but has no route, event parser,
+transport binding, or inbox-write authority. Its signing-input extraction still
+requires an untouched golden fixture. The source bridge verifies sealer
+authority, neutralizes labels, redacts immediately, attaches one replay-safe
+`MEETING` source, and leaves every proposal `NEEDS_REVIEW`. It has no HTTP route
+or durable-inbox deletion authority. The orchestration core now composes
+restart recovery, current-consent sealing, and that source handoff into one
+typed, content-free result. It serializes only within one service instance and
+does not claim cross-process exactly-once completion. See
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md) and
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md), and
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
+
+The remaining train is:
+
+1. raw Zoom packet mapper against the first sanitized untouched golden fixture;
+2. exact HTTP signing-input extraction proven against that fixture, plus
+   server-owned OAuth, on-demand RTMS start/stop, authenticated WebSocket,
+   reconnect, and shutdown transport;
+3. production durability for the completion marker and redacted source, with
+   atomic or recoverable private-annex deletion semantics;
+4. compact consent/capture/finalization UI inside the existing POC workbench;
+5. one real Zoom meeting with two consenting synthetic participants; and
+6. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
+
+Do not freeze a raw Zoom wire schema before the golden fixture resolves packet
+ordering, duplicate identity, participant stability, partial/final transcript
+behavior, timestamp semantics, reconnect, and late-event behavior. Real customer
+meetings remain blocked on Wave 7B.
+
 ## Public demo gate
 
 A release candidate is demo-ready when a fresh operator can:

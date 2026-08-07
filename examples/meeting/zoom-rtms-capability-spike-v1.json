@@ -1,0 +1,194 @@
+{
+  "schema_version": "1.0",
+  "manifest_id": "exitspec-zoom-rtms-capability-spike-v1",
+  "manifest_version": "1.0.0",
+  "status": "ARCHITECTURAL_INPUT_FROZEN",
+  "checked_at": "2026-08-06",
+  "decision": "Use Zoom RTMS transcript-only streaming for the first real-platform synthetic meeting demo, behind ExitSpec's provider-neutral meeting connector contract.",
+  "classification": "SYNTHETIC_MEETING_DATA_ONLY",
+  "not_a_wire_schema": true,
+  "runtime_network_enabled": false,
+  "provider": {
+    "name": "Zoom",
+    "product": "Realtime Media Streams",
+    "developer_pack_credits_required": true,
+    "app_type": "General app",
+    "official_sources": [
+      {
+        "title": "Getting started with Realtime Media Streams",
+        "url": "https://developers.zoom.us/docs/rtms/meetings/getting-started/"
+      },
+      {
+        "title": "Add Realtime Media Streams to your app",
+        "url": "https://developers.zoom.us/docs/rtms/meetings/add-features/"
+      },
+      {
+        "title": "Get meeting data using the REST API",
+        "url": "https://developers.zoom.us/docs/rtms/meetings/quickstart-rest-api/"
+      },
+      {
+        "title": "Get meeting transcripts using WebSockets",
+        "url": "https://developers.zoom.us/docs/rtms/meetings/quickstart-websockets/"
+      },
+      {
+        "title": "Handling media data",
+        "url": "https://developers.zoom.us/docs/rtms/meetings/media/"
+      },
+      {
+        "title": "Participant user experience",
+        "url": "https://developers.zoom.us/docs/rtms/meetings/ux-participant/"
+      },
+      {
+        "title": "Using webhooks",
+        "url": "https://developers.zoom.us/docs/api/webhooks/"
+      }
+    ]
+  },
+  "least_privilege_configuration": {
+    "required_rtms_events": [
+      "meeting.rtms_started",
+      "meeting.rtms_stopped"
+    ],
+    "required_media_scopes": [
+      "meeting:read:meeting_transcript"
+    ],
+    "required_rest_scopes_for_on_demand_start": [
+      "meeting:update:participant_rtms_app_status"
+    ],
+    "explicitly_excluded_media": [
+      "audio",
+      "video",
+      "screen_share",
+      "chat"
+    ],
+    "start_mode": "on_demand_after_exitspec_consent",
+    "auto_start": false,
+    "raw_audio_received_by_exitspec": false
+  },
+  "observed_capabilities": {
+    "webhook_authentication": "x-zm-signature HMAC SHA-256 over v0, x-zm-request-timestamp, and the exact request body",
+    "webhook_endpoint_validation": "challenge response is required within three seconds and Zoom revalidates periodically",
+    "start_event_fields": [
+      "meeting_uuid",
+      "rtms_stream_id",
+      "server_urls"
+    ],
+    "signaling_handshake": "HMAC SHA-256 using app credentials and the meeting/stream binding",
+    "protocol_version_documented": "1",
+    "transcript_media_type": 8,
+    "transcript_message_type": 17,
+    "transcript_packet_fields_documented": [
+      "user_id",
+      "user_name",
+      "start_time",
+      "end_time",
+      "timestamp",
+      "language",
+      "data"
+    ],
+    "participant_events_documented": [
+      "participant_joined",
+      "participant_left"
+    ],
+    "participant_attribution_documented": true,
+    "continuous_low_latency_delivery_documented": true,
+    "participant_visible_zoom_disclosure_documented": true
+  },
+  "exitspec_constitution": {
+    "zoom_disclosure_is_not_exitspec_consent": true,
+    "consent_must_precede_rtms_start": true,
+    "participant_set_drift_stops_capture": true,
+    "exact_duplicate_events_are_idempotent": true,
+    "conflicting_duplicates_fail_closed": true,
+    "missing_canonical_events_fail_closed": true,
+    "raw_provider_events_are_private": true,
+    "transcript_authority": "UNTRUSTED_SOURCE_ONLY",
+    "review_state": "NEEDS_REVIEW",
+    "may_confirm_contract": false,
+    "may_freeze_contract": false,
+    "may_start_measurement": false,
+    "may_assign_verdict": false
+  },
+  "provider_neutral_contract": {
+    "schema_version": "exitspec-meeting-connector/1.0",
+    "adapter_id": "zoom-rtms-transcript",
+    "adapter_version": "v1",
+    "lifecycle": [
+      "ExitSpec records the exact synthetic participant set and disclosure acknowledgement",
+      "ExitSpec issues a short-lived source-capture-only authorization",
+      "the Zoom adapter requests on-demand RTMS start",
+      "the adapter verifies the RTMS-started webhook and authenticates the WebSocket handshake",
+      "private provider packets map into provider-neutral TranscriptEvent records",
+      "ExitSpec deduplicates, orders, validates, and seals one bounded transcript window",
+      "a later handoff redacts the sealed text into the existing MEETING source pipeline",
+      "every resulting proposal remains source-linked and NEEDS_REVIEW"
+    ]
+  },
+  "frozen_acceptance_cases": [
+    {
+      "case_id": "reordered-exact-duplicate",
+      "expected_outcome": "SEALED_REVIEW_ONLY_WINDOW"
+    },
+    {
+      "case_id": "participant-joined-after-consent",
+      "expected_outcome": "MEETING_PARTICIPANT_SET_CHANGED"
+    },
+    {
+      "case_id": "missing-event-sequence",
+      "expected_outcome": "MEETING_EVENT_GAP"
+    },
+    {
+      "case_id": "changed-duplicate-event",
+      "expected_outcome": "MEETING_EVENT_CONFLICT"
+    },
+    {
+      "case_id": "missing-stop",
+      "expected_outcome": "MEETING_STREAM_INCOMPLETE"
+    },
+    {
+      "case_id": "wrong-meeting-binding",
+      "expected_outcome": "MEETING_BINDING_MISMATCH"
+    },
+    {
+      "case_id": "late-binding",
+      "expected_outcome": "MEETING_REQUEST_EXPIRED"
+    },
+    {
+      "case_id": "no-consent",
+      "expected_outcome": "MEETING_CONSENT_REQUIRED"
+    },
+    {
+      "case_id": "incomplete-consent",
+      "expected_outcome": "MEETING_CONSENT_INCOMPLETE"
+    },
+    {
+      "case_id": "revoked-consent",
+      "expected_outcome": "MEETING_CONSENT_REVOKED"
+    },
+    {
+      "case_id": "authority-attack-in-transcript",
+      "expected_outcome": "SEALED_REVIEW_ONLY_WINDOW"
+    }
+  ],
+  "deferred_until_first_golden_zoom_fixture": [
+    "freeze a raw Zoom wire schema or raw-packet fixture",
+    "map Zoom timestamp, start_time, and end_time into canonical ordering semantics",
+    "claim stable participant identifiers across reconnects",
+    "define partial-versus-final transcript replacement behavior",
+    "define webhook retry and cross-channel ordering behavior",
+    "pin reconnection windows and late-final-packet behavior",
+    "implement OAuth, webhook, REST, or WebSocket runtime code",
+    "process real customer meetings or real customer data"
+  ],
+  "golden_fixture_requirements": [
+    "exact Zoom app configuration and granted scopes",
+    "sanitized untouched meeting.rtms_started and meeting.rtms_stopped webhook bodies",
+    "sanitized untouched signaling handshake messages",
+    "sanitized untouched participant join and leave events",
+    "sanitized untouched transcript packets from two consenting synthetic participants",
+    "one disconnect and reconnect trace",
+    "one exact duplicate-delivery trace",
+    "documented timestamp observations",
+    "privacy and retention classification"
+  ]
+}

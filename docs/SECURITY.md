@@ -296,6 +296,41 @@ receipts link operation, authorization, and source IDs without transcript text,
 audio, provider speaker labels, participant IDs, or raw meeting identity. Every
 candidate remains `NEEDS_REVIEW`.
 
+The separate provider-neutral meeting source bridge accepts only an unchanged
+`SealedMeetingTranscript` minted by the meeting sealer. A private in-process
+marker and integrity projection bind its public receipt and every private
+segment fingerprint. The bridge neutralizes provider labels, redacts
+immediately, rechecks the exact redacted digest at source intake, and derives
+replay identity from the POC and stable stream digest. Direct construction,
+post-seal mutation, concurrent replay, and changed content under one stream are
+fail-closed. Its public receipt grants no inbox deletion or lifecycle
+authority. Because the redacted source is process-local, the durable inbox
+annex remains under its existing TTL; immediate post-handoff purge is not yet
+claimed. See
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md).
+
+The synthetic meeting orchestration core accepts only exact connector, inbox,
+consent, and source-intake types. It asks the durable inbox to revalidate every
+recovered record, rechecks current consent while sealing, and invokes the
+unchanged source bridge. One service instance serializes finalization attempts,
+but this is not a cross-process lock. Failures expose only typed safe upstream
+codes. Successful handoff does not purge the private inbox annex because the
+accepted redacted source remains process-local; its existing TTL remains in
+force. The public result links content-free receipts and grants no agreement,
+execution, evidence, verdict, or deletion authority. See
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
+
+The synthetic Zoom webhook authenticator is a separate pre-transport seam. It
+accepts exact opaque bytes, a canonical timestamp, and an exact lowercase
+`v0` signature; verifies HMAC-SHA256 with a server-owned secret; enforces an
+active reviewed policy, freshness, future skew, clock rollback, and bounded
+process-local replay; and returns a content-free receipt. It retains no raw
+body and refuses ordinary secret-copy and pickle paths. Successful
+authentication grants no payload-parsing, transport-binding, inbox-write,
+agreement, measurement, or verdict authority. There is no HTTP route or live
+Zoom claim, and process-local replay state is not a production control. See
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md).
+
 ## Threats covered by current tests
 
 1. Stale contract version or mismatched fingerprint attempting to freeze.
@@ -334,6 +369,30 @@ candidate remains `NEEDS_REVIEW`.
     the provider boundary.
 26. Browser microphone access before exact provider-processing consent, or a
     known provider failure causing the same audio to be resent.
+27. Forged, malformed, stale, future, byte-mutated, oversized, replayed, or
+    capacity-exhausting opaque Zoom webhook authentication input.
+28. Zoom webhook receipt mutation, raw-body reflection, secret serialization,
+    clock rollback, or authenticated input acquiring downstream authority.
+29. Directly constructed or post-seal-mutated meeting transcripts entering the
+    source path.
+30. Provider speaker labels, participant identities, email addresses, or
+    supported secret patterns crossing the meeting handoff boundary.
+31. Serial or concurrent meeting-window replay creating duplicate sources or
+    proposals.
+32. Changed transcript content under one stable meeting stream silently
+    creating a second source.
+33. Meeting source failures echoing private content or transcript instructions
+    acquiring confirmation, freeze, execution, or verdict authority.
+34. Missing, expired, conflicting, capacity-tainted, or integrity-damaged inbox
+    populations creating a meeting source.
+35. Revoked consent or an incomplete event lifecycle bypassing the unchanged
+    meeting sealer during source finalization.
+36. Serial or same-service concurrent finalization creating duplicate sources
+    or proposal populations.
+37. Private inbox or source failures crossing the orchestration boundary as
+    exception text.
+38. Orchestration-result mutation or transcript instructions acquiring inbox
+    deletion, agreement, execution, evidence, or verdict authority.
 
 ## Production security gates
 
