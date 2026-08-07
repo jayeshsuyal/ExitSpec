@@ -128,22 +128,47 @@
               >
                 <header>
                   <p class="eyebrow">Human authoring</p>
-                  <h3>Set the execution target</h3>
+                  <h3>Choose how proof arrives</h3>
                   <p>
-                    Enter the exact target the frozen agreement will later bind.
-                    No value is inferred.
+                    Freeze the evidence method and exact target before the
+                    customer confirms. No value is inferred.
                   </p>
                 </header>
 
-                <div class="reference-target">
-                  <div>
-                    <strong>Run the complete local demo</strong>
-                    <p>
-                      Use ExitSpec’s deterministic streaming target to verify
-                      the workflow. It does not prove production inference
-                      performance.
-                    </p>
-                  </div>
+                <div class="action-fields">
+                  <fieldset class="evidence-method-choice">
+                  <legend>Evidence method</legend>
+                  <label for="evidence-method-local">
+                    <input
+                      id="evidence-method-local"
+                      name="evidence_method"
+                      type="radio"
+                      value="EXIT_SPEC_STREAMING_PROBE"
+                      required
+                      disabled
+                    />
+                    <span>
+                      <strong>Run from ExitSpec</strong>
+                      <small>Bounded streaming probe. It does not prove production inference performance.</small>
+                    </span>
+                  </label>
+                  <label for="evidence-method-inferdrome">
+                    <input
+                      id="evidence-method-inferdrome"
+                      name="evidence_method"
+                      type="radio"
+                      value="INFERDROME_EXTERNAL_BUNDLE"
+                      required
+                      disabled
+                    />
+                    <span>
+                      <strong>Import from Inferdrome</strong>
+                      <small>Sealed external bundle; ExitSpec decides</small>
+                    </span>
+                  </label>
+                  </fieldset>
+
+                  <div class="target-presets">
                   <button
                     class="secondary-action"
                     id="use-reference-target"
@@ -152,9 +177,19 @@
                   >
                     Use local reference target
                   </button>
-                </div>
+                  <button
+                    class="secondary-action"
+                    id="use-inferdrome-target"
+                    type="button"
+                    disabled
+                  >
+                    Use Inferdrome demo target
+                  </button>
+                  <p id="evidence-method-note" aria-live="polite">
+                    Select the evidence method first.
+                  </p>
+                  </div>
 
-                <div class="action-fields">
                   <div class="target-primary-fields">
                     <div class="field-group">
                       <label for="target-provider">Provider</label>
@@ -374,6 +409,10 @@
 
                       <dl class="target-review">
                         <div>
+                          <dt>Evidence method</dt>
+                          <dd id="review-evidence-method">—</dd>
+                        </div>
+                        <div>
                           <dt>Provider</dt>
                           <dd id="review-target-provider">—</dd>
                         </div>
@@ -390,6 +429,10 @@
                           <dd id="review-endpoint">—</dd>
                         </div>
                       </dl>
+                      <p
+                        class="evidence-method-boundary"
+                        id="review-evidence-method-boundary"
+                      ></p>
 
                       <div class="customer-criteria">
                         <p class="section-label">Acceptance criteria</p>

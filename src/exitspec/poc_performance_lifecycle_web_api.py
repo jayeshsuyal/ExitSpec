@@ -21,7 +21,10 @@ from .poc_contract_definition import (
     ProcessLocalContractDefinitionService,
 )
 from .poc_creation import POC_ID_PATTERN
-from .poc_performance_contract import PerformanceTargetInput
+from .poc_performance_contract import (
+    PerformanceEvidenceMethod,
+    PerformanceTargetInput,
+)
 from .poc_performance_lifecycle import (
     AgreementPreparation,
     AgreementRevision,
@@ -49,7 +52,9 @@ _PREPARE_FIELDS = {
     "rationale",
     "reviewer",
     "target_provider",
+    "evidence_method",
 }
+_LEGACY_PREPARE_FIELDS = _PREPARE_FIELDS - {"evidence_method"}
 _FREEZE_FIELDS = {"idempotency_key"}
 _REISSUE_REVIEW_FIELDS = {"idempotency_key"}
 _START_REVISION_FIELDS = {"idempotency_key"}
@@ -110,7 +115,12 @@ def handle_performance_lifecycle_web_api_request(
         if method == "POST":
             body = _object(payload)
             if action is None:
-                _only(body, _PREPARE_FIELDS)
+                body_fields = set(body)
+                if (
+                    body_fields not in (_PREPARE_FIELDS, _LEGACY_PREPARE_FIELDS)
+                    or any(type(key) is not str for key in body)
+                ):
+                    raise PerformanceLifecycleWebAPIRequestError
                 result = lifecycle.prepare(
                     poc_id,
                     target=PerformanceTargetInput(
@@ -118,6 +128,10 @@ def handle_performance_lifecycle_web_api_request(
                         endpoint_class=body["endpoint_class"],
                         endpoint=body["endpoint"],
                         model=body["model"],
+                        evidence_method=body.get(
+                            "evidence_method",
+                            PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE,
+                        ),
                     ),
                     reviewer=body["reviewer"],
                     rationale=body["rationale"],
@@ -392,6 +406,7 @@ def _preparation_payload(preparation: object) -> dict[str, Any]:
         "endpoint_class": preparation.target.endpoint_class,
         "endpoint": preparation.target.endpoint,
         "model": preparation.target.model,
+        "evidence_method": preparation.target.evidence_method.value,
         "reviewer": preparation.reviewer,
         "rationale": preparation.rationale,
     }
@@ -506,6 +521,7 @@ def _frozen_payload(
         "endpoint_class": preparation.target.endpoint_class,
         "endpoint": preparation.target.endpoint,
         "model": preparation.target.model,
+        "evidence_method": preparation.target.evidence_method.value,
     }
 
 

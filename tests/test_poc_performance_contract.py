@@ -29,7 +29,9 @@ from exitspec.poc_creation import (
 )
 from exitspec.poc_performance_contract import (
     ADAPTER,
+    INFERDROME_ADAPTER,
     PerformanceContractAssemblyError,
+    PerformanceEvidenceMethod,
     PerformanceTargetInput,
     prepare_performance_bundle,
 )
@@ -239,6 +241,33 @@ def test_exact_ttft_operator_survives_runner_valid_assembly(operator):
     assert bundle.context.expected_manifest.measurement_policy is not None
     assert len(bundle.definition_bindings) == 2
     assert all("PASS" not in item for item in bundle.planning_limitations)
+
+
+def test_inferdrome_method_freezes_external_adapter_without_metric_equivalence():
+    draft, proposals, definitions = _inputs()
+    bundle = prepare_performance_bundle(
+        draft=draft,
+        proposals=proposals,
+        definitions=definitions,
+        target=_target(
+            evidence_method=(
+                PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+            )
+        ),
+        prompt_bytes=PROMPTS,
+        prepared_at=NOW,
+    )
+
+    criterion = bundle.approved_contract.criteria[0]
+    assert bundle.workload.adapter == INFERDROME_ADAPTER
+    assert criterion.adapter == INFERDROME_ADAPTER
+    assert bundle.workload.first_token_definition == (
+        "first_nonempty_choices_delta_content_v1"
+    )
+    assert any(
+        "first-choices-event TTFT is not equivalent" in limitation
+        for limitation in bundle.approved_contract.non_goals
+    )
 
 
 def test_bundle_is_deterministic_and_binds_exact_bytes():

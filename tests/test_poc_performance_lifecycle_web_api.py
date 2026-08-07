@@ -238,6 +238,29 @@ def test_prepare_customer_confirm_freeze_projects_only_exact_public_state():
     ]
 
 
+def test_external_evidence_method_is_projected_and_frozen_before_confirmation():
+    runtime = _runtime()
+    prepared = _handle(
+        runtime,
+        "POST",
+        ROOT,
+        _prepare_body(
+            evidence_method="INFERDROME_EXTERNAL_BUNDLE",
+            idempotency_key="prepare-inferdrome-agreement-api",
+        ),
+    )
+
+    assert prepared.status == HTTPStatus.CREATED
+    assert prepared.payload["draft"]["evidence_method"] == (
+        "INFERDROME_EXTERNAL_BUNDLE"
+    )
+    snapshot = _handle(runtime, "GET", ROOT)
+    assert snapshot.payload["draft"]["evidence_method"] == (
+        "INFERDROME_EXTERNAL_BUNDLE"
+    )
+    assert snapshot.payload["frozen_contract"] is None
+
+
 def test_every_write_exposes_exact_idempotent_replay():
     runtime = _runtime()
     body = _prepare_body()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 import hashlib
 from typing import Sequence
 from urllib.parse import urlsplit
@@ -52,6 +53,8 @@ from .poc_proposal_review import (
 
 ADAPTER = "vllm_streaming_latency"
 ADAPTER_VERSION = "1.0.0"
+INFERDROME_ADAPTER = "vllm_bench_serve"
+INFERDROME_ADAPTER_VERSION = "1.0.0"
 FIRST_TOKEN_DEFINITION = "first_nonempty_choices_delta_content_v1"
 MAX_TARGET_TEXT = 512
 MAX_ENDPOINT_LENGTH = 2_048
@@ -63,6 +66,13 @@ class PerformanceContractAssemblyError(ValueError):
     """The reviewed inputs cannot become an exact executable contract."""
 
 
+class PerformanceEvidenceMethod(StrEnum):
+    """The customer-visible producer boundary selected before confirmation."""
+
+    EXIT_SPEC_STREAMING_PROBE = "EXIT_SPEC_STREAMING_PROBE"
+    INFERDROME_EXTERNAL_BUNDLE = "INFERDROME_EXTERNAL_BUNDLE"
+
+
 class PerformanceTargetInput(FrozenExitSpecModel):
     """Explicit target identity; no target field may be inferred after freeze."""
 
@@ -70,6 +80,9 @@ class PerformanceTargetInput(FrozenExitSpecModel):
     endpoint_class: str = Field(min_length=1, max_length=MAX_TARGET_TEXT)
     endpoint: str = Field(min_length=1, max_length=MAX_ENDPOINT_LENGTH)
     model: str = Field(min_length=1, max_length=MAX_TARGET_TEXT)
+    evidence_method: PerformanceEvidenceMethod = (
+        PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE
+    )
 
     @field_validator(
         "provider",
@@ -239,19 +252,24 @@ def prepare_performance_bundle(
         definitions,
     )
     _require_matching_workload(ttft, error_rate)
+    adapter, adapter_version = _adapter_identity(target.evidence_method)
 
     prompt_sha256 = hashlib.sha256(prompt_bytes).hexdigest()
-    identity_seed = canonical_json_bytes(
-        {
-            "poc_id": draft.poc_id,
-            "target": target.model_dump(mode="json"),
-            "definitions": [binding.model_dump(mode="json") for binding in bindings],
-            "prompt_sha256": prompt_sha256,
-            "warmup_count": warmup_count,
-            "timeout_seconds": float(timeout_seconds),
-            "max_stream_bytes": max_stream_bytes,
-        }
-    )
+    identity_payload = {
+        "poc_id": draft.poc_id,
+        "target": target.model_dump(
+            mode="json",
+            exclude={"evidence_method"},
+        ),
+        "definitions": [binding.model_dump(mode="json") for binding in bindings],
+        "prompt_sha256": prompt_sha256,
+        "warmup_count": warmup_count,
+        "timeout_seconds": float(timeout_seconds),
+        "max_stream_bytes": max_stream_bytes,
+    }
+    if target.evidence_method is PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE:
+        identity_payload["evidence_method"] = target.evidence_method.value
+    identity_seed = canonical_json_bytes(identity_payload)
     identity = hashlib.sha256(
         b"exitspec-performance-bundle-identity-v1\x00" + identity_seed
     ).hexdigest()
@@ -267,8 +285,8 @@ def prepare_performance_bundle(
     workload_payload = {
         "schema_version": "exitspec.performance-workload.v1",
         "workload_id": workload_id,
-        "adapter": ADAPTER,
-        "adapter_version": ADAPTER_VERSION,
+        "adapter": adapter,
+        "adapter_version": adapter_version,
         "endpoint": target.endpoint,
         "model": target.model,
         "request_count": error_rate.minimum_samples,
@@ -385,8 +403,8 @@ def prepare_performance_bundle(
             must_pass=True,
         ),
         workload_slice=workload_id,
-        adapter=ADAPTER,
-        adapter_version=ADAPTER_VERSION,
+        adapter=adapter,
+        adapter_version=adapter_version,
         owner=draft.owner,
         evidence_policy=(
             "Persist the frozen contract, workload manifest, sanitized terminal "
@@ -410,6 +428,7 @@ def prepare_performance_bundle(
             "prove achieved request overlap, production capacity, GPU "
             "latency, model quality, or long-duration reliability."
         ),
+        *_evidence_method_limitations(target.evidence_method),
         *_excluded_claim_limitations(proposals),
     )
     contract = POCContract(
@@ -458,6 +477,28 @@ def prepare_performance_bundle(
         context=context,
         definition_bindings=bindings,
         planning_limitations=limitations,
+    )
+
+
+def _adapter_identity(
+    evidence_method: PerformanceEvidenceMethod,
+) -> tuple[str, str]:
+    if evidence_method is PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE:
+        return ADAPTER, ADAPTER_VERSION
+    if evidence_method is PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE:
+        return INFERDROME_ADAPTER, INFERDROME_ADAPTER_VERSION
+    raise PerformanceContractAssemblyError("Evidence method is unsupported.")
+
+
+def _evidence_method_limitations(
+    evidence_method: PerformanceEvidenceMethod,
+) -> tuple[str, ...]:
+    if evidence_method is PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE:
+        return ()
+    return (
+        "NOT_PROVEN — Native vLLM first-choices-event TTFT is not equivalent "
+        "to ExitSpec's frozen first-nonempty-content TTFT definition. Imported "
+        "Inferdrome evidence must pass exact semantic compatibility checks.",
     )
 
 
@@ -629,8 +670,11 @@ def _bundle_fingerprint(
 __all__ = [
     "ADAPTER",
     "ADAPTER_VERSION",
+    "INFERDROME_ADAPTER",
+    "INFERDROME_ADAPTER_VERSION",
     "PerformanceContractAssemblyError",
     "PerformanceDefinitionBinding",
+    "PerformanceEvidenceMethod",
     "PerformanceTargetInput",
     "PreparedPerformanceBundle",
     "prepare_performance_bundle",
