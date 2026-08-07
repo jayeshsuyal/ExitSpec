@@ -319,16 +319,20 @@ every derived proposal remains source-linked `NEEDS_REVIEW` input. Known
 credential, account, rate, timeout, service, transport, and response failures
 are typed and content-free.
 
-Automated tests prove both browser modes and the complete external wire contract
-with fake HTTPS connections. No successful funded real-account Fireworks STT
-smoke evidence is claimed yet. Fireworks' current docs advertise production
-streaming STT, while the prerecorded endpoint used here is documented only in
-its archived official cookbook; ExitSpec therefore labels this adapter
-experimental and fails closed on endpoint drift. A provider-neutral,
-synthetic-only meeting contract and durable local event inbox now exist for the
-future Zoom train, but there is still no Zoom OAuth, webhook, RTMS connection,
-or raw-packet mapper. Google Meet, Teams, customer audio, durable consent, and
-production authorization remain outside the current claim.
+Automated tests prove both browser modes and the complete Fireworks external
+wire contract with fake HTTPS connections. No successful funded real-account
+Fireworks STT smoke evidence is claimed yet. Fireworks' current docs advertise
+production streaming STT, while the prerecorded endpoint used here is
+documented only in its archived official cookbook; ExitSpec therefore labels
+this adapter experimental and fails closed on endpoint drift. A
+provider-neutral, synthetic-only meeting contract and durable local event inbox
+now exist for the future Zoom train. A separate synthetic-only seam now verifies
+an exact supplied byte string against the Zoom `v0` webhook HMAC, freshness,
+and process-local replay bounds, but it exposes no route and has no
+event-parsing, transport, inbox-write, or lifecycle authority. There is still
+no Zoom OAuth, live webhook, RTMS connection, or raw-packet mapper. Google Meet,
+Teams, customer audio, durable consent, and production authorization remain
+outside the current claim.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
@@ -356,6 +360,7 @@ repository yet.
 - [Provider boundary](docs/PROVIDER_SPEC.md)
 - [Speech-to-text boundary, Fireworks adapter, and handoff](docs/STT_SPEC.md)
 - [Provider-neutral meeting connector and Zoom RTMS plan](docs/MEETING_CONNECTOR_SPEC.md)
+- [Zoom webhook authentication boundary](docs/ZOOM_WEBHOOK_AUTH_SPEC.md)
 - [Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)

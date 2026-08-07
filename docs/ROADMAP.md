@@ -350,24 +350,30 @@ live smoke, streaming STT, a Zoom/Meet bot, real customer audio, verified
 speaker identity, or production readiness until their separate C3/C4 gates
 pass.
 
-### 7. Zoom meeting connector train — contract and durable inbox implemented
+### 7. Zoom meeting connector train — auth seam, contract, and inbox implemented
 
-The provider-neutral meeting connector contract, durable synthetic-only inbox,
-and dated Zoom RTMS capability spike are implemented in `meeting_connector.py`,
-`meeting_event_inbox.py`,
+The provider-neutral meeting connector contract, opaque synthetic webhook
+authentication seam, durable synthetic-only inbox, and dated Zoom RTMS
+capability spike are implemented in `meeting_connector.py`,
+`zoom_webhook_auth.py`, `meeting_event_inbox.py`,
 [MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md), and
 [`zoom-rtms-capability-spike-v1.json`](../examples/meeting/zoom-rtms-capability-spike-v1.json).
 The inbox separates API replay from provider duplicate delivery, keeps one
 canonical private event plus immutable content-free receipts, permanently
 taints conflict or capacity-truncated streams, revalidates after restart, and
 secure-deletes expired private payloads. These slices remain synthetic-only and
-make no Zoom network call.
+make no Zoom network call. The auth seam verifies exact supplied bytes,
+freshness, and bounded process-local replay but has no route, event parser,
+transport binding, or inbox-write authority. Its signing-input extraction still
+requires an untouched golden fixture. See
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md).
 
 The remaining train is:
 
 1. raw Zoom packet mapper against the first sanitized untouched golden fixture;
-2. server-owned OAuth, signed webhook, on-demand RTMS start/stop, authenticated
-   WebSocket, reconnect, and shutdown transport;
+2. exact HTTP signing-input extraction proven against that fixture, plus
+   server-owned OAuth, on-demand RTMS start/stop, authenticated WebSocket,
+   reconnect, and shutdown transport;
 3. immediate redaction and handoff into the existing `MEETING` source path;
 4. compact consent/capture/finalization UI inside the existing POC workbench;
 5. one real Zoom meeting with two consenting synthetic participants; and

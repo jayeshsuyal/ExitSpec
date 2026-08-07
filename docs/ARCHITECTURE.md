@@ -227,9 +227,9 @@ exact participant consent
         -> future redaction handoff into the existing MEETING source
 ```
 
-The PR108 contract and PR109 inbox are synthetic-only and perform no OAuth,
-webhook, REST, WebSocket, or source attachment. PR109 adds a local SQLite
-ingestion ledger, not a provider transport. Raw meeting identifiers,
+The PR108 contract and PR110 inbox are synthetic-only and perform no OAuth,
+REST, WebSocket, or source attachment. PR110 adds a local SQLite ingestion
+ledger, not a provider transport. Raw meeting identifiers,
 participant identities, provider labels, and transcript text remain private and
 refuse ordinary serialization. Immutable ingress receipts contain hashes,
 counts, times, dispositions, and explicit zero-authority fields only. A separate
@@ -246,6 +246,14 @@ lifecycle, mismatched bindings, and participant-set drift still fail at the
 unchanged PR108 sealer. Transcript text remains `UNTRUSTED_SOURCE_ONLY` and
 `NEEDS_REVIEW`, even when it contains instructions to confirm, freeze, run, or
 return `PASS`.
+
+`zoom_webhook_auth.py` now adds a narrower pre-transport seam. It verifies one
+exact supplied byte string against Zoom's `v0` HMAC, reviewed freshness limits,
+and bounded process-local replay state. It emits only a content-free receipt
+whose authority to parse a Zoom event, mint a transport binding, append to the
+inbox, or affect the ExitSpec lifecycle is fixed to false. It exposes no HTTP
+route and deliberately does not resolve the deferred Zoom wire mapping. See
+[ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md).
 
 The architecture, current Zoom RTMS capability snapshot, deferred raw-wire
 mapping, and PR train are defined in
