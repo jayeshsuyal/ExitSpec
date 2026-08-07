@@ -224,12 +224,13 @@ exact participant consent
         -> durable bounded inbox + immutable ingress receipts
         -> restart recovery + independent event revalidation
         -> deduplicated, contiguous, bounded sealed window
-        -> future redaction handoff into the existing MEETING source
+        -> verified redaction handoff into the existing MEETING source
+        -> source-linked NEEDS_REVIEW proposals
 ```
 
-The PR108 contract and PR110 inbox are synthetic-only and perform no OAuth,
-REST, WebSocket, or source attachment. PR110 adds a local SQLite ingestion
-ledger, not a provider transport. Raw meeting identifiers,
+The connector contract, durable inbox, and source bridge are synthetic-only and
+perform no OAuth, REST, or WebSocket work. The inbox adds a local SQLite
+ingestion ledger, not a provider transport. Raw meeting identifiers,
 participant identities, provider labels, and transcript text remain private and
 refuse ordinary serialization. Immutable ingress receipts contain hashes,
 counts, times, dispositions, and explicit zero-authority fields only. A separate
@@ -246,6 +247,22 @@ lifecycle, mismatched bindings, and participant-set drift still fail at the
 unchanged PR108 sealer. Transcript text remains `UNTRUSTED_SOURCE_ONLY` and
 `NEEDS_REVIEW`, even when it contains instructions to confirm, freeze, run, or
 return `PASS`.
+
+`MeetingTranscriptSourceHandoffService` accepts only an unchanged transcript
+object minted by the sealer. It verifies the private in-process sealer marker
+and integrity projection before reading private text, replaces provider labels
+with stable neutral labels, redacts immediately, and rechecks the exact digest
+at the existing source intake. POC plus stable stream identity supplies replay
+identity; exact serial or concurrent replay creates one source, while changed
+content under the same stream fails as a conflict. Public linked receipts
+contain hashes, counts, versions, times, and zero-authority facts only.
+
+The bridge has no route and no inbox deletion authority. The accepted redacted
+source is currently process-local, so the durable private annex remains under
+its existing TTL instead of being deleted after a non-durable attach. A future
+orchestrator must make source durability and annex deletion atomic or
+recoverable. See
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md).
 
 `zoom_webhook_auth.py` now adds a narrower pre-transport seam. It verifies one
 exact supplied byte string against Zoom's `v0` HMAC, reviewed freshness limits,
