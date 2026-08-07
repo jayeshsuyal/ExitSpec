@@ -34,7 +34,12 @@ exitspec = "exitspec.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-exitspec = ["static/*.html", "static/*.css", "static/*.js"]
+exitspec = [
+  "schemas/inferdrome/v1/*.json",
+  "static/*.html",
+  "static/*.css",
+  "static/*.js",
+]
 "exitspec.demo_data" = [
   "inference_performance/contracts/*.json",
   "inference_performance/prompts/*.jsonl",

@@ -645,10 +645,11 @@ audio, but no funded smoke receipt, customer-audio authorization, streaming
 meeting transport, hosted identity, durable confirmation store, queue, object
 store, generic metric engine, or multi-tenant authorization. It also has no live
 email connector, mailbox OAuth, webhook, arbitrary upload, or real-customer
-email path. It has no external-evidence importer. That importer is deferred
-until Inferdrome provides the pinned-vLLM capability results and first untouched
-native golden fixture required by the
-[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md).
+email path. It has one bounded offline external-evidence importer for the exact
+Inferdrome v1 schemas and pinned-vLLM `0.26.0` golden fixture authorized by the
+[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md). It has no online
+external ingestion, authenticated producer identity, arbitrary producer or
+schema compatibility, or customer-sensitive native-bundle authorization.
 
 If the product earns hosted use, the next boundaries are authenticated identity,
 append-only durable decisions, PostgreSQL metadata, object storage, isolated

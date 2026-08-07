@@ -125,9 +125,9 @@ Future performance versions may add complete p50/p95/p99 distributions,
 throughput, output-token distributions, warm/cold state, environment metadata,
 and confidence intervals. Those are not claimed by v1.
 
-## External evidence import (deferred)
+## External evidence import (bounded v1)
 
-The future Inferdrome boundary is governed by
+The Inferdrome boundary is governed by
 [EXTERNAL_EVIDENCE_PROTOCOL.md](EXTERNAL_EVIDENCE_PROTOCOL.md). Inferdrome may
 produce measurements and sealed artifacts, but ExitSpec must independently
 validate semantic compatibility, reconstruct supported populations, recalculate
@@ -135,9 +135,14 @@ measurements, and exclusively issue acceptance verdicts. Invalid, unsafe,
 unsupported, or incompatible external bundles are rejected before acceptance;
 they do not receive an acceptance verdict.
 
-No external importer or wire schema exists. Implementation remains blocked on
-an Inferdrome pinned-vLLM capability spike and its first untouched native golden
-fixture.
+The first offline importer accepts only the exact vendored Inferdrome v1 schema
+digests and independently recalculates supported facts from sealed canonical
+records. Its compatibility tests are grounded in the pinned-vLLM `0.26.0`
+golden fixture. Native `vllm_first_choices_event_v0_26` TTFT remains distinct
+from ExitSpec's `first_nonempty_choices_delta_content_v1`, so the current TTFT
+criterion is `NOT_PROVEN` rather than silently translated. New schema versions,
+producer versions, online ingestion, and sensitive bundles remain blocked on a
+new reviewed fixture and compatibility decision.
 
 ## Cost criteria (planned)
 

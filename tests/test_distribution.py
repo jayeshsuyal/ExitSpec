@@ -29,6 +29,35 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUPPORT_AGENT_EXAMPLES = PROJECT_ROOT / "examples" / "support-agent"
 SUPPORT_AGENT_EMAIL_EXAMPLES = SUPPORT_AGENT_EXAMPLES / "email"
 STATIC_ROOT = PROJECT_ROOT / "src" / "exitspec" / "static"
+INFERDROME_SCHEMA_ROOT = (
+    PROJECT_ROOT / "src" / "exitspec" / "schemas" / "inferdrome" / "v1"
+)
+EXPECTED_INFERDROME_SCHEMAS = {
+    "environment.schema.json": (
+        "0a0c43552f86d45579786f30f71da62cf6c02ea7c5c2cfcf76dc1427dc9df777"
+    ),
+    "evidence-bundle.schema.json": (
+        "276a8e2c3d14fd18f45f428bdda31964af879adbad0341ae5959c599dd5c3437"
+    ),
+    "execution.schema.json": (
+        "f4615a340bea6566c6924e02777927c9491cd351a43f8aafa01ef9f34002dfe5"
+    ),
+    "experiment.schema.json": (
+        "244f45d5aba43a45e7e9f0cf98965881a26667a56977fcc2bc418368382f86ab"
+    ),
+    "measurements.schema.json": (
+        "39b86747910842a9f726ac8bcdd035cad6c2bdd9454cd090fde8eb3739438ecb"
+    ),
+    "metric-definitions.schema.json": (
+        "d501d11c030e7b9fee71dfafd5f9c5462e48f237bac918139cb2cfaff34bc204"
+    ),
+    "request-plan.schema.json": (
+        "c866742180909e982a6466553d296a8412734c49c2b5f5bbb549a6c63fb2417d"
+    ),
+    "request-record.schema.json": (
+        "a65f763947207f0a312770d743a623363ae4eec36336e0126e87df350ec07ee4"
+    ),
+}
 EXPECTED_STATIC_RESOURCES = {
     "agreement.css",
     "agreement.html",
@@ -371,6 +400,12 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
 
     with zipfile.ZipFile(wheel) as archive:
         members = set(archive.namelist())
+        for filename, expected_sha256 in EXPECTED_INFERDROME_SCHEMAS.items():
+            member = "exitspec/schemas/inferdrome/v1/{0}".format(filename)
+            assert member in members
+            archived_schema = archive.read(member)
+            assert archived_schema == (INFERDROME_SCHEMA_ROOT / filename).read_bytes()
+            assert _sha256(archived_schema) == expected_sha256
         for filename in EXPECTED_STATIC_RESOURCES:
             member = "exitspec/static/{0}".format(filename)
             assert member in members
@@ -489,6 +524,8 @@ from exitspec.demo_data import (
     support_agent_email_paths,
     support_agent_source_web_contract,
 )
+from exitspec.inferdrome_bundle import INFERDROME_VERIFIER_VERSION
+from exitspec.inferdrome_import import INFERDROME_RECEIPT_SCHEMA_VERSION
 from exitspec.web import DemoSession
 from exitspec.workspace import DashboardFilter
 from exitspec.performance_workspace import load_performance_demo_bundle
@@ -505,6 +542,8 @@ with support_agent_demo_paths() as data:
     workspace = session.state_payload()["workspace"]
     payload = {
         "module": str(Path(exitspec.__file__).resolve()),
+        "inferdrome_receipt_schema": INFERDROME_RECEIPT_SCHEMA_VERSION,
+        "inferdrome_verifier_version": INFERDROME_VERIFIER_VERSION,
         "resource_root": str(data.root),
         "transcript_id": session.state_payload()["transcript"]["id"],
         "review_actions": len(load_review_plan(data.review_plan).actions),
@@ -547,6 +586,8 @@ print(json.dumps(payload))
     )
     probe = json.loads(probe_stdout)
     assert Path(probe["module"]).is_relative_to(installed_site_packages)
+    assert probe["inferdrome_receipt_schema"] == "exitspec.inferdrome-receipt.v1"
+    assert probe["inferdrome_verifier_version"] == "1.0.0"
     assert Path(probe["resource_root"]).is_relative_to(installed_site_packages)
     assert probe["transcript_id"] == "support-discovery-v1"
     assert probe["review_actions"] == 2
