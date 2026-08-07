@@ -257,12 +257,21 @@ identity; exact serial or concurrent replay creates one source, while changed
 content under the same stream fails as a conflict. Public linked receipts
 contain hashes, counts, versions, times, and zero-authority facts only.
 
-The bridge has no route and no inbox deletion authority. The accepted redacted
-source is currently process-local, so the durable private annex remains under
-its existing TTL instead of being deleted after a non-durable attach. A future
-orchestrator must make source durability and annex deletion atomic or
-recoverable. See
-[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md).
+`MeetingInboxSourceOrchestrationService` now closes the synthetic core between
+those boundaries: it recovers and revalidates one durable inbox population,
+rechecks current consent while sealing, invokes the unchanged source bridge,
+and returns one content-free, digest-bound result. Finalization is serialized
+within one service instance; this is not a cross-process lock or a durable
+exactly-once completion claim.
+
+The bridge and orchestration core have no route and no inbox deletion
+authority. The accepted redacted source is currently process-local, so the
+durable private annex remains under its existing TTL instead of being deleted
+after a non-durable attach. A future production coordinator must make the
+completion marker and redacted source durable, then make annex deletion atomic
+or recoverable. See
+[MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md) and
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
 
 `zoom_webhook_auth.py` now adds a narrower pre-transport seam. It verifies one
 exact supplied byte string against Zoom's `v0` HMAC, reviewed freshness limits,

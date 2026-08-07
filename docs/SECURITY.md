@@ -309,6 +309,17 @@ annex remains under its existing TTL; immediate post-handoff purge is not yet
 claimed. See
 [MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md).
 
+The synthetic meeting orchestration core accepts only exact connector, inbox,
+consent, and source-intake types. It asks the durable inbox to revalidate every
+recovered record, rechecks current consent while sealing, and invokes the
+unchanged source bridge. One service instance serializes finalization attempts,
+but this is not a cross-process lock. Failures expose only typed safe upstream
+codes. Successful handoff does not purge the private inbox annex because the
+accepted redacted source remains process-local; its existing TTL remains in
+force. The public result links content-free receipts and grants no agreement,
+execution, evidence, verdict, or deletion authority. See
+[MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
+
 The synthetic Zoom webhook authenticator is a separate pre-transport seam. It
 accepts exact opaque bytes, a canonical timestamp, and an exact lowercase
 `v0` signature; verifies HMAC-SHA256 with a server-owned secret; enforces an
@@ -372,6 +383,16 @@ Zoom claim, and process-local replay state is not a production control. See
     creating a second source.
 33. Meeting source failures echoing private content or transcript instructions
     acquiring confirmation, freeze, execution, or verdict authority.
+34. Missing, expired, conflicting, capacity-tainted, or integrity-damaged inbox
+    populations creating a meeting source.
+35. Revoked consent or an incomplete event lifecycle bypassing the unchanged
+    meeting sealer during source finalization.
+36. Serial or same-service concurrent finalization creating duplicate sources
+    or proposal populations.
+37. Private inbox or source failures crossing the orchestration boundary as
+    exception text.
+38. Orchestration-result mutation or transcript instructions acquiring inbox
+    deletion, agreement, execution, evidence, or verdict authority.
 
 ## Production security gates
 
