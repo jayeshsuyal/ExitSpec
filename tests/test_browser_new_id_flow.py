@@ -9,7 +9,19 @@ from urllib.parse import urljoin
 
 import pytest
 
+from exitspec.poc_inferdrome_import import (
+    ProcessLocalPOCInferdromeImportService,
+)
+from exitspec.poc_performance_run import (
+    ProcessLocalPOCPerformanceRunService,
+)
 from exitspec.web import DemoSession, ExitSpecDemoServer
+from tests.poc_inferdrome_helpers import (
+    NOW,
+    POC_ID,
+    build_external_web_services,
+    customer_eligible_bundle,
+)
 
 
 DISPLAY_NAME = "Browser inference acceptance POC"
@@ -27,6 +39,46 @@ def _running_server(tmp_path: Path):
         output_root=tmp_path / "runs"
     )
     server = ExitSpecDemoServer(("127.0.0.1", 0), session)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        yield "http://127.0.0.1:{0}".format(server.server_port)
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+        assert not worker.is_alive()
+
+
+@contextmanager
+def _running_external_evidence_server(tmp_path: Path):
+    lifecycle, drafts, proposals, definitions = build_external_web_services()
+    runs_root, _ = customer_eligible_bundle(tmp_path, lifecycle)
+    session = DemoSession.synthetic_support_agent(
+        output_root=tmp_path / "exitspec-runs"
+    )
+    server = ExitSpecDemoServer(
+        ("127.0.0.1", 0),
+        session,
+        inferdrome_runs_root=runs_root.resolve(),
+    )
+    server.draft_poc_service = drafts
+    server.proposal_review_service = proposals
+    server.contract_definition_service = definitions
+    server.performance_lifecycle_service = lifecycle
+    server.poc_performance_run_service = ProcessLocalPOCPerformanceRunService(
+        lifecycle=lifecycle,
+        output_root=session.output_root.resolve(),
+    )
+    server.poc_inferdrome_import_service = (
+        ProcessLocalPOCInferdromeImportService(
+            lifecycle=lifecycle,
+            catalog=server.inferdrome_catalog,
+            output_root=session.output_root.resolve(),
+            worker_launcher=lambda target: target(),
+            clock=lambda: NOW,
+        )
+    )
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
@@ -441,6 +493,131 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
             finally:
                 customer_context.close()
                 employee_context.close()
+                browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_external_evidence_flow_recalculates_pack_and_completes_handoff(
+    tmp_path,
+):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+
+    with _running_external_evidence_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            evidence_page = context.new_page()
+            page_errors = _capture_browser_errors(page)
+            evidence_errors = _capture_browser_errors(evidence_page)
+            page.set_default_timeout(10_000)
+            page.set_default_navigation_timeout(10_000)
+            evidence_page.set_default_timeout(10_000)
+
+            try:
+                page.goto(f"{base_url}/app/pocs/{POC_ID}")
+                expect(page.locator("#performance-main")).to_have_attribute(
+                    "aria-busy", "false"
+                )
+                _assert_bounded_employee_shell(page)
+
+                expect(page.locator(".primary-action")).to_have_count(1)
+                expect(page.locator("#current-task-heading")).to_have_text(
+                    "Import sealed evidence"
+                )
+                expect(page.locator("#inferdrome-selection")).to_be_visible()
+                expect(page.locator("#inferdrome-bundle")).to_be_enabled()
+                expect(page.locator("#inferdrome-bundle option")).to_have_count(
+                    1
+                )
+                expect(
+                    page.locator("#inferdrome-catalog-status")
+                ).to_contain_text("1 eligible sealed bundle")
+                expect(page.locator("#run-proof")).to_have_text(
+                    "Import sealed evidence"
+                )
+                expect(page.locator("#run-proof")).to_be_disabled()
+                expect(
+                    page.locator("#execution-acknowledgement-copy")
+                ).to_contain_text(
+                    "authorize ExitSpec to import and evaluate"
+                )
+
+                page.locator("#execution-acknowledged").check()
+                expect(page.locator("#run-proof")).to_be_enabled()
+                page.locator("#run-proof").click()
+
+                expect(page.locator("#evidence-verdict")).to_have_text(
+                    "NOT PROVEN", timeout=20_000
+                )
+                expect(page.locator("#outcome-breakdown")).to_contain_text(
+                    "producer-reported failed"
+                )
+                expect(page.locator("#import-receipt")).to_be_visible()
+                expect(page.locator("#receipt-run")).to_have_text(
+                    re.compile(r"^run-")
+                )
+                expect(page.locator("#receipt-id")).to_have_text(
+                    re.compile(r"^irc_")
+                )
+                expect(page.locator("#receipt-digest")).to_have_text(
+                    re.compile(r"^sha256:[a-f0-9]{64}$")
+                )
+                expect(page.locator("#receipt-applicability")).to_contain_text(
+                    "RELIABILITY_CLASSIFICATION_UNAVAILABLE"
+                )
+                _assert_bounded_employee_shell(page)
+
+                evidence_link = page.locator("#evidence-pack-link")
+                expect(evidence_link).to_be_visible()
+                expect(evidence_link).to_have_attribute(
+                    "href",
+                    re.compile(
+                        r"^/artifacts/pimp_[a-f0-9]{32}/decision-packet\.html$"
+                    ),
+                )
+                evidence_href = evidence_link.get_attribute("href")
+                assert evidence_href is not None
+                evidence_page.goto(urljoin(base_url, evidence_href))
+                expect(evidence_page).to_have_title(
+                    re.compile("ExitSpec .* Inferdrome Evidence Pack")
+                )
+                expect(evidence_page.locator(".verdict")).to_have_text(
+                    "NOT PROVEN"
+                )
+                expect(evidence_page.locator("body")).to_contain_text(
+                    "ExitSpec independently verified"
+                )
+                expect(evidence_page.locator("body")).to_contain_text(
+                    "Producer verdicts were ignored"
+                )
+
+                expect(page.locator("#closure-panel")).to_be_visible()
+                page.locator("#closure-decision").select_option(
+                    "HANDOFF_COMPLETED"
+                )
+                page.locator("#closure-actor").fill("field_engineer")
+                page.locator("#closure-rationale").fill(
+                    "Independently recalculated imported evidence handed off."
+                )
+                expect(page.locator("#record-closure")).to_be_enabled()
+                page.locator("#record-closure").click()
+                expect(page.locator("#closure-receipt")).to_be_visible()
+                expect(
+                    page.locator("#closure-receipt-decision")
+                ).to_have_text("Handoff completed")
+                assert page_errors == []
+                assert evidence_errors == []
+            finally:
+                evidence_page.close()
+                context.close()
                 browser.close()
 
 

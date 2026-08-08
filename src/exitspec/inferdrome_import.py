@@ -69,6 +69,9 @@ class InferdromeApplicabilityCode(str, Enum):
     ENVIRONMENT_INCOMPLETE = "ENVIRONMENT_INCOMPLETE"
     ANOMALOUS_RECORD = "ANOMALOUS_RECORD"
     TTFT_DEFINITION_MISMATCH = "TTFT_DEFINITION_MISMATCH"
+    RELIABILITY_CLASSIFICATION_UNAVAILABLE = (
+        "RELIABILITY_CLASSIFICATION_UNAVAILABLE"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,6 +354,13 @@ def _evaluate_applicability(
         issues.append(InferdromeApplicabilityCode.ANOMALOUS_RECORD)
     if bundle.recalculated.ttft_definition != context.workload.first_token_definition:
         issues.append(InferdromeApplicabilityCode.TTFT_DEFINITION_MISMATCH)
+    if (
+        context.criterion.criterion_type == "inference_performance_v2"
+        and bundle.recalculated.failed_count > 0
+    ):
+        issues.append(
+            InferdromeApplicabilityCode.RELIABILITY_CLASSIFICATION_UNAVAILABLE
+        )
     return InferdromeApplicability(issues=tuple(dict.fromkeys(issues)))
 
 

@@ -97,11 +97,17 @@ def test_lifecycle_has_one_panel_per_state_and_exact_freeze_action():
         "refresh-customer-review",
         "reissue-customer-review",
         "start-revision",
+        "use-inferdrome-target",
         "use-reference-target",
     }
     assert re.search(
         r'id="use-reference-target"[\s\S]*?>\s*'
         r"Use local reference target\s*</button>",
+        html,
+    )
+    assert re.search(
+        r'id="use-inferdrome-target"[\s\S]*?>\s*'
+        r"Use Inferdrome demo target\s*</button>",
         html,
     )
     assert re.search(r">\s*Create customer draft\s*</button>", html)
@@ -178,6 +184,22 @@ def test_local_reference_target_is_explicit_and_never_fakes_human_review():
     assert "draftReviewerInput.value" not in reference
     assert "draftRationaleInput.value" not in reference
     assert "draftReviewerInput.focus();" in reference
+
+
+def test_evidence_method_is_explicit_before_customer_confirmation():
+    html = _asset(HTML_PATH)
+    javascript = _asset(JS_PATH)
+
+    assert 'id="evidence-method-local"' in html
+    assert 'value="EXIT_SPEC_STREAMING_PROBE"' in html
+    assert 'id="evidence-method-inferdrome"' in html
+    assert 'value="INFERDROME_EXTERNAL_BUNDLE"' in html
+    assert 'name="evidence_method"' in html
+    assert 'id="review-evidence-method"' in html
+    assert 'id="review-evidence-method-boundary"' in html
+    assert "Native vLLM first-event TTFT" in javascript
+    assert "independently recalculate" in javascript
+    assert "evidence_method: fields.evidence_method" in javascript
 
 
 def test_customer_review_visibly_repeats_all_target_fields_before_confirmation():

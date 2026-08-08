@@ -178,6 +178,16 @@ def build_parser() -> argparse.ArgumentParser:
             "FIREWORKS_API_KEY in the server environment."
         ),
     )
+    serve.add_argument(
+        "--inferdrome-runs-root",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Enable pathless import from sealed, customer-eligible bundles "
+            "beneath this explicit local Inferdrome runs root."
+        ),
+    )
     return parser
 
 
@@ -282,6 +292,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             fireworks_stt_api_key=(
                 fireworks_api_key if args.enable_fireworks_stt else None
             ),
+            inferdrome_runs_root=(
+                None
+                if args.inferdrome_runs_root is None
+                else args.inferdrome_runs_root.resolve()
+            ),
         )
         del fireworks_api_key
         print("ExitSpec local demo: http://{0}:{1}".format(args.host, server.server_port))
@@ -310,6 +325,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(
                 "Fireworks STT requested but not configured. Paste transcript "
                 "and fixed synthetic recording remain available."
+            )
+        if args.inferdrome_runs_root is not None:
+            print(
+                "Inferdrome import enabled for the explicit local runs root. "
+                "ExitSpec still verifies and recalculates every selected bundle."
             )
         print("Press Ctrl+C to stop.")
         try:

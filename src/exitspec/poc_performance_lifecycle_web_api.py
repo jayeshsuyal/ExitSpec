@@ -49,6 +49,7 @@ _PREPARE_FIELDS = {
     "rationale",
     "reviewer",
     "target_provider",
+    "evidence_method",
 }
 _FREEZE_FIELDS = {"idempotency_key"}
 _REISSUE_REVIEW_FIELDS = {"idempotency_key"}
@@ -110,7 +111,11 @@ def handle_performance_lifecycle_web_api_request(
         if method == "POST":
             body = _object(payload)
             if action is None:
-                _only(body, _PREPARE_FIELDS)
+                if (
+                    set(body) != _PREPARE_FIELDS
+                    or any(type(key) is not str for key in body)
+                ):
+                    raise PerformanceLifecycleWebAPIRequestError
                 result = lifecycle.prepare(
                     poc_id,
                     target=PerformanceTargetInput(
@@ -118,6 +123,7 @@ def handle_performance_lifecycle_web_api_request(
                         endpoint_class=body["endpoint_class"],
                         endpoint=body["endpoint"],
                         model=body["model"],
+                        evidence_method=body["evidence_method"],
                     ),
                     reviewer=body["reviewer"],
                     rationale=body["rationale"],
@@ -392,6 +398,7 @@ def _preparation_payload(preparation: object) -> dict[str, Any]:
         "endpoint_class": preparation.target.endpoint_class,
         "endpoint": preparation.target.endpoint,
         "model": preparation.target.model,
+        "evidence_method": preparation.target.evidence_method.value,
         "reviewer": preparation.reviewer,
         "rationale": preparation.rationale,
     }
@@ -506,6 +513,7 @@ def _frozen_payload(
         "endpoint_class": preparation.target.endpoint_class,
         "endpoint": preparation.target.endpoint,
         "model": preparation.target.model,
+        "evidence_method": preparation.target.evidence_method.value,
     }
 
 

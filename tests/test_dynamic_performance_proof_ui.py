@@ -25,7 +25,7 @@ class _Inventory(HTMLParser):
         identifier = values.get("id")
         if identifier:
             self.ids.append(identifier)
-            if tag in {"input", "button"}:
+            if tag in {"input", "button", "select"}:
                 self.controls.add(identifier)
         if tag == "label" and values.get("for"):
             self.labels.add(str(values["for"]))
@@ -49,6 +49,7 @@ def test_proof_page_is_one_compact_prove_decide_workbench():
         "performance-error",
     }.issubset(parser.ids)
     assert "execution-acknowledged" in parser.labels
+    assert "inferdrome-bundle" in parser.labels
     assert HTML.count('class="primary-action"') == 1
     assert "Run frozen proof" in HTML
     assert "Evidence Pack" in HTML
@@ -84,6 +85,21 @@ def test_run_requires_explicit_exact_request_authorization():
     assert "model:" not in JAVASCRIPT.split(
         "body: JSON.stringify({", 1
     )[1].split("}),", 1)[0]
+
+
+def test_inferdrome_import_reuses_one_primary_action_and_never_accepts_a_path():
+    assert 'id="inferdrome-selection"' in HTML
+    assert 'id="inferdrome-bundle"' in HTML
+    assert 'type="file"' not in HTML
+    assert "const IMPORT_KEYS" in JAVASCRIPT
+    assert "trustedImport(importPayload)" in JAVASCRIPT
+    assert "import_acknowledged: true" in JAVASCRIPT
+    assert "run_id: selectedBundle.run_id" in JAVASCRIPT
+    assert "bundle_digest: selectedBundle.bundle_digest" in JAVASCRIPT
+    assert "bundle_path" not in JAVASCRIPT
+    assert "INGESTION_REJECTED" in JAVASCRIPT
+    assert "No acceptance verdict was issued." in JAVASCRIPT
+    assert HTML.count('class="primary-action"') == 1
 
 
 def test_agreement_run_and_evidence_are_cross_bound_before_rendering():

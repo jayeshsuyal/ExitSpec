@@ -73,6 +73,7 @@ from .intake import (
     TranscriptRedactionSummary,
     redact_and_parse_pasted_transcript,
 )
+from .inferdrome_catalog import InferdromeBundleCatalog
 from .models import (
     ContractSeed,
     Criterion,
@@ -110,6 +111,15 @@ from .poc_contract_definition_web_api import (
     handle_poc_contract_definition_web_api_request,
     is_poc_contract_definition_web_api_target,
 )
+from .poc_inferdrome_import import (
+    POCInferdromeImportSnapshot,
+    POCInferdromeImportStatus,
+    ProcessLocalPOCInferdromeImportService,
+)
+from .poc_inferdrome_web_api import (
+    handle_poc_inferdrome_web_api_request,
+    is_poc_inferdrome_web_api_target,
+)
 from .poc_creation import (
     DraftPOCArchiveState,
     DraftPOCCapacityExceeded,
@@ -131,6 +141,7 @@ from .poc_performance_lifecycle_web_api import (
     handle_performance_lifecycle_web_api_request,
     is_performance_lifecycle_web_api_target,
 )
+from .poc_performance_contract import PerformanceEvidenceMethod
 from .poc_performance_run import (
     POCPerformanceRunSnapshot,
     POCPerformanceRunStatus,
@@ -2595,7 +2606,11 @@ def _unavailable_review_workspace_projection(
 def _agreement_aware_workspace_projection(
     projected: POCWorkspaceProjection,
     snapshot: PerformanceLifecycleSnapshot,
-    run_snapshot: POCPerformanceRunSnapshot | None = None,
+    run_snapshot: (
+        POCPerformanceRunSnapshot
+        | POCInferdromeImportSnapshot
+        | None
+    ) = None,
     *,
     current_proposal_count: int | None = None,
 ) -> POCWorkspaceProjection:
@@ -2679,6 +2694,10 @@ def _agreement_aware_workspace_projection(
         )
     if snapshot.frozen_contract is not None:
         frozen = snapshot.frozen_contract
+        external_evidence = (
+            preparation.target.evidence_method
+            is PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+        )
         payload.update(
             {
                 "active_contract_id": frozen.id,
@@ -2686,13 +2705,101 @@ def _agreement_aware_workspace_projection(
                 "derived_phase": WorkspacePhase.PROVE,
                 "next_action_code": WorkspaceAction.RUN_POC,
                 "next_human_action": (
-                    "Bind and run this POC against the frozen agreement."
+                    "Select sealed Inferdrome evidence and independently "
+                    "evaluate it against the frozen agreement."
+                    if external_evidence
+                    else "Bind and run this POC against the frozen agreement."
                 ),
                 "action_since": frozen.frozen_at,
                 "updated_at": max(projected.updated_at, frozen.frozen_at),
             }
         )
-    if run_snapshot is not None:
+    if type(run_snapshot) is POCInferdromeImportSnapshot:
+        import_status = run_snapshot.status
+        if import_status is POCInferdromeImportStatus.IMPORTING:
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.WAIT_FOR_PROOF,
+                    "next_human_action": (
+                        "Wait while ExitSpec verifies and recalculates the "
+                        "sealed evidence."
+                    ),
+                }
+            )
+        elif import_status in {
+            POCInferdromeImportStatus.INGESTION_REJECTED,
+            POCInferdromeImportStatus.FAILED_CLOSED,
+        }:
+            reason = (
+                run_snapshot.rejection_code
+                or "External evidence could not be safely evaluated."
+            )
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.PROVE,
+                    "next_action_code": WorkspaceAction.RERUN_POC,
+                    "next_human_action": (
+                        "Choose a compatible sealed bundle and retry. "
+                        "No acceptance verdict was issued."
+                    ),
+                    "latest_evidence_summary": {
+                        "status": WorkspaceEvidenceState.NOT_PROVEN,
+                        "reason": "Ingestion rejected: {0}.".format(reason),
+                        "report_url": None,
+                    },
+                    "attention_required": True,
+                    **(
+                        {}
+                        if run_snapshot.completed_at is None
+                        else {
+                            "action_since": run_snapshot.completed_at,
+                            "updated_at": max(
+                                projected.updated_at,
+                                run_snapshot.completed_at,
+                            ),
+                        }
+                    ),
+                }
+            )
+        elif import_status is POCInferdromeImportStatus.COMPLETED:
+            verdict = run_snapshot.verdict
+            if (
+                verdict is None
+                or run_snapshot.evidence_pack_url is None
+                or run_snapshot.completed_at is None
+            ):
+                raise ValueError(
+                    "Completed Inferdrome import lacks verified evidence."
+                )
+            payload.update(
+                {
+                    "derived_phase": WorkspacePhase.DECIDE,
+                    "next_action_code": (
+                        WorkspaceAction.RECORD_DECISION_HANDOFF
+                    ),
+                    "next_human_action": (
+                        "Record the human decision and complete the verified "
+                        "{0} Evidence Pack handoff. The verdict does not "
+                        "authorize shipping.".format(verdict.value)
+                    ),
+                    "latest_evidence_summary": {
+                        "status": WorkspaceEvidenceState(verdict.value),
+                        "reason": (
+                            "Imported evidence was independently verified and "
+                            "recalculated: {0}.".format(verdict.value)
+                        ),
+                        "report_url": run_snapshot.evidence_pack_url,
+                    },
+                    "attention_required": True,
+                    "action_since": run_snapshot.completed_at,
+                    "updated_at": max(
+                        projected.updated_at,
+                        run_snapshot.completed_at,
+                    ),
+                }
+            )
+    elif type(run_snapshot) is POCPerformanceRunSnapshot:
         run_status = run_snapshot.status
         if run_status is POCPerformanceRunStatus.RUNNING:
             payload.update(
@@ -2889,6 +2996,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         performance_runtime: Optional[PerformanceWebRuntime] = None,
         performance_fireworks_api_key: object = None,
         stt_fireworks_transport: object = None,
+        inferdrome_runs_root: Path | None = None,
     ) -> None:
         configuration = (
             Wave1ProviderExecutionConfiguration()
@@ -2939,6 +3047,16 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 lifecycle=self.performance_lifecycle_service,
                 output_root=session.output_root.resolve(),
                 fireworks_api_key=performance_fireworks_api_key,
+            )
+        )
+        self.inferdrome_catalog = InferdromeBundleCatalog(
+            inferdrome_runs_root
+        )
+        self.poc_inferdrome_import_service = (
+            ProcessLocalPOCInferdromeImportService(
+                lifecycle=self.performance_lifecycle_service,
+                catalog=self.inferdrome_catalog,
+                output_root=session.output_root.resolve(),
             )
         )
         if (
@@ -3021,12 +3139,24 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 agreement_snapshots_by_poc_id[draft.poc_id] = (
                     agreement_snapshot
                 )
-                performance_run_snapshots_by_poc_id[draft.poc_id] = (
-                    None
-                    if agreement_snapshot.frozen_contract is None
-                    else self.poc_performance_run_service.snapshot(
+                if agreement_snapshot.frozen_contract is None:
+                    proof_snapshot = None
+                elif (
+                    agreement_snapshot.preparation is not None
+                    and agreement_snapshot.preparation.target.evidence_method
+                    is PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+                ):
+                    proof_snapshot = (
+                        self.poc_inferdrome_import_service.snapshot(
+                            draft.poc_id
+                        )
+                    )
+                else:
+                    proof_snapshot = self.poc_performance_run_service.snapshot(
                         draft.poc_id
                     )
+                performance_run_snapshots_by_poc_id[draft.poc_id] = (
+                    proof_snapshot
                 )
             except Exception:
                 projected = project_draft_dashboard(
@@ -3167,24 +3297,54 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             )
 
         for draft in self.draft_poc_service.snapshots():
-            snapshots = self.poc_performance_run_service.completed_snapshots(
-                draft.poc_id
+            try:
+                agreement = self.performance_lifecycle_service.snapshot(
+                    draft.poc_id,
+                    allow_empty=False,
+                )
+            except PerformanceLifecycleError:
+                continue
+            external_evidence = (
+                agreement.preparation is not None
+                and agreement.preparation.target.evidence_method
+                is PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+            )
+            snapshots = (
+                self.poc_inferdrome_import_service.completed_snapshots(
+                    draft.poc_id
+                )
+                if external_evidence
+                else self.poc_performance_run_service.completed_snapshots(
+                    draft.poc_id
+                )
             )
             if not snapshots:
                 continue
             current = self._terminal_evidence_binding(draft.poc_id)
             closure = self.poc_closure_service.get(draft.poc_id)
             for snapshot in snapshots:
-                binding = self._performance_evidence_binding(snapshot)
+                binding = (
+                    self._inferdrome_evidence_binding(snapshot)
+                    if type(snapshot) is POCInferdromeImportSnapshot
+                    else self._performance_evidence_binding(snapshot)
+                )
                 if binding is None:
                     raise RuntimeError(
                         "A recorded performance Evidence Pack failed verification."
                     )
-                operation = snapshot.terminal_operation
-                if type(operation) is not PerformanceOperation:
-                    raise RuntimeError(
-                        "A completed performance run has no terminal operation."
-                    )
+                if type(snapshot) is POCInferdromeImportSnapshot:
+                    updated_at = snapshot.completed_at
+                    if updated_at is None:
+                        raise RuntimeError(
+                            "A completed evidence import has no completion time."
+                        )
+                else:
+                    operation = snapshot.terminal_operation
+                    if type(operation) is not PerformanceOperation:
+                        raise RuntimeError(
+                            "A completed performance run has no terminal operation."
+                        )
+                    updated_at = operation.updated_at
                 items.append(
                     EvidencePackLibraryItem(
                         poc_id=draft.poc_id,
@@ -3202,7 +3362,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                             current,
                             closure,
                         ),
-                        updated_at=operation.updated_at,
+                        updated_at=updated_at,
                     )
                 )
 
@@ -3382,6 +3542,40 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             evidence_pack_sha256=evidence_sha256,
         )
 
+    def _inferdrome_evidence_binding(
+        self,
+        snapshot: POCInferdromeImportSnapshot,
+    ) -> Optional[TerminalEvidenceBinding]:
+        """Resolve one independently verified imported Evidence Pack."""
+
+        if (
+            snapshot.operation_id is None
+            or snapshot.status is not POCInferdromeImportStatus.COMPLETED
+            or snapshot.verdict is None
+            or snapshot.evidence_pack_url is None
+        ):
+            return None
+        try:
+            evidence_sha256 = (
+                self.poc_inferdrome_import_service
+                .verified_evidence_pack_sha256(
+                    snapshot.poc_id,
+                    snapshot.operation_id,
+                )
+            )
+        except Exception:
+            return None
+        return TerminalEvidenceBinding(
+            poc_id=snapshot.poc_id,
+            contract_id=snapshot.contract_id,
+            contract_version=snapshot.contract_version,
+            contract_hash=snapshot.contract_hash,
+            run_id=snapshot.operation_id,
+            verdict=snapshot.verdict,
+            evidence_pack_url=snapshot.evidence_pack_url,
+            evidence_pack_sha256=evidence_sha256,
+        )
+
     def _terminal_evidence_binding(
         self,
         poc_id: str,
@@ -3401,6 +3595,18 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         if draft.archive_state is not DraftPOCArchiveState.ACTIVE:
             return None
         try:
+            agreement = self.performance_lifecycle_service.snapshot(
+                poc_id,
+                allow_empty=False,
+            )
+            external_evidence = (
+                agreement.preparation is not None
+                and agreement.preparation.target.evidence_method
+                is PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+            )
+            if external_evidence:
+                imported = self.poc_inferdrome_import_service.snapshot(poc_id)
+                return self._inferdrome_evidence_binding(imported)
             snapshot = self.poc_performance_run_service.snapshot(poc_id)
         except Exception:
             return None
@@ -4280,6 +4486,96 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
         return True
 
+    def _dispatch_inferdrome_import_read(self) -> bool:
+        if not is_poc_inferdrome_web_api_target(self.path):
+            return False
+        poc_id = _poc_inferdrome_api_poc_id(urlparse(self.path).path)
+        if poc_id is not None and not self._allow_active_performance_run_poc(
+            poc_id
+        ):
+            return True
+        response = handle_poc_inferdrome_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.poc_inferdrome_import_service,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_inferdrome_import_write(self) -> bool:
+        if not is_poc_inferdrome_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_poc_inferdrome_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.poc_inferdrome_import_service,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = _poc_inferdrome_api_poc_id(parsed.path)
+        if poc_id is not None and not self._allow_active_performance_run_poc(
+            poc_id
+        ):
+            return True
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Inferdrome import request is invalid."},
+            )
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Inferdrome import request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Inferdrome import request is invalid."},
+            )
+            return True
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_poc_inferdrome_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                runtime=self.server.poc_inferdrome_import_service,
+            ),
+        )
+        if not allowed:
+            return True
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
     def _allow_active_performance_run_poc(self, poc_id: str) -> bool:
         """Keep archived or unknown local drafts outside execution routes."""
 
@@ -4405,6 +4701,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if (
             code == HTTPStatus.NOT_IMPLEMENTED
             and hasattr(self, "path")
+            and is_poc_inferdrome_web_api_target(self.path)
+            and self._dispatch_inferdrome_import_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
             and urlparse(self.path).path
             in {EVIDENCE_LIBRARY_PAGE_PATH, EVIDENCE_LIBRARY_API_PATH}
         ):
@@ -4433,6 +4736,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_performance_agreement_read():
             return
         if self._dispatch_dynamic_performance_run_read():
+            return
+        if self._dispatch_inferdrome_import_read():
             return
         parsed = urlparse(self.path)
         if parsed.path == EVIDENCE_LIBRARY_PAGE_PATH:
@@ -4811,6 +5116,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_performance_agreement_write():
             return
         if self._dispatch_dynamic_performance_run_write():
+            return
+        if self._dispatch_inferdrome_import_write():
             return
         parsed = urlparse(self.path)
         if parsed.path in {
@@ -6097,6 +6404,26 @@ def _poc_performance_run_api_poc_id(
     return poc_id
 
 
+def _poc_inferdrome_api_poc_id(
+    request_path: str,
+) -> Optional[str]:
+    """Return the POC identity in one exact Inferdrome API route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) not in {5, 6}
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] != "inferdrome"
+        or parts[4] not in {"runs", "imports"}
+        or (parts[4] == "runs" and len(parts) != 5)
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
 def _dynamic_proof_page_poc_id(
     request_path: str,
 ) -> Optional[str]:
@@ -6128,6 +6455,7 @@ def serve_demo(
     enable_fireworks_stt: bool = False,
     fireworks_stt_api_key: object = None,
     fireworks_stt_connection_factory: object = None,
+    inferdrome_runs_root: Path | None = None,
 ) -> ExitSpecDemoServer:
     """Start the local-only server. The caller owns ``serve_forever`` lifecycle."""
 
@@ -6166,6 +6494,7 @@ def serve_demo(
                 fireworks_api_key if enable_fireworks else None
             ),
             stt_fireworks_transport=stt_transport,
+            inferdrome_runs_root=inferdrome_runs_root,
         )
     except Exception:
         resource_stack.close()

@@ -40,6 +40,16 @@
     model: "exitspec/reference-stream-v1",
     path: "/api/reference/inference/v1/chat/completions",
   });
+  const INFERDROME_TARGET = Object.freeze({
+    target_provider: "vllm-local",
+    endpoint_class: "openai-compatible-chat-completions",
+    endpoint: "http://127.0.0.1:18083/v1/chat/completions",
+    model: "inferdrome/mock-model",
+  });
+  const EVIDENCE_METHODS = Object.freeze([
+    "EXIT_SPEC_STREAMING_PROBE",
+    "INFERDROME_EXTERNAL_BUNDLE",
+  ]);
   const SOURCE_KINDS = Object.freeze([
     "EMAIL",
     "MEETING",
@@ -122,6 +132,7 @@
     "draft_sha256",
     "endpoint",
     "endpoint_class",
+    "evidence_method",
     "model",
     "parent_version",
     "rationale",
@@ -151,6 +162,7 @@
     "contract_version",
     "endpoint",
     "endpoint_class",
+    "evidence_method",
     "frozen_at",
     "model",
     "parent_version",
@@ -189,6 +201,15 @@
   const createDraftButton = document.querySelector("#create-customer-draft");
   const useReferenceTargetButton = document.querySelector(
     "#use-reference-target"
+  );
+  const useInferdromeTargetButton = document.querySelector(
+    "#use-inferdrome-target"
+  );
+  const evidenceMethodInputs = Array.from(
+    document.querySelectorAll('input[name="evidence_method"]')
+  );
+  const evidenceMethodNote = document.querySelector(
+    "#evidence-method-note"
   );
   const draftStatus = document.querySelector("#draft-status");
   const endpointDetails = document.querySelector(".endpoint-fields");
@@ -484,6 +505,7 @@
         isSingleLineText(draft.endpoint_class, 160) &&
         isExactTargetUrl(draft.endpoint) &&
         isSingleLineText(draft.model, 300) &&
+        EVIDENCE_METHODS.includes(draft.evidence_method) &&
         isSingleLineText(draft.reviewer, 160) &&
         isSafeBoundedText(draft.rationale, 2000)
     );
@@ -529,7 +551,8 @@
         isSingleLineText(contract.target_provider, 160) &&
         isSingleLineText(contract.endpoint_class, 160) &&
         isExactTargetUrl(contract.endpoint) &&
-        isSingleLineText(contract.model, 300)
+        isSingleLineText(contract.model, 300) &&
+        EVIDENCE_METHODS.includes(contract.evidence_method)
     );
   }
 
@@ -578,7 +601,8 @@
       left.target_provider === right.target_provider &&
         left.endpoint_class === right.endpoint_class &&
         left.endpoint === right.endpoint &&
-        left.model === right.model
+        left.model === right.model &&
+        left.evidence_method === right.evidence_method
     );
   }
 
@@ -690,6 +714,7 @@
         payload.draft.endpoint_class === attempt.payload.endpoint_class &&
         payload.draft.endpoint === attempt.payload.endpoint &&
         payload.draft.model === attempt.payload.model &&
+        payload.draft.evidence_method === attempt.payload.evidence_method &&
         payload.draft.reviewer === attempt.payload.reviewer &&
         payload.draft.rationale === attempt.payload.rationale &&
         (agreementState?.revision === null
@@ -839,6 +864,13 @@
     return `The ${action} response was interrupted or could not be trusted. Retry uses the same operation key.`;
   }
 
+  function selectedEvidenceMethod() {
+    const selected = evidenceMethodInputs.find((input) => input.checked);
+    return selected && EVIDENCE_METHODS.includes(selected.value)
+      ? selected.value
+      : null;
+  }
+
   function validatedDraftFields() {
     const targetProvider = targetProviderInput.value.trim();
     const endpointClass = endpointClassInput.value.trim();
@@ -846,11 +878,13 @@
     const model = modelInput.value.trim();
     const reviewer = draftReviewerInput.value.trim();
     const rationale = draftRationaleInput.value.trim();
+    const evidenceMethod = selectedEvidenceMethod();
     if (
       !isSingleLineText(targetProvider, 160) ||
       !isSingleLineText(endpointClass, 160) ||
       !isExactTargetUrl(endpoint) ||
       !isSingleLineText(model, 300) ||
+      evidenceMethod === null ||
       !isSingleLineText(reviewer, 160) ||
       !isSafeBoundedText(rationale, 2000)
     ) {
@@ -861,6 +895,7 @@
       endpoint_class: endpointClass,
       endpoint,
       model,
+      evidence_method: evidenceMethod,
       reviewer,
       rationale,
     };
@@ -882,7 +917,9 @@
     const editable =
       available && inFlight === null && pendingDraftAttempt === null;
     setControlsAvailability(draftControls, editable);
+    setControlsAvailability(evidenceMethodInputs, editable);
     useReferenceTargetButton.disabled = !editable;
+    useInferdromeTargetButton.disabled = !editable;
     createDraftButton.disabled = Boolean(
       !available ||
         inFlight !== null ||
@@ -899,6 +936,13 @@
           : fieldsValid
             ? "Verify the target and create the customer draft."
             : "Complete the exact target, reviewer, and rationale.";
+    const method = selectedEvidenceMethod();
+    evidenceMethodNote.textContent =
+      method === "EXIT_SPEC_STREAMING_PROBE"
+        ? "ExitSpec will execute the frozen streaming workload."
+        : method === "INFERDROME_EXTERNAL_BUNDLE"
+          ? "ExitSpec will import, validate, and independently recalculate one sealed Inferdrome bundle. Native vLLM TTFT must still match the frozen definition."
+          : "Select the evidence method first.";
   }
 
   function useReferenceTarget() {
@@ -915,6 +959,31 @@
     endpointInput.value =
       `${window.location.origin}${REFERENCE_TARGET.path}`;
     modelInput.value = REFERENCE_TARGET.model;
+    evidenceMethodInputs.forEach((input) => {
+      input.checked = input.value === "EXIT_SPEC_STREAMING_PROBE";
+    });
+    endpointDetails.open = true;
+    clearError();
+    updateDraftControls();
+    draftReviewerInput.focus();
+  }
+
+  function useInferdromeTarget() {
+    if (
+      !agreementState ||
+      agreementState.draft !== null ||
+      inFlight !== null ||
+      pendingDraftAttempt !== null
+    ) {
+      return;
+    }
+    targetProviderInput.value = INFERDROME_TARGET.target_provider;
+    endpointClassInput.value = INFERDROME_TARGET.endpoint_class;
+    endpointInput.value = INFERDROME_TARGET.endpoint;
+    modelInput.value = INFERDROME_TARGET.model;
+    evidenceMethodInputs.forEach((input) => {
+      input.checked = input.value === "INFERDROME_EXTERNAL_BUNDLE";
+    });
     endpointDetails.open = true;
     clearError();
     updateDraftControls();
@@ -1002,12 +1071,21 @@
 
   function renderCustomerAgreement() {
     const draft = agreementState.draft;
+    const external =
+      draft.evidence_method === "INFERDROME_EXTERNAL_BUNDLE";
+    document.querySelector("#review-evidence-method").textContent = external
+      ? "Sealed Inferdrome evidence bundle"
+      : "ExitSpec streaming probe";
     document.querySelector("#review-target-provider").textContent =
       draft.target_provider;
     document.querySelector("#review-model").textContent = draft.model;
     document.querySelector("#review-endpoint-class").textContent =
       draft.endpoint_class;
     document.querySelector("#review-endpoint").textContent = draft.endpoint;
+    document.querySelector("#review-evidence-method-boundary").textContent =
+      external
+        ? "ExitSpec will treat the bundle as untrusted input, independently recalculate supported measurements, and fail closed on semantic mismatch. Native vLLM first-event TTFT does not automatically satisfy the frozen first-nonempty-content rule."
+        : "ExitSpec will execute the exact frozen streaming workload and verify its own sealed artifacts before releasing a verdict.";
     const criteria = document.querySelector("#customer-criteria-list");
     criteria.replaceChildren();
     agreementState.definitions.forEach(appendCustomerCriterion);
@@ -1364,6 +1442,9 @@
   function blockAgreement(message) {
     workbench.setAttribute("aria-busy", "false");
     setControlsAvailability(draftControls, false);
+    setControlsAvailability(evidenceMethodInputs, false);
+    useReferenceTargetButton.disabled = true;
+    useInferdromeTargetButton.disabled = true;
     createDraftButton.disabled = true;
     customerReviewLink.removeAttribute("href");
     customerReviewLink.setAttribute("aria-disabled", "true");
@@ -1386,10 +1467,22 @@
       }
     });
   });
+  evidenceMethodInputs.forEach((control) => {
+    control.addEventListener("change", () => {
+      if (inFlight === null && pendingDraftAttempt === null) {
+        clearError();
+        updateDraftControls();
+      }
+    });
+  });
 
   useReferenceTargetButton.addEventListener(
     "click",
     useReferenceTarget
+  );
+  useInferdromeTargetButton.addEventListener(
+    "click",
+    useInferdromeTarget
   );
 
   refreshCustomerReviewButton.addEventListener("click", refreshCustomerReview);
@@ -1422,6 +1515,7 @@
           endpoint_class: fields.endpoint_class,
           endpoint: fields.endpoint,
           model: fields.model,
+          evidence_method: fields.evidence_method,
           reviewer: fields.reviewer,
           rationale: fields.rationale,
           idempotency_key: idempotencyKey,

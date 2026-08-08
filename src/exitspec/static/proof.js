@@ -3,11 +3,19 @@
 
   const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
   const OPERATION_ID_PATTERN = /^prun_[a-f0-9]{32}$/;
+  const IMPORT_OPERATION_ID_PATTERN = /^pimp_[a-f0-9]{32}$/;
+  const INFERDROME_RUN_ID_PATTERN = /^run-[a-f0-9]{32}$/;
+  const RECEIPT_ID_PATTERN = /^irc_[a-f0-9]{64}$/;
+  const TAGGED_SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
   const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+  const LOCAL_EVIDENCE_METHOD = "EXIT_SPEC_STREAMING_PROBE";
+  const EXTERNAL_EVIDENCE_METHOD = "INFERDROME_EXTERNAL_BUNDLE";
   const ROUTE_PATTERN =
     /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})$/;
-  const EVIDENCE_PACK_PATTERN =
+  const LOCAL_EVIDENCE_PACK_PATTERN =
     /^\/artifacts\/run_[a-f0-9]{32}\/decision-packet\.html$/;
+  const IMPORT_EVIDENCE_PACK_PATTERN =
+    /^\/artifacts\/pimp_[a-f0-9]{32}\/decision-packet\.html$/;
   const RUN_STATUSES = new Set([
     "NOT_STARTED",
     "RUNNING",
@@ -19,6 +27,18 @@
     "COMPLETED",
     "BLOCKED",
     "NOT_PROVEN",
+  ]);
+  const IMPORT_STATUSES = new Set([
+    "NOT_STARTED",
+    "IMPORTING",
+    "COMPLETED",
+    "INGESTION_REJECTED",
+    "FAILED_CLOSED",
+  ]);
+  const IMPORT_TERMINAL_STATUSES = new Set([
+    "COMPLETED",
+    "INGESTION_REJECTED",
+    "FAILED_CLOSED",
   ]);
   const VERDICTS = new Set(["PASS", "FAIL", "NOT_PROVEN"]);
   const METRICS = new Set(["TTFT_P95_MS", "ERROR_RATE_PERCENT"]);
@@ -67,6 +87,12 @@
   const agreementApi = pocApi ? `${pocApi}/agreement` : null;
   const runsApi = pocApi ? `${pocApi}/runs` : null;
   const latestRunApi = runsApi ? `${runsApi}/latest` : null;
+  const inferdromeApi = pocApi ? `${pocApi}/inferdrome` : null;
+  const inferdromeCatalogApi = inferdromeApi
+    ? `${inferdromeApi}/runs`
+    : null;
+  const importsApi = inferdromeApi ? `${inferdromeApi}/imports` : null;
+  const latestImportApi = importsApi ? `${importsApi}/latest` : null;
 
   const main = document.querySelector("#performance-main");
   const runButton = document.querySelector("#run-proof");
@@ -75,9 +101,19 @@
     ".run-acknowledgement"
   );
   const errorPanel = document.querySelector("#performance-error");
+  const inferdromeSelection = document.querySelector(
+    "#inferdrome-selection"
+  );
+  const inferdromeBundle = document.querySelector("#inferdrome-bundle");
+  const inferdromeCatalogStatus = document.querySelector(
+    "#inferdrome-catalog-status"
+  );
+  const importReceipt = document.querySelector("#import-receipt");
   let draft = null;
   let agreement = null;
   let run = null;
+  let catalog = null;
+  let selectedBundle = null;
   let actionPending = false;
   let pollCount = 0;
   let pollTimer = null;
@@ -100,6 +136,24 @@
       actual.length === expected.length &&
       actual.every((key, index) => key === expected[index])
     );
+  }
+
+  function isExternalEvidence() {
+    return (
+      agreement?.draft?.evidence_method === EXTERNAL_EVIDENCE_METHOD
+    );
+  }
+
+  function isTerminalStatus(status) {
+    return (
+      isExternalEvidence()
+        ? IMPORT_TERMINAL_STATUSES
+        : TERMINAL_STATUSES
+    ).has(status);
+  }
+
+  function isActiveStatus(status) {
+    return status === (isExternalEvidence() ? "IMPORTING" : "RUNNING");
   }
 
   function safeText(value, maximum) {
@@ -134,7 +188,8 @@
   function safeEvidenceUrl(value) {
     if (
       typeof value !== "string" ||
-      !EVIDENCE_PACK_PATTERN.test(value)
+      !LOCAL_EVIDENCE_PACK_PATTERN.test(value) &&
+      !IMPORT_EVIDENCE_PACK_PATTERN.test(value)
     ) {
       return null;
     }
@@ -225,7 +280,11 @@
       !trustedCountingPolicy(value.counting_policy) ||
       !value.draft ||
       !value.confirmation ||
-      !value.frozen_contract
+      !value.frozen_contract ||
+      ![LOCAL_EVIDENCE_METHOD, EXTERNAL_EVIDENCE_METHOD].includes(
+        value.draft.evidence_method
+      ) ||
+      value.frozen_contract.evidence_method !== value.draft.evidence_method
     ) {
       return false;
     }
@@ -421,8 +480,184 @@
     );
   }
 
+  const IMPORT_KEYS = Object.freeze([
+    "adapter",
+    "adapter_version",
+    "applicability_codes",
+    "attempted_count",
+    "bundle_digest",
+    "completed_at",
+    "concurrency",
+    "contract_hash",
+    "contract_id",
+    "contract_version",
+    "endpoint",
+    "endpoint_class",
+    "error_count",
+    "error_rate_percent",
+    "evidence_pack_url",
+    "is_terminal",
+    "measured_requests",
+    "model",
+    "operation_id",
+    "p95_ttft_ms",
+    "poc_id",
+    "producer_run_id",
+    "receipt_id",
+    "rejection_code",
+    "selected_run_id",
+    "status",
+    "successful_count",
+    "target_provider",
+    "verdict",
+    "warmup_requests",
+    "workload_id",
+  ]);
+
+  function trustedCatalog(value) {
+    return Boolean(
+      hasExactKeys(value, ["configured", "rejected_count", "runs"]) &&
+        typeof value.configured === "boolean" &&
+        Number.isInteger(value.rejected_count) &&
+        value.rejected_count >= 0 &&
+        value.rejected_count <= 1000 &&
+        Array.isArray(value.runs) &&
+        value.runs.length <= 1000 &&
+        value.runs.every(
+          (entry) =>
+            hasExactKeys(entry, ["bundle_digest", "run_id"]) &&
+            INFERDROME_RUN_ID_PATTERN.test(entry.run_id) &&
+            TAGGED_SHA256_PATTERN.test(entry.bundle_digest)
+        ) &&
+        (value.configured || value.runs.length === 0)
+    );
+  }
+
+  function trustedCompletedAt(value) {
+    return Boolean(
+      typeof value === "string" &&
+        value.length <= 64 &&
+        Number.isFinite(Date.parse(value))
+    );
+  }
+
+  function trustedImport(value) {
+    if (
+      !hasExactKeys(value, IMPORT_KEYS) ||
+      value.poc_id !== pocId ||
+      !SHA256_PATTERN.test(value.contract_hash) ||
+      !safeText(value.contract_id, 512) ||
+      !safeText(value.contract_version, 80) ||
+      !safeText(value.workload_id, 512) ||
+      !safeText(value.target_provider, 512) ||
+      !safeText(value.endpoint_class, 512) ||
+      !exactTargetUrl(value.endpoint) ||
+      !safeText(value.model, 512) ||
+      !safeText(value.adapter, 160) ||
+      !safeText(value.adapter_version, 80) ||
+      !Number.isInteger(value.measured_requests) ||
+      value.measured_requests < 1 ||
+      value.measured_requests > 1000 ||
+      !Number.isInteger(value.concurrency) ||
+      value.concurrency < 1 ||
+      value.concurrency > 32 ||
+      value.concurrency > value.measured_requests ||
+      !Number.isInteger(value.warmup_requests) ||
+      value.warmup_requests < 0 ||
+      value.warmup_requests > 100 ||
+      !IMPORT_STATUSES.has(value.status) ||
+      !nullableCount(value.attempted_count) ||
+      !nullableCount(value.successful_count) ||
+      !nullableCount(value.error_count) ||
+      !nullableDecimal(value.p95_ttft_ms) ||
+      !nullableDecimal(value.error_rate_percent) ||
+      !Array.isArray(value.applicability_codes) ||
+      value.applicability_codes.length > 32 ||
+      !value.applicability_codes.every((code) => safeText(code, 160))
+    ) {
+      return false;
+    }
+    const operationValid =
+      value.operation_id === null ||
+      IMPORT_OPERATION_ID_PATTERN.test(value.operation_id);
+    const evidenceUrl =
+      value.evidence_pack_url === null
+        ? null
+        : safeEvidenceUrl(value.evidence_pack_url);
+    if (!operationValid || (value.evidence_pack_url !== null && !evidenceUrl)) {
+      return false;
+    }
+    const noCalculatedResult =
+      value.verdict === null &&
+      value.attempted_count === null &&
+      value.successful_count === null &&
+      value.error_count === null &&
+      value.p95_ttft_ms === null &&
+      value.error_rate_percent === null &&
+      value.producer_run_id === null &&
+      value.receipt_id === null &&
+      value.applicability_codes.length === 0 &&
+      value.evidence_pack_url === null;
+    if (value.status === "NOT_STARTED") {
+      return Boolean(
+        value.operation_id === null &&
+          value.selected_run_id === null &&
+          value.rejection_code === null &&
+          value.bundle_digest === null &&
+          value.completed_at === null &&
+          noCalculatedResult &&
+          value.is_terminal === false
+      );
+    }
+    if (value.status === "IMPORTING") {
+      return Boolean(
+        IMPORT_OPERATION_ID_PATTERN.test(value.operation_id) &&
+          INFERDROME_RUN_ID_PATTERN.test(value.selected_run_id) &&
+          value.rejection_code === null &&
+          TAGGED_SHA256_PATTERN.test(value.bundle_digest) &&
+          value.completed_at === null &&
+          noCalculatedResult &&
+          value.is_terminal === false
+      );
+    }
+    if (["INGESTION_REJECTED", "FAILED_CLOSED"].includes(value.status)) {
+      return Boolean(
+        IMPORT_OPERATION_ID_PATTERN.test(value.operation_id) &&
+          INFERDROME_RUN_ID_PATTERN.test(value.selected_run_id) &&
+          safeText(value.rejection_code, 160) &&
+          TAGGED_SHA256_PATTERN.test(value.bundle_digest) &&
+          trustedCompletedAt(value.completed_at) &&
+          noCalculatedResult &&
+          value.is_terminal === true
+      );
+    }
+    return Boolean(
+      value.status === "COMPLETED" &&
+        IMPORT_OPERATION_ID_PATTERN.test(value.operation_id) &&
+        value.rejection_code === null &&
+        VERDICTS.has(value.verdict) &&
+        Number.isInteger(value.attempted_count) &&
+        Number.isInteger(value.successful_count) &&
+        Number.isInteger(value.error_count) &&
+        value.attempted_count === value.measured_requests &&
+        value.successful_count + value.error_count === value.attempted_count &&
+        value.selected_run_id === value.producer_run_id &&
+        INFERDROME_RUN_ID_PATTERN.test(value.producer_run_id) &&
+        TAGGED_SHA256_PATTERN.test(value.bundle_digest) &&
+        RECEIPT_ID_PATTERN.test(value.receipt_id) &&
+        value.evidence_pack_url !== null &&
+        trustedCompletedAt(value.completed_at) &&
+        value.is_terminal === true
+    );
+  }
+
   function crossBindingsValid() {
     const frozen = agreement.frozen_contract;
+    const method = agreement.draft.evidence_method;
+    const expectedAdapter =
+      method === EXTERNAL_EVIDENCE_METHOD
+        ? ["vllm_bench_serve", "1.0.0"]
+        : ["vllm_streaming_latency", "1.0.0"];
     const ttft = agreement.definitions.find(
       (definition) => definition.metric === "TTFT_P95_MS"
     );
@@ -432,6 +667,10 @@
     return Boolean(
       run.contract_hash === frozen.canonical_hash &&
         run.contract_id === frozen.contract_id &&
+        run.contract_version === frozen.contract_version &&
+        frozen.evidence_method === method &&
+        run.adapter === expectedAdapter[0] &&
+        run.adapter_version === expectedAdapter[1] &&
         run.target_provider === frozen.target_provider &&
         run.endpoint_class === frozen.endpoint_class &&
         run.endpoint === frozen.endpoint &&
@@ -456,6 +695,76 @@
       throw new TrustedRequestError(response.status);
     }
     return payload;
+  }
+
+  function selectedCatalogEntry(runId) {
+    return (
+      catalog?.runs.find((entry) => entry.run_id === runId) || null
+    );
+  }
+
+  function renderInferdromeSelection() {
+    const external = isExternalEvidence();
+    inferdromeSelection.hidden = !external || run.status === "COMPLETED";
+    if (!external) {
+      inferdromeBundle.disabled = true;
+      selectedBundle = null;
+      return;
+    }
+    inferdromeBundle.replaceChildren();
+    if (!catalog?.configured) {
+      const option = new Option("Inferdrome runs root is not configured", "");
+      inferdromeBundle.append(option);
+      inferdromeBundle.disabled = true;
+      selectedBundle = null;
+      inferdromeCatalogStatus.textContent =
+        "Configure --inferdrome-runs-root to list sealed, customer-eligible evidence.";
+      return;
+    }
+    if (catalog.runs.length === 0) {
+      const option = new Option("No eligible sealed bundles found", "");
+      inferdromeBundle.append(option);
+      inferdromeBundle.disabled = true;
+      selectedBundle = null;
+      inferdromeCatalogStatus.textContent =
+        catalog.rejected_count > 0
+          ? `${catalog.rejected_count} candidate bundle${catalog.rejected_count === 1 ? " was" : "s were"} rejected safely.`
+          : "No customer-eligible evidence is available in the configured runs root.";
+      return;
+    }
+    const preferredRunId =
+      run.selected_run_id || selectedBundle?.run_id || catalog.runs[0].run_id;
+    catalog.runs.forEach((entry) => {
+      const option = new Option(
+        `${entry.run_id} · ${entry.bundle_digest.slice(0, 19)}…`,
+        entry.run_id
+      );
+      option.selected = entry.run_id === preferredRunId;
+      inferdromeBundle.append(option);
+    });
+    selectedBundle =
+      selectedCatalogEntry(inferdromeBundle.value) || catalog.runs[0];
+    const locked = actionPending || isActiveStatus(run.status);
+    inferdromeBundle.disabled = locked;
+    inferdromeCatalogStatus.textContent =
+      `${catalog.runs.length} eligible sealed bundle${catalog.runs.length === 1 ? "" : "s"}. ` +
+      "ExitSpec re-verifies the digest before evaluation.";
+  }
+
+  function renderImportReceipt() {
+    importReceipt.hidden = !(
+      isExternalEvidence() && run.status === "COMPLETED"
+    );
+    if (importReceipt.hidden) {
+      return;
+    }
+    document.querySelector("#receipt-run").textContent = run.producer_run_id;
+    document.querySelector("#receipt-id").textContent = run.receipt_id;
+    document.querySelector("#receipt-digest").textContent = run.bundle_digest;
+    document.querySelector("#receipt-applicability").textContent =
+      run.applicability_codes.length === 0
+        ? "Compatible"
+        : run.applicability_codes.join(" · ");
   }
 
   function compactOwner(value) {
@@ -520,6 +829,11 @@
   }
 
   function reasonCopy() {
+    if (isExternalEvidence()) {
+      return run.status === "INGESTION_REJECTED"
+        ? `The sealed bundle was rejected during ingestion (${run.rejection_code}). No acceptance verdict was issued.`
+        : "The import failed closed before a trusted receipt or verdict could be released.";
+    }
     return (
       REASON_COPY[run.reason_code] ||
       "The run stopped without releasing a performance conclusion."
@@ -553,8 +867,10 @@
       status.textContent = run.verdict.replaceAll("_", " ");
       verdict.textContent = run.verdict.replaceAll("_", " ");
       reason.textContent =
-        "This verdict was released only after artifact verification and independent recomputation.";
-      breakdown.textContent = outcomeBreakdownText(run.outcome_counts);
+        isExternalEvidence()
+          ? "ExitSpec independently verified, recalculated, and applied the frozen criterion to this untrusted bundle."
+          : "This verdict was released only after artifact verification and independent recomputation.";
+      breakdown.textContent = outcomeBreakdownText();
       breakdown.hidden = false;
       link.href = packUrl;
       link.hidden = false;
@@ -579,19 +895,37 @@
       setJourney(false);
       return;
     }
+    if (["INGESTION_REJECTED", "FAILED_CLOSED"].includes(run.status)) {
+      panel.dataset.state = "NOT_PROVEN";
+      status.textContent = "NO VERDICT";
+      verdict.textContent = "NO VERDICT";
+      reason.textContent = reasonCopy();
+      setJourney(false);
+      return;
+    }
     panel.dataset.state = run.status;
     status.textContent =
-      run.status === "RUNNING" ? "PENDING" : "NOT RUN";
+      isActiveStatus(run.status) ? "PENDING" : "NOT RUN";
     verdict.textContent =
-      run.status === "RUNNING" ? "PENDING" : "NOT RUN";
+      isActiveStatus(run.status) ? "PENDING" : "NOT RUN";
     reason.textContent =
-      run.status === "RUNNING"
-        ? "Execution is active. RUNNING is not a verdict."
+      isActiveStatus(run.status)
+        ? isExternalEvidence()
+          ? "Verification is active. This in-progress state is not a verdict."
+          : "Execution is active. RUNNING is not a verdict."
         : "No performance conclusion exists before verified evidence.";
     setJourney(false);
   }
 
-  function outcomeBreakdownText(counts) {
+  function outcomeBreakdownText() {
+    if (isExternalEvidence()) {
+      return [
+        `${run.attempted_count} attempts`,
+        `${run.successful_count} successful`,
+        `${run.error_count} producer-reported failed`,
+      ].join(" · ");
+    }
+    const counts = run.outcome_counts;
     const parts = [
       `${run.attempted_count} attempts`,
       `${counts.success} successful`,
@@ -631,14 +965,22 @@
     acknowledgement.disabled = true;
     acknowledgementLabel.hidden = false;
 
-    if (actionPending || run.status === "RUNNING") {
-      heading.textContent = "Proof run in progress";
+    if (actionPending || isActiveStatus(run.status)) {
+      heading.textContent = isExternalEvidence()
+        ? "Evidence verification in progress"
+        : "Proof run in progress";
       kicker.textContent = "Current task · Prove";
       guidance.textContent =
-        "The server owns the target, workload, limits, credentials, and evidence path.";
+        isExternalEvidence()
+          ? "ExitSpec is re-verifying the sealed bundle and independently recalculating supported facts."
+          : "The server owns the target, workload, limits, credentials, and evidence path.";
       runReason.textContent =
-        "Preflight runs first. No progress percentage or ETA is inferred.";
-      runButton.textContent = "Run in progress…";
+        isExternalEvidence()
+          ? "Producer verdicts are ignored. No progress percentage or ETA is inferred."
+          : "Preflight runs first. No progress percentage or ETA is inferred.";
+      runButton.textContent = isExternalEvidence()
+        ? "Import in progress…"
+        : "Run in progress…";
       acknowledgementLabel.hidden = true;
       return;
     }
@@ -648,9 +990,37 @@
       guidance.textContent =
         `${run.verdict.replaceAll("_", " ")} is the evidence verdict, not automatic authorization to ship.`;
       runReason.textContent =
-        "Execution completed and the Evidence Pack passed independent verification.";
+        isExternalEvidence()
+          ? "Import completed and the ExitSpec Evidence Pack passed independent verification."
+          : "Execution completed and the Evidence Pack passed independent verification.";
       runButton.hidden = true;
       acknowledgementLabel.hidden = true;
+      return;
+    }
+    if (
+      isExternalEvidence() &&
+      ["INGESTION_REJECTED", "FAILED_CLOSED"].includes(run.status)
+    ) {
+      heading.textContent = "Choose another sealed bundle";
+      kicker.textContent = "Current task · Prove";
+      guidance.textContent = reasonCopy();
+      runReason.textContent = guidance.textContent;
+      runButton.textContent = "Retry evidence import";
+      acknowledgement.disabled = !selectedBundle;
+      runButton.disabled = !selectedBundle || !acknowledgement.checked;
+      return;
+    }
+    if (isExternalEvidence()) {
+      heading.textContent = "Import sealed evidence";
+      kicker.textContent = "Current task · Prove";
+      guidance.textContent = selectedBundle
+        ? "One sealed bundle will be verified, recalculated, and judged against the frozen agreement."
+        : "Select a server-discovered, customer-eligible Inferdrome bundle to continue.";
+      runReason.textContent =
+        "ExitSpec trusts neither the producer verdict nor a matching field name.";
+      runButton.textContent = "Import sealed evidence";
+      acknowledgement.disabled = !selectedBundle;
+      runButton.disabled = !selectedBundle || !acknowledgement.checked;
       return;
     }
     if (["BLOCKED", "NOT_PROVEN"].includes(run.status)) {
@@ -700,9 +1070,17 @@
       `${run.adapter} · v${run.adapter_version}`;
     document.querySelector("#contract-identity").textContent =
       `${run.contract_id} · v${run.contract_version}`;
+    document.querySelector("#readiness-status").textContent =
+      isExternalEvidence() ? "Verify first" : "Runs first";
+    renderInferdromeSelection();
     document.querySelector("#execution-acknowledgement-copy").textContent =
-      `I authorize this exact ${run.authorized_request_count}-request run ` +
-      `(${run.measured_requests} measured + ${run.warmup_requests} warmups + 1 preflight) against the frozen target.`;
+      isExternalEvidence()
+        ? selectedBundle
+          ? `I authorize ExitSpec to import and evaluate ${selectedBundle.run_id} (${selectedBundle.bundle_digest}) against this frozen agreement.`
+          : "Select one eligible sealed bundle before authorizing import."
+        : `I authorize this exact ${run.authorized_request_count}-request run ` +
+          `(${run.measured_requests} measured + ${run.warmup_requests} warmups + 1 preflight) against the frozen target.`;
+    renderImportReceipt();
     renderRequirements();
     renderEvidence();
     renderAction();
@@ -721,7 +1099,10 @@
   }
 
   function attemptStorageKey() {
-    return `exitspec.proof.attempt.v1.${pocId}.${run.contract_hash}`;
+    const selection = isExternalEvidence() && selectedBundle
+      ? `.${selectedBundle.run_id}.${selectedBundle.bundle_digest}`
+      : "";
+    return `exitspec.proof.attempt.v1.${pocId}.${run.contract_hash}${selection}`;
   }
 
   function readAttempt() {
@@ -754,12 +1135,12 @@
       window.crypto &&
       typeof window.crypto.randomUUID === "function"
     ) {
-      return `proof_${window.crypto.randomUUID()}`;
+      return `${isExternalEvidence() ? "import" : "proof"}_${window.crypto.randomUUID()}`;
     }
     const bytes = new Uint8Array(16);
     window.crypto.getRandomValues(bytes);
     return (
-      "proof_" +
+      `${isExternalEvidence() ? "import" : "proof"}_` +
       Array.from(bytes, (value) =>
         value.toString(16).padStart(2, "0")
       ).join("")
@@ -773,9 +1154,17 @@
     }
   }
 
+  function latestProofApi() {
+    return isExternalEvidence() ? latestImportApi : latestRunApi;
+  }
+
+  function trustedProofState(value) {
+    return isExternalEvidence() ? trustedImport(value) : trustedRun(value);
+  }
+
   function schedulePoll() {
     stopPolling();
-    if (TERMINAL_STATUSES.has(run.status)) {
+    if (isTerminalStatus(run.status)) {
       return;
     }
     if (pollCount >= MAX_POLLS) {
@@ -794,8 +1183,8 @@
   async function pollLatest() {
     pollCount += 1;
     try {
-      const payload = await requestJson(latestRunApi);
-      if (!trustedRun(payload)) {
+      const payload = await requestJson(latestProofApi());
+      if (!trustedProofState(payload)) {
         throw new TypeError("Malformed run projection.");
       }
       run = payload;
@@ -812,8 +1201,9 @@
     if (
       actionPending ||
       !acknowledgement.checked ||
-      run.status === "RUNNING" ||
-      run.status === "COMPLETED"
+      isActiveStatus(run.status) ||
+      run.status === "COMPLETED" ||
+      (isExternalEvidence() && !selectedBundle)
     ) {
       return;
     }
@@ -823,18 +1213,36 @@
     const idempotencyKey = readAttempt() || newIdempotencyKey();
     saveAttempt(idempotencyKey);
     try {
-      const payload = await requestJson(runsApi, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          execution_acknowledged: true,
-          idempotency_key: idempotencyKey,
-        }),
-      });
+      const external = isExternalEvidence();
+      const requestOptions = external
+        ? {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              run_id: selectedBundle.run_id,
+              bundle_digest: selectedBundle.bundle_digest,
+              import_acknowledged: true,
+              idempotency_key: idempotencyKey,
+            }),
+          }
+        : {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              execution_acknowledged: true,
+              idempotency_key: idempotencyKey,
+            }),
+          };
+      const payload = await requestJson(
+        external ? importsApi : runsApi,
+        requestOptions
+      );
       if (
         !hasExactKeys(payload, ["operation", "replayed"]) ||
         typeof payload.replayed !== "boolean" ||
-        !trustedRun(payload.operation)
+        !(external
+          ? trustedImport(payload.operation)
+          : trustedRun(payload.operation))
       ) {
         throw new TypeError("Malformed start projection.");
       }
@@ -845,7 +1253,9 @@
       schedulePoll();
     } catch {
       blockProof(
-        "The run start response was not trusted. Retry reuses the same operation key."
+        isExternalEvidence()
+          ? "The import response was not trusted. Retry reuses the same operation key."
+          : "The run start response was not trusted. Retry reuses the same operation key."
       );
     } finally {
       actionPending = false;
@@ -856,35 +1266,61 @@
   }
 
   async function loadProof() {
-    if (!pocId || !pocApi || !agreementApi || !runsApi || !latestRunApi) {
+    if (
+      !pocId ||
+      !pocApi ||
+      !agreementApi ||
+      !runsApi ||
+      !latestRunApi ||
+      !inferdromeCatalogApi ||
+      !importsApi ||
+      !latestImportApi
+    ) {
       blockProof("This proof route is invalid.");
       return;
     }
     try {
-      const [draftPayload, agreementPayload, runPayload] =
-        await Promise.all([
-          requestJson(pocApi),
-          requestJson(agreementApi),
-          requestJson(latestRunApi),
-        ]);
+      const [draftPayload, agreementPayload] = await Promise.all([
+        requestJson(pocApi),
+        requestJson(agreementApi),
+      ]);
       if (
         !trustedDraft(draftPayload) ||
-        !trustedAgreement(agreementPayload) ||
-        !trustedRun(runPayload)
+        !trustedAgreement(agreementPayload)
       ) {
         throw new TypeError("Malformed proof inputs.");
       }
       draft = draftPayload;
       agreement = agreementPayload;
-      run = runPayload;
+      if (isExternalEvidence()) {
+        const [catalogPayload, importPayload] = await Promise.all([
+          requestJson(inferdromeCatalogApi),
+          requestJson(latestImportApi),
+        ]);
+        if (
+          !trustedCatalog(catalogPayload) ||
+          !trustedImport(importPayload)
+        ) {
+          throw new TypeError("Malformed Inferdrome proof inputs.");
+        }
+        catalog = catalogPayload;
+        run = importPayload;
+      } else {
+        const runPayload = await requestJson(latestRunApi);
+        if (!trustedRun(runPayload)) {
+          throw new TypeError("Malformed run projection.");
+        }
+        catalog = null;
+        run = runPayload;
+      }
       if (!crossBindingsValid()) {
         throw new TypeError("Cross-POC proof binding failed.");
       }
-      if (TERMINAL_STATUSES.has(run.status)) {
+      if (isTerminalStatus(run.status)) {
         clearAttempt();
       }
       renderAll();
-      if (run.status === "RUNNING") {
+      if (isActiveStatus(run.status)) {
         schedulePoll();
       }
     } catch {
@@ -895,6 +1331,11 @@
   }
 
   acknowledgement.addEventListener("change", renderAction);
+  inferdromeBundle.addEventListener("change", () => {
+    selectedBundle = selectedCatalogEntry(inferdromeBundle.value);
+    acknowledgement.checked = false;
+    renderAll();
+  });
   runButton.addEventListener("click", () => {
     void startProof();
   });
