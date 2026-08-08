@@ -60,8 +60,109 @@
   display: none;
 }
 
+.inferdrome-selection {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  padding: 9px 10px;
+  background: var(--raised);
+}
+
+.inferdrome-selection[hidden],
+.import-receipt[hidden] {
+  display: none;
+}
+
+.inferdrome-selection label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.inferdrome-selection select {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  padding: 5px 28px 5px 8px;
+  background: var(--navigation);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.inferdrome-selection select:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.inferdrome-selection p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.import-receipt {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 9px 0 0;
+  border: 1px solid var(--border);
+}
+
+.import-receipt > div {
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.import-receipt > div:nth-child(odd) {
+  border-right: 1px solid var(--border);
+}
+
+.import-receipt > div:nth-child(n + 3) {
+  border-top: 1px solid var(--border);
+}
+
+.import-receipt dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.import-receipt dd {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-panel:has(.inferdrome-selection:not([hidden])) {
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
 @media (max-width: 520px) {
   .requirement-result {
     justify-items: start;
+  }
+
+  .inferdrome-selection,
+  .import-receipt {
+    grid-template-columns: 1fr;
+  }
+
+  .import-receipt > div:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .import-receipt > div + div {
+    border-top: 1px solid var(--border);
   }
 }

@@ -21,10 +21,7 @@ from .poc_contract_definition import (
     ProcessLocalContractDefinitionService,
 )
 from .poc_creation import POC_ID_PATTERN
-from .poc_performance_contract import (
-    PerformanceEvidenceMethod,
-    PerformanceTargetInput,
-)
+from .poc_performance_contract import PerformanceTargetInput
 from .poc_performance_lifecycle import (
     AgreementPreparation,
     AgreementRevision,
@@ -54,7 +51,6 @@ _PREPARE_FIELDS = {
     "target_provider",
     "evidence_method",
 }
-_LEGACY_PREPARE_FIELDS = _PREPARE_FIELDS - {"evidence_method"}
 _FREEZE_FIELDS = {"idempotency_key"}
 _REISSUE_REVIEW_FIELDS = {"idempotency_key"}
 _START_REVISION_FIELDS = {"idempotency_key"}
@@ -115,9 +111,8 @@ def handle_performance_lifecycle_web_api_request(
         if method == "POST":
             body = _object(payload)
             if action is None:
-                body_fields = set(body)
                 if (
-                    body_fields not in (_PREPARE_FIELDS, _LEGACY_PREPARE_FIELDS)
+                    set(body) != _PREPARE_FIELDS
                     or any(type(key) is not str for key in body)
                 ):
                     raise PerformanceLifecycleWebAPIRequestError
@@ -128,10 +123,7 @@ def handle_performance_lifecycle_web_api_request(
                         endpoint_class=body["endpoint_class"],
                         endpoint=body["endpoint"],
                         model=body["model"],
-                        evidence_method=body.get(
-                            "evidence_method",
-                            PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE,
-                        ),
+                        evidence_method=body["evidence_method"],
                     ),
                     reviewer=body["reviewer"],
                     rationale=body["rationale"],

@@ -178,6 +178,20 @@
                 </p>
               </div>
 
+              <div
+                class="inferdrome-selection"
+                id="inferdrome-selection"
+                hidden
+              >
+                <label for="inferdrome-bundle">Sealed evidence bundle</label>
+                <select id="inferdrome-bundle" disabled>
+                  <option value="">Loading eligible bundles…</option>
+                </select>
+                <p id="inferdrome-catalog-status" role="status">
+                  ExitSpec lists only server-discovered, customer-eligible bundles.
+                </p>
+              </div>
+
               <dl class="run-shape">
                 <div>
                   <dt>Measured</dt>
@@ -197,6 +211,25 @@
                 Operation
                 <code id="operation-reference">Not started</code>
               </p>
+
+              <dl class="import-receipt" id="import-receipt" hidden>
+                <div>
+                  <dt>Producer run</dt>
+                  <dd id="receipt-run">—</dd>
+                </div>
+                <div>
+                  <dt>Receipt</dt>
+                  <dd id="receipt-id">—</dd>
+                </div>
+                <div>
+                  <dt>Bundle digest</dt>
+                  <dd id="receipt-digest">—</dd>
+                </div>
+                <div>
+                  <dt>Applicability</dt>
+                  <dd id="receipt-applicability">—</dd>
+                </div>
+              </dl>
             </section>
 
             <section

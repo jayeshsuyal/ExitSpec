@@ -201,6 +201,7 @@ def _prepare_payload_for(endpoint: str) -> dict:
         "endpoint_class": "OpenAI-compatible chat completions",
         "endpoint": endpoint,
         "model": "Qwen/Qwen2.5-0.5B-Instruct",
+        "evidence_method": "EXIT_SPEC_STREAMING_PROBE",
         "reviewer": "Jayesh",
         "rationale": "Bind the reviewed requirements to this exact target.",
         "idempotency_key": "prepare-performance-agreement",
@@ -508,6 +509,12 @@ def test_agreement_page_and_api_complete_external_confirm_freeze_loop(tmp_path):
     )
     assert customer_view["review"]["confirmation_fingerprint"] == (
         expected_fingerprint
+    )
+    assert customer_view["review"]["evidence_method"] == (
+        "EXIT_SPEC_STREAMING_PROBE"
+    )
+    assert customer_view["review"]["contract"]["evidence_method"] == (
+        "EXIT_SPEC_STREAMING_PROBE"
     )
     assert lifecycle_snapshot.review_invitation.confirmation_fingerprint == (
         expected_fingerprint
@@ -1311,6 +1318,7 @@ def test_unseen_email_completes_reference_evaluator_evidence_and_handoff(
                 "endpoint_class": REFERENCE_ENDPOINT_CLASS,
                 "endpoint": reference_endpoint,
                 "model": REFERENCE_MODEL,
+                "evidence_method": "EXIT_SPEC_STREAMING_PROBE",
                 "reviewer": "field_engineer",
                 "rationale": (
                     "Use the deterministic local target to prove the "

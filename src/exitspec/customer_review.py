@@ -15,6 +15,13 @@ from .confirmations import (
     contract_confirmation_fingerprint,
 )
 from .models import POCContract
+from .poc_performance_contract import (
+    ADAPTER,
+    ADAPTER_VERSION,
+    INFERDROME_ADAPTER,
+    INFERDROME_ADAPTER_VERSION,
+    PerformanceEvidenceMethod,
+)
 from .review_links import CustomerReviewInvitation, ReviewInvitationError
 
 
@@ -63,6 +70,7 @@ def build_customer_review_payload(
     invitation: CustomerReviewInvitation,
     contract: POCContract,
     confirmation: ContractConfirmation | None,
+    evidence_method: PerformanceEvidenceMethod,
     poc_id: str,
     return_url: str,
     execution_endpoint: str,
@@ -70,6 +78,7 @@ def build_customer_review_payload(
     """Return the bounded customer-facing projection for a valid invitation."""
 
     agreement = canonical_confirmation_payload(contract)
+    _require_bound_evidence_method(agreement, evidence_method)
     fingerprint = contract_confirmation_fingerprint(contract)
     if (
         invitation.contract_id != agreement["id"]
@@ -127,6 +136,7 @@ def build_customer_review_payload(
             "confirmation_fingerprint": fingerprint,
             "customer": agreement["customer"],
             "use_case": agreement["use_case"],
+            "evidence_method": evidence_method.value,
             "poc": {
                 "title": agreement["use_case"],
                 "customer_name": agreement["customer"],
@@ -136,6 +146,7 @@ def build_customer_review_payload(
                 "id": agreement["id"],
                 "version": agreement["version"],
                 "confirmation_fingerprint": fingerprint,
+                "evidence_method": evidence_method.value,
                 "excluded": agreement["non_goals"],
                 "criteria": customer_criteria,
                 "target_system": display_target,
@@ -171,6 +182,36 @@ def build_customer_review_payload(
         },
         "confirmation": customer_confirmation_payload(confirmation),
     }
+
+
+def _require_bound_evidence_method(
+    agreement: dict[str, Any],
+    evidence_method: PerformanceEvidenceMethod,
+) -> None:
+    """Bind the visible method to the fingerprinted criterion adapter."""
+
+    if type(evidence_method) is not PerformanceEvidenceMethod:
+        raise ReviewInvitationError(
+            "Customer review evidence method is invalid."
+        )
+    expected_adapter = {
+        PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE: (
+            ADAPTER,
+            ADAPTER_VERSION,
+        ),
+        PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE: (
+            INFERDROME_ADAPTER,
+            INFERDROME_ADAPTER_VERSION,
+        ),
+    }[evidence_method]
+    criterion_adapters = {
+        (criterion.get("adapter"), criterion.get("adapter_version"))
+        for criterion in agreement.get("criteria", [])
+    }
+    if criterion_adapters != {expected_adapter}:
+        raise ReviewInvitationError(
+            "Customer review evidence method does not match the current contract."
+        )
 
 
 def _customer_criterion_payload(criterion: dict[str, Any]) -> dict[str, Any]:

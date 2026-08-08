@@ -39,6 +39,7 @@ from .performance_runner import PerformanceRunResult, run_performance_proof
 from .performance_serialization import serialize_contract
 from .performance_verdicts import PerformanceOutcomeCounts
 from .poc_performance_contract import (
+    PerformanceEvidenceMethod,
     PreparedPerformanceBundle,
 )
 from .poc_performance_lifecycle import (
@@ -400,9 +401,22 @@ class ProcessLocalPOCPerformanceRunService:
         if type(poc_id) is not str:
             raise POCPerformanceRunInvalid
         try:
-            return self._lifecycle.frozen_bundle(poc_id)
+            bundle, confirmation, frozen = self._lifecycle.frozen_bundle(
+                poc_id
+            )
+            preparation = self._lifecycle.snapshot(
+                poc_id,
+                allow_empty=False,
+            ).preparation
         except PerformanceLifecycleError as error:
             raise POCPerformanceRunConflict from error
+        if (
+            preparation is None
+            or preparation.target.evidence_method
+            is not PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE
+        ):
+            raise POCPerformanceRunConflict
+        return bundle, confirmation, frozen
 
     def _execute(
         self,

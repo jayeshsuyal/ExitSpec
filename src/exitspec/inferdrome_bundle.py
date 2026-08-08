@@ -171,6 +171,7 @@ class InferdromeBundleLimits:
     """Resource bounds applied before external artifact content is trusted."""
 
     max_files: int = 64
+    max_directories: int = 64
     max_file_bytes: int = 256 * 1024 * 1024
     max_total_bytes: int = 512 * 1024 * 1024
     max_jsonl_line_bytes: int = 4 * 1024 * 1024
@@ -180,6 +181,7 @@ class InferdromeBundleLimits:
     def __post_init__(self) -> None:
         values = (
             self.max_files,
+            self.max_directories,
             self.max_file_bytes,
             self.max_total_bytes,
             self.max_jsonl_line_bytes,
@@ -283,6 +285,7 @@ class _SafeBundleReader:
         self._directories: dict[str, _ScannedNode] = {}
         self._cache: dict[str, bytes] = {}
         self._total_bytes = 0
+        self._nodes_seen = 0
         directory_flags = (
             os.O_RDONLY
             | getattr(os, "O_CLOEXEC", 0)
@@ -344,7 +347,19 @@ class _SafeBundleReader:
             )
         try:
             with os.scandir(directory_fd) as iterator:
-                entries = sorted(iterator, key=lambda item: item.name)
+                entries = []
+                for entry in iterator:
+                    self._nodes_seen += 1
+                    if self._nodes_seen > (
+                        self.limits.max_files
+                        + self.limits.max_directories
+                    ):
+                        _reject(
+                            InferdromeBundleErrorCode.UNSAFE_BUNDLE,
+                            "Inferdrome bundle node count exceeds its limit.",
+                        )
+                    entries.append(entry)
+                entries.sort(key=lambda item: item.name)
         except OSError as error:
             _reject(
                 InferdromeBundleErrorCode.UNSAFE_BUNDLE,
@@ -373,6 +388,11 @@ class _SafeBundleReader:
                     child_relative,
                     child_identity,
                 )
+                if len(self._directories) > self.limits.max_directories:
+                    _reject(
+                        InferdromeBundleErrorCode.UNSAFE_BUNDLE,
+                        "Inferdrome bundle directory count exceeds its limit.",
+                    )
                 directory_flags = (
                     os.O_RDONLY
                     | getattr(os, "O_CLOEXEC", 0)

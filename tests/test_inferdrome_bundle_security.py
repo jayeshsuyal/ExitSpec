@@ -189,6 +189,15 @@ def test_undeclared_file_and_tight_limits_fail_closed(tmp_path):
         )
     assert caught.value.code is InferdromeBundleErrorCode.UNSAFE_BUNDLE
 
+    directory_limited = mutable_bundle_copy(tmp_path / "directory-limited")
+    with pytest.raises(InferdromeBundleRejected) as caught:
+        verify_inferdrome_bundle(
+            directory_limited,
+            require_customer_eligible=False,
+            limits=InferdromeBundleLimits(max_directories=1),
+        )
+    assert caught.value.code is InferdromeBundleErrorCode.UNSAFE_BUNDLE
+
     record_limited = mutable_bundle_copy(tmp_path / "record-limited")
     with pytest.raises(InferdromeBundleRejected) as caught:
         verify_inferdrome_bundle(

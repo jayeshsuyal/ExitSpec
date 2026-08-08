@@ -8,6 +8,7 @@ import pytest
 
 from exitspec.inferdrome_catalog import (
     InferdromeBundleCatalog,
+    InferdromeCatalogError,
     InferdromeCatalogNotFound,
 )
 
@@ -129,3 +130,15 @@ def test_duplicate_verified_run_ids_are_all_withheld(tmp_path: Path):
         "DUPLICATE_RUN_ID",
         "DUPLICATE_RUN_ID",
     ]
+
+
+def test_catalog_bounds_enumeration_before_sorting_untrusted_entries(
+    tmp_path: Path,
+):
+    runs_root = tmp_path / "oversized-runs"
+    runs_root.mkdir()
+    for index in range(1001):
+        (runs_root / f"entry-{index:04d}").mkdir()
+
+    with pytest.raises(InferdromeCatalogError, match="entry limit"):
+        InferdromeBundleCatalog(runs_root.resolve()).refresh()

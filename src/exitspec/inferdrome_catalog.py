@@ -207,15 +207,20 @@ class InferdromeBundleCatalog:
             return ((_Candidate(_safe_label(runs_root.name), runs_root),), ())
         try:
             with os.scandir(runs_root) as iterator:
-                entries = sorted(iterator, key=lambda item: item.name)
+                entries = []
+                for entry in iterator:
+                    if len(entries) >= MAX_DISCOVERED_ENTRIES:
+                        raise InferdromeCatalogError(
+                            "Inferdrome runs root exceeds the entry limit."
+                        )
+                    entries.append(entry)
+                entries.sort(key=lambda item: item.name)
+        except InferdromeCatalogError:
+            raise
         except OSError as error:
             raise InferdromeCatalogError(
                 "Inferdrome runs root could not be scanned."
             ) from error
-        if len(entries) > MAX_DISCOVERED_ENTRIES:
-            raise InferdromeCatalogError(
-                "Inferdrome runs root exceeds the entry limit."
-            )
         candidates: list[_Candidate] = []
         rejected: list[InferdromeCatalogRejection] = []
         for entry in entries:

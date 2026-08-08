@@ -155,6 +155,7 @@ def _prepare_body(**updates):
         "endpoint_class": "openai-compatible-chat-completions",
         "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
         "model": "Qwen/Qwen2.5-0.5B-Instruct",
+        "evidence_method": "EXIT_SPEC_STREAMING_PROBE",
         "reviewer": "Jayesh",
         "rationale": "This exact agreement is ready for customer review.",
         "idempotency_key": "prepare-agreement-api",
@@ -199,6 +200,12 @@ def test_prepare_customer_confirm_freeze_projects_only_exact_public_state():
     assert pending.payload["customer_review"]["status"] == "PENDING"
     assert review_url.startswith("/review/")
     assert customer_view["review"]["status"] == "PENDING"
+    assert customer_view["review"]["evidence_method"] == (
+        "EXIT_SPEC_STREAMING_PROBE"
+    )
+    assert customer_view["review"]["contract"]["evidence_method"] == (
+        "EXIT_SPEC_STREAMING_PROBE"
+    )
     assert customer_view["review"]["contract_id"] == (
         customer_view["review"]["agreement"]["id"]
     )
@@ -470,6 +477,11 @@ def test_expired_customer_review_can_be_reissued_idempotently():
     "body",
     (
         {},
+        {
+            key: value
+            for key, value in _prepare_body().items()
+            if key != "evidence_method"
+        },
         {**_prepare_body(), "verdict": "PASS"},
         {**_prepare_body(), "endpoint": "https://user:secret@example.com/v1"},
         {**_prepare_body(), "idempotency_key": True},

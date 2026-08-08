@@ -739,6 +739,7 @@ class ProcessLocalPerformanceLifecycleService:
                 invitation=invitation,
                 contract=preparation.approved_contract,
                 confirmation=self._confirmations.get(poc_id),
+                evidence_method=preparation.target.evidence_method,
                 poc_id=poc_id,
                 return_url="/app/pocs/{0}/agreement".format(poc_id),
                 execution_endpoint=preparation.target.endpoint,
