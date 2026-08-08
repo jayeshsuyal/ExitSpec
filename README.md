@@ -17,6 +17,11 @@ filesystem structure and exact-byte hashes, rejects synthetic customer
 evidence, recalculates every v1 summary from request records, cross-binds the
 result to a frozen customer-confirmed performance context, and issues an
 ingestion receipt. See [Inferdrome evidence import](docs/INFERDROME_IMPORT.md).
+When the local server is started with an explicit
+`--inferdrome-runs-root`, a frozen POC can select one verified sealed bundle in
+the existing Prove workbench, independently recalculate it, release a typed
+Evidence Pack, and complete the same human handoff. The browser never receives
+or submits a filesystem path.
 
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded

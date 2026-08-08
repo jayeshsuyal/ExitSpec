@@ -647,9 +647,11 @@ store, generic metric engine, or multi-tenant authorization. It also has no live
 email connector, mailbox OAuth, webhook, arbitrary upload, or real-customer
 email path. It has one bounded offline external-evidence importer for the exact
 Inferdrome v1 schemas and pinned-vLLM `0.26.0` golden fixture authorized by the
-[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md). It has no online
-external ingestion, authenticated producer identity, arbitrary producer or
-schema compatibility, or customer-sensitive native-bundle authorization.
+[External Evidence Protocol](EXTERNAL_EVIDENCE_PROTOCOL.md). The loopback app
+may orchestrate that offline importer over one explicit local runs root while
+publishing no filesystem path to the browser. It has no remote bundle upload,
+authenticated producer identity, arbitrary producer or schema compatibility,
+or customer-sensitive native-bundle authorization.
 
 If the product earns hosted use, the next boundaries are authenticated identity,
 append-only durable decisions, PostgreSQL metadata, object storage, isolated
