@@ -306,7 +306,7 @@ The product is accepted when:
   `contract_only` record, while current implementation status and every
   `WS-01` through `WS-12` proof live in the separate workspace implementation
   evidence record; and
-- `./scripts/v0_1_release_gate.sh` passes on the exact release revision with
+- `./scripts/v0_2_release_gate.sh` passes on the exact current release revision with
   mandatory clean-process Chromium coverage.
 
 ## Non-goals for the current product
