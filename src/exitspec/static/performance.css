@@ -662,6 +662,10 @@
     grid-template-columns: 1fr;
   }
 
+  .performance-grid:has(.closure-panel:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .state-boundary {
     border-top: 1px solid var(--border);
     border-left: 0;
@@ -742,6 +746,22 @@
 
   .evidence-panel {
     grid-template-columns: 1fr;
+  }
+
+  .evidence-panel .closure-form {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-panel .closure-form label:nth-of-type(3),
+  .evidence-panel .closure-submit,
+  .evidence-panel .closure-boundary,
+  .evidence-panel .closure-status {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .evidence-panel .closure-submit {
+    justify-self: stretch;
   }
 
   .evidence-action {

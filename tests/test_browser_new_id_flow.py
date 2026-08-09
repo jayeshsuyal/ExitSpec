@@ -15,6 +15,7 @@ from exitspec.poc_inferdrome_import import (
 from exitspec.poc_performance_run import (
     ProcessLocalPOCPerformanceRunService,
 )
+from exitspec.poc_source_intake import ProcessLocalPOCSourceIntake
 from exitspec.web import DemoSession, ExitSpecDemoServer
 from tests.poc_inferdrome_helpers import (
     NOW,
@@ -65,6 +66,18 @@ def _running_external_evidence_server(tmp_path: Path):
     server.draft_poc_service = drafts
     server.proposal_review_service = proposals
     server.contract_definition_service = definitions
+    server.poc_source_intake = ProcessLocalPOCSourceIntake(
+        draft_lookup=drafts.get,
+        clock=lambda: NOW,
+    )
+    server.poc_source_intake.capture_meeting(
+        poc_id=POC_ID,
+        transcript_text=(
+            "Customer: P95 TTFT must stay below 500 ms.\n"
+            "Customer: Error rate must remain below 50 percent."
+        ),
+        idempotency_key="browser-inferdrome-source",
+    )
     server.performance_lifecycle_service = lifecycle
     server.poc_performance_run_service = ProcessLocalPOCPerformanceRunService(
         lifecycle=lifecycle,
@@ -522,7 +535,20 @@ def test_external_evidence_flow_recalculates_pack_and_completes_handoff(
             evidence_page.set_default_timeout(10_000)
 
             try:
-                page.goto(f"{base_url}/app/pocs/{POC_ID}")
+                page.goto(f"{base_url}/app")
+                expect(page.locator("#poc-list")).to_have_attribute(
+                    "aria-busy", "false"
+                )
+                external_action = page.get_by_role(
+                    "link",
+                    name="Select sealed evidence for Imported inference proof",
+                )
+                expect(external_action).to_be_visible()
+                expect(page.locator("#continue-card")).to_contain_text(
+                    "Select sealed Inferdrome evidence"
+                )
+                external_action.click()
+                expect(page).to_have_url(f"{base_url}/app/pocs/{POC_ID}")
                 expect(page.locator("#performance-main")).to_have_attribute(
                     "aria-busy", "false"
                 )
@@ -600,6 +626,16 @@ def test_external_evidence_flow_recalculates_pack_and_completes_handoff(
                 )
 
                 expect(page.locator("#closure-panel")).to_be_visible()
+                page.set_viewport_size({"width": 390, "height": 844})
+                mobile_metrics = _layout_metrics(page)
+                assert mobile_metrics["innerWidth"] == 390
+                assert (
+                    mobile_metrics["scrollWidth"]
+                    <= mobile_metrics["clientWidth"]
+                )
+                expect(page.locator("#record-closure")).to_be_visible()
+                page.set_viewport_size({"width": 1280, "height": 720})
+                _assert_bounded_employee_shell(page)
                 page.locator("#closure-decision").select_option(
                     "HANDOFF_COMPLETED"
                 )

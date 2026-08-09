@@ -2703,7 +2703,11 @@ def _agreement_aware_workspace_projection(
                 "active_contract_id": frozen.id,
                 "active_contract_version": str(frozen.version),
                 "derived_phase": WorkspacePhase.PROVE,
-                "next_action_code": WorkspaceAction.RUN_POC,
+                "next_action_code": (
+                    WorkspaceAction.SELECT_EXTERNAL_EVIDENCE
+                    if external_evidence
+                    else WorkspaceAction.RUN_POC
+                ),
                 "next_human_action": (
                     "Select sealed Inferdrome evidence and independently "
                     "evaluate it against the frozen agreement."
