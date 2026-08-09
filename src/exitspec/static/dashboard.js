@@ -16,6 +16,7 @@
   ]);
   const PROVE_ACTIONS = new Set([
     "RUN_POC",
+    "SELECT_EXTERNAL_EVIDENCE",
     "WAIT_FOR_PROOF",
     "RERUN_POC",
   ]);
@@ -182,6 +183,12 @@
       RUN_POC: {
         title: "Run the frozen proof.",
         button: "Run frozen proof",
+      },
+      SELECT_EXTERNAL_EVIDENCE: {
+        title:
+          poc.next_human_action ||
+          "Select sealed evidence for independent evaluation.",
+        button: "Select sealed evidence",
       },
       WAIT_FOR_PROOF: {
         title: "The proof run is in progress.",

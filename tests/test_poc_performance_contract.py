@@ -12,6 +12,7 @@ from exitspec.confirmations import (
     record_confirmation,
 )
 from exitspec.contracts import freeze_confirmed_contract
+from exitspec.customer_review import build_customer_review_payload
 from exitspec.models import ContractStatus
 from exitspec.performance_evidence import (
     require_frozen_confirmed,
@@ -29,7 +30,9 @@ from exitspec.poc_creation import (
 )
 from exitspec.poc_performance_contract import (
     ADAPTER,
+    INFERDROME_ADAPTER,
     PerformanceContractAssemblyError,
+    PerformanceEvidenceMethod,
     PerformanceTargetInput,
     prepare_performance_bundle,
 )
@@ -241,6 +244,33 @@ def test_exact_ttft_operator_survives_runner_valid_assembly(operator):
     assert all("PASS" not in item for item in bundle.planning_limitations)
 
 
+def test_inferdrome_method_freezes_external_adapter_without_metric_equivalence():
+    draft, proposals, definitions = _inputs()
+    bundle = prepare_performance_bundle(
+        draft=draft,
+        proposals=proposals,
+        definitions=definitions,
+        target=_target(
+            evidence_method=(
+                PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+            )
+        ),
+        prompt_bytes=PROMPTS,
+        prepared_at=NOW,
+    )
+
+    criterion = bundle.approved_contract.criteria[0]
+    assert bundle.workload.adapter == INFERDROME_ADAPTER
+    assert criterion.adapter == INFERDROME_ADAPTER
+    assert bundle.workload.first_token_definition == (
+        "first_nonempty_choices_delta_content_v1"
+    )
+    assert any(
+        "first-choices-event TTFT is not equivalent" in limitation
+        for limitation in bundle.approved_contract.non_goals
+    )
+
+
 def test_bundle_is_deterministic_and_binds_exact_bytes():
     first = _bundle()
     second = _bundle()
@@ -391,6 +421,9 @@ def test_prepare_issues_opaque_review_bound_to_exact_contract_fingerprint():
     assert customer_view["review"]["agreement"] == (
         canonical_confirmation_payload(contract)
     )
+    assert customer_view["review"]["evidence_method"] == (
+        "EXIT_SPEC_STREAMING_PROBE"
+    )
     criterion = customer_view["review"]["criteria"][0]
     assert criterion["metric"] == "P95 time to first token and error rate"
     assert criterion["threshold"] == (
@@ -401,6 +434,19 @@ def test_prepare_issues_opaque_review_bound_to_exact_contract_fingerprint():
     )
     assert customer_view["safety"]["not_evidence"] is True
     assert customer_view["safety"]["not_production_authorization"] is True
+
+    with pytest.raises(ReviewInvitationError, match="does not match"):
+        build_customer_review_payload(
+            invitation=invitation,
+            contract=contract,
+            confirmation=None,
+            evidence_method=(
+                PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+            ),
+            poc_id=POC_ID,
+            return_url=f"/app/pocs/{POC_ID}/agreement",
+            execution_endpoint=_target().endpoint,
+        )
 
 
 def test_invalid_and_foreign_review_capabilities_fail_closed():

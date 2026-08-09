@@ -41,6 +41,7 @@
     next: $("#next-criterion"),
     progress: $("#criterion-progress"),
     progressBar: $("#criterion-progress span"),
+    evidenceMethod: $("#evidence-method"),
     targetModel: $("#target-model"),
     targetRuntime: $("#target-runtime"),
     workloadFixture: $("#workload-fixture"),
@@ -216,6 +217,13 @@
     ) || null;
   }
 
+  function evidenceMethodLabel(value) {
+    return {
+      EXIT_SPEC_STREAMING_PROBE: "Run from ExitSpec · first non-empty content",
+      INFERDROME_EXTERNAL_BUNDLE: "Import sealed Inferdrome evidence · native vLLM semantics",
+    }[value] || "";
+  }
+
   function hasExactKeys(value, keys) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return false;
@@ -304,6 +312,7 @@
       value?.poc?.customer_name,
       value?.contract?.id,
       value?.contract?.version,
+      value?.evidence_method,
       value?.identity?.display_name,
       value?.identity?.notice,
       value?.expires_at,
@@ -378,6 +387,8 @@
       !contractExclusionsAreValid ||
       !canonicalAgreementIsComplete ||
       !targetSystem ||
+      !evidenceMethodLabel(value.evidence_method) ||
+      value.contract.evidence_method !== value.evidence_method ||
       (value.poc_id !== undefined && !POC_ID_PATTERN.test(value.poc_id)) ||
       typeof value.acknowledgement_required !== "boolean"
     ) {
@@ -473,6 +484,9 @@
     elements.customerName.textContent = agreement.customer;
     elements.contractId.textContent = agreement.id;
     elements.contractVersion.textContent = agreement.version;
+    elements.evidenceMethod.textContent = evidenceMethodLabel(
+      record.evidence_method
+    );
     elements.targetModel.textContent = targetSystem.model;
     elements.targetRuntime.textContent =
       [
@@ -494,8 +508,8 @@
     elements.ackLabel.textContent =
       `I reviewed all ${record.contract.criteria.length} ` +
       `${record.contract.criteria.length === 1 ? "requirement" : "requirements"} ` +
-      "plus the target system, workload, owners, exclusions, and evidence " +
-      "retention policy—including how results are counted—and confirm this " +
+      "plus the target system, workload, evidence method, owners, exclusions, " +
+      "and retention policy—including how results are counted—and confirm this " +
       "exact draft matches the intended POC.";
     renderCriterion();
     showOnly(elements.review);
@@ -971,6 +985,7 @@
   const MOCK_REVIEW = {
     review_id: "local-synthetic-review",
     status: "PENDING",
+    evidence_method: "EXIT_SPEC_STREAMING_PROBE",
     poc: {
       title: "Support-agent tool selection POC",
       customer_name: "Northstar Support (synthetic)",
@@ -978,6 +993,7 @@
     contract: {
       id: "support-agent-poc",
       version: "3",
+      evidence_method: "EXIT_SPEC_STREAMING_PROBE",
       excluded: [
         "Production rollout or traffic expansion",
         "Security, legal, and procurement approval",

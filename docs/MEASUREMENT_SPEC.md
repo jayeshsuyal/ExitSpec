@@ -141,8 +141,10 @@ records. Its compatibility tests are grounded in the pinned-vLLM `0.26.0`
 golden fixture. Native `vllm_first_choices_event_v0_26` TTFT remains distinct
 from ExitSpec's `first_nonempty_choices_delta_content_v1`, so the current TTFT
 criterion is `NOT_PROVEN` rather than silently translated. New schema versions,
-producer versions, online ingestion, and sensitive bundles remain blocked on a
-new reviewed fixture and compatibility decision.
+producer versions, remote ingestion, and sensitive bundles remain blocked on a
+new reviewed fixture and compatibility decision. The local `/app` may only
+orchestrate this same offline importer over one operator-configured runs root;
+the browser never supplies a path or bundle bytes.
 
 ## Cost criteria (planned)
 

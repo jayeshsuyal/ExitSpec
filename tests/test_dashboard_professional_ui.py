@@ -191,6 +191,8 @@ def test_dashboard_exposes_one_three_step_human_journey():
     assert "`Step ${step.number} · ${step.label}`" in javascript
     assert '"Run the frozen proof."' in javascript
     assert '"Run frozen proof"' in javascript
+    assert '"SELECT_EXTERNAL_EVIDENCE"' in javascript
+    assert '"Select sealed evidence"' in javascript
     assert '"Review the verified decision."' in javascript
     assert '"Review evidence"' in javascript
 

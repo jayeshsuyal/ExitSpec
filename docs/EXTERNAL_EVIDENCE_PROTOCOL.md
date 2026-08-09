@@ -3,6 +3,7 @@
 - Status: Accepted architecture; bounded v1 importer authorized
 - Date: 2026-08-05
 - Implementation amendment: 2026-08-06
+- Local orchestration amendment: 2026-08-07
 - Decision owners: ExitSpec maintainers
 - Scope: Future evidence produced outside ExitSpec, beginning with Inferdrome
 
@@ -44,6 +45,25 @@ reader in `inferdrome_bundle.py` and `inferdrome_import.py`, together with the
 eight exact vendored schema digests it verifies. The importer executes no
 producer code, performs no network request, admits no synthetic fixture as
 customer evidence, and must independently recalculate supported measurements.
+
+The 2026-08-07 amendment authorizes a narrow local product orchestration around
+that same reader. A server operator may configure one absolute Inferdrome runs
+root when starting the loopback ExitSpec app. The browser can list only
+server-discovered `run_id` and bundle-digest pairs, explicitly acknowledge one
+selection, and ask ExitSpec to evaluate it against a customer-confirmed frozen
+contract whose evidence method is `INFERDROME_EXTERNAL_BUNDLE`. The browser
+cannot submit a filesystem path, upload bundle bytes, choose a schema or
+verifier, alter the contract, or supply an acceptance verdict.
+
+This orchestration remains offline with respect to evidence acquisition:
+ExitSpec reads an already completed local sealed bundle, verifies the selected
+digest again, independently recalculates supported facts, writes a separate
+immutable ExitSpec Evidence Pack, and leaves the producer bundle unchanged.
+An ingestion rejection releases no receipt or acceptance verdict. A valid
+import may release `PASS`, `FAIL`, or `NOT_PROVEN` and may then enter the
+existing human handoff flow. This amendment does not authorize remote producer
+connections, browser uploads, arbitrary local paths, or customer-sensitive
+native artifacts.
 
 Any new producer or producer version, schema version, adapter, artifact role,
 metric definition, population, reducer, provenance requirement, or privacy
@@ -153,10 +173,9 @@ evaluation because it was invalid, corrupt, unsafe, unsupported, or
 semantically incompatible. Bundle rejection is not evidence that the customer
 criterion passed or failed, and it is not `NOT_PROVEN`.
 
-`INGESTION_REJECTED` is architectural vocabulary in this document. This change
-does not add it to an existing enum, API, persisted object, Evidence Pack, or
-run-state machine. A future importer specification must define its concrete
-representation without overloading `VerdictStatus`.
+`INGESTION_REJECTED` is now a process-local orchestration disposition, separate
+from `VerdictStatus`. It is exposed only for a rejected import operation and
+never appears as an acceptance verdict or Evidence Pack conclusion.
 
 ### Acceptance verdict
 
@@ -313,9 +332,11 @@ above records the sole currently authorized satisfaction of this gate.
 
 ## Non-goals of this decision
 
-This decision and its v1 amendment do not:
+This decision and its amendments do not:
 
-- authorize an online importer, producer execution, or network ingestion path;
+- authorize remote bundle upload, producer execution, or network evidence
+  acquisition; the pathless loopback orchestration over one operator-configured
+  local runs root is the sole authorized product entry point;
 - authorize an unpinned producer, schema, adapter, or field mapping;
 - modify the current `vllm_streaming_latency` adapter;
 - rename any frozen identifier or artifact;

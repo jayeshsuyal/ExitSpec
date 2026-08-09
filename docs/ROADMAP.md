@@ -297,8 +297,10 @@ pinned-vLLM `0.26.0` capability fixture supplied the exact producer version,
 untouched native detailed output, field-availability analysis, verified TTFT
 semantics, request ordering and ID behavior, privacy classification, and first
 golden fixture. It is offline, schema-pinned, synthetic-fixture tested, and
-independently recalculates supported measurements. New producer versions,
-schemas, adapters, online ingestion, and sensitive bundles remain deferred
+independently recalculates supported measurements. A pathless loopback `/app`
+flow may select a verified bundle from one operator-configured local runs root;
+it does not upload evidence or execute the producer. New producer versions,
+schemas, adapters, remote ingestion, and sensitive bundles remain deferred
 behind the same fixture-first gate.
 
 Add, in order:
