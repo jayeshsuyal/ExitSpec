@@ -9,7 +9,7 @@ authorization.
 ## Before the take
 
 1. Verify the exact recording revision once with
-   `./scripts/v0_1_release_gate.sh`.
+   `./scripts/v0_2_release_gate.sh`.
 2. Start the local server and set the browser to 1280×720 at 100% zoom.
 3. Open `http://127.0.0.1:8765/app`.
 4. Choose **Guided demo**. This resets only the seeded support-agent POC and
@@ -63,6 +63,42 @@ The local reference target performs one preflight, ten warmups, and 100
 measured streamed requests through the real performance probe. It proves the
 ExitSpec product loop, not vLLM, GPU, provider, or production performance.
 
+## Optional sealed Inferdrome evidence handoff
+
+This optional extension demonstrates that ExitSpec can judge evidence produced
+outside its own measurement runtime without trusting the producer's verdict.
+Use only an already-produced, synthetic, non-sensitive,
+`CUSTOMER_ELIGIBLE` bundle. Do not manufacture or edit a bundle for the take.
+
+Start ExitSpec with one immutable operator-selected runs root:
+
+```bash
+exitspec serve \
+  --inferdrome-runs-root /absolute/path/to/inferdrome/runs \
+  --open-browser
+```
+
+1. Create a performance POC from a synthetic email or meeting transcript and
+   keep the supported TTFT and error-rate requirements.
+2. Define the exact thresholds, minimum samples, concurrency, and workload.
+3. On the agreement screen choose **Import from Inferdrome**, then
+   **Use Inferdrome demo target**. Create the customer draft, confirm that exact
+   evidence method and target, and freeze the confirmed contract.
+4. From `/app`, show that the next action is **Select sealed evidence**, not
+   **Run frozen proof**.
+5. Select the server-discovered bundle and acknowledge the exact run ID and
+   digest. Choose **Import sealed evidence**.
+6. Show the immutable import receipt, independently recalculated observations,
+   typed verdict, and Evidence Pack. A valid but insufficient bundle remains
+   `NOT_PROVEN`; an invalid bundle is `INGESTION_REJECTED`, which is not a
+   verdict.
+7. Record the human handoff. State that neither the producer verdict nor the
+   ExitSpec verdict authorizes shipping.
+
+The browser receives no filesystem path and cannot replace the evidence method,
+contract, verifier, customer confirmation, or verdict. ExitSpec does not run
+Inferdrome or vLLM in this flow.
+
 ## Non-negotiable claims
 
 - Say **deterministic reference measurement**, not live production benchmark.
@@ -72,3 +108,5 @@ ExitSpec product loop, not vLLM, GPU, provider, or production performance.
 - Say **PASS for this frozen criterion**, not permission to deploy.
 - If the optional provider action is unavailable, continue the demo; Fireworks
   is not on the critical path.
+- If no eligible Inferdrome bundle appears, skip the optional external-evidence
+  extension. Do not bypass catalog eligibility or select an arbitrary path.

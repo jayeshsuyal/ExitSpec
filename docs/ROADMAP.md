@@ -146,7 +146,8 @@ The local synthetic/demo track was built in this order:
    across the dashboard, employee workbench, and existing customer review; and
 10. **Complete:** publish adversarial implementation evidence for every frozen
     workspace gate and compose the full engineering and Chromium checks behind
-    `./scripts/v0_1_release_gate.sh`.
+    the historical `./scripts/v0_1_release_gate.sh` and current
+    `./scripts/v0_2_release_gate.sh` wrappers.
 
 This local train does not authorize real email, live meetings, raw audio,
 customer-bound delivery, authenticated identity, or durable production storage.
@@ -159,10 +160,11 @@ agreement status from evidence verdict while every compatibility, authority,
 versioning, 1280×720, narrow-width, and graphite/orange rule in the frozen
 contract passes.
 
-The local v0.1 release candidate is now governed by
-[RELEASE_V0_1.md](RELEASE_V0_1.md). Persistence, hosted identity, real-customer
-connectors, and real inference benchmarking remain later gates rather than
-release-blocking scope creep.
+The immutable local v0.1 baseline remains governed by
+[RELEASE_V0_1.md](RELEASE_V0_1.md). The expanded local product checkpoint is
+governed by [RELEASE_V0_2.md](RELEASE_V0_2.md). Persistence, hosted identity,
+real-customer connectors, and real inference benchmarking remain later gates
+rather than release-blocking scope creep.
 
 ### 1. Production-grade customer confirmation
 

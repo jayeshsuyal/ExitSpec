@@ -472,11 +472,12 @@ Without `EXITSPEC_BROWSER_E2E=1`, that test is skipped intentionally. CI runs it
 once on Python 3.12 in a dedicated Chromium job; the normal Python 3.12 and 3.13
 engineering-gate matrix remains authoritative for the dependency-light product.
 
-For the v0.1 release candidate, one wrapper makes Chromium mandatory and then
-executes the complete engineering gate:
+The immutable v0.1 baseline retains its historical wrapper. The current v0.2
+checkpoint uses an additive wrapper that makes Chromium—including the external
+evidence handoff—mandatory before executing the complete engineering gate:
 
 ```bash
-./scripts/v0_1_release_gate.sh
+./scripts/v0_2_release_gate.sh
 ```
 
 These commands are the floor, not the entire gate. A PR also runs focused tests
