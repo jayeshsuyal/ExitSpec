@@ -361,13 +361,15 @@ pass.
 
 The provider-neutral meeting connector contract, opaque synthetic webhook
 authentication seam, durable synthetic-only inbox, sealed-window source bridge,
-synthetic inbox-to-source orchestration core, and dated Zoom RTMS capability
-spike are implemented in
+synthetic inbox-to-source orchestration core, local golden-fixture capture kit,
+and dated Zoom RTMS capability spike are implemented in
 `meeting_connector.py`, `zoom_webhook_auth.py`, `meeting_event_inbox.py`,
 `meeting_source_handoff.py`, `meeting_source_orchestration.py`,
+`zoom_fixture_capture.py`,
 [MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md),
 [MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md),
 [MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md),
+the [Zoom golden-fixture runbook](ZOOM_GOLDEN_FIXTURE_RUNBOOK.md),
 and
 [`zoom-rtms-capability-spike-v1.json`](../examples/meeting/zoom-rtms-capability-spike-v1.json).
 The inbox separates API replay from provider duplicate delivery, keeps one
@@ -387,18 +389,27 @@ does not claim cross-process exactly-once completion. See
 [ZOOM_WEBHOOK_AUTH_SPEC.md](ZOOM_WEBHOOK_AUTH_SPEC.md) and
 [MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md), and
 [MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
+The capture kit validates operator attestations, prepares an owner-only
+git-ignored workspace, seals an exact fixed inventory of opaque bytes, detects
+later mutation, and records a zero-authority privacy-review receipt. It makes no
+Zoom call, parses no artifact, and does not claim a sanitized fixture.
 
 The remaining train is:
 
-1. raw Zoom packet mapper against the first sanitized untouched golden fixture;
-2. exact HTTP signing-input extraction proven against that fixture, plus
+1. one real two-person synthetic capture, private review, and a separately
+   sanitized golden fixture with an explicit transformation report;
+2. raw Zoom packet mapper against that reviewed golden fixture using fake
+   transport only;
+3. exact HTTP signing-input extraction proven against the private untouched
+   capture, plus
    server-owned OAuth, on-demand RTMS start/stop, authenticated WebSocket,
    reconnect, and shutdown transport;
-3. production durability for the completion marker and redacted source, with
+4. production durability for the completion marker and redacted source, with
    atomic or recoverable private-annex deletion semantics;
-4. compact consent/capture/finalization UI inside the existing POC workbench;
-5. one real Zoom meeting with two consenting synthetic participants; and
-6. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
+5. compact consent/capture/finalization UI inside the existing POC workbench;
+6. one real Zoom meeting with two consenting synthetic participants completing
+   the ExitSpec draft-to-Evidence-Pack loop; and
+7. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
 
 Do not freeze a raw Zoom wire schema before the golden fixture resolves packet
 ordering, duplicate identity, participant stability, partial/final transcript
