@@ -15,8 +15,8 @@ An authenticated delivery receives a content-free receipt with no downstream
 authority. The implementation does **not** expose an HTTP endpoint, parse a
 Zoom event, freeze a Zoom wire schema, create a meeting or stream binding,
 append to the durable meeting inbox, call RTMS, or create an ExitSpec source.
-Those steps remain blocked on the first sanitized untouched Zoom golden
-fixture.
+Those steps remain blocked on the first private untouched Zoom capture and a
+separately reviewed sanitized golden fixture.
 
 The executable boundary is
 [`zoom_webhook_auth.py`](../src/exitspec/zoom_webhook_auth.py).
@@ -183,3 +183,9 @@ network adapter may invoke this verifier. It must then separately prove event
 shape, meeting and stream identity, ordering, duplicate behavior, transcript
 semantics, reconnect behavior, and privacy classification before any raw packet
 can become a provider-neutral `MeetingTranscriptEvent`.
+
+The local-only [Zoom golden-fixture capture runbook](ZOOM_GOLDEN_FIXTURE_RUNBOOK.md)
+now provides the preflight, fixed opaque inventory, immutable custody manifest,
+independent re-verification, and privacy-review workflow for that gate. It does
+not establish that a framework preserved Zoom's signing bytes and therefore
+does not reduce this authenticator's deferred-integration requirements.

@@ -355,6 +355,15 @@ record, Zoom OAuth, live webhook, RTMS connection, or raw-packet mapper. Google
 Meet, Teams, customer audio, durable consent, and production authorization
 remain outside the current claim.
 
+A local-only Zoom golden-fixture capture kit now prepares an owner-only,
+git-ignored synthetic workspace; requires the reviewed scopes, transcript-only
+media, RTMS credits, two consenting test participants, and a bounded schedule;
+hash-seals a fixed opaque artifact inventory; independently detects mutation;
+and records a content-free privacy-review receipt. It calls no provider, parses
+no Zoom bytes, publishes no fixture, and grants no mapper, network, contract,
+measurement, or verdict authority. The first real synthetic capture and
+sanitized repository fixture remain pending.
+
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment
 authorization, a live email connector, mailbox OAuth or webhooks, or arbitrary
@@ -385,6 +394,7 @@ repository yet.
 - [Meeting sealed-window source handoff](docs/MEETING_SOURCE_HANDOFF_SPEC.md)
 - [Meeting synthetic inbox-to-source orchestration](docs/MEETING_SOURCE_ORCHESTRATION_SPEC.md)
 - [Zoom webhook authentication boundary](docs/ZOOM_WEBHOOK_AUTH_SPEC.md)
+- [Zoom golden-fixture capture runbook](docs/ZOOM_GOLDEN_FIXTURE_RUNBOOK.md)
 - [Fireworks STT smoke runbook](docs/FIREWORKS_STT_SMOKE_RUNBOOK.md)
 - [Redaction boundary](docs/REDACTION_SPEC.md)
 - [Wave 2 source specification](docs/SOURCE_SPEC.md)

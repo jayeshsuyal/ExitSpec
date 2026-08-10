@@ -1,0 +1,53 @@
+{
+  "schema_version": "exitspec.zoom-golden-capture-plan.v1",
+  "capture_id": "zoomcap_synthetic_two_party_001",
+  "provider": "ZOOM_RTMS",
+  "app_type": "GENERAL_APP",
+  "source_classification": "SYNTHETIC_TWO_PARTICIPANT_ONLY",
+  "requested_media": [
+    "transcript"
+  ],
+  "excluded_media": [
+    "audio",
+    "video",
+    "screen_share",
+    "chat"
+  ],
+  "preflight": {
+    "general_app_reviewed": true,
+    "rtms_enabled": true,
+    "rtms_credits_confirmed": true,
+    "webhook_capture_ready": true,
+    "transcript_capture_ready": true,
+    "required_scopes": [
+      "meeting:read:meeting_transcript",
+      "meeting:update:participant_rtms_app_status"
+    ],
+    "operator_attestations_only": true,
+    "provider_state_independently_verified": false
+  },
+  "participants": [
+    {
+      "label": "synthetic_host",
+      "role": "HOST",
+      "consent_recorded": true,
+      "consented_at": "2026-08-11T16:50:00Z",
+      "disclosure_sha256": "4d10d4a067ca5597e39cdc8fe12ad6a79f26bf19832c9a41c4a9a2f29b0a431d"
+    },
+    {
+      "label": "synthetic_guest",
+      "role": "GUEST",
+      "consent_recorded": true,
+      "consented_at": "2026-08-11T16:51:00Z",
+      "disclosure_sha256": "4d10d4a067ca5597e39cdc8fe12ad6a79f26bf19832c9a41c4a9a2f29b0a431d"
+    }
+  ],
+  "scheduled_start_at": "2026-08-11T17:00:00Z",
+  "scheduled_end_at": "2026-08-11T17:15:00Z",
+  "retention_hours": 24,
+  "public_fixture_requires_privacy_review": true,
+  "customer_data_prohibited": true,
+  "capture_kit_grants_network_authority": false,
+  "capture_kit_grants_mapper_authority": false,
+  "capture_kit_grants_product_decision_authority": false
+}

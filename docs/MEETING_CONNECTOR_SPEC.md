@@ -337,8 +337,8 @@ only `NEEDS_REVIEW` proposals after redaction.
 ## Deferred until the first golden Zoom fixture
 
 Do not freeze a raw Zoom packet schema or implement the network mapper until a
-real Zoom developer account produces one sanitized, untouched synthetic
-fixture containing:
+real Zoom developer account produces one private, untouched synthetic capture
+and a separately reviewed sanitized candidate fixture containing:
 
 - exact app configuration and granted scopes;
 - RTMS-started and RTMS-stopped webhook bodies;
@@ -354,6 +354,14 @@ The fixture must resolve the mapping of `timestamp`, `start_time`, and
 stability, and reconnect ordering. Matching documented field names is not
 enough.
 
+The implemented local-only
+[golden-fixture capture kit](ZOOM_GOLDEN_FIXTURE_RUNBOOK.md) validates the
+synthetic plan, creates a git-ignored owner-only workspace, inventories a fixed
+set of opaque artifacts, hash-seals the private original, and records a
+privacy-review decision. It does not parse or sanitize Zoom bytes and cannot
+authorize a mapper, network transport, fixture publication, source creation,
+or product decision. No sanitized repository fixture is claimed yet.
+
 ## Implementation train
 
 1. **PR108 — connector contract and capability spike:** provider-neutral
@@ -365,23 +373,26 @@ enough.
 3. **Opaque webhook authentication boundary (implemented):** exact supplied
    bytes, `v0` HMAC, policy lifetime, freshness, bounded process-local replay,
    content-free receipts, and no route, parsing, transport, or inbox authority.
-4. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
+4. **Golden-fixture capture kit (implemented):** synthetic plan preflight,
+   fixed opaque-byte inventory, private git-ignored custody, independent hash
+   verification, privacy-review receipt, and zero parser or network authority.
+5. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
    the provider-neutral contract using the pinned fixture; fake transport only.
-5. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
+6. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
    signing-input extraction, OAuth, REST start/stop, handshakes, reconnect, and
    shutdown fail closed.
-6. **Source bridge (implemented):** sealer-minted transcript windows enter the
+7. **Source bridge (implemented):** sealer-minted transcript windows enter the
    existing redacted `MEETING` source and proposal-review path with stable
    stream identity, exact replay, changed-content conflict, neutral labels, and
    content-free provenance. It has no route or inbox-deletion authority.
-7. **Synthetic source orchestration (implemented):** recover and independently
+8. **Synthetic source orchestration (implemented):** recover and independently
    revalidate the durable inbox, recheck current consent while sealing, invoke
    the source bridge, and return one digest-bound zero-authority result. This is
    process-local coordination, not the live Zoom transport or a cross-process
    exactly-once claim.
-8. **Guided product UI:** connect, consent, capture, draft-now,
+9. **Guided product UI:** connect, consent, capture, draft-now,
    finalization, and safe recovery states without changing the product spine.
-9. **Synthetic live E2E and hardening:** one real Zoom meeting with two
+10. **Synthetic live E2E and hardening:** one real Zoom meeting with two
    consenting synthetic participants completes the existing ExitSpec demo loop.
 
 ## Exit gate for the complete Zoom train
