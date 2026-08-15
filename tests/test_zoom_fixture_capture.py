@@ -20,6 +20,7 @@ from exitspec.zoom_fixture_capture import (
     record_zoom_fixture_privacy_review,
     seal_zoom_fixture_capture,
     verify_zoom_fixture_capture,
+    verify_zoom_fixture_preflight,
 )
 
 
@@ -196,6 +197,37 @@ def test_preflight_creates_private_content_free_workspace_and_exact_replay(
     public = canonical_json_bytes(first.model_dump(mode="json")).decode("utf-8")
     assert str(root) not in public
     assert PRIVATE_MARKER not in public
+
+    verified = verify_zoom_fixture_preflight(root, CAPTURE_ID, checked_at=NOW)
+    assert verified == first
+
+
+def test_preflight_verification_rejects_canonical_control_file_tampering(
+    tmp_path: Path,
+):
+    root, workspace = _preflight(tmp_path)
+    receipt_path = workspace / "preflight-receipt.json"
+    payload = json.loads(receipt_path.read_bytes())
+    payload["may_call_zoom"] = True
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ZoomFixtureCaptureError) as exc_info:
+        verify_zoom_fixture_preflight(root, CAPTURE_ID, checked_at=NOW)
+
+    assert _failure_code(exc_info) == "ZOOM_FIXTURE_CAPTURE_INTEGRITY_FAILED"
+
+
+def test_preflight_verification_expires_after_the_capture_window(tmp_path: Path):
+    root, _workspace = _preflight(tmp_path)
+
+    with pytest.raises(ZoomFixtureCaptureError) as exc_info:
+        verify_zoom_fixture_preflight(
+            root,
+            CAPTURE_ID,
+            checked_at=NOW + timedelta(minutes=16),
+        )
+
+    assert _failure_code(exc_info) == "ZOOM_FIXTURE_PLAN_REJECTED"
 
 
 def test_preflight_rejects_same_capture_id_with_changed_plan(tmp_path: Path):

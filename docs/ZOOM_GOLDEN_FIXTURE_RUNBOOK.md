@@ -95,6 +95,31 @@ The command prints a content-free receipt. `READY_FOR_OPERATOR_CONTROLLED_SYNTHE
 means only that the plan and local workspace passed. It is not Zoom
 authorization.
 
+### Dev-only acquisition tool
+
+The repository includes a separate
+[`tools/zoom_fixture_operator`](../tools/zoom_fixture_operator) harness for the
+operator-controlled acquisition step. It is not part of `src/exitspec`, the
+Python wheel, `/app`, or the meeting connector runtime. Its Node dependencies,
+environment template, upstream MIT notice, setup instructions, and synthetic
+unit tests are isolated in that directory.
+
+The harness refuses to start unless `CAPTURE_RAW_DIR` resolves to the existing
+owner-only `.zoom-fixture-private/<capture-id>/raw` directory created by this
+preflight, and the adjacent plan and receipt preserve the transcript-only,
+zero-downstream-authority boundary. Startup independently runs the canonical
+`verify-preflight` command with no Zoom secret in the child environment, so
+hand-written structural lookalikes, mutated controls, and expired capture
+windows cannot authorize acquisition. It applies the same 16 MiB per-artifact
+and 64 MiB total limits as the sealer. It can make real Zoom calls only when
+all three environment gates explicitly state that network use, Developer Pack
+credits, and the synthetic capture are authorized.
+
+This tooling exists only to collect the fixture needed for later design. Its
+provider-specific connection logic is not a frozen mapper and no observed
+packet shape may enter ExitSpec until the private capture, sanitation, and
+separate review gates below pass.
+
 ## 2. Run the two-person synthetic meeting
 
 Both participants should say only the following predetermined script:

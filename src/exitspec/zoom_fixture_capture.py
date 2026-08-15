@@ -534,6 +534,35 @@ def initialize_zoom_fixture_capture(
     return receipt
 
 
+def verify_zoom_fixture_preflight(
+    repository_root: Path,
+    capture_id: str,
+    *,
+    checked_at: datetime | None = None,
+) -> ZoomFixturePreflightReceipt:
+    """Independently revalidate one prepared workspace before acquisition."""
+
+    root = _validated_repository_root(repository_root)
+    workspace = _existing_workspace(root, capture_id)
+    plan, plan_bytes = _read_stored_plan(workspace)
+    receipt = _read_preflight_receipt(workspace)
+    plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
+    when = _now_or_supplied(checked_at)
+    if (
+        plan.capture_id != capture_id
+        or receipt.capture_id != capture_id
+        or receipt.capture_plan_sha256 != plan_sha256
+    ):
+        raise ZoomFixtureCaptureError(
+            ZoomFixtureCaptureFailureCode.CAPTURE_INTEGRITY_FAILED
+        )
+    if when > plan.scheduled_end_at:
+        raise ZoomFixtureCaptureError(
+            ZoomFixtureCaptureFailureCode.PLAN_REJECTED
+        )
+    return receipt
+
+
 def seal_zoom_fixture_capture(
     repository_root: Path,
     capture_id: str,
@@ -1232,6 +1261,12 @@ def _build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--plan", type=Path, required=True)
     preflight.add_argument("--repository-root", type=Path, default=Path.cwd())
 
+    verify_preflight = subparsers.add_parser("verify-preflight")
+    verify_preflight.add_argument("--capture-id", required=True)
+    verify_preflight.add_argument(
+        "--repository-root", type=Path, default=Path.cwd()
+    )
+
     for command in ("seal", "verify"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--capture-id", required=True)
@@ -1254,6 +1289,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = initialize_zoom_fixture_capture(
                 arguments.plan,
                 arguments.repository_root,
+            )
+        elif arguments.command == "verify-preflight":
+            result = verify_zoom_fixture_preflight(
+                arguments.repository_root,
+                arguments.capture_id,
             )
         elif arguments.command == "seal":
             result = seal_zoom_fixture_capture(
@@ -1319,6 +1359,7 @@ __all__ = [
     "record_zoom_fixture_privacy_review",
     "seal_zoom_fixture_capture",
     "verify_zoom_fixture_capture",
+    "verify_zoom_fixture_preflight",
 ]
 
 
