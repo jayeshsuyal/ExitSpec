@@ -94,7 +94,7 @@
                 <input type="radio" name="source_kind" value="MEETING" />
                 <span>
                   <strong>Meeting</strong>
-                  <small id="meeting-source-option-copy">Paste a transcript or run the local mic demo</small>
+                  <small id="meeting-source-option-copy">Run a guided session, paste, or use a mic clip</small>
                   <em class="starting-choice" hidden>Starting choice</em>
                 </span>
               </label>
@@ -167,11 +167,20 @@
                   <legend>Meeting input</legend>
                   <label>
                     <input
+                      id="meeting-mode-session"
+                      type="radio"
+                      name="meeting_mode"
+                      value="SESSION"
+                      checked
+                    />
+                    <span>Meeting session</span>
+                  </label>
+                  <label>
+                    <input
                       id="meeting-mode-paste"
                       type="radio"
                       name="meeting_mode"
                       value="PASTE"
-                      checked
                     />
                     <span>Paste transcript</span>
                   </label>
@@ -185,6 +194,101 @@
                     <span id="meeting-record-mode-label">Record synthetic demo</span>
                   </label>
                 </fieldset>
+
+                <section
+                  class="meeting-session"
+                  id="meeting-session-panel"
+                  aria-labelledby="meeting-session-heading"
+                >
+                  <header class="meeting-session-header">
+                    <div>
+                      <p class="eyebrow" id="meeting-session-adapter">
+                        Fixed synthetic adapter
+                      </p>
+                      <h4 id="meeting-session-heading">
+                        Draft requirements during a meeting
+                      </h4>
+                    </div>
+                    <span
+                      class="meeting-connection-badge"
+                      id="meeting-session-state-badge"
+                    >
+                      Not connected
+                    </span>
+                  </header>
+
+                  <p
+                    class="meeting-session-disclosure"
+                    id="meeting-session-disclosure"
+                  >
+                    Loading the exact synthetic meeting boundary…
+                  </p>
+
+                  <ol
+                    class="meeting-session-progress"
+                    id="meeting-session-progress"
+                    aria-label="Meeting session progress"
+                  >
+                    <li data-meeting-step="CONSENT" aria-current="step">
+                      <span>1</span>
+                      <strong>Consent</strong>
+                    </li>
+                    <li data-meeting-step="START">
+                      <span>2</span>
+                      <strong>Start</strong>
+                    </li>
+                    <li data-meeting-step="DRAFT">
+                      <span>3</span>
+                      <strong>Draft</strong>
+                    </li>
+                    <li data-meeting-step="REVIEW">
+                      <span>4</span>
+                      <strong>Review</strong>
+                    </li>
+                  </ol>
+
+                  <div
+                    class="meeting-session-consent"
+                    id="meeting-session-consent"
+                  >
+                    <label>
+                      <input id="meeting-session-notice-ack" type="checkbox" />
+                      <span>I reviewed the transcript-only notice.</span>
+                    </label>
+                    <label>
+                      <input
+                        id="meeting-session-participants-consent"
+                        type="checkbox"
+                      />
+                      <span>Both synthetic participants consent.</span>
+                    </label>
+                    <label>
+                      <input
+                        id="meeting-session-synthetic-ack"
+                        type="checkbox"
+                      />
+                      <span>I understand no customer data or live Zoom connection is used.</span>
+                    </label>
+                  </div>
+
+                  <p
+                    class="meeting-session-status"
+                    id="meeting-session-status"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Review all three acknowledgements to record consent.
+                  </p>
+
+                  <details class="meeting-session-details">
+                    <summary>What happens after consent</summary>
+                    <p>
+                      ExitSpec runs a fixed two-person transcript through the
+                      durable meeting inbox. The result is redacted and sent to
+                      human review; it cannot approve or freeze anything.
+                    </p>
+                  </details>
+                </section>
 
                 <div id="meeting-paste-panel">
                   <label for="meeting-transcript">Redacted transcript text</label>

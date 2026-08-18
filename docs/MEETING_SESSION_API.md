@@ -5,7 +5,9 @@
 ExitSpec implements a local, provider-neutral meeting-session application
 boundary for the synthetic demo. It connects the existing meeting connector,
 durable inbox, sealed-window orchestration, redaction, and `MEETING` source
-pipeline without freezing any Zoom packet shape.
+pipeline without freezing any Zoom packet shape. The existing source-intake
+workbench exposes this as the default `Meeting session` submode when a draft
+starts from a meeting.
 
 The current injected adapter is `exitspec.synthetic`. It makes no network call,
 does not connect to Zoom, uses exactly two fixed synthetic participants, and
@@ -28,6 +30,28 @@ The final state contains only content-free source facts. The source and every
 derived proposal remain `NEEDS_REVIEW`. No meeting session may confirm a
 proposal, freeze a contract, start measurement, create evidence, or assign a
 verdict.
+
+## Guided workbench
+
+The meeting source remains one part of the existing `/app` flow:
+
+```text
+New POC -> Meeting -> Meeting session
+        -> consent -> start -> draft -> human review
+```
+
+`Meeting session`, `Paste transcript`, and `Record synthetic demo` are three
+bounded submodes of one `MEETING` source; they are not parallel products. The
+session panel shows four finite steps, one current state, one primary footer
+action, and an explicit `Not connected` badge before consent. It does not add a
+second dashboard, an unbounded activity feed, or another approval surface.
+
+Every browser response is checked against the complete expected disclosure or
+session shape before it can update the interface. Changed, missing, extra, or
+contradictory response fields fail closed. A refresh recovers only the safe
+content-free current session; browser storage is not used. Once a session
+exists, source and meeting-mode selection lock until its review-only handoff is
+complete.
 
 ## HTTP surface
 
@@ -126,10 +150,9 @@ claimed.
 
 The following remain deliberately outside this boundary:
 
-1. guided meeting controls inside `/app`;
-2. the first two-person private Zoom golden capture;
-3. a fixture-pinned Zoom-to-provider-neutral mapper;
-4. server-owned OAuth, webhook, RTMS WebSocket, reconnect, and shutdown;
-5. durable production session coordination and redacted-source storage; and
-6. one real synthetic Zoom meeting completing the unchanged ExitSpec
+1. the first two-person private Zoom golden capture;
+2. a fixture-pinned Zoom-to-provider-neutral mapper;
+3. server-owned OAuth, webhook, RTMS WebSocket, reconnect, and shutdown;
+4. durable production session coordination and redacted-source storage; and
+5. one real synthetic Zoom meeting completing the unchanged ExitSpec
    review-to-Evidence-Pack loop.
