@@ -20,6 +20,7 @@ from exitspec.zoom_fixture_capture import (
     record_zoom_fixture_privacy_review,
     seal_zoom_fixture_capture,
     verify_zoom_fixture_capture,
+    verify_zoom_fixture_preflight,
 )
 
 
@@ -54,8 +55,12 @@ def _plan_payload(**updates: object) -> dict[str, object]:
             "webhook_capture_ready": True,
             "transcript_capture_ready": True,
             "required_scopes": [
+                "meeting:read:meeting_audio",
                 "meeting:read:meeting_transcript",
                 "meeting:update:participant_rtms_app_status",
+            ],
+            "provider_enforced_prerequisite_scopes": [
+                "meeting:read:meeting_audio",
             ],
             "operator_attestations_only": True,
             "provider_state_independently_verified": False,
@@ -197,6 +202,37 @@ def test_preflight_creates_private_content_free_workspace_and_exact_replay(
     assert str(root) not in public
     assert PRIVATE_MARKER not in public
 
+    verified = verify_zoom_fixture_preflight(root, CAPTURE_ID, checked_at=NOW)
+    assert verified == first
+
+
+def test_preflight_verification_rejects_canonical_control_file_tampering(
+    tmp_path: Path,
+):
+    root, workspace = _preflight(tmp_path)
+    receipt_path = workspace / "preflight-receipt.json"
+    payload = json.loads(receipt_path.read_bytes())
+    payload["may_call_zoom"] = True
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ZoomFixtureCaptureError) as exc_info:
+        verify_zoom_fixture_preflight(root, CAPTURE_ID, checked_at=NOW)
+
+    assert _failure_code(exc_info) == "ZOOM_FIXTURE_CAPTURE_INTEGRITY_FAILED"
+
+
+def test_preflight_verification_expires_after_the_capture_window(tmp_path: Path):
+    root, _workspace = _preflight(tmp_path)
+
+    with pytest.raises(ZoomFixtureCaptureError) as exc_info:
+        verify_zoom_fixture_preflight(
+            root,
+            CAPTURE_ID,
+            checked_at=NOW + timedelta(minutes=16),
+        )
+
+    assert _failure_code(exc_info) == "ZOOM_FIXTURE_PLAN_REJECTED"
+
 
 def test_preflight_rejects_same_capture_id_with_changed_plan(tmp_path: Path):
     root = _repository(tmp_path)
@@ -246,7 +282,45 @@ def test_repository_example_plan_matches_the_executable_schema():
 
     assert plan.capture_id == CAPTURE_ID
     assert plan.requested_media == ("transcript",)
+    assert plan.excluded_media == ("audio", "video", "screen_share", "chat")
+    assert plan.preflight.required_scopes == (
+        "meeting:read:meeting_audio",
+        "meeting:read:meeting_transcript",
+        "meeting:update:participant_rtms_app_status",
+    )
+    assert plan.preflight.provider_enforced_prerequisite_scopes == (
+        "meeting:read:meeting_audio",
+    )
     assert plan.capture_kit_grants_network_authority is False
+
+
+@pytest.mark.parametrize(
+    "scope_update",
+    (
+        {
+            "required_scopes": [
+                "meeting:read:meeting_transcript",
+                "meeting:update:participant_rtms_app_status",
+            ],
+        },
+        {"provider_enforced_prerequisite_scopes": []},
+    ),
+)
+def test_capture_plan_rejects_zoom_scope_boundary_drift(
+    tmp_path: Path,
+    scope_update: dict[str, object],
+):
+    root = _repository(tmp_path)
+    payload = _plan_payload()
+    preflight = payload["preflight"]
+    assert isinstance(preflight, dict)
+    preflight.update(scope_update)
+    path = _write_plan(root, payload)
+
+    with pytest.raises(ZoomFixtureCaptureError) as exc_info:
+        load_zoom_capture_plan(path)
+
+    assert _failure_code(exc_info) == "ZOOM_FIXTURE_PLAN_REJECTED"
 
 
 @pytest.mark.parametrize(

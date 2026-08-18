@@ -34,8 +34,13 @@ Do not start until one operator has confirmed all of the following:
 
 - a Zoom General App is configured for a non-production developer account;
 - RTMS is enabled and the account has sufficient Developer Pack credits;
-- the exact scopes are `meeting:read:meeting_transcript` and
+- the exact granted scopes are `meeting:read:meeting_audio`,
+  `meeting:read:meeting_transcript`, and
   `meeting:update:participant_rtms_app_status`;
+- `meeting:read:meeting_audio` is classified only as a Zoom-enforced
+  prerequisite permission for transcript in the live Marketplace UI observed
+  on 2026-08-18; the capture still requests transcript only (`media_type: 8`),
+  and audio remains explicitly excluded from the media handshake and evidence;
 - the webhook receiver and transcript capture utility are operator-controlled;
 - only transcript is requested; audio, video, screen share, and chat are off;
 - exactly two test participants will use synthetic labels and synthetic words;
@@ -47,6 +52,12 @@ Do not start until one operator has confirmed all of the following:
 The preflight command validates these declarations and local filesystem
 guardrails. It does not query Zoom and labels provider state as not
 independently verified.
+
+Zoom's current documentation is internally inconsistent on this boundary: the
+feature guide describes the transcript scope as sufficient, while the
+transcript WebSocket quickstart and live Marketplace dependency require the
+audio scope. ExitSpec therefore records the broader permission explicitly but
+does not infer authority to request, receive, retain, or evaluate audio.
 
 ## 1. Prepare the capture plan
 
@@ -94,6 +105,31 @@ Success creates this git-ignored workspace with owner-only permissions:
 The command prints a content-free receipt. `READY_FOR_OPERATOR_CONTROLLED_SYNTHETIC_CAPTURE`
 means only that the plan and local workspace passed. It is not Zoom
 authorization.
+
+### Dev-only acquisition tool
+
+The repository includes a separate
+[`tools/zoom_fixture_operator`](../tools/zoom_fixture_operator) harness for the
+operator-controlled acquisition step. It is not part of `src/exitspec`, the
+Python wheel, `/app`, or the meeting connector runtime. Its Node dependencies,
+environment template, upstream MIT notice, setup instructions, and synthetic
+unit tests are isolated in that directory.
+
+The harness refuses to start unless `CAPTURE_RAW_DIR` resolves to the existing
+owner-only `.zoom-fixture-private/<capture-id>/raw` directory created by this
+preflight, and the adjacent plan and receipt preserve the transcript-only,
+zero-downstream-authority boundary. Startup independently runs the canonical
+`verify-preflight` command with no Zoom secret in the child environment, so
+hand-written structural lookalikes, mutated controls, and expired capture
+windows cannot authorize acquisition. It applies the same 16 MiB per-artifact
+and 64 MiB total limits as the sealer. It can make real Zoom calls only when
+all three environment gates explicitly state that network use, Developer Pack
+credits, and the synthetic capture are authorized.
+
+This tooling exists only to collect the fixture needed for later design. Its
+provider-specific connection logic is not a frozen mapper and no observed
+packet shape may enter ExitSpec until the private capture, sanitation, and
+separate review gates below pass.
 
 ## 2. Run the two-person synthetic meeting
 

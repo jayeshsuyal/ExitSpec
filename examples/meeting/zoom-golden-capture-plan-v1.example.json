@@ -20,8 +20,12 @@
     "webhook_capture_ready": true,
     "transcript_capture_ready": true,
     "required_scopes": [
+      "meeting:read:meeting_audio",
       "meeting:read:meeting_transcript",
       "meeting:update:participant_rtms_app_status"
+    ],
+    "provider_enforced_prerequisite_scopes": [
+      "meeting:read:meeting_audio"
     ],
     "operator_attestations_only": true,
     "provider_state_independently_verified": false

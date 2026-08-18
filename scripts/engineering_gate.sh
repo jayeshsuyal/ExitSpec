@@ -155,4 +155,8 @@ run_gate \
   "POC closure JavaScript syntax" \
   node --check src/exitspec/static/closure.js
 
+run_gate \
+  "Zoom fixture operator JavaScript syntax" \
+  npm run check --prefix tools/zoom_fixture_operator
+
 printf '\nExitSpec engineering gate passed.\n'
