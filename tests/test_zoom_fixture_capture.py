@@ -55,8 +55,12 @@ def _plan_payload(**updates: object) -> dict[str, object]:
             "webhook_capture_ready": True,
             "transcript_capture_ready": True,
             "required_scopes": [
+                "meeting:read:meeting_audio",
                 "meeting:read:meeting_transcript",
                 "meeting:update:participant_rtms_app_status",
+            ],
+            "provider_enforced_prerequisite_scopes": [
+                "meeting:read:meeting_audio",
             ],
             "operator_attestations_only": True,
             "provider_state_independently_verified": False,
@@ -278,7 +282,45 @@ def test_repository_example_plan_matches_the_executable_schema():
 
     assert plan.capture_id == CAPTURE_ID
     assert plan.requested_media == ("transcript",)
+    assert plan.excluded_media == ("audio", "video", "screen_share", "chat")
+    assert plan.preflight.required_scopes == (
+        "meeting:read:meeting_audio",
+        "meeting:read:meeting_transcript",
+        "meeting:update:participant_rtms_app_status",
+    )
+    assert plan.preflight.provider_enforced_prerequisite_scopes == (
+        "meeting:read:meeting_audio",
+    )
     assert plan.capture_kit_grants_network_authority is False
+
+
+@pytest.mark.parametrize(
+    "scope_update",
+    (
+        {
+            "required_scopes": [
+                "meeting:read:meeting_transcript",
+                "meeting:update:participant_rtms_app_status",
+            ],
+        },
+        {"provider_enforced_prerequisite_scopes": []},
+    ),
+)
+def test_capture_plan_rejects_zoom_scope_boundary_drift(
+    tmp_path: Path,
+    scope_update: dict[str, object],
+):
+    root = _repository(tmp_path)
+    payload = _plan_payload()
+    preflight = payload["preflight"]
+    assert isinstance(preflight, dict)
+    preflight.update(scope_update)
+    path = _write_plan(root, payload)
+
+    with pytest.raises(ZoomFixtureCaptureError) as exc_info:
+        load_zoom_capture_plan(path)
+
+    assert _failure_code(exc_info) == "ZOOM_FIXTURE_PLAN_REJECTED"
 
 
 @pytest.mark.parametrize(

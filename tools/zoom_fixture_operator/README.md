@@ -21,8 +21,11 @@ truthfully satisfied. In particular:
 
 - Zoom Developer Pack credits are active;
 - the General App is user-managed and non-production;
-- only `meeting:read:meeting_transcript` and
-  `meeting:update:participant_rtms_app_status` are granted;
+- the granted scopes are `meeting:read:meeting_audio`,
+  `meeting:read:meeting_transcript`, and
+  `meeting:update:participant_rtms_app_status`; Zoom currently forces the
+  audio scope as a prerequisite permission for transcript, but the harness
+  still requests transcript only and excludes audio from its media handshake;
 - only `meeting.rtms_started`, `meeting.rtms_stopped`, and
   `meeting.rtms_interrupted` are subscribed;
 - a reviewed HTTPS tunnel forwards only to the public callback port;

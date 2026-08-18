@@ -64,8 +64,12 @@ _SECRET_VALUE_PATTERN = re.compile(
 )
 
 _REQUIRED_SCOPES: Final = (
+    "meeting:read:meeting_audio",
     "meeting:read:meeting_transcript",
     "meeting:update:participant_rtms_app_status",
+)
+_PROVIDER_ENFORCED_PREREQUISITE_SCOPES: Final = (
+    "meeting:read:meeting_audio",
 )
 _REQUESTED_MEDIA: Final = ("transcript",)
 _EXCLUDED_MEDIA: Final = ("audio", "video", "screen_share", "chat")
@@ -171,6 +175,7 @@ class ZoomCapturePreflight(FrozenExitSpecModel):
     webhook_capture_ready: Literal[True] = True
     transcript_capture_ready: Literal[True] = True
     required_scopes: tuple[str, ...]
+    provider_enforced_prerequisite_scopes: tuple[str, ...]
     operator_attestations_only: Literal[True] = True
     provider_state_independently_verified: Literal[False] = False
 
@@ -179,6 +184,18 @@ class ZoomCapturePreflight(FrozenExitSpecModel):
     def require_exact_scopes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if value != _REQUIRED_SCOPES:
             raise ValueError("required_scopes must match the reviewed scope set.")
+        return value
+
+    @field_validator("provider_enforced_prerequisite_scopes")
+    @classmethod
+    def require_exact_provider_prerequisites(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        if value != _PROVIDER_ENFORCED_PREREQUISITE_SCOPES:
+            raise ValueError(
+                "provider_enforced_prerequisite_scopes must match the reviewed set."
+            )
         return value
 
 

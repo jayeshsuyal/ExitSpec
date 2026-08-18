@@ -64,8 +64,12 @@ const configurationSnapshot = safePublicConfigurationSnapshot({
     requested_media: ["transcript"],
     excluded_media: ["audio", "video", "screen_share", "chat"],
     required_scopes: [
+      "meeting:read:meeting_audio",
       "meeting:read:meeting_transcript",
       "meeting:update:participant_rtms_app_status",
+    ],
+    provider_enforced_prerequisite_scopes: [
+      "meeting:read:meeting_audio",
     ],
     required_events: [
       "meeting.rtms_started",
