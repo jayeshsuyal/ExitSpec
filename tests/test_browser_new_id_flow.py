@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -179,6 +180,29 @@ def _assert_narrow_keyboard_contract(expect, page) -> None:
     )
     assert focus_style["outlineStyle"] != "none"
     assert focus_style["outlineWidth"] != "0px"
+
+
+def _create_browser_meeting_poc(expect, page, base_url: str, name: str) -> str:
+    page.goto(f"{base_url}/app/pocs/new")
+    page.locator(
+        'input[name="first_source_choice"][value="MEETING"]'
+    ).check()
+    page.locator("#display-name").fill(name)
+    page.locator("#customer-label").fill("Northstar")
+    page.locator("#use-case").fill(
+        "Turn a consented synthetic meeting into review-only requirements."
+    )
+    page.locator("#owner").fill("field_engineer")
+    page.locator("#create-poc").click()
+
+    source_route = re.compile(
+        rf"^{re.escape(base_url)}/app/pocs/"
+        r"(poc_[a-z0-9][a-z0-9_-]{2,63})/sources/new$"
+    )
+    expect(page).to_have_url(source_route)
+    route_match = source_route.fullmatch(page.url)
+    assert route_match is not None
+    return route_match.group(1)
 
 
 @pytest.mark.skipif(
@@ -895,6 +919,255 @@ def test_meeting_microphone_demo_records_consent_before_review_handoff(tmp_path)
                 first_claim = page.locator("#normalized-claim").text_content()
                 assert first_claim is not None
                 assert "first token" in first_claim.lower()
+            finally:
+                context.close()
+                browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_guided_meeting_session_recovers_and_reaches_human_review(tmp_path):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            page_errors = _capture_browser_errors(page)
+            page.set_default_timeout(10_000)
+            page.set_default_navigation_timeout(10_000)
+            meeting_posts: list[tuple[str, dict[str, object]]] = []
+
+            def capture_meeting_post(request) -> None:
+                if (
+                    request.method == "POST"
+                    and "/meeting-sessions" in request.url
+                ):
+                    payload = request.post_data_json
+                    assert isinstance(payload, dict)
+                    meeting_posts.append((request.url, payload))
+
+            page.on("request", capture_meeting_post)
+
+            try:
+                poc_id = _create_browser_meeting_poc(
+                    expect,
+                    page,
+                    base_url,
+                    "Browser guided meeting POC",
+                )
+                review_route = f"{base_url}/app/pocs/{poc_id}/review"
+
+                expect(page.locator("#meeting-mode-session")).to_be_checked()
+                expect(page.locator("#meeting-session-panel")).to_be_visible()
+                expect(
+                    page.locator("#meeting-session-disclosure")
+                ).to_have_text(
+                    "This is a synthetic ExitSpec Zoom RTMS test. "
+                    "Transcript only; no customer data."
+                )
+                expect(
+                    page.locator("#meeting-session-state-badge")
+                ).to_have_text("Not connected")
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Record consent"
+                )
+                expect(page.locator("#capture-source")).to_be_disabled()
+                _assert_bounded_employee_shell(page)
+
+                page.locator("#meeting-session-notice-ack").check()
+                page.locator("#meeting-session-participants-consent").check()
+                page.locator("#meeting-session-synthetic-ack").check()
+                expect(page.locator("#capture-source")).to_be_enabled()
+                page.locator("#capture-source").click()
+
+                expect(
+                    page.locator("#meeting-session-state-badge")
+                ).to_have_text("Consent recorded")
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Start synthetic capture"
+                )
+                expect(page.locator("#meeting-mode-session")).to_be_disabled()
+
+                page.reload()
+                expect(
+                    page.locator("#meeting-session-state-badge")
+                ).to_have_text("Consent recorded")
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Start synthetic capture"
+                )
+                _assert_bounded_employee_shell(page)
+
+                start_route = re.compile(
+                    rf"^{re.escape(base_url)}/api/pocs/{re.escape(poc_id)}/"
+                    r"meeting-sessions/meetsess_[a-f0-9]{64}/start$"
+                )
+                raw_marker = "raw-provider-secret-must-never-render"
+
+                def fail_first_start(route, request) -> None:
+                    del request
+                    route.fulfill(
+                        status=503,
+                        content_type="application/json",
+                        body=json.dumps({"error": raw_marker}),
+                    )
+
+                page.route(start_route, fail_first_start)
+                page.locator("#capture-source").click()
+                expect(page.locator("#intake-error")).to_be_visible()
+                expect(page.locator("#intake-error")).to_contain_text(
+                    "did not return a trusted result"
+                )
+                expect(page.locator("body")).not_to_contain_text(raw_marker)
+                expect(
+                    page.locator("#meeting-session-state-badge")
+                ).to_have_text("Consent recorded")
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Start synthetic capture"
+                )
+                page.unroute(start_route, fail_first_start)
+
+                page.locator("#capture-source").click()
+                expect(
+                    page.locator("#meeting-session-state-badge")
+                ).to_have_text("Synthetic running")
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Draft requirements now"
+                )
+
+                draft_route = re.compile(
+                    rf"^{re.escape(base_url)}/api/pocs/{re.escape(poc_id)}/"
+                    r"meeting-sessions/meetsess_[a-f0-9]{64}/draft$"
+                )
+
+                def corrupt_completed_draft(route, request) -> None:
+                    del request
+                    response = route.fetch()
+                    payload = response.json()
+                    payload["producer_verdict"] = "PASS"
+                    route.fulfill(
+                        status=response.status,
+                        content_type="application/json",
+                        body=json.dumps(payload),
+                    )
+
+                page.route(draft_route, corrupt_completed_draft)
+                page.locator("#capture-source").click()
+                expect(page).to_have_url(review_route)
+                expect(page.locator("#proposal-heading")).to_have_text(
+                    "Proposal 1"
+                )
+                expect(page.locator("#progress-copy")).to_have_text(
+                    "Proposal 1 of 2"
+                )
+                expect(page.locator("#review-state")).to_have_count(0)
+                _assert_bounded_employee_shell(page)
+
+                start_posts = [
+                    payload
+                    for url, payload in meeting_posts
+                    if url.endswith("/start")
+                ]
+                assert len(start_posts) == 2
+                assert start_posts[0] == start_posts[1]
+
+                serialized_posts = json.dumps(meeting_posts, sort_keys=True)
+                for forbidden in (
+                    "meeting_id",
+                    "participant_id",
+                    "provider_connected",
+                    "transcript_text",
+                    "may_confirm_contract",
+                    "may_freeze_contract",
+                    "may_start_measurement",
+                    "may_assign_verdict",
+                ):
+                    assert forbidden not in serialized_posts
+                unexpected_errors = [
+                    error
+                    for error in page_errors
+                    if not error.startswith(
+                        "console: Failed to load resource:"
+                    )
+                ]
+                assert unexpected_errors == []
+            finally:
+                context.close()
+                browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_guided_meeting_session_fails_closed_to_paste_on_bad_disclosure(
+    tmp_path,
+):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            page_errors = _capture_browser_errors(page)
+            page.set_default_timeout(10_000)
+            page.set_default_navigation_timeout(10_000)
+            raw_marker = "unsafe-disclosure-marker-must-never-render"
+            disclosure_route = re.compile(
+                rf"^{re.escape(base_url)}/api/pocs/"
+                r"poc_[a-z0-9][a-z0-9_-]{2,63}/"
+                r"meeting-sessions/disclosure$"
+            )
+
+            def corrupt_disclosure(route, request) -> None:
+                del request
+                response = route.fetch()
+                payload = response.json()
+                payload["provider_connected"] = True
+                payload["raw_provider_message"] = raw_marker
+                route.fulfill(
+                    status=response.status,
+                    content_type="application/json",
+                    body=json.dumps(payload),
+                )
+
+            page.route(disclosure_route, corrupt_disclosure)
+
+            try:
+                _create_browser_meeting_poc(
+                    expect,
+                    page,
+                    base_url,
+                    "Browser fail-closed meeting POC",
+                )
+                expect(
+                    page.locator("#meeting-session-state-badge")
+                ).to_have_text("Unavailable")
+                expect(
+                    page.locator("#meeting-session-disclosure")
+                ).to_contain_text("could not be validated")
+                expect(page.locator("#meeting-mode-session")).to_be_disabled()
+                expect(page.locator("#capture-source")).to_be_disabled()
+                expect(page.locator("body")).not_to_contain_text(raw_marker)
+
+                expect(page.locator("#meeting-mode-paste")).to_be_enabled()
+                page.locator("#meeting-mode-paste").check()
+                expect(page.locator("#meeting-paste-panel")).to_be_visible()
+                expect(page.locator("#meeting-transcript")).to_be_enabled()
+                _assert_bounded_employee_shell(page)
+                assert page_errors == []
             finally:
                 context.close()
                 browser.close()
