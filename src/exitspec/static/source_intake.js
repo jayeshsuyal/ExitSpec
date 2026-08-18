@@ -2087,7 +2087,15 @@
         throw new SafeRequestError(200, true);
       }
       applyDraft(draft, sourceList);
-      await Promise.all([loadSttDisclosure(), loadMeetingSession()]);
+      if (preferredSource === "MEETING") {
+        await Promise.all([loadSttDisclosure(), loadMeetingSession()]);
+      } else {
+        meetingSessionUnavailable = true;
+        meetingSessionDisclosureCopy.textContent =
+          "Guided sessions require Meeting as the POC starting source. Paste a transcript instead.";
+        await loadSttDisclosure();
+        renderSelectedSource();
+      }
     } catch {
       blockIntake(
         "The draft could not be validated. No source request is available."

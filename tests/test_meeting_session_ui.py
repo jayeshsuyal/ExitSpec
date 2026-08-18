@@ -179,6 +179,18 @@ def test_recovery_is_read_only_and_mutation_retries_keep_operation_keys():
     assert "console." not in javascript
 
 
+def test_guided_session_load_is_gated_by_the_poc_starting_source():
+    javascript = _asset(JS_PATH)
+    initialise = javascript.split(
+        "async function initialise()", 1
+    )[1].split("window.addEventListener", 1)[0]
+
+    assert 'preferredSource === "MEETING"' in initialise
+    assert "loadMeetingSession()" in initialise
+    assert "meetingSessionUnavailable = true" in initialise
+    assert "Paste a transcript instead" in initialise
+
+
 def test_session_failures_use_allowlisted_copy_and_never_reflect_raw_errors():
     javascript = _asset(JS_PATH)
     trusted = _function(
