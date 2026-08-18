@@ -5,7 +5,8 @@
 This document defines the first provider-neutral meeting-stream boundary, the
 Zoom RTMS capability decision checked on **2026-08-06**, the implemented
 synthetic-only authentication seam for opaque webhook bytes, and the
-implemented provider-neutral sealed-window-to-source bridge.
+implemented provider-neutral sealed-window-to-source bridge, and the
+implemented local synthetic meeting-session application boundary.
 
 The first platform integration will use **Zoom Realtime Media Streams (RTMS),
 transcript only**, for an explicitly synthetic meeting with consenting test
@@ -310,6 +311,16 @@ finalization within one service instance. It does not add a route, delete the
 private annex, or claim a cross-process durable completion record. See
 [MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md).
 
+The local synthetic
+[guided meeting-session API](MEETING_SESSION_API.md) now invokes that core
+through an injected, server-owned adapter. It exposes disclosure, consent,
+start, draft-now, and content-free recovery routes while keeping meeting IDs,
+participant IDs, transcript events, transport proofs, and downstream authority
+out of browser input and output. Its default adapter is fixed and synthetic,
+makes no network call, and reports `provider_connected=false`; this is not a
+Zoom integration claim. The product UI and golden-fixture-pinned Zoom adapter
+remain deferred.
+
 No raw audio is requested. Customer meetings, customer identities, and customer
 data are prohibited until Wave 7B passes.
 
@@ -390,9 +401,13 @@ or product decision. No sanitized repository fixture is claimed yet.
    the source bridge, and return one digest-bound zero-authority result. This is
    process-local coordination, not the live Zoom transport or a cross-process
    exactly-once claim.
-9. **Guided product UI:** connect, consent, capture, draft-now,
+9. **Guided meeting-session API (implemented, synthetic only):** a
+   provider-neutral server-owned adapter seam, disclosure, consent, start,
+   draft-now, content-free recovery, exact replay, and existing review-queue
+   handoff with no Zoom connection claim.
+10. **Guided product UI:** connect, consent, capture, draft-now,
    finalization, and safe recovery states without changing the product spine.
-10. **Synthetic live E2E and hardening:** one real Zoom meeting with two
+11. **Synthetic live E2E and hardening:** one real Zoom meeting with two
    consenting synthetic participants completes the existing ExitSpec demo loop.
 
 ## Exit gate for the complete Zoom train

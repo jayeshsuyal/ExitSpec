@@ -397,6 +397,7 @@ repository yet.
 - [Provider boundary](docs/PROVIDER_SPEC.md)
 - [Speech-to-text boundary, Fireworks adapter, and handoff](docs/STT_SPEC.md)
 - [Provider-neutral meeting connector and Zoom RTMS plan](docs/MEETING_CONNECTOR_SPEC.md)
+- [Guided synthetic meeting-session API](docs/MEETING_SESSION_API.md)
 - [Meeting sealed-window source handoff](docs/MEETING_SOURCE_HANDOFF_SPEC.md)
 - [Meeting synthetic inbox-to-source orchestration](docs/MEETING_SOURCE_ORCHESTRATION_SPEC.md)
 - [Zoom webhook authentication boundary](docs/ZOOM_WEBHOOK_AUTH_SPEC.md)
