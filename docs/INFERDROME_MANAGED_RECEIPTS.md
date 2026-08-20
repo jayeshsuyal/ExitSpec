@@ -71,10 +71,10 @@ HTTP transport retry behavior, so neither the contract nor receipt claims zero
 transport retries.
 
 Recognized evidence that does not match the requested customer slice yields
-`NOT_PROVEN`. A configured-concurrency-8 contract cannot be satisfied by this
-configured-concurrency-4 run. Likewise, native
-`vllm_first_choices_event_v0_26` cannot satisfy
-`first_nonempty_choices_delta_content_v1`.
+`NOT_PROVEN`. In the canonical demonstration, native
+`vllm_first_choices_event_v0_26` cannot satisfy the unavailable
+`first_nonempty_choices_delta_content_v1` observation. No metric is silently
+substituted, even though the same run supports the reliability rule.
 
 ## Receipt integrity
 
@@ -86,3 +86,25 @@ separately for publication and transport verification.
 
 Rejected, corrupt, unsafe, unsupported, synthetic, or ineligible evidence gets
 no acceptance verdict and no receipt.
+
+## Deterministic A10 demonstration
+
+The checked-in [portable demonstration](../examples/inference-performance/inferdrome-a10/readme.md)
+contains three independently frozen contracts, confirmations, v2 receipts, and
+customer Evidence Packs over the same unchanged bundle:
+
+| Customer question | Expected result |
+|---|---|
+| Configured concurrency 4, native p95 TTFT below 20 ms | `PASS` |
+| Configured concurrency 4, native p95 TTFT below 10 ms | `FAIL` |
+| Configured concurrency 4, first-nonempty-content p95 TTFT below 20 ms | `NOT_PROVEN` |
+
+Its canonical `manifest.json` records every contract hash, receipt ID, receipt
+SHA-256, and the independent `14,797,213 ns` recalculation. The corrupt fixture
+is recorded as ingestion `INTEGRITY_MISMATCH`; the synthetic fixture is
+recorded as `EVIDENCE_INELIGIBLE`. Both carry a null acceptance verdict and
+`receipt_emitted: false`.
+
+The raw archive is deliberately absent. An exact byte-for-byte regeneration
+test runs locally when `EXITSPEC_INFERDROME_A10_ARCHIVE` names the retained
+archive. CI still validates every portable artifact without that private input.
