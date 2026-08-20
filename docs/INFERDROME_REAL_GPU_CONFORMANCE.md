@@ -28,12 +28,20 @@ The raw archive is not committed here. Inferdrome classified it
 `EXTERNAL_ONLY` pending owner licensing, privacy, and publication approval.
 The offline conformance test accepts it only through the
 `EXITSPEC_INFERDROME_A10_ARCHIVE` environment variable, checks its exact size
-and checksum before parsing, and manually materializes only bounded regular
-files and directories into a new private directory. No browser upload or
-runtime download is authorized.
+and checksum before parsing, scans every archive member against fixed resource
+and path limits, and selectively materializes only the real bundle, the two
+rejection fixtures, and required outer provenance documents into a new private
+directory. No browser upload or runtime download is authorized. The caller owns
+that successful extraction directory and must remove it after the offline gate.
 
-At this commit the exact real bundle intentionally still rejects with
-`INTERNAL_INCONSISTENCY` because `local_gpu_proof` has not yet been granted
-consumer acceptance authority. The next bounded verifier change must validate
-that field against the pinned schema and semantic profile before the unchanged
-bundle can enter applicability evaluation.
+The unchanged real bundle now passes profile-aware ingestion verification.
+ExitSpec validates the local proof schema, replays its GPU/process CSV and argv
+relationships, cross-binds its declared environment to the bundle, and binds
+all native vLLM arrays back to the 100 canonical request records before
+recalculating p95 as `14,797,213 ns`.
+
+This result means the sealed producer evidence is internally consistent. It is
+not hardware or execution attestation, it does not prove exact achieved
+concurrency, and it does not release an acceptance verdict. The retained run
+proves configured maximum concurrency 4 and remains retrospective. Contract
+applicability and immutable ExitSpec receipts are separate consumer steps.

@@ -45,6 +45,9 @@ PINNED_ARCHIVE_SHA256: Final = (
     "sha256:f2408fd0649a7c79f5962872003781ebb9c878b802db27d633cf246f13b6f424"
 )
 PINNED_ARCHIVE_SIZE_BYTES: Final = 689_272
+PINNED_CAPTURE_MANIFEST_SHA256: Final = (
+    "sha256:1d4ea1e251c5a84a104333ab8579d580838701a70cc38b64b68c88f66266e0cb"
+)
 PINNED_BUNDLE_DIGEST: Final = (
     "sha256:bae216f2165eb06ae2e0f14d3cd852f8e0ebb381bf1f68c71072769b3c0c1675"
 )
@@ -172,6 +175,8 @@ def _require_exact_handoff(documents: dict[str, dict[str, Any]]) -> None:
         or review.get("publication_status") != "EXTERNAL_ONLY"
         or archive.get("sha256") != PINNED_ARCHIVE_SHA256
         or archive.get("compressed_size_bytes") != PINNED_ARCHIVE_SIZE_BYTES
+        or archive.get("capture_manifest_sha256")
+        != PINNED_CAPTURE_MANIFEST_SHA256
         or archive.get("bundle_member_path") != PINNED_BUNDLE_MEMBER_PATH
         or run.get("run_id") != PINNED_RUN_ID
         or run.get("bundle_digest") != PINNED_BUNDLE_DIGEST
@@ -245,6 +250,7 @@ __all__ = [
     "PINNED_ARCHIVE_SIZE_BYTES",
     "PINNED_BUNDLE_DIGEST",
     "PINNED_BUNDLE_MEMBER_PATH",
+    "PINNED_CAPTURE_MANIFEST_SHA256",
     "PINNED_CORRUPTED_MEMBER_PATH",
     "PINNED_NATIVE_TTFT_P95_NS",
     "PINNED_RUN_ID",

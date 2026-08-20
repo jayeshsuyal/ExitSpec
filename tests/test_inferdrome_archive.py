@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import tarfile
 from pathlib import Path
 
 import pytest
 
+from exitspec.canonical import canonical_json_bytes
 from exitspec.inferdrome_archive import (
     InferdromeArchiveErrorCode,
     InferdromeArchiveLimits,
@@ -23,6 +25,7 @@ from exitspec.inferdrome_profile import (
     PINNED_ARCHIVE_SHA256,
     PINNED_BUNDLE_DIGEST,
 )
+from tests.inferdrome_helpers import rehash_manifest
 
 
 REQUIRED_DIRECTORIES = (
@@ -124,6 +127,22 @@ def test_duplicate_archive_members_fail_closed(tmp_path):
     assert caught.value.code is InferdromeArchiveErrorCode.UNSAFE_ARCHIVE
 
 
+def test_portable_casefold_archive_collisions_fail_closed(tmp_path):
+    payload = _archive_bytes(
+        [
+            ("capture/Collision", tarfile.REGTYPE, b"first"),
+            ("capture/collision", tarfile.REGTYPE, b"second"),
+        ]
+    )
+    archive_path = tmp_path / "collision.tar.gz"
+    archive_path.write_bytes(payload)
+
+    with pytest.raises(InferdromeArchiveRejected) as caught:
+        _extract_test_archive(archive_path, tmp_path / "out")
+
+    assert caught.value.code is InferdromeArchiveErrorCode.UNSAFE_ARCHIVE
+
+
 def test_archive_resource_limits_fail_before_materialization(tmp_path):
     payload = _archive_bytes(
         [("capture/oversized", tarfile.REGTYPE, b"12345")]
@@ -170,7 +189,7 @@ def test_wrong_archive_checksum_rejects_before_extraction(tmp_path):
     assert not (tmp_path / "out").exists()
 
 
-def test_exact_external_a10_archive_reproduces_pre_extension_rejection(tmp_path):
+def test_exact_external_a10_archive_passes_managed_profile_verification(tmp_path):
     raw_path = os.environ.get("EXITSPEC_INFERDROME_A10_ARCHIVE")
     if raw_path is None:
         pytest.skip("exact external A10 archive is not available")
@@ -188,15 +207,84 @@ def test_exact_external_a10_archive_reproduces_pre_extension_rejection(tmp_path)
         extracted.directory_count,
         extracted.expanded_bytes,
     ) == (402, 310, 92, 3_137_959)
-    with pytest.raises(InferdromeBundleRejected) as caught:
-        verify_inferdrome_bundle(
-            extracted.bundle_path,
-            expected_bundle_digest=PINNED_BUNDLE_DIGEST,
-        )
-    assert caught.value.code is InferdromeBundleErrorCode.INTERNAL_INCONSISTENCY
-    assert str(caught.value) == (
-        "Inferdrome producer invocation field set is unsupported."
+    verified = verify_inferdrome_bundle(
+        extracted.bundle_path,
+        expected_bundle_digest=PINNED_BUNDLE_DIGEST,
     )
+
+    assert verified.bundle_digest == PINNED_BUNDLE_DIGEST
+    assert verified.managed_profile is not None
+    assert verified.managed_profile.claims_assurance == "INTERNAL_CONSISTENCY_ONLY"
+    assert verified.managed_profile.gpu_models == ("NVIDIA A10",)
+    assert verified.recalculated.attempted_count == 100
+    assert verified.recalculated.successful_count == 100
+    assert verified.recalculated.failed_count == 0
+    assert verified.recalculated.p95_ttft_ns == 14_797_213
+    assert (extracted.root / "capture" / "capture-manifest.json").is_file()
+    assert not (extracted.root / "capture" / "comparison").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "mutator"),
+    [
+        ("ttfts", lambda value: value.__setitem__(0, value[0] + 0.001)),
+        ("itls", lambda value: value[0].__setitem__(0, value[0][0] + 0.001)),
+        ("start_times", lambda value: value.__setitem__(0, value[0] + 0.001)),
+        ("input_lens", lambda value: value.__setitem__(0, value[0] + 1)),
+        ("output_lens", lambda value: value.__setitem__(0, value[0] + 1)),
+        ("generated_texts", lambda value: value.__setitem__(0, value[0] + "x")),
+        ("errors", lambda value: value.__setitem__(0, "injected failure")),
+    ],
+)
+def test_managed_native_arrays_are_independently_bound_to_records(
+    field,
+    mutator,
+    tmp_path,
+):
+    extracted = _extract_exact_archive_or_skip(tmp_path)
+    bundle = extracted.bundle_path
+    native_path = bundle / "native" / "benchmark-result.json"
+    native = json.loads(native_path.read_bytes())
+    mutator(native[field])
+    _rewrite_native_and_reseal(bundle, native)
+
+    with pytest.raises(InferdromeBundleRejected) as caught:
+        verify_inferdrome_bundle(bundle)
+
+    assert caught.value.code is InferdromeBundleErrorCode.INTERNAL_INCONSISTENCY
+
+
+def test_managed_native_nonfinite_number_is_rejected_with_numeric_limits(tmp_path):
+    extracted = _extract_exact_archive_or_skip(tmp_path)
+    bundle = extracted.bundle_path
+    native_path = bundle / "native" / "benchmark-result.json"
+    native = json.loads(native_path.read_bytes())
+    native["duration"] = float("inf")
+    _rewrite_native_and_reseal(bundle, native)
+
+    with pytest.raises(InferdromeBundleRejected) as caught:
+        verify_inferdrome_bundle(bundle)
+
+    assert caught.value.code is InferdromeBundleErrorCode.SCHEMA_INVALID
+
+
+def test_managed_native_oversized_exponent_is_rejected_with_numeric_limits(
+    tmp_path,
+):
+    extracted = _extract_exact_archive_or_skip(tmp_path)
+    bundle = extracted.bundle_path
+    native = json.loads(
+        (bundle / "native" / "benchmark-result.json").read_bytes()
+    )
+    native["duration"] = "EXITSPEC_OVERSIZED_DECIMAL"
+    native_bytes = json.dumps(native, separators=(",", ":")).encode("utf-8")
+    native_bytes = native_bytes.replace(b'"EXITSPEC_OVERSIZED_DECIMAL"', b"1e9999")
+    _rewrite_native_bytes_and_reseal(bundle, native_bytes)
+
+    with pytest.raises(InferdromeBundleRejected) as caught:
+        verify_inferdrome_bundle(bundle)
+
+    assert caught.value.code is InferdromeBundleErrorCode.SCHEMA_INVALID
 
 
 def _extract_test_archive(
@@ -213,6 +301,30 @@ def _extract_test_archive(
         expected_size_bytes=len(payload),
         limits=limits or _limits_for(payload),
     )
+
+
+def _extract_exact_archive_or_skip(tmp_path: Path):
+    raw_path = os.environ.get("EXITSPEC_INFERDROME_A10_ARCHIVE")
+    if raw_path is None:
+        pytest.skip("exact external A10 archive is not available")
+    return extract_pinned_inferdrome_archive(Path(raw_path), tmp_path / "a10")
+
+
+def _rewrite_native_and_reseal(bundle: Path, native: dict[str, object]) -> None:
+    native_bytes = json.dumps(native, separators=(",", ":")).encode("utf-8")
+    _rewrite_native_bytes_and_reseal(bundle, native_bytes)
+
+
+def _rewrite_native_bytes_and_reseal(bundle: Path, native_bytes: bytes) -> None:
+    native_path = bundle / "native" / "benchmark-result.json"
+    native_path.write_bytes(native_bytes)
+    execution_path = bundle / "execution.json"
+    execution = json.loads(execution_path.read_bytes())
+    execution["native_result_sha256"] = (
+        "sha256:" + hashlib.sha256(native_bytes).hexdigest()
+    )
+    execution_path.write_bytes(canonical_json_bytes(execution))
+    rehash_manifest(bundle, {"native/benchmark-result.json", "execution.json"})
 
 
 def _limits_for(payload: bytes) -> InferdromeArchiveLimits:

@@ -9,26 +9,45 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import shutil
 import stat
 import tarfile
+import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Final, NoReturn
 
 from .inferdrome_profile import (
+    CAPTURE_PRODUCER_COMMIT,
     PINNED_ARCHIVE_SHA256,
     PINNED_ARCHIVE_SIZE_BYTES,
     PINNED_BUNDLE_MEMBER_PATH,
+    PINNED_BUNDLE_DIGEST,
+    PINNED_CAPTURE_MANIFEST_SHA256,
     PINNED_CORRUPTED_MEMBER_PATH,
+    PINNED_RUN_ID,
     PINNED_SYNTHETIC_MEMBER_PATH,
 )
 
 
 _TAGGED_SHA256: Final = "sha256:"
 _READ_CHUNK_BYTES: Final = 1024 * 1024
+_MAX_MEMBER_NAME_CHARACTERS: Final = 4_096
+_SELECTED_MEMBER_ROOTS: Final = (
+    PINNED_BUNDLE_MEMBER_PATH,
+    PINNED_CORRUPTED_MEMBER_PATH,
+    PINNED_SYNTHETIC_MEMBER_PATH,
+)
+_SELECTED_OUTER_MEMBERS: Final = frozenset(
+    {
+        "capture/capture-manifest.json",
+        "capture/support/host-preparation.json",
+        "capture/single/real-gpu-5osfyjjl/demo-receipt.json",
+    }
+)
 
 
 class InferdromeArchiveErrorCode(str, Enum):
@@ -93,6 +112,7 @@ class _ArchiveMember:
     name: str
     size: int
     is_file: bool
+    materialize: bool
 
 
 def extract_pinned_inferdrome_archive(
@@ -162,6 +182,8 @@ def extract_pinned_inferdrome_archive(
                 InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
                 "Inferdrome archive changed during extraction.",
             )
+        if hmac.compare_digest(expected_sha256, PINNED_ARCHIVE_SHA256):
+            _verify_pinned_outer_provenance(destination)
     except InferdromeArchiveRejected:
         if created:
             shutil.rmtree(destination, ignore_errors=True)
@@ -210,6 +232,7 @@ def _scan_archive(
 ) -> tuple[list[_ArchiveMember], tuple[int, int, int, int]]:
     members: list[_ArchiveMember] = []
     seen: set[str] = set()
+    seen_portable: set[str] = set()
     file_count = 0
     directory_count = 0
     expanded_bytes = 0
@@ -221,12 +244,14 @@ def _scan_archive(
                     "Inferdrome archive member limit was exceeded.",
                 )
             name = _safe_member_name(raw.name, limits.max_depth)
-            if name in seen:
+            portable_name = unicodedata.normalize("NFC", name).casefold()
+            if name in seen or portable_name in seen_portable:
                 _reject(
                     InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
-                    "Inferdrome archive contains a duplicate member path.",
+                    "Inferdrome archive contains a colliding member path.",
                 )
             seen.add(name)
+            seen_portable.add(portable_name)
             if raw.isfile():
                 if raw.sparse:
                     _reject(
@@ -260,9 +285,19 @@ def _scan_archive(
             else:
                 _reject(
                     InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
-                    "Inferdrome archive links, devices, and special files are forbidden.",
+                    (
+                        "Inferdrome archive links, devices, and special files "
+                        "are forbidden."
+                    ),
                 )
-            members.append(_ArchiveMember(name=name, size=raw.size, is_file=is_file))
+            members.append(
+                _ArchiveMember(
+                    name=name,
+                    size=raw.size,
+                    is_file=is_file,
+                    materialize=_selected_member(name),
+                )
+            )
     counts = (len(members), file_count, directory_count, expanded_bytes)
     return members, counts
 
@@ -287,6 +322,8 @@ def _materialize_archive(
                     InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
                     "Inferdrome archive changed between scan and extraction.",
                 )
+            if not expected.materialize:
+                continue
             target = destination.joinpath(*PurePosixPath(name).parts)
             _require_beneath(destination, target)
             if expected.is_file:
@@ -329,6 +366,7 @@ def _safe_member_name(value: str, max_depth: int) -> str:
     if (
         type(value) is not str
         or not value
+        or len(value) > _MAX_MEMBER_NAME_CHARACTERS
         or "\\" in value
         or "\x00" in value
         or any(ord(character) < 32 for character in value)
@@ -349,6 +387,117 @@ def _safe_member_name(value: str, max_depth: int) -> str:
             "Inferdrome archive member path escapes its capture root.",
         )
     return logical.as_posix()
+
+
+def _selected_member(name: str) -> bool:
+    return name in _SELECTED_OUTER_MEMBERS or any(
+        name == root or name.startswith(f"{root}/")
+        for root in _SELECTED_MEMBER_ROOTS
+    )
+
+
+def _verify_pinned_outer_provenance(root: Path) -> None:
+    capture_path = root / "capture" / "capture-manifest.json"
+    receipt_path = (
+        root / "capture" / "single" / "real-gpu-5osfyjjl" / "demo-receipt.json"
+    )
+    host_path = root / "capture" / "support" / "host-preparation.json"
+    capture_bytes = _bounded_outer_bytes(capture_path)
+    receipt_bytes = _bounded_outer_bytes(receipt_path)
+    host_bytes = _bounded_outer_bytes(host_path)
+    if not hmac.compare_digest(
+        _sha256_tagged(capture_bytes), PINNED_CAPTURE_MANIFEST_SHA256
+    ):
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+            "Inferdrome capture manifest digest does not match its handoff pin.",
+        )
+    capture = _strict_outer_object(capture_bytes)
+    receipt = _strict_outer_object(receipt_bytes)
+    host = _strict_outer_object(host_bytes)
+    single = capture.get("single") if type(capture.get("single")) is dict else {}
+    support = capture.get("support") if type(capture.get("support")) is dict else {}
+    host_claim = (
+        support.get("host_preparation")
+        if type(support.get("host_preparation")) is dict
+        else {}
+    )
+    if (
+        capture.get("schema_version") != "inferdrome.real-gpu-capture.v1"
+        or capture.get("repository_commit") != CAPTURE_PRODUCER_COMMIT
+        or capture.get("acceptance_boundary") != "PENDING_EXTERNAL_EXITSPEC"
+        or single.get("receipt_path")
+        != "single/real-gpu-5osfyjjl/demo-receipt.json"
+        or single.get("receipt_sha256") != _sha256_tagged(receipt_bytes)
+        or host_claim.get("path") != "support/host-preparation.json"
+        or host_claim.get("sha256") != _sha256_tagged(host_bytes)
+        or receipt.get("repository_commit") != CAPTURE_PRODUCER_COMMIT
+        or receipt.get("acceptance_boundary") != "PENDING_EXTERNAL_EXITSPEC"
+        or receipt.get("bundle_digest") != PINNED_BUNDLE_DIGEST
+        or receipt.get("run_id") != PINNED_RUN_ID
+        or host.get("repository_commit") != CAPTURE_PRODUCER_COMMIT
+    ):
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+            "Inferdrome outer provenance claims are inconsistent.",
+        )
+
+
+def _bounded_outer_bytes(path: Path) -> bytes:
+    try:
+        content = path.read_bytes()
+    except OSError as error:
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+            "Inferdrome outer provenance document is unavailable.",
+            error,
+        )
+    if not content or len(content) > 1_048_576:
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_LIMIT_EXCEEDED,
+            "Inferdrome outer provenance document exceeds its limit.",
+        )
+    return content
+
+
+def _strict_outer_object(content: bytes) -> dict[str, object]:
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate outer provenance key")
+            result[key] = value
+        return result
+
+    def reject_constant(value: str) -> NoReturn:
+        raise ValueError(f"unsupported numeric constant: {value}")
+
+    def reject_float(value: str) -> NoReturn:
+        raise ValueError(f"unsupported decimal: {value}")
+
+    try:
+        value = json.loads(
+            content,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+            parse_float=reject_float,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+            "Inferdrome outer provenance document is invalid JSON.",
+            error,
+        )
+    if type(value) is not dict:
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+            "Inferdrome outer provenance document must be an object.",
+        )
+    return value
+
+
+def _sha256_tagged(content: bytes) -> str:
+    return _TAGGED_SHA256 + hashlib.sha256(content).hexdigest()
 
 
 def _require_beneath(root: Path, target: Path) -> None:

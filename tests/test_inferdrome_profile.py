@@ -5,9 +5,11 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 import exitspec.inferdrome_archive as archive_module
+import exitspec.inferdrome_managed_profile as managed_profile_module
 import exitspec.inferdrome_profile as profile_module
 from exitspec.inferdrome_profile import (
     HANDOFF_MANIFEST_SHA256,
@@ -16,6 +18,11 @@ from exitspec.inferdrome_profile import (
     PUBLICATION_REVIEW_SHA256,
     canonical_document_sha256,
     load_pinned_inferdrome_profile_documents,
+)
+from exitspec.inferdrome_managed_profile import (
+    ManagedInferdromeProfileError,
+    validate_managed_invocation_profile,
+    validate_managed_local_gpu_proof,
 )
 
 
@@ -87,8 +94,116 @@ def test_vendored_local_gpu_proof_conformance_vectors_match_public_schema():
         assert (not list(validator.iter_errors(value))) is case["schema_valid"]
 
 
+def test_every_public_managed_profile_conformance_vector_is_replayed():
+    cases = json.loads((FIXTURE_ROOT / "cases.json").read_bytes())
+
+    for case in cases:
+        value = json.loads((FIXTURE_ROOT / case["fixture"]).read_bytes())
+        mutation = case.get("mutation")
+        if mutation is not None:
+            value = _mutate(value, mutation)
+        validator = (
+            validate_managed_local_gpu_proof
+            if case["kind"] == "local_gpu_proof"
+            else validate_managed_invocation_profile
+        )
+        try:
+            validator(value)
+        except ManagedInferdromeProfileError:
+            profile_valid = False
+        else:
+            profile_valid = True
+        assert profile_valid is case["profile_valid"], case["name"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"operation": "replace", "path": "/torch_cuda_device_count", "value": 0},
+        {
+            "operation": "replace",
+            "path": "/gpu_query_argv/3",
+            "value": "--id=1",
+        },
+        {
+            "operation": "replace",
+            "path": "/server/process_group_id",
+            "value": 1201,
+        },
+        {
+            "operation": "replace",
+            "path": "/server/gpu_processes/0/process_group_id",
+            "value": 1201,
+        },
+        {
+            "operation": "replace",
+            "path": "/server/ready_at",
+            "value": "2026-08-20T00:03:00Z",
+        },
+        {
+            "operation": "replace",
+            "path": "/model_snapshot/kind",
+            "value": "tokenizer",
+        },
+        {
+            "operation": "replace",
+            "path": "/producer_distribution/source_wheel_filename",
+            "value": "wrong.whl",
+        },
+        {
+            "operation": "replace",
+            "path": "/server/environment_overrides/0",
+            "value": "DO_NOT_TRACK=0",
+        },
+        {
+            "operation": "replace",
+            "path": "/server/endpoint",
+            "value": "http://127.0.0.1:70000",
+        },
+    ],
+)
+def test_managed_local_gpu_semantic_constraints_fail_closed(mutation):
+    value = json.loads(
+        (FIXTURE_ROOT / "valid" / "local-gpu-proof.json").read_bytes()
+    )
+
+    with pytest.raises(ManagedInferdromeProfileError):
+        validate_managed_local_gpu_proof(_mutate(value, mutation))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {
+            "operation": "replace",
+            "path": "/server/argv/3",
+            "value": "0.0.0.0",
+        },
+        {
+            "operation": "replace",
+            "path": "/tokenizer_snapshot/root",
+            "value": "/opt/inferdrome/models/other",
+        },
+        {
+            "operation": "replace",
+            "path": "/server/endpoint",
+            "value": "http://127.0.0.1:18081",
+        },
+    ],
+)
+def test_managed_invocation_cross_bindings_fail_closed(mutation):
+    value = json.loads(
+        (FIXTURE_ROOT / "valid" / "managed-vllm-invocation.json").read_bytes()
+    )
+
+    with pytest.raises(ManagedInferdromeProfileError):
+        validate_managed_invocation_profile(
+            _mutate(value, {**mutation, "path": "/local_gpu_proof" + mutation["path"]})
+        )
+
+
 def test_consumer_profile_and_archive_modules_import_no_inferdrome_runtime():
-    for module in (profile_module, archive_module):
+    for module in (profile_module, archive_module, managed_profile_module):
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         names = {
             alias.name
