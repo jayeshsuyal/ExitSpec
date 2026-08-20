@@ -44,4 +44,5 @@ This result means the sealed producer evidence is internally consistent. It is
 not hardware or execution attestation, it does not prove exact achieved
 concurrency, and it does not release an acceptance verdict. The retained run
 proves configured maximum concurrency 4 and remains retrospective. Contract
-applicability and immutable ExitSpec receipts are separate consumer steps.
+applicability and immutable ExitSpec receipts use the separate
+[managed receipt v2 path](INFERDROME_MANAGED_RECEIPTS.md).

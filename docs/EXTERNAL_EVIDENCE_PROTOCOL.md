@@ -235,6 +235,10 @@ boundary while preserving honest insufficiency inside acceptance evaluation.
 
 External evidence is always untrusted input.
 
+The first profile-specific implementation of these rules is documented in
+[Managed Inferdrome receipts](INFERDROME_MANAGED_RECEIPTS.md). It is a separate
+retrospective v2 receipt path and does not change the existing v1 importer.
+
 Hashes and a sealed bundle can prove internal byte consistency and detect
 mutation after publication. Alone, they do not prove:
 
