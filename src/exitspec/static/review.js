@@ -219,6 +219,8 @@
 
   function evidenceMethodLabel(value) {
     return {
+      EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION:
+        "Evaluate with ExitSpec · deterministic tool-selection fixture",
       EXIT_SPEC_STREAMING_PROBE: "Run from ExitSpec · first non-empty content",
       INFERDROME_EXTERNAL_BUNDLE: "Import sealed Inferdrome evidence · native vLLM semantics",
     }[value] || "";
@@ -1089,7 +1091,7 @@
   const MOCK_REVIEW = {
     review_id: "local-synthetic-review",
     status: "PENDING",
-    evidence_method: "EXIT_SPEC_STREAMING_PROBE",
+    evidence_method: "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION",
     poc: {
       title: "Support-agent tool selection POC",
       customer_name: "Northstar Support (synthetic)",
@@ -1097,7 +1099,7 @@
     contract: {
       id: "support-agent-poc",
       version: "3",
-      evidence_method: "EXIT_SPEC_STREAMING_PROBE",
+      evidence_method: "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION",
       excluded: [
         "Production rollout or traffic expansion",
         "Security, legal, and procurement approval",

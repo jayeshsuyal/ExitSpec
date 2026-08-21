@@ -245,7 +245,14 @@ def test_recording_mode_is_query_driven_and_enters_the_define_workflow():
     assert "body.recording-mode .source-details" in styles
     assert "body.recording-mode .proof-workspace" in styles
     assert "body.recording-mode .custody-rail {\n  display: block;" in styles
+    assert ".global-nav {\n  display: flex;\n  align-items: center;\n  gap: 28px;" in styles
+    assert "position: sticky;\n  z-index: 2;\n  bottom: 0;" in styles
     assert '$("#recording-restart").addEventListener("click", resetDemo)' in javascript
+    assert (
+        'EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION:\n'
+        '        "Evaluate with ExitSpec · deterministic tool-selection fixture"'
+        in (STATIC_ROOT / "review.js").read_text(encoding="utf-8")
+    )
 
 
 def test_customer_confirmation_returns_only_to_valid_seeded_or_dynamic_pocs():
