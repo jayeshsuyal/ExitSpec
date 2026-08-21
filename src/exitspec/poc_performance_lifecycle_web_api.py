@@ -4,16 +4,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from http import HTTPStatus
+import hashlib
 import re
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
+from .canonical import canonical_json_bytes
 from .confirmations import ConfirmationDecision, ContractConfirmation
+from .inferdrome_bundle import verify_inferdrome_bundle
+from .inferdrome_catalog import (
+    InferdromeBundleCatalog,
+    InferdromeCatalogError,
+)
 from .models import (
     ContractStatus,
     InferencePerformanceCriterionV2,
+    InferencePerformanceCriterionV3,
     POCContract,
 )
 from .performance_population import measurement_policy_sha256
@@ -21,6 +29,10 @@ from .poc_contract_definition import (
     ProcessLocalContractDefinitionService,
 )
 from .poc_creation import POC_ID_PATTERN
+from .poc_managed_inferdrome_contract import (
+    ManagedInferdromeEvidenceProjection,
+    project_managed_inferdrome_evidence,
+)
 from .poc_performance_contract import PerformanceTargetInput
 from .poc_performance_lifecycle import (
     AgreementPreparation,
@@ -50,6 +62,10 @@ _PREPARE_FIELDS = {
     "reviewer",
     "target_provider",
     "evidence_method",
+}
+_PREPARE_MANAGED_FIELDS = _PREPARE_FIELDS | {
+    "inferdrome_run_id",
+    "inferdrome_bundle_digest",
 }
 _FREEZE_FIELDS = {"idempotency_key"}
 _REISSUE_REVIEW_FIELDS = {"idempotency_key"}
@@ -85,6 +101,7 @@ def handle_performance_lifecycle_web_api_request(
     lifecycle: ProcessLocalPerformanceLifecycleService,
     proposals: ProcessLocalProposalReviewService,
     definitions: ProcessLocalContractDefinitionService,
+    inferdrome_catalog: InferdromeBundleCatalog | None = None,
 ) -> PerformanceLifecycleWebAPIResponse | None:
     if type(lifecycle) is not ProcessLocalPerformanceLifecycleService:
         raise TypeError("lifecycle runtime is invalid.")
@@ -92,13 +109,24 @@ def handle_performance_lifecycle_web_api_request(
         raise TypeError("proposal runtime is invalid.")
     if type(definitions) is not ProcessLocalContractDefinitionService:
         raise TypeError("definition runtime is invalid.")
+    if inferdrome_catalog is not None and type(
+        inferdrome_catalog
+    ) is not InferdromeBundleCatalog:
+        raise TypeError("Inferdrome catalog is invalid.")
     if not is_performance_lifecycle_web_api_target(target):
         return None
     try:
         path = _exact_path(target)
         poc_id, action = _parse_path(path)
         if method == "GET":
-            if payload is not None or action is not None:
+            if payload is not None:
+                raise PerformanceLifecycleWebAPIRequestError
+            if action == "managed-evidence":
+                proposals.list_proposals(poc_id)
+                if inferdrome_catalog is None:
+                    raise PerformanceLifecycleError
+                return _ok(_managed_evidence_payload(inferdrome_catalog))
+            if action is not None:
                 raise PerformanceLifecycleWebAPIRequestError
             return _ok(
                 _snapshot_payload(
@@ -112,7 +140,7 @@ def handle_performance_lifecycle_web_api_request(
             body = _object(payload)
             if action is None:
                 if (
-                    set(body) != _PREPARE_FIELDS
+                    set(body) not in (_PREPARE_FIELDS, _PREPARE_MANAGED_FIELDS)
                     or any(type(key) is not str for key in body)
                 ):
                     raise PerformanceLifecycleWebAPIRequestError
@@ -124,6 +152,10 @@ def handle_performance_lifecycle_web_api_request(
                         endpoint=body["endpoint"],
                         model=body["model"],
                         evidence_method=body["evidence_method"],
+                        inferdrome_run_id=body.get("inferdrome_run_id"),
+                        inferdrome_bundle_digest=body.get(
+                            "inferdrome_bundle_digest"
+                        ),
                     ),
                     reviewer=body["reviewer"],
                     rationale=body["rationale"],
@@ -270,7 +302,13 @@ def _parse_path(path: str) -> tuple[str, str | None]:
     ):
         raise PerformanceLifecycleWebAPIRequestError
     action = None if len(parts) == 4 else parts[4]
-    if action not in {None, "freeze", "review", "revision"}:
+    if action not in {
+        None,
+        "freeze",
+        "managed-evidence",
+        "review",
+        "revision",
+    }:
         raise PerformanceLifecycleWebAPIRequestError
     return parts[2], action
 
@@ -387,7 +425,7 @@ def _snapshot_payload(
 def _preparation_payload(preparation: object) -> dict[str, Any]:
     if type(preparation) is not AgreementPreparation:
         raise PerformanceLifecycleError
-    return {
+    payload = {
         "draft_id": preparation.draft_id,
         "draft_sha256": preparation.draft_sha256,
         "created_at": preparation.prepared_at.isoformat(),
@@ -402,6 +440,16 @@ def _preparation_payload(preparation: object) -> dict[str, Any]:
         "reviewer": preparation.reviewer,
         "rationale": preparation.rationale,
     }
+    if preparation.target.inferdrome_run_id is not None:
+        payload.update(
+            {
+                "inferdrome_run_id": preparation.target.inferdrome_run_id,
+                "inferdrome_bundle_digest": (
+                    preparation.target.inferdrome_bundle_digest
+                ),
+            }
+        )
+    return payload
 
 
 def _revision_payload(revision: AgreementRevision) -> dict[str, Any]:
@@ -425,24 +473,135 @@ def _counting_policy_payload(
         for criterion in preparation.approved_contract.criteria
         if type(criterion) is InferencePerformanceCriterionV2
     )
-    if len(criteria) != 1:
+    if len(criteria) == 1:
+        criterion = criteria[0]
+        policy = criterion.measurement_policy
+        measured = policy.measured_population
+        return {
+            "schema_version": policy.schema_version,
+            "policy_sha256": measurement_policy_sha256(criterion),
+            "exact_attempts": measured.exact_attempts,
+            "warmups_included": measured.warmups_included,
+            "preflight_included": measured.preflight_included,
+            "retries": measured.retries,
+            "latency_population": policy.latency_population.population,
+            "latency_failed_attempts": policy.latency_population.failed_attempts,
+            "reliability_denominator": policy.reliability.denominator,
+            "external_error_outcomes": list(policy.reliability.outcomes),
+            "invalid_evidence_disposition": (
+                policy.invalid_evidence.disposition
+            ),
+        }
+    managed = tuple(
+        criterion
+        for criterion in preparation.approved_contract.criteria
+        if type(criterion) is InferencePerformanceCriterionV3
+    )
+    if len(managed) != 1 or len(preparation.approved_contract.criteria) != 1:
         raise PerformanceLifecycleError
-    criterion = criteria[0]
-    policy = criterion.measurement_policy
-    measured = policy.measured_population
+    criterion = managed[0]
+    payload = {
+        "schema_version": "exitspec.inferdrome-managed-counting.v1",
+        "metric_definition_id": criterion.ttft_p95.definition_id,
+        "reducer_id": criterion.ttft_p95.reducer_id,
+        "latency_population": criterion.ttft_p95.population,
+        "minimum_successful_samples": (
+            criterion.ttft_p95.minimum_successful_samples
+        ),
+        "exact_attempts": criterion.error_rate.exact_attempts,
+        "reliability_numerator": criterion.error_rate.numerator,
+        "reliability_denominator": criterion.error_rate.denominator,
+        "error_threshold_basis_points": (
+            criterion.error_rate.threshold_basis_points
+        ),
+        "required_configured_max_concurrency": (
+            criterion.evidence_identity.configured_max_concurrency
+        ),
+        "concurrency_semantics": criterion.concurrency_semantics,
+        "warmup_requests": criterion.evidence_identity.warmup_requests,
+        "warmups_included": False,
+        "retry_behavior": "NOT_AVAILABLE",
+        "chronology": criterion.evidence_identity.chronology,
+        "producer_contract_link": (
+            criterion.evidence_identity.producer_contract_link
+        ),
+        "ingestion_failure_disposition": "INGESTION_REJECTED",
+        "compatible_insufficient_evidence_disposition": "NOT_PROVEN",
+    }
+    payload["policy_sha256"] = hashlib.sha256(
+        b"exitspec-inferdrome-managed-counting-v1\x00"
+        + canonical_json_bytes(payload)
+    ).hexdigest()
+    return payload
+
+
+def _managed_evidence_payload(
+    catalog: InferdromeBundleCatalog,
+) -> dict[str, Any]:
+    """Publish only pathless, independently verified pre-freeze profiles."""
+
+    try:
+        snapshot = catalog.refresh()
+    except InferdromeCatalogError as error:
+        raise PerformanceLifecycleError from error
+    profiles: list[dict[str, Any]] = []
+    unsupported = 0
+    for entry in snapshot.entries:
+        try:
+            resolved = catalog.resolve(entry.run_id, entry.bundle_digest)
+            verified = verify_inferdrome_bundle(
+                resolved.path,
+                expected_bundle_digest=entry.bundle_digest,
+                require_customer_eligible=True,
+            )
+            projection = project_managed_inferdrome_evidence(verified)
+        except (InferdromeCatalogError, OSError, TypeError, ValueError):
+            unsupported += 1
+            continue
+        profiles.append(_managed_evidence_profile(projection))
     return {
-        "schema_version": policy.schema_version,
-        "policy_sha256": measurement_policy_sha256(criterion),
-        "exact_attempts": measured.exact_attempts,
-        "warmups_included": measured.warmups_included,
-        "preflight_included": measured.preflight_included,
-        "retries": measured.retries,
-        "latency_population": policy.latency_population.population,
-        "latency_failed_attempts": policy.latency_population.failed_attempts,
-        "reliability_denominator": policy.reliability.denominator,
-        "external_error_outcomes": list(policy.reliability.outcomes),
-        "invalid_evidence_disposition": (
-            policy.invalid_evidence.disposition
+        "configured": snapshot.configured,
+        "profiles": profiles,
+        "rejected_count": len(snapshot.rejected) + unsupported,
+    }
+
+
+def _managed_evidence_profile(
+    projection: ManagedInferdromeEvidenceProjection,
+) -> dict[str, Any]:
+    return {
+        "profile_id": projection.managed_profile_id,
+        "display_name": "Managed vLLM · {0}".format(
+            " · ".join(projection.gpu_models)
+        ),
+        "run_id": projection.run_id,
+        "bundle_digest": projection.bundle_digest,
+        "target_provider": "inferdrome-managed-vllm",
+        "endpoint_class": "retained-loopback-vllm-benchmark",
+        "endpoint": projection.target_endpoint,
+        "model": projection.target_model,
+        "producer": "{0}@{1}".format(
+            projection.producer_name,
+            projection.producer_version,
+        ),
+        "adapter": "{0}@{1}".format(
+            projection.adapter_id,
+            projection.adapter_version,
+        ),
+        "metric_definition_id": projection.metric_definition_id,
+        "reducer_id": "nearest_rank_v1",
+        "measured_requests": projection.exact_measured_attempts,
+        "observed_configured_max_concurrency": (
+            projection.observed_configured_max_concurrency
+        ),
+        "warmup_requests": projection.warmup_requests,
+        "gpu_models": list(projection.gpu_models),
+        "chronology": "RETROSPECTIVE",
+        "claims_assurance": projection.claims_assurance,
+        "privacy": (
+            "SYNTHETIC_NATIVE_RESPONSE_CONTENT_RETAINED_SERVER_SIDE"
+            if projection.native_response_content_present
+            else "NO_NATIVE_RESPONSE_CONTENT"
         ),
     }
 
@@ -502,7 +661,7 @@ def _frozen_payload(
         or contract.frozen_at is None
     ):
         raise PerformanceLifecycleError
-    return {
+    payload = {
         "contract_id": contract.id,
         "contract_version": contract.version,
         "parent_version": contract.parent_version,
@@ -515,6 +674,16 @@ def _frozen_payload(
         "model": preparation.target.model,
         "evidence_method": preparation.target.evidence_method.value,
     }
+    if preparation.target.inferdrome_run_id is not None:
+        payload.update(
+            {
+                "inferdrome_run_id": preparation.target.inferdrome_run_id,
+                "inferdrome_bundle_digest": (
+                    preparation.target.inferdrome_bundle_digest
+                ),
+            }
+        )
+    return payload
 
 
 def _ok(payload: dict[str, Any]) -> PerformanceLifecycleWebAPIResponse:

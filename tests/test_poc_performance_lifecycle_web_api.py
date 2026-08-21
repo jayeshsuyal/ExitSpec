@@ -5,6 +5,7 @@ from http import HTTPStatus
 
 import pytest
 
+from exitspec.inferdrome_catalog import InferdromeBundleCatalog
 from exitspec.poc_contract_definition import (
     ContractDefinitionOperator,
     InferencePerformanceCriterionDefinition,
@@ -35,7 +36,13 @@ ROOT = f"/api/pocs/{POC_ID}/agreement"
 PROMPTS = b'{"id":"agreement-api-001","content":"Explain TTFT briefly."}\n'
 
 
-def _runtime(*, clock=None, source_store=None):
+def _runtime(
+    *,
+    clock=None,
+    source_store=None,
+    ttft_operator=ContractDefinitionOperator.LTE,
+    managed_evidence_lookup=None,
+):
     draft_service = ProcessLocalDraftPOCService(
         clock=lambda: NOW,
         poc_id_factory=lambda: POC_ID,
@@ -103,7 +110,7 @@ def _runtime(*, clock=None, source_store=None):
         source[0].proposal_id,
         InferencePerformanceCriterionDefinition(
             metric=InferencePerformanceMetric.TTFT_P95_MS,
-            operator=ContractDefinitionOperator.LTE,
+            operator=ttft_operator,
             threshold=500,
             **common,
         ),
@@ -125,6 +132,7 @@ def _runtime(*, clock=None, source_store=None):
         proposal_lookup=proposals.list_proposals,
         definition_lookup=definitions.definitions,
         prompt_bytes=PROMPTS,
+        managed_evidence_lookup=managed_evidence_lookup,
         clock=(lambda: NOW) if clock is None else clock,
     )
     return lifecycle, proposals, definitions
@@ -135,6 +143,8 @@ def _handle(
     method: str,
     target: str,
     payload=None,
+    *,
+    inferdrome_catalog=None,
 ):
     lifecycle, proposals, definitions = runtime
     response = handle_performance_lifecycle_web_api_request(
@@ -144,6 +154,7 @@ def _handle(
         lifecycle=lifecycle,
         proposals=proposals,
         definitions=definitions,
+        inferdrome_catalog=inferdrome_catalog,
     )
     assert response is not None
     return response
@@ -266,6 +277,90 @@ def test_external_evidence_method_is_projected_and_frozen_before_confirmation():
         "INFERDROME_EXTERNAL_BUNDLE"
     )
     assert snapshot.payload["frozen_contract"] is None
+
+
+def test_pathless_managed_evidence_catalog_is_available_before_prepare(tmp_path):
+    runs_root = tmp_path / "managed-evidence"
+    runs_root.mkdir()
+    before = _handle(
+        _runtime(),
+        "GET",
+        ROOT + "/managed-evidence",
+        inferdrome_catalog=InferdromeBundleCatalog(runs_root.resolve()),
+    )
+
+    assert before.status == HTTPStatus.OK
+    assert before.payload == {
+        "configured": True,
+        "profiles": [],
+        "rejected_count": 0,
+    }
+
+
+def test_managed_prepare_api_hash_binds_selection_and_projects_two_dispositions():
+    from tests.test_poc_managed_inferdrome_contract import _projection
+
+    projection = _projection()
+    runtime = _runtime(
+        ttft_operator=ContractDefinitionOperator.LT,
+        managed_evidence_lookup=lambda run_id, bundle_digest: projection,
+    )
+    prepared = _handle(
+        runtime,
+        "POST",
+        ROOT,
+        _prepare_body(
+            target_provider="inferdrome-managed-vllm",
+            endpoint_class="retained-loopback-vllm-benchmark",
+            endpoint=projection.target_endpoint,
+            model=projection.target_model,
+            evidence_method="INFERDROME_EXTERNAL_BUNDLE",
+            inferdrome_run_id=projection.run_id,
+            inferdrome_bundle_digest=projection.bundle_digest,
+            idempotency_key="prepare-managed-agreement-api",
+        ),
+    )
+    snapshot = _handle(runtime, "GET", ROOT)
+
+    assert prepared.status == HTTPStatus.CREATED
+    assert prepared.payload["draft"]["inferdrome_run_id"] == projection.run_id
+    assert prepared.payload["draft"]["inferdrome_bundle_digest"] == (
+        projection.bundle_digest
+    )
+    policy = snapshot.payload["counting_policy"]
+    assert set(policy) == {
+        "chronology",
+        "compatible_insufficient_evidence_disposition",
+        "concurrency_semantics",
+        "error_threshold_basis_points",
+        "exact_attempts",
+        "ingestion_failure_disposition",
+        "latency_population",
+        "metric_definition_id",
+        "minimum_successful_samples",
+        "policy_sha256",
+        "producer_contract_link",
+        "reducer_id",
+        "reliability_denominator",
+        "reliability_numerator",
+        "required_configured_max_concurrency",
+        "retry_behavior",
+        "schema_version",
+        "warmup_requests",
+        "warmups_included",
+    }
+    assert len(policy["policy_sha256"]) == 64
+    assert policy["schema_version"] == (
+        "exitspec.inferdrome-managed-counting.v1"
+    )
+    assert policy["metric_definition_id"] == (
+        "vllm_first_choices_event_v0_26"
+    )
+    assert policy["retry_behavior"] == "NOT_AVAILABLE"
+    assert policy["ingestion_failure_disposition"] == "INGESTION_REJECTED"
+    assert policy["compatible_insufficient_evidence_disposition"] == (
+        "NOT_PROVEN"
+    )
 
 
 def test_every_write_exposes_exact_idempotent_replay():

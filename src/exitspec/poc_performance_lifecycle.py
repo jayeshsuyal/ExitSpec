@@ -27,6 +27,11 @@ from .confirmations import (
 from .contracts import freeze_confirmed_contract
 from .customer_review import build_customer_review_payload
 from .models import ContractStatus, POCContract
+from .poc_managed_inferdrome_contract import (
+    ManagedInferdromeEvidenceProjection,
+    PreparedManagedInferdromeBundle,
+    prepare_managed_inferdrome_bundle,
+)
 from .poc_contract_definition import ContractDefinitionReceipt
 from .poc_creation import DraftPOCSnapshot
 from .poc_performance_contract import (
@@ -86,7 +91,9 @@ class AgreementPreparation:
     input_fingerprint: str = field(repr=False)
     proposal_ids: tuple[str, ...] = field(repr=False)
     definition_ids: tuple[str, ...] = field(repr=False)
-    bundle: PreparedPerformanceBundle = field(repr=False)
+    bundle: PreparedPerformanceBundle | PreparedManagedInferdromeBundle = field(
+        repr=False
+    )
 
     @property
     def poc_id(self) -> str:
@@ -258,6 +265,10 @@ class ProcessLocalPerformanceLifecycleService:
         proposal_lookup: Callable[[str], Sequence[ProposalReviewItem]],
         definition_lookup: Callable[[], Sequence[ContractDefinitionReceipt]],
         prompt_bytes: bytes,
+        managed_evidence_lookup: Callable[
+            [str, str], ManagedInferdromeEvidenceProjection
+        ]
+        | None = None,
         clock: Callable[[], datetime] = _utc_now,
         max_agreements: int = DEFAULT_MAX_AGREEMENTS,
     ) -> None:
@@ -271,6 +282,10 @@ class ProcessLocalPerformanceLifecycleService:
                 raise TypeError("Lifecycle dependencies must be callable.")
         if type(prompt_bytes) is not bytes or not prompt_bytes:
             raise ValueError("prompt_bytes must be non-empty exact bytes.")
+        if managed_evidence_lookup is not None and not callable(
+            managed_evidence_lookup
+        ):
+            raise TypeError("managed_evidence_lookup must be callable.")
         if (
             type(max_agreements) is not int
             or isinstance(max_agreements, bool)
@@ -281,6 +296,7 @@ class ProcessLocalPerformanceLifecycleService:
         self._proposal_lookup = proposal_lookup
         self._definition_lookup = definition_lookup
         self._prompt_bytes = prompt_bytes
+        self._managed_evidence_lookup = managed_evidence_lookup
         self._clock = clock
         self._max_agreements = max_agreements
         self._preparations: dict[str, AgreementPreparation] = {}
@@ -387,7 +403,8 @@ class ProcessLocalPerformanceLifecycleService:
         prepared_at: datetime,
         proposals: Sequence[ProposalReviewItem],
         definitions: Sequence[ContractDefinitionReceipt],
-    ) -> PreparedPerformanceBundle:
+        managed_evidence: ManagedInferdromeEvidenceProjection | None = None,
+    ) -> PreparedPerformanceBundle | PreparedManagedInferdromeBundle:
         try:
             draft = self._draft_lookup(poc_id)
         except Exception as error:
@@ -398,6 +415,32 @@ class ProcessLocalPerformanceLifecycleService:
             poc_id
         )
         try:
+            if target.inferdrome_run_id is not None:
+                if target.inferdrome_bundle_digest is None:
+                    raise PerformanceLifecycleConflict(
+                        "Managed Inferdrome evidence is unavailable."
+                    )
+                evidence = managed_evidence
+                if evidence is None:
+                    if self._managed_evidence_lookup is None:
+                        raise PerformanceLifecycleConflict(
+                            "Managed Inferdrome evidence is unavailable."
+                        )
+                    evidence = self._managed_evidence_lookup(
+                        target.inferdrome_run_id,
+                        target.inferdrome_bundle_digest,
+                    )
+                return prepare_managed_inferdrome_bundle(
+                    draft=draft,
+                    proposals=proposals,
+                    definitions=definitions,
+                    target=target,
+                    evidence=evidence,
+                    prepared_at=prepared_at,
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    parent_version=parent_version,
+                )
             return prepare_performance_bundle(
                 draft=draft,
                 proposals=proposals,
@@ -428,6 +471,11 @@ class ProcessLocalPerformanceLifecycleService:
             preparation.prepared_at,
             proposals,
             definitions,
+            managed_evidence=(
+                preparation.bundle.evidence
+                if type(preparation.bundle) is PreparedManagedInferdromeBundle
+                else None
+            ),
         )
         if (
             _input_fingerprint(proposals, definitions)
@@ -1051,7 +1099,11 @@ class ProcessLocalPerformanceLifecycleService:
     def frozen_bundle(
         self,
         poc_id: str,
-    ) -> tuple[PreparedPerformanceBundle, ContractConfirmation, POCContract]:
+    ) -> tuple[
+        PreparedPerformanceBundle | PreparedManagedInferdromeBundle,
+        ContractConfirmation,
+        POCContract,
+    ]:
         """Return exact server-owned run inputs only after confirmed freeze."""
 
         with self._lock:

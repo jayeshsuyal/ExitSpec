@@ -204,10 +204,21 @@ def _require_bound_evidence_method(
             INFERDROME_ADAPTER_VERSION,
         ),
     }[evidence_method]
-    criterion_adapters = {
-        (criterion.get("adapter"), criterion.get("adapter_version"))
-        for criterion in agreement.get("criteria", [])
-    }
+    criterion_adapters = set()
+    for criterion in agreement.get("criteria", []):
+        if criterion.get("criterion_type") == "inference_performance_v3":
+            identity = criterion.get("evidence_identity")
+            if type(identity) is not dict:
+                raise ReviewInvitationError(
+                    "Customer review managed evidence identity is invalid."
+                )
+            criterion_adapters.add(
+                (identity.get("adapter_id"), identity.get("adapter_version"))
+            )
+        else:
+            criterion_adapters.add(
+                (criterion.get("adapter"), criterion.get("adapter_version"))
+            )
     if criterion_adapters != {expected_adapter}:
         raise ReviewInvitationError(
             "Customer review evidence method does not match the current contract."
@@ -220,7 +231,58 @@ def _customer_criterion_payload(criterion: dict[str, Any]) -> dict[str, Any]:
         "inference_performance_v2",
     }:
         return _performance_criterion_payload(criterion)
+    if criterion.get("criterion_type") == "inference_performance_v3":
+        return _managed_performance_criterion_payload(criterion)
     return _proportion_criterion_payload(criterion)
+
+
+def _managed_performance_criterion_payload(
+    criterion: dict[str, Any],
+) -> dict[str, Any]:
+    ttft = criterion["ttft_p95"]
+    error_rate = criterion["error_rate"]
+    identity = criterion["evidence_identity"]
+    source = criterion.get("source")
+    ttft_ms = int(ttft["threshold_ns"]) / 1_000_000
+    error_percent = int(error_rate["threshold_basis_points"]) / 100
+    workload_digest = str(identity["workload_digest"])
+    return {
+        "id": criterion["id"],
+        "title": criterion["title"],
+        "normalized_claim": criterion["normalized_claim"],
+        "plain_language": criterion["normalized_claim"],
+        "source": source,
+        "source_quote": (
+            "Human-added requirement" if source is None else source["quote"]
+        ),
+        "metric": "Native vLLM p95 TTFT and measured-record error rate",
+        "unit": "milliseconds and percent",
+        "aggregation": "nearest-rank p95 and measured-record rate",
+        "threshold": (
+            "Native p95 TTFT below {0:g} ms · error rate below {1:g}%".format(
+                ttft_ms,
+                error_percent,
+            )
+        ),
+        "sample": (
+            "{0} successful native timing records · {1} measured records".format(
+                ttft["minimum_successful_samples"],
+                error_rate["exact_attempts"],
+            )
+        ),
+        "workload": "Selected sealed Inferdrome workload · {0}".format(
+            workload_digest
+        ),
+        "workload_slice": workload_digest,
+        "adapter": identity["adapter_id"],
+        "adapter_version": identity["adapter_version"],
+        "owner": criterion["owner"],
+        "evidence_policy": criterion["evidence_policy"],
+        "must_have": criterion["must_have"],
+        "required": criterion["must_have"],
+        "agreement": criterion,
+        "excluded": [],
+    }
 
 
 def _performance_criterion_payload(
