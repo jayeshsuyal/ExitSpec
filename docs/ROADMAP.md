@@ -399,8 +399,10 @@ Zoom call, parses no artifact, and does not claim a sanitized fixture.
 The application API now drives one fixed synthetic adapter through disclosure,
 consent, start, durable inbox append, draft-now, and the existing review queue.
 It exposes no private meeting or transcript identities and explicitly reports
-that no provider is connected. It does not implement the product UI or a Zoom
-transport.
+that no provider is connected. The source-intake workbench now renders those
+states as one guided `Meeting session` submode with one primary action and a
+finite consent -> start -> draft -> review progression. It does not implement a
+Zoom transport.
 
 The remaining train is:
 
@@ -414,10 +416,9 @@ The remaining train is:
    reconnect, and shutdown transport;
 4. production durability for the completion marker and redacted source, with
    atomic or recoverable private-annex deletion semantics;
-5. compact consent/capture/finalization UI inside the existing POC workbench;
-6. one real Zoom meeting with two consenting synthetic participants completing
+5. one real Zoom meeting with two consenting synthetic participants completing
    the ExitSpec draft-to-Evidence-Pack loop; and
-7. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
+6. adversarial, privacy, failure, and complete ExitSpec lifecycle evidence.
 
 Do not freeze a raw Zoom wire schema before the golden fixture resolves packet
 ordering, duplicate identity, participant stability, partial/final transcript

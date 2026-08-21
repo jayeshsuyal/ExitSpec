@@ -318,8 +318,10 @@ start, draft-now, and content-free recovery routes while keeping meeting IDs,
 participant IDs, transcript events, transport proofs, and downstream authority
 out of browser input and output. Its default adapter is fixed and synthetic,
 makes no network call, and reports `provider_connected=false`; this is not a
-Zoom integration claim. The product UI and golden-fixture-pinned Zoom adapter
-remain deferred.
+Zoom integration claim. The existing source-intake workbench now exposes the
+finite consent -> start -> draft -> review path with one primary action and an
+explicit `Not connected` state. The golden-fixture-pinned Zoom adapter remains
+deferred.
 
 No raw audio is requested. Customer meetings, customer identities, and customer
 data are prohibited until Wave 7B passes.
@@ -405,8 +407,9 @@ or product decision. No sanitized repository fixture is claimed yet.
    provider-neutral server-owned adapter seam, disclosure, consent, start,
    draft-now, content-free recovery, exact replay, and existing review-queue
    handoff with no Zoom connection claim.
-10. **Guided product UI:** connect, consent, capture, draft-now,
-   finalization, and safe recovery states without changing the product spine.
+10. **Guided product UI (implemented, synthetic only):** the existing meeting
+    source offers one finite consent, start, draft-now, and safe-recovery flow,
+    then hands off to human proposal review without changing the product spine.
 11. **Synthetic live E2E and hardening:** one real Zoom meeting with two
    consenting synthetic participants completes the existing ExitSpec demo loop.
 
