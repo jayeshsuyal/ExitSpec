@@ -200,7 +200,7 @@ def _snapshot_payload(
 ) -> dict[str, Any]:
     if type(snapshot) is not POCInferdromeImportSnapshot:
         raise POCInferdromeImportError
-    return {
+    payload = {
         "poc_id": snapshot.poc_id,
         "contract_id": snapshot.contract_id,
         "contract_version": snapshot.contract_version,
@@ -237,6 +237,17 @@ def _snapshot_payload(
         ),
         "is_terminal": snapshot.is_terminal,
     }
+    if snapshot.observed_configured_max_concurrency is not None:
+        payload.update(
+            {
+                "required_configured_max_concurrency": snapshot.concurrency,
+                "observed_configured_max_concurrency": (
+                    snapshot.observed_configured_max_concurrency
+                ),
+                "anomalous_count": snapshot.anomalous_count,
+            }
+        )
+    return payload
 
 
 def _ok(payload: dict[str, Any]) -> POCInferdromeWebAPIResponse:

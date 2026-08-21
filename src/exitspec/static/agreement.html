@@ -190,6 +190,52 @@
                   </p>
                   </div>
 
+                  <section
+                    class="managed-evidence-profile"
+                    id="managed-evidence-profile"
+                    aria-labelledby="managed-evidence-profile-heading"
+                    hidden
+                  >
+                    <div class="managed-profile-heading">
+                      <div>
+                        <p class="section-label">Verified evidence profile</p>
+                        <h4 id="managed-evidence-profile-heading">
+                          Choose the proof already captured
+                        </h4>
+                      </div>
+                      <span class="managed-profile-badge">Retrospective</span>
+                    </div>
+
+                    <label for="managed-evidence-profile-select">
+                      Evidence profile
+                    </label>
+                    <select id="managed-evidence-profile-select" disabled>
+                      <option value="">Loading verified profiles…</option>
+                    </select>
+
+                    <dl class="managed-profile-facts">
+                      <div>
+                        <dt>Model</dt>
+                        <dd id="managed-profile-model">—</dd>
+                      </div>
+                      <div>
+                        <dt>Hardware</dt>
+                        <dd id="managed-profile-hardware">—</dd>
+                      </div>
+                      <div>
+                        <dt>Evidence</dt>
+                        <dd id="managed-profile-workload">—</dd>
+                      </div>
+                      <div>
+                        <dt>Metric</dt>
+                        <dd id="managed-profile-semantics">—</dd>
+                      </div>
+                    </dl>
+                    <p id="managed-profile-status" aria-live="polite">
+                      ExitSpec lists only pathless, independently verified facts.
+                    </p>
+                  </section>
+
                   <div class="target-primary-fields">
                     <div class="field-group">
                       <label for="target-provider">Provider</label>

@@ -287,6 +287,101 @@
   line-height: 1.35;
 }
 
+.managed-evidence-profile {
+  margin: 0 0 10px;
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--orange);
+  padding: 10px;
+  background: var(--raised);
+}
+
+.managed-profile-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.managed-profile-heading h4 {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.managed-profile-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-strong);
+  padding: 3px 6px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.managed-evidence-profile > label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.managed-evidence-profile select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  padding: 7px 9px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.managed-profile-facts {
+  display: grid;
+  grid-template-columns: 1.3fr 0.8fr 1fr 1.3fr;
+  gap: 8px;
+  margin: 9px 0 0;
+}
+
+.managed-profile-facts div {
+  min-width: 0;
+}
+
+.managed-profile-facts dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.managed-profile-facts dd {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#managed-profile-status {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.managed-evidence-profile select:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
 .evidence-method-boundary {
   margin: 0;
   border-top: 1px solid var(--border);
@@ -1095,6 +1190,7 @@
   .target-primary-fields,
   .evidence-method-choice,
   .target-presets,
+  .managed-profile-facts,
   .review-fields,
   .endpoint-field-grid,
   .counting-policy-grid,

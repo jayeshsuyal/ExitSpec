@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 
 import pytest
 from pydantic import ValidationError
 
+from exitspec.canonical import canonical_json_bytes
 from exitspec.confirmations import (
     ConfirmationDecision,
     canonical_confirmation_payload,
@@ -280,6 +282,65 @@ def test_bundle_is_deterministic_and_binds_exact_bytes():
     assert first.workload_bytes == second.workload_bytes
     assert first.prompt_bytes == second.prompt_bytes == PROMPTS
     assert first.approved_contract.workload.sha256 == first.context.workload_sha256
+
+
+@pytest.mark.parametrize(
+    ("method", "bundle_sha256", "contract_sha256", "workload_sha256", "draft_sha256"),
+    (
+        (
+            PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE,
+            "c987f16f3d31befcb6c1b1dff34fe153c3a5e4f68937eb3a8d4ecd3036f96a58",
+            "943d071a27abc27287e5c345039af2f88854fba8212d31a7a2a7703f31b6de48",
+            "2bbe8a819a99a5c106f028071de014559b9843d2bde6a0877a4e6fb2e85f4e62",
+            "5465b3f18f1e99672147882595481032197b2851f9e12e9bb734ba702b196e03",
+        ),
+        (
+            PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE,
+            "93aec2ae6c2818db1b592566839a1fbff6887982aeded301b21bcc23151ea47e",
+            "7b9909af210cfd0c10b7a030f0fedab3d4c2ceb91ed897b0de9ead57820b9303",
+            "034b2d620b5be6c6b050525da51d60cc126f2a88253f02a194b62c81db184143",
+            "8c28cd673b86ffc58c899952fcc6feda77efa76f3bcee2f9a79c411c62d5f28d",
+        ),
+    ),
+)
+def test_legacy_v2_contract_and_draft_bytes_remain_frozen(
+    method: PerformanceEvidenceMethod,
+    bundle_sha256: str,
+    contract_sha256: str,
+    workload_sha256: str,
+    draft_sha256: str,
+):
+    draft, proposals, definitions = _inputs()
+    target = _target(evidence_method=method)
+    bundle = prepare_performance_bundle(
+        draft=draft,
+        proposals=proposals,
+        definitions=definitions,
+        target=target,
+        prompt_bytes=PROMPTS,
+        prepared_at=NOW,
+    )
+    lifecycle = ProcessLocalPerformanceLifecycleService(
+        draft_lookup=lambda poc_id: draft,
+        proposal_lookup=lambda poc_id: proposals,
+        definition_lookup=lambda: definitions,
+        prompt_bytes=PROMPTS,
+        clock=lambda: NOW,
+    )
+    prepared = lifecycle.prepare(
+        POC_ID,
+        target=target,
+        reviewer="Jayesh",
+        rationale="stable",
+        idempotency_key="stable-{0}".format(method.value),
+    ).value
+
+    assert bundle.bundle_fingerprint == bundle_sha256
+    assert hashlib.sha256(
+        canonical_json_bytes(bundle.approved_contract.model_dump(mode="json"))
+    ).hexdigest() == contract_sha256
+    assert hashlib.sha256(bundle.workload_bytes).hexdigest() == workload_sha256
+    assert prepared.draft_sha256 == draft_sha256
 
 
 def test_existing_confirmation_and_freeze_primitives_accept_exact_bundle():

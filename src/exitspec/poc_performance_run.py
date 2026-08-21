@@ -414,6 +414,7 @@ class ProcessLocalPOCPerformanceRunService:
             preparation is None
             or preparation.target.evidence_method
             is not PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE
+            or type(bundle) is not PreparedPerformanceBundle
         ):
             raise POCPerformanceRunConflict
         return bundle, confirmation, frozen

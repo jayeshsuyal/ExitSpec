@@ -83,6 +83,14 @@ class PerformanceTargetInput(FrozenExitSpecModel):
     evidence_method: PerformanceEvidenceMethod = (
         PerformanceEvidenceMethod.EXIT_SPEC_STREAMING_PROBE
     )
+    inferdrome_run_id: str | None = Field(
+        default=None,
+        pattern=r"^run-[0-9a-f]{32}$",
+    )
+    inferdrome_bundle_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
 
     @field_validator(
         "provider",
@@ -114,6 +122,22 @@ class PerformanceTargetInput(FrozenExitSpecModel):
             raise ValueError(
                 "endpoint must be an exact HTTP(S) URL without credentials, "
                 "query, or fragment."
+            )
+        selected = (
+            self.inferdrome_run_id is not None,
+            self.inferdrome_bundle_digest is not None,
+        )
+        if selected[0] != selected[1]:
+            raise ValueError(
+                "Inferdrome run identity and bundle digest must be selected together."
+            )
+        if (
+            any(selected)
+            and self.evidence_method
+            is not PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+        ):
+            raise ValueError(
+                "A selected Inferdrome bundle requires the external evidence method."
             )
         return self
 
@@ -187,6 +211,10 @@ def prepare_performance_bundle(
         raise PerformanceContractAssemblyError("The POC must be active.")
     if type(target) is not PerformanceTargetInput:
         raise TypeError("target must be a PerformanceTargetInput.")
+    if target.inferdrome_run_id is not None:
+        raise PerformanceContractAssemblyError(
+            "A selected managed Inferdrome bundle requires the v3 assembler."
+        )
     if (
         type(prepared_at) is not datetime
         or prepared_at.tzinfo is None
@@ -259,7 +287,11 @@ def prepare_performance_bundle(
         "poc_id": draft.poc_id,
         "target": target.model_dump(
             mode="json",
-            exclude={"evidence_method"},
+            exclude={
+                "evidence_method",
+                "inferdrome_run_id",
+                "inferdrome_bundle_digest",
+            },
         ),
         "definitions": [binding.model_dump(mode="json") for binding in bindings],
         "prompt_sha256": prompt_sha256,
