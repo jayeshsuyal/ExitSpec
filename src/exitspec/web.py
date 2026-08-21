@@ -310,6 +310,7 @@ SUPPORTED_RULE_TEMPLATE = {
     ),
 }
 SYNTHETIC_SUPPORT_AGENT_POC_ID = "poc_support_agent_demo"
+SEEDED_SUPPORT_EVIDENCE_METHOD = "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION"
 
 
 class DemoStateError(ValueError):
@@ -1868,6 +1869,16 @@ class DemoSession:
             self._customer_criterion_payload(criterion)
             for criterion in agreement["criteria"]
         ]
+        adapter_identities = {
+            (criterion.get("adapter"), criterion.get("adapter_version"))
+            for criterion in agreement["criteria"]
+            if isinstance(criterion, dict)
+        }
+        if adapter_identities != {("deterministic_tool_selection", "1.0.0")}:
+            raise DemoStateError(
+                "The seeded customer review has no supported evidence method."
+            )
+        evidence_method = SEEDED_SUPPORT_EVIDENCE_METHOD
         decision_payload = self._customer_decision_payload(
             confirmation,
             idempotent_replay=False,
@@ -1889,6 +1900,7 @@ class DemoSession:
                 "contract_id": agreement["id"],
                 "contract_version": agreement["version"],
                 "confirmation_fingerprint": fingerprint,
+                "evidence_method": evidence_method,
                 "customer": agreement["customer"],
                 "use_case": agreement["use_case"],
                 "poc": {
@@ -1900,6 +1912,7 @@ class DemoSession:
                     "id": agreement["id"],
                     "version": agreement["version"],
                     "confirmation_fingerprint": fingerprint,
+                    "evidence_method": evidence_method,
                     "excluded": agreement["non_goals"],
                     "criteria": customer_criteria,
                     "target_system": agreement["target_system"],

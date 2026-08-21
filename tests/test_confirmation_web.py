@@ -421,6 +421,12 @@ def test_customer_review_payload_excludes_internal_review_and_raw_source(tmp_pat
         assert customer_payload["review"]["contract_version"] == agreement["version"]
         assert customer_payload["review"]["customer"] == agreement["customer"]
         assert customer_payload["review"]["use_case"] == agreement["use_case"]
+        assert customer_payload["review"]["evidence_method"] == (
+            "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION"
+        )
+        assert customer_payload["review"]["contract"]["evidence_method"] == (
+            "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION"
+        )
         assert customer_payload["review"]["target_system"] == agreement["target_system"]
         assert customer_payload["review"]["workload"] == agreement["workload"]
         assert customer_payload["review"]["owners"] == agreement["owners"]
