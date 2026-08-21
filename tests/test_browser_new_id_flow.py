@@ -1067,6 +1067,9 @@ def test_guided_meeting_session_recovers_and_reaches_human_review(tmp_path):
                 expect(page.locator("#progress-copy")).to_have_text(
                     "Proposal 1 of 2"
                 )
+                expect(page.locator("#normalized-claim")).to_contain_text(
+                    "p95 time to first token"
+                )
                 expect(page.locator("#review-state")).to_have_count(0)
                 _assert_bounded_employee_shell(page)
 

@@ -154,6 +154,14 @@ def test_http_flow_reaches_existing_source_and_human_review_queue(tmp_path):
     assert sources[0] == proposals[0] == 200
     assert len(sources[1]["sources"]) == 1
     assert len(proposals[1]["proposals"]) == 2
+    assert [
+        item["normalized_claim"] for item in proposals[1]["proposals"]
+    ] == [
+        "Criterion: p95 time to first token must be at most 500 "
+        "milliseconds at concurrency four.",
+        "Criterion: error rate must stay below 1 percent; timeouts count "
+        "as errors over all measured attempts.",
+    ]
     assert all(
         item["review_state"] == "NEEDS_REVIEW"
         for item in proposals[1]["proposals"]
