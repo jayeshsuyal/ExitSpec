@@ -6,10 +6,12 @@
   const IMPORT_OPERATION_ID_PATTERN = /^pimp_[a-f0-9]{32}$/;
   const INFERDROME_RUN_ID_PATTERN = /^run-[a-f0-9]{32}$/;
   const RECEIPT_ID_PATTERN = /^irc_[a-f0-9]{64}$/;
+  const MANAGED_RECEIPT_ID_PATTERN = /^irc2_[a-f0-9]{64}$/;
   const TAGGED_SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
   const SHA256_PATTERN = /^[a-f0-9]{64}$/;
   const LOCAL_EVIDENCE_METHOD = "EXIT_SPEC_STREAMING_PROBE";
   const EXTERNAL_EVIDENCE_METHOD = "INFERDROME_EXTERNAL_BUNDLE";
+  const MANAGED_CRITERION_TYPE = "inference_performance_v3";
   const ROUTE_PATTERN =
     /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})$/;
   const LOCAL_EVIDENCE_PACK_PATTERN =
@@ -55,6 +57,27 @@
     "schema_version",
     "warmups_included",
   ]);
+  const MANAGED_COUNTING_POLICY_KEYS = Object.freeze([
+    "chronology",
+    "compatible_insufficient_evidence_disposition",
+    "concurrency_semantics",
+    "error_threshold_basis_points",
+    "exact_attempts",
+    "ingestion_failure_disposition",
+    "latency_population",
+    "metric_definition_id",
+    "minimum_successful_samples",
+    "policy_sha256",
+    "producer_contract_link",
+    "reducer_id",
+    "reliability_denominator",
+    "reliability_numerator",
+    "required_configured_max_concurrency",
+    "retry_behavior",
+    "schema_version",
+    "warmup_requests",
+    "warmups_included",
+  ]);
   const OUTCOME_COUNT_KEYS = Object.freeze([
     "cancelled",
     "http_error",
@@ -72,7 +95,7 @@
     RUNNER_INTERNAL_FAILURE:
       "The proof failed closed before verified evidence could be released.",
     RUN_NOT_PROVEN:
-      "The run did not produce sufficient verified evidence.",
+      "The run produced compatible but insufficient evidence, so the result is NOT PROVEN.",
     WORKER_LAUNCH_FAILED:
       "The local proof worker did not start. No requests were inferred.",
   });
@@ -142,6 +165,38 @@
     return (
       agreement?.draft?.evidence_method === EXTERNAL_EVIDENCE_METHOD
     );
+  }
+
+  function isManagedEvidence() {
+    return Boolean(
+      isExternalEvidence() &&
+        agreement?.counting_policy?.schema_version ===
+          "exitspec.inferdrome-managed-counting.v1" &&
+        agreement.counting_policy.metric_definition_id ===
+          "vllm_first_choices_event_v0_26" &&
+        MANAGED_CRITERION_TYPE === "inference_performance_v3" &&
+        INFERDROME_RUN_ID_PATTERN.test(
+          agreement.draft.inferdrome_run_id
+        ) &&
+        TAGGED_SHA256_PATTERN.test(
+          agreement.draft.inferdrome_bundle_digest
+        )
+    );
+  }
+
+  function frozenManagedSelection() {
+    if (!isManagedEvidence()) {
+      return null;
+    }
+    const frozen = agreement.frozen_contract;
+    return frozen.inferdrome_run_id === agreement.draft.inferdrome_run_id &&
+      frozen.inferdrome_bundle_digest ===
+        agreement.draft.inferdrome_bundle_digest
+      ? {
+          run_id: agreement.draft.inferdrome_run_id,
+          bundle_digest: agreement.draft.inferdrome_bundle_digest,
+        }
+      : null;
   }
 
   function isTerminalStatus(status) {
@@ -248,7 +303,7 @@
   }
 
   function trustedCountingPolicy(value) {
-    return Boolean(
+    const legacy = Boolean(
       hasExactKeys(value, COUNTING_POLICY_KEYS) &&
         value.schema_version === "exitspec.measurement-population.v1" &&
         SHA256_PATTERN.test(value.policy_sha256) &&
@@ -267,6 +322,40 @@
         value.external_error_outcomes.join("|") ===
           "HTTP_ERROR|TIMEOUT|PROTOCOL_ERROR|TRANSPORT_ERROR" &&
         value.invalid_evidence_disposition === "NOT_PROVEN"
+    );
+    if (legacy) {
+      return true;
+    }
+    return Boolean(
+      hasExactKeys(value, MANAGED_COUNTING_POLICY_KEYS) &&
+        value.schema_version === "exitspec.inferdrome-managed-counting.v1" &&
+        SHA256_PATTERN.test(value.policy_sha256) &&
+        value.metric_definition_id === "vllm_first_choices_event_v0_26" &&
+        value.reducer_id === "nearest_rank_v1" &&
+        value.latency_population ===
+          "successful_measured_requests_with_observed_ttft" &&
+        value.minimum_successful_samples === 100 &&
+        value.exact_attempts === 100 &&
+        value.reliability_numerator ===
+          "failed_or_anomalous_native_measured_requests" &&
+        value.reliability_denominator === "all_measured_requests" &&
+        Number.isInteger(value.error_threshold_basis_points) &&
+        value.error_threshold_basis_points > 0 &&
+        value.error_threshold_basis_points < 10000 &&
+        Number.isInteger(value.required_configured_max_concurrency) &&
+        value.required_configured_max_concurrency > 0 &&
+        value.required_configured_max_concurrency <= 1000 &&
+        value.concurrency_semantics ===
+          "configured_maximum_concurrency_not_observed_overlap" &&
+        Number.isInteger(value.warmup_requests) &&
+        value.warmup_requests >= 0 &&
+        value.warmup_requests <= 1000 &&
+        value.warmups_included === false &&
+        value.retry_behavior === "NOT_AVAILABLE" &&
+        value.chronology === "RETROSPECTIVE" &&
+        value.producer_contract_link === "ABSENT" &&
+        value.ingestion_failure_disposition === "INGESTION_REJECTED" &&
+        value.compatible_insufficient_evidence_disposition === "NOT_PROVEN"
     );
   }
 
@@ -291,8 +380,23 @@
     const metrics = new Set(
       value.definitions.map((definition) => definition.metric)
     );
+    const managed =
+      value.counting_policy.schema_version ===
+      "exitspec.inferdrome-managed-counting.v1";
+    const managedSelectionValid = managed
+      ? INFERDROME_RUN_ID_PATTERN.test(value.draft.inferdrome_run_id) &&
+        TAGGED_SHA256_PATTERN.test(value.draft.inferdrome_bundle_digest) &&
+        value.frozen_contract.inferdrome_run_id ===
+          value.draft.inferdrome_run_id &&
+        value.frozen_contract.inferdrome_bundle_digest ===
+          value.draft.inferdrome_bundle_digest
+      : value.draft.inferdrome_run_id === undefined &&
+        value.draft.inferdrome_bundle_digest === undefined &&
+        value.frozen_contract.inferdrome_run_id === undefined &&
+        value.frozen_contract.inferdrome_bundle_digest === undefined;
     return Boolean(
       metrics.size === 2 &&
+        managedSelectionValid &&
         [...METRICS].every((metric) => metrics.has(metric)) &&
         SHA256_PATTERN.test(value.frozen_contract.canonical_hash) &&
         safeText(value.frozen_contract.contract_id, 512) &&
@@ -513,6 +617,15 @@
     "warmup_requests",
     "workload_id",
   ]);
+  const MANAGED_IMPORT_EXTENSION_KEYS = Object.freeze([
+    "anomalous_count",
+    "observed_configured_max_concurrency",
+    "required_configured_max_concurrency",
+  ]);
+  const MANAGED_IMPORT_KEYS = Object.freeze([
+    ...IMPORT_KEYS,
+    ...MANAGED_IMPORT_EXTENSION_KEYS,
+  ]);
 
   function trustedCatalog(value) {
     return Boolean(
@@ -542,8 +655,19 @@
   }
 
   function trustedImport(value) {
+    const managed = isManagedEvidence();
+    const managedExtension = {
+      anomalous_count: value?.anomalous_count,
+      observed_configured_max_concurrency:
+        value?.observed_configured_max_concurrency,
+      required_configured_max_concurrency:
+        value?.required_configured_max_concurrency,
+    };
     if (
-      !hasExactKeys(value, IMPORT_KEYS) ||
+      !(managed
+        ? hasExactKeys(value, MANAGED_IMPORT_KEYS) &&
+          hasExactKeys(managedExtension, MANAGED_IMPORT_EXTENSION_KEYS)
+        : hasExactKeys(value, IMPORT_KEYS)) ||
       value.poc_id !== pocId ||
       !SHA256_PATTERN.test(value.contract_hash) ||
       !safeText(value.contract_id, 512) ||
@@ -560,7 +684,7 @@
       value.measured_requests > 1000 ||
       !Number.isInteger(value.concurrency) ||
       value.concurrency < 1 ||
-      value.concurrency > 32 ||
+      value.concurrency > (managed ? 1000 : 32) ||
       value.concurrency > value.measured_requests ||
       !Number.isInteger(value.warmup_requests) ||
       value.warmup_requests < 0 ||
@@ -574,6 +698,17 @@
       !Array.isArray(value.applicability_codes) ||
       value.applicability_codes.length > 32 ||
       !value.applicability_codes.every((code) => safeText(code, 160))
+    ) {
+      return false;
+    }
+    if (
+      managed &&
+      (!Number.isInteger(value.required_configured_max_concurrency) ||
+        value.required_configured_max_concurrency !== value.concurrency ||
+        !Number.isInteger(value.observed_configured_max_concurrency) ||
+        value.observed_configured_max_concurrency < 1 ||
+        value.observed_configured_max_concurrency > 1000 ||
+        !nullableCount(value.anomalous_count))
     ) {
       return false;
     }
@@ -596,6 +731,7 @@
       value.error_rate_percent === null &&
       value.producer_run_id === null &&
       value.receipt_id === null &&
+      (!managed || value.anomalous_count === null) &&
       value.applicability_codes.length === 0 &&
       value.evidence_pack_url === null;
     if (value.status === "NOT_STARTED") {
@@ -644,7 +780,14 @@
         value.selected_run_id === value.producer_run_id &&
         INFERDROME_RUN_ID_PATTERN.test(value.producer_run_id) &&
         TAGGED_SHA256_PATTERN.test(value.bundle_digest) &&
-        RECEIPT_ID_PATTERN.test(value.receipt_id) &&
+        (managed
+          ? MANAGED_RECEIPT_ID_PATTERN.test(value.receipt_id)
+          : RECEIPT_ID_PATTERN.test(value.receipt_id)) &&
+        (managed
+          ? Number.isInteger(value.anomalous_count) &&
+            value.anomalous_count >= 0 &&
+            value.anomalous_count <= value.error_count
+          : true) &&
         value.evidence_pack_url !== null &&
         trustedCompletedAt(value.completed_at) &&
         value.is_terminal === true
@@ -664,6 +807,33 @@
     const error = agreement.definitions.find(
       (definition) => definition.metric === "ERROR_RATE_PERCENT"
     );
+    if (isManagedEvidence()) {
+      const selection = frozenManagedSelection();
+      const policy = agreement.counting_policy;
+      return Boolean(
+        selection &&
+          run.contract_hash === frozen.canonical_hash &&
+          run.contract_id === frozen.contract_id &&
+          run.contract_version === frozen.contract_version &&
+          frozen.evidence_method === method &&
+          run.adapter === expectedAdapter[0] &&
+          run.adapter_version === expectedAdapter[1] &&
+          run.target_provider === frozen.target_provider &&
+          run.endpoint_class === frozen.endpoint_class &&
+          run.endpoint === frozen.endpoint &&
+          run.model === frozen.model &&
+          run.measured_requests === policy.exact_attempts &&
+          run.concurrency === policy.required_configured_max_concurrency &&
+          run.required_configured_max_concurrency === run.concurrency &&
+          run.warmup_requests === policy.warmup_requests &&
+          (run.selected_run_id === null ||
+            run.selected_run_id === selection.run_id) &&
+          (run.bundle_digest === null ||
+            run.bundle_digest === selection.bundle_digest) &&
+          ttft.concurrency === error.concurrency &&
+          ttft.concurrency === policy.required_configured_max_concurrency
+      );
+    }
     return Boolean(
       run.contract_hash === frozen.canonical_hash &&
         run.contract_id === frozen.contract_id &&
@@ -711,6 +881,35 @@
       selectedBundle = null;
       return;
     }
+    if (isManagedEvidence()) {
+      const selection = frozenManagedSelection();
+      inferdromeBundle.replaceChildren();
+      inferdromeSelection.querySelector("label").textContent =
+        "Frozen evidence profile";
+      if (!selection) {
+        inferdromeBundle.append(new Option("Frozen selection is invalid", ""));
+        inferdromeBundle.disabled = true;
+        selectedBundle = null;
+        inferdromeCatalogStatus.textContent =
+          "The managed selection could not be cross-validated. No import is available.";
+        return;
+      }
+      inferdromeBundle.append(
+        new Option(
+          `Customer-confirmed · ${selection.run_id}`,
+          selection.run_id,
+          true,
+          true
+        )
+      );
+      inferdromeBundle.disabled = true;
+      selectedBundle = selection;
+      inferdromeCatalogStatus.textContent =
+        "Run and digest are frozen. ExitSpec will re-resolve and re-verify this exact bundle before evaluation.";
+      return;
+    }
+    inferdromeSelection.querySelector("label").textContent =
+      "Sealed evidence bundle";
     inferdromeBundle.replaceChildren();
     if (!catalog?.configured) {
       const option = new Option("Inferdrome runs root is not configured", "");
@@ -765,6 +964,30 @@
       run.applicability_codes.length === 0
         ? "Compatible"
         : run.applicability_codes.join(" · ");
+  }
+
+  function renderManagedResultSummary() {
+    const summary = document.querySelector("#managed-result-summary");
+    summary.hidden = !(
+      isManagedEvidence() && run.status === "COMPLETED"
+    );
+    if (summary.hidden) {
+      return;
+    }
+    document.querySelector("#managed-result-p95-ttft").textContent =
+      run.p95_ttft_ms === null ? "Not proven" : `${run.p95_ttft_ms} ms`;
+    document.querySelector("#managed-result-error-rate").textContent =
+      run.error_rate_percent === null
+        ? "Not proven"
+        : `${run.error_rate_percent}%`;
+    document.querySelector("#managed-result-records").textContent =
+      `${run.successful_count} / ${run.attempted_count}`;
+    document.querySelector(
+      "#managed-result-required-concurrency"
+    ).textContent = String(run.required_configured_max_concurrency);
+    document.querySelector(
+      "#managed-result-observed-concurrency"
+    ).textContent = String(run.observed_configured_max_concurrency);
   }
 
   function compactOwner(value) {
@@ -918,6 +1141,14 @@
   }
 
   function outcomeBreakdownText() {
+    if (isManagedEvidence()) {
+      return [
+        `${run.attempted_count} records`,
+        `${run.successful_count} successful`,
+        `${run.error_count} failed`,
+        `${run.anomalous_count} anomalous`,
+      ].join(" · ");
+    }
     if (isExternalEvidence()) {
       return [
         `${run.attempted_count} attempts`,
@@ -1001,24 +1232,41 @@
       isExternalEvidence() &&
       ["INGESTION_REJECTED", "FAILED_CLOSED"].includes(run.status)
     ) {
-      heading.textContent = "Choose another sealed bundle";
+      heading.textContent = isManagedEvidence()
+        ? "Evidence ingestion was rejected"
+        : "Choose another sealed bundle";
       kicker.textContent = "Current task · Prove";
-      guidance.textContent = reasonCopy();
+      guidance.textContent = isManagedEvidence()
+        ? `${reasonCopy()} The frozen agreement cannot switch evidence; start a revision to select another profile.`
+        : reasonCopy();
       runReason.textContent = guidance.textContent;
-      runButton.textContent = "Retry evidence import";
+      runButton.textContent = isManagedEvidence()
+        ? "Evidence rejected"
+        : "Retry evidence import";
+      runButton.hidden = isManagedEvidence();
+      acknowledgementLabel.hidden = isManagedEvidence();
       acknowledgement.disabled = !selectedBundle;
-      runButton.disabled = !selectedBundle || !acknowledgement.checked;
+      runButton.disabled =
+        isManagedEvidence() || !selectedBundle || !acknowledgement.checked;
       return;
     }
     if (isExternalEvidence()) {
-      heading.textContent = "Import sealed evidence";
+      heading.textContent = isManagedEvidence()
+        ? "Verify the frozen evidence"
+        : "Import sealed evidence";
       kicker.textContent = "Current task · Prove";
       guidance.textContent = selectedBundle
-        ? "One sealed bundle will be verified, recalculated, and judged against the frozen agreement."
+        ? isManagedEvidence()
+          ? "The customer-confirmed run and digest will be re-verified, recalculated, and judged now."
+          : "One sealed bundle will be verified, recalculated, and judged against the frozen agreement."
         : "Select a server-discovered, customer-eligible Inferdrome bundle to continue.";
       runReason.textContent =
-        "ExitSpec trusts neither the producer verdict nor a matching field name.";
-      runButton.textContent = "Import sealed evidence";
+        isManagedEvidence()
+          ? "Native first-choices-event TTFT is accepted only under the exact frozen v3 identity."
+          : "ExitSpec trusts neither the producer verdict nor a matching field name.";
+      runButton.textContent = isManagedEvidence()
+        ? "Verify & import evidence"
+        : "Import sealed evidence";
       acknowledgement.disabled = !selectedBundle;
       runButton.disabled = !selectedBundle || !acknowledgement.checked;
       return;
@@ -1076,11 +1324,14 @@
     document.querySelector("#execution-acknowledgement-copy").textContent =
       isExternalEvidence()
         ? selectedBundle
-          ? `I authorize ExitSpec to import and evaluate ${selectedBundle.run_id} (${selectedBundle.bundle_digest}) against this frozen agreement.`
+          ? isManagedEvidence()
+            ? `I authorize ExitSpec to re-verify and evaluate the exact customer-confirmed run ${selectedBundle.run_id}.`
+            : `I authorize ExitSpec to import and evaluate ${selectedBundle.run_id} (${selectedBundle.bundle_digest}) against this frozen agreement.`
           : "Select one eligible sealed bundle before authorizing import."
         : `I authorize this exact ${run.authorized_request_count}-request run ` +
           `(${run.measured_requests} measured + ${run.warmup_requests} warmups + 1 preflight) against the frozen target.`;
     renderImportReceipt();
+    renderManagedResultSummary();
     renderRequirements();
     renderEvidence();
     renderAction();
@@ -1293,18 +1544,28 @@
       draft = draftPayload;
       agreement = agreementPayload;
       if (isExternalEvidence()) {
-        const [catalogPayload, importPayload] = await Promise.all([
-          requestJson(inferdromeCatalogApi),
-          requestJson(latestImportApi),
-        ]);
-        if (
-          !trustedCatalog(catalogPayload) ||
-          !trustedImport(importPayload)
-        ) {
-          throw new TypeError("Malformed Inferdrome proof inputs.");
+        if (isManagedEvidence()) {
+          const importPayload = await requestJson(latestImportApi);
+          if (!trustedImport(importPayload)) {
+            throw new TypeError("Malformed managed proof inputs.");
+          }
+          catalog = null;
+          selectedBundle = frozenManagedSelection();
+          run = importPayload;
+        } else {
+          const [catalogPayload, importPayload] = await Promise.all([
+            requestJson(inferdromeCatalogApi),
+            requestJson(latestImportApi),
+          ]);
+          if (
+            !trustedCatalog(catalogPayload) ||
+            !trustedImport(importPayload)
+          ) {
+            throw new TypeError("Malformed Inferdrome proof inputs.");
+          }
+          catalog = catalogPayload;
+          run = importPayload;
         }
-        catalog = catalogPayload;
-        run = importPayload;
       } else {
         const runPayload = await requestJson(latestRunApi);
         if (!trustedRun(runPayload)) {
@@ -1332,6 +1593,10 @@
 
   acknowledgement.addEventListener("change", renderAction);
   inferdromeBundle.addEventListener("change", () => {
+    if (isManagedEvidence()) {
+      inferdromeBundle.disabled = true;
+      return;
+    }
     selectedBundle = selectedCatalogEntry(inferdromeBundle.value);
     acknowledgement.checked = false;
     renderAll();

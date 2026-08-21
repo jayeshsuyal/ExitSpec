@@ -148,14 +148,75 @@
   scrollbar-gutter: stable;
 }
 
+.managed-result-summary {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--orange);
+  background: var(--raised);
+}
+
+.managed-result-summary[hidden] {
+  display: none;
+}
+
+.managed-result-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.managed-result-metrics > div {
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.managed-result-metrics > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.managed-result-metrics dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.managed-result-metrics dd {
+  margin: 3px 0 0;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.managed-concurrency-summary {
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.managed-concurrency-summary strong {
+  color: var(--text-secondary);
+}
+
 @media (max-width: 520px) {
   .requirement-result {
     justify-items: start;
   }
 
   .inferdrome-selection,
-  .import-receipt {
+  .import-receipt,
+  .managed-result-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .managed-result-metrics > div + div {
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 
   .import-receipt > div:nth-child(odd) {
