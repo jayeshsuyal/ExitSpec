@@ -73,6 +73,7 @@ from .intake import (
     TranscriptRedactionSummary,
     redact_and_parse_pasted_transcript,
 )
+from .inferdrome_bundle import verify_inferdrome_bundle
 from .inferdrome_catalog import InferdromeBundleCatalog
 from .meeting_event_inbox import SQLiteMeetingEventInbox
 from .meeting_session_runtime import ProcessLocalMeetingSessionRuntime
@@ -126,6 +127,10 @@ from .poc_inferdrome_import import (
 from .poc_inferdrome_web_api import (
     handle_poc_inferdrome_web_api_request,
     is_poc_inferdrome_web_api_target,
+)
+from .poc_managed_inferdrome_contract import (
+    ManagedInferdromeEvidenceProjection,
+    project_managed_inferdrome_evidence,
 )
 from .poc_creation import (
     DraftPOCArchiveState,
@@ -312,6 +317,7 @@ SUPPORTED_RULE_TEMPLATE = {
     ),
 }
 SYNTHETIC_SUPPORT_AGENT_POC_ID = "poc_support_agent_demo"
+SEEDED_SUPPORT_EVIDENCE_METHOD = "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION"
 
 
 class DemoStateError(ValueError):
@@ -1870,6 +1876,16 @@ class DemoSession:
             self._customer_criterion_payload(criterion)
             for criterion in agreement["criteria"]
         ]
+        adapter_identities = {
+            (criterion.get("adapter"), criterion.get("adapter_version"))
+            for criterion in agreement["criteria"]
+            if isinstance(criterion, dict)
+        }
+        if adapter_identities != {("deterministic_tool_selection", "1.0.0")}:
+            raise DemoStateError(
+                "The seeded customer review has no supported evidence method."
+            )
+        evidence_method = SEEDED_SUPPORT_EVIDENCE_METHOD
         decision_payload = self._customer_decision_payload(
             confirmation,
             idempotent_replay=False,
@@ -1891,6 +1907,7 @@ class DemoSession:
                 "contract_id": agreement["id"],
                 "contract_version": agreement["version"],
                 "confirmation_fingerprint": fingerprint,
+                "evidence_method": evidence_method,
                 "customer": agreement["customer"],
                 "use_case": agreement["use_case"],
                 "poc": {
@@ -1902,6 +1919,7 @@ class DemoSession:
                     "id": agreement["id"],
                     "version": agreement["version"],
                     "confirmation_fingerprint": fingerprint,
+                    "evidence_method": evidence_method,
                     "excluded": agreement["non_goals"],
                     "criteria": customer_criteria,
                     "target_system": agreement["target_system"],
@@ -3047,12 +3065,29 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             )
             .read_bytes()
         )
+        self.inferdrome_catalog = InferdromeBundleCatalog(
+            inferdrome_runs_root
+        )
+
+        def managed_evidence_lookup(
+            run_id: str,
+            bundle_digest: str,
+        ) -> ManagedInferdromeEvidenceProjection:
+            resolved = self.inferdrome_catalog.resolve(run_id, bundle_digest)
+            verified = verify_inferdrome_bundle(
+                resolved.path,
+                expected_bundle_digest=bundle_digest,
+                require_customer_eligible=True,
+            )
+            return project_managed_inferdrome_evidence(verified)
+
         self.performance_lifecycle_service = (
             ProcessLocalPerformanceLifecycleService(
                 draft_lookup=self.draft_poc_service.get,
                 proposal_lookup=self.proposal_review_service.list_proposals,
                 definition_lookup=self.contract_definition_service.definitions,
                 prompt_bytes=performance_prompt_bytes,
+                managed_evidence_lookup=managed_evidence_lookup,
             )
         )
         self.poc_performance_run_service = (
@@ -3061,9 +3096,6 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
                 output_root=session.output_root.resolve(),
                 fireworks_api_key=performance_fireworks_api_key,
             )
-        )
-        self.inferdrome_catalog = InferdromeBundleCatalog(
-            inferdrome_runs_root
         )
         self.poc_inferdrome_import_service = (
             ProcessLocalPOCInferdromeImportService(
@@ -4404,6 +4436,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             lifecycle=self.server.performance_lifecycle_service,
             proposals=self.server.proposal_review_service,
             definitions=self.server.contract_definition_service,
+            inferdrome_catalog=self.server.inferdrome_catalog,
         )
         if response is None:
             return False
@@ -4422,6 +4455,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 lifecycle=self.server.performance_lifecycle_service,
                 proposals=self.server.proposal_review_service,
                 definitions=self.server.contract_definition_service,
+                inferdrome_catalog=self.server.inferdrome_catalog,
             )
             if response is None:
                 return False
@@ -4476,6 +4510,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 lifecycle=self.server.performance_lifecycle_service,
                 proposals=self.server.proposal_review_service,
                 definitions=self.server.contract_definition_service,
+                inferdrome_catalog=self.server.inferdrome_catalog,
             ),
         )
         if not allowed:

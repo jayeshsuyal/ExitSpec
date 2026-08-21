@@ -31,14 +31,23 @@ from .inferdrome_import import (
     InferdromeImportResult,
     import_inferdrome_bundle,
 )
+from .inferdrome_managed_import import (
+    InferdromeManagedImportRejected,
+    InferdromeManagedImportResult,
+    import_managed_inferdrome_bundle,
+)
+from .inferdrome_managed_reporting import (
+    render_managed_inferdrome_evidence_pack,
+)
 from .inferdrome_reporting import render_inferdrome_evidence_pack
-from .models import POCContract, VerdictStatus
+from .models import InferencePerformanceCriterionV3, POCContract, VerdictStatus
 from .performance_evidence import validate_performance_context_bytes
 from .performance_serialization import serialize_contract
 from .poc_performance_contract import (
     PerformanceEvidenceMethod,
     PreparedPerformanceBundle,
 )
+from .poc_managed_inferdrome_contract import PreparedManagedInferdromeBundle
 from .poc_performance_lifecycle import (
     PerformanceLifecycleError,
     ProcessLocalPerformanceLifecycleService,
@@ -93,6 +102,7 @@ class POCInferdromeImportSnapshot:
     adapter_version: str
     measured_requests: int
     concurrency: int
+    observed_configured_max_concurrency: int | None
     warmup_requests: int
     operation_id: str | None
     status: POCInferdromeImportStatus
@@ -101,6 +111,7 @@ class POCInferdromeImportSnapshot:
     attempted_count: int | None
     successful_count: int | None
     error_count: int | None
+    anomalous_count: int | None
     p95_ttft_ms: str | None
     error_rate_percent: str | None
     selected_run_id: str | None
@@ -134,11 +145,16 @@ class _ImportRecord:
     selected_run_id: str
     selected_bundle_digest: str
     status: POCInferdromeImportStatus
-    bundle: PreparedPerformanceBundle = field(repr=False)
+    bundle: PreparedPerformanceBundle | PreparedManagedInferdromeBundle = field(
+        repr=False
+    )
     confirmation: ContractConfirmation = field(repr=False)
     frozen_contract: POCContract = field(repr=False)
     rejection_code: str | None = None
-    result: InferdromeImportResult | None = field(default=None, repr=False)
+    result: InferdromeImportResult | InferdromeManagedImportResult | None = field(
+        default=None,
+        repr=False,
+    )
     evidence_pack_url: str | None = None
     artifact_manifest_sha256: str | None = None
     completed_at: datetime | None = None
@@ -253,6 +269,11 @@ class ProcessLocalPOCInferdromeImportService:
         selected_digest = _safe_single_line(bundle_digest, 80)
         key_digest = _idempotency_digest(idempotency_key)
         bundle, confirmation, frozen = self._frozen_external_bundle(poc_id)
+        if type(bundle) is PreparedManagedInferdromeBundle and (
+            selected_run_id != bundle.evidence.run_id
+            or selected_digest != bundle.evidence.bundle_digest
+        ):
+            raise POCInferdromeImportConflict
         fingerprint = _import_fingerprint(
             poc_id,
             bundle,
@@ -380,7 +401,11 @@ class ProcessLocalPOCInferdromeImportService:
     def _frozen_external_bundle(
         self,
         poc_id: str,
-    ) -> tuple[PreparedPerformanceBundle, ContractConfirmation, POCContract]:
+    ) -> tuple[
+        PreparedPerformanceBundle | PreparedManagedInferdromeBundle,
+        ContractConfirmation,
+        POCContract,
+    ]:
         if type(poc_id) is not str:
             raise POCInferdromeImportInvalid
         try:
@@ -392,6 +417,8 @@ class ProcessLocalPOCInferdromeImportService:
             preparation is None
             or preparation.target.evidence_method
             is not PerformanceEvidenceMethod.INFERDROME_EXTERNAL_BUNDLE
+            or type(bundle)
+            not in {PreparedPerformanceBundle, PreparedManagedInferdromeBundle}
         ):
             raise POCInferdromeImportConflict
         return bundle, confirmation, frozen
@@ -403,18 +430,31 @@ class ProcessLocalPOCInferdromeImportService:
     ) -> None:
         completed_at = _utc_time(self._clock())
         try:
-            context = validate_performance_context_bytes(
-                record.frozen_contract,
-                record.bundle.workload_bytes,
-                record.bundle.prompt_bytes,
-            )
-            result = import_inferdrome_bundle(
-                resolved.path,
-                context,
-                record.confirmation,
-                expected_bundle_digest=record.selected_bundle_digest,
-                received_at=completed_at,
-            )
+            if type(record.bundle) is PreparedManagedInferdromeBundle:
+                result: InferdromeImportResult | InferdromeManagedImportResult = (
+                    import_managed_inferdrome_bundle(
+                        resolved.path,
+                        record.frozen_contract,
+                        record.confirmation,
+                        expected_bundle_digest=record.selected_bundle_digest,
+                        received_at=completed_at,
+                    )
+                )
+            elif type(record.bundle) is PreparedPerformanceBundle:
+                context = validate_performance_context_bytes(
+                    record.frozen_contract,
+                    record.bundle.workload_bytes,
+                    record.bundle.prompt_bytes,
+                )
+                result = import_inferdrome_bundle(
+                    resolved.path,
+                    context,
+                    record.confirmation,
+                    expected_bundle_digest=record.selected_bundle_digest,
+                    received_at=completed_at,
+                )
+            else:
+                raise POCInferdromeImportConflict
             manifest_sha256 = _write_evidence_pack(
                 output_root=self._output_root,
                 operation_id=record.operation_id,
@@ -425,6 +465,9 @@ class ProcessLocalPOCInferdromeImportService:
             self._finish_rejected(record, error.code.value, completed_at)
             return
         except InferdromeImportRejected as error:
+            self._finish_rejected(record, error.code.value, completed_at)
+            return
+        except InferdromeManagedImportRejected as error:
             self._finish_rejected(record, error.code.value, completed_at)
             return
         except Exception:
@@ -464,7 +507,13 @@ class ProcessLocalPOCInferdromeImportService:
         frozen = record.frozen_contract
         result = record.result
         recalculated = None if result is None else result.recalculated
-        verdict = None if result is None else result.performance_verdict.verdict
+        verdict = (
+            None
+            if result is None
+            else result.verdict
+            if type(result) is InferdromeManagedImportResult
+            else result.performance_verdict.verdict
+        )
         return POCInferdromeImportSnapshot(
             poc_id=record.poc_id,
             contract_id=frozen.id,
@@ -478,7 +527,12 @@ class ProcessLocalPOCInferdromeImportService:
             adapter=bundle.workload.adapter,
             adapter_version=bundle.workload.adapter_version,
             measured_requests=bundle.workload.request_count,
-            concurrency=bundle.workload.concurrency,
+            concurrency=_required_concurrency(bundle),
+            observed_configured_max_concurrency=(
+                bundle.workload.concurrency
+                if type(bundle) is PreparedManagedInferdromeBundle
+                else None
+            ),
             warmup_requests=bundle.workload.warmup_count,
             operation_id=record.operation_id,
             status=record.status,
@@ -492,6 +546,12 @@ class ProcessLocalPOCInferdromeImportService:
             ),
             error_count=(
                 None if recalculated is None else recalculated.failed_count
+            ),
+            anomalous_count=(
+                recalculated.anomalous_count
+                if recalculated is not None
+                and type(result) is InferdromeManagedImportResult
+                else None
             ),
             p95_ttft_ms=(
                 None
@@ -523,9 +583,25 @@ class ProcessLocalPOCInferdromeImportService:
         )
 
 
+def _required_concurrency(
+    bundle: PreparedPerformanceBundle | PreparedManagedInferdromeBundle,
+) -> int:
+    if type(bundle) is PreparedPerformanceBundle:
+        return bundle.workload.concurrency
+    if type(bundle) is PreparedManagedInferdromeBundle:
+        criteria = tuple(
+            criterion
+            for criterion in bundle.approved_contract.criteria
+            if type(criterion) is InferencePerformanceCriterionV3
+        )
+        if len(criteria) == 1 and len(bundle.approved_contract.criteria) == 1:
+            return criteria[0].evidence_identity.configured_max_concurrency
+    raise POCInferdromeImportConflict
+
+
 def _empty_snapshot(
     poc_id: str,
-    bundle: PreparedPerformanceBundle,
+    bundle: PreparedPerformanceBundle | PreparedManagedInferdromeBundle,
     frozen: POCContract,
 ) -> POCInferdromeImportSnapshot:
     return POCInferdromeImportSnapshot(
@@ -541,7 +617,12 @@ def _empty_snapshot(
         adapter=bundle.workload.adapter,
         adapter_version=bundle.workload.adapter_version,
         measured_requests=bundle.workload.request_count,
-        concurrency=bundle.workload.concurrency,
+        concurrency=_required_concurrency(bundle),
+        observed_configured_max_concurrency=(
+            bundle.workload.concurrency
+            if type(bundle) is PreparedManagedInferdromeBundle
+            else None
+        ),
         warmup_requests=bundle.workload.warmup_count,
         operation_id=None,
         status=POCInferdromeImportStatus.NOT_STARTED,
@@ -550,6 +631,7 @@ def _empty_snapshot(
         attempted_count=None,
         successful_count=None,
         error_count=None,
+        anomalous_count=None,
         p95_ttft_ms=None,
         error_rate_percent=None,
         selected_run_id=None,
@@ -567,9 +649,21 @@ def _write_evidence_pack(
     output_root: Path,
     operation_id: str,
     contract: POCContract,
-    result: InferdromeImportResult,
+    result: InferdromeImportResult | InferdromeManagedImportResult,
 ) -> str:
     recalculated = result.recalculated
+    if type(result) is InferdromeManagedImportResult:
+        verdict_payload = _managed_verdict_payload(contract, result)
+        decision_packet = render_managed_inferdrome_evidence_pack(
+            contract=contract,
+            result=result,
+        )
+    else:
+        verdict_payload = _verdict_payload(result.performance_verdict)
+        decision_packet = render_inferdrome_evidence_pack(
+            contract=contract,
+            result=result,
+        )
     artifacts = {
         "contract.json": serialize_contract(contract),
         "inferdrome-receipt.json": canonical_json_bytes(
@@ -589,12 +683,9 @@ def _write_evidence_pack(
             }
         ),
         "verdict.json": canonical_json_bytes(
-            _verdict_payload(result.performance_verdict)
+            verdict_payload
         ),
-        "decision-packet.html": render_inferdrome_evidence_pack(
-            contract=contract,
-            result=result,
-        ),
+        "decision-packet.html": decision_packet,
     }
     staging = Path(
         tempfile.mkdtemp(
@@ -695,6 +786,64 @@ def _verdict_payload(verdict: object) -> dict[str, object]:
     }
 
 
+def _managed_verdict_payload(
+    contract: POCContract,
+    result: InferdromeManagedImportResult,
+) -> dict[str, object]:
+    criteria = tuple(
+        criterion
+        for criterion in contract.criteria
+        if type(criterion) is InferencePerformanceCriterionV3
+    )
+    if len(criteria) != 1 or len(contract.criteria) != 1:
+        raise TypeError("Managed Inferdrome verdict contract is invalid.")
+    criterion = criteria[0]
+    recalculated = result.recalculated
+    return {
+        "criterion_id": criterion.id,
+        "verdict": result.verdict.value,
+        "attempted_count": recalculated.attempted_count,
+        "successful_count": recalculated.successful_count,
+        "error_count": recalculated.failed_count,
+        "ttft_p95": {
+            "observed_ns": recalculated.p95_ttft_ns,
+            "threshold_ns": criterion.ttft_p95.threshold_ns,
+            "operator": criterion.ttft_p95.operator,
+            "definition_id": criterion.ttft_p95.definition_id,
+            "reducer_id": criterion.ttft_p95.reducer_id,
+            "population": criterion.ttft_p95.population,
+            "minimum_successful_samples": (
+                criterion.ttft_p95.minimum_successful_samples
+            ),
+        },
+        "error_rate": {
+            "observed_rate": str(recalculated.error_rate),
+            "threshold_basis_points": (
+                criterion.error_rate.threshold_basis_points
+            ),
+            "operator": criterion.error_rate.operator,
+            "numerator": criterion.error_rate.numerator,
+            "denominator": criterion.error_rate.denominator,
+            "exact_attempts": criterion.error_rate.exact_attempts,
+        },
+        "applicability_codes": [
+            issue.value for issue in result.applicability.issues
+        ],
+        "calculation_version": result.receipt.calculation_version,
+        "receipt_id": result.receipt.receipt_id,
+        "bundle_digest": result.receipt.bundle_digest,
+        "reason": (
+            "All applicable frozen requirements passed."
+            if result.verdict is VerdictStatus.PASS
+            else "An applicable frozen requirement failed."
+            if result.verdict is VerdictStatus.FAIL
+            else "The accepted evidence cannot prove this frozen slice."
+        ),
+        "limitations": list(contract.non_goals),
+        "outcome_counts": None,
+    }
+
+
 def _launch_worker(target: Callable[[], None]) -> None:
     Thread(target=target, daemon=True).start()
 
@@ -731,12 +880,28 @@ def _contract_hash(contract: POCContract) -> str:
 
 def _import_fingerprint(
     poc_id: str,
-    bundle: PreparedPerformanceBundle,
+    bundle: PreparedPerformanceBundle | PreparedManagedInferdromeBundle,
     confirmation: ContractConfirmation,
     frozen: POCContract,
     run_id: str,
     bundle_digest: str,
 ) -> str:
+    if type(bundle) is PreparedManagedInferdromeBundle:
+        return hashlib.sha256(
+            b"exitspec-poc-managed-inferdrome-import-v1\x00"
+            + canonical_json_bytes(
+                {
+                    "poc_id": poc_id,
+                    "contract_hash": _contract_hash(frozen),
+                    "confirmation_id": confirmation.confirmation_id,
+                    "prepared_bundle_fingerprint": bundle.bundle_fingerprint,
+                    "selected_run_id": run_id,
+                    "selected_bundle_digest": bundle_digest,
+                }
+            )
+        ).hexdigest()
+    if type(bundle) is not PreparedPerformanceBundle:
+        raise POCInferdromeImportConflict
     return hashlib.sha256(
         b"exitspec-poc-inferdrome-import-v1\x00"
         + canonical_json_bytes(

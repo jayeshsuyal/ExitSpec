@@ -202,6 +202,13 @@ def test_receipt_is_deterministic_and_every_material_field_is_bound(tmp_path):
 
     assert replay.receipt == first.receipt
     assert replay.receipt.receipt_id == first.receipt.receipt_id
+    assert first.receipt.receipt_id == (
+        "irc_b5b1e4513c16382288faebbc7f2bc37375c825f86a2c84930bf94d9d0b4b0b94"
+    )
+    receipt_bytes = canonical_json_bytes(first.receipt.model_dump(mode="json"))
+    assert hashlib.sha256(receipt_bytes).hexdigest() == (
+        "30c8ac80da3937731e98800dc2fe7788b8e6ba35eebf95222ba3a7df88d97df2"
+    )
     with pytest.raises(ValidationError, match="receipt_id"):
         validate_inferdrome_receipt(
             first.receipt.model_copy(

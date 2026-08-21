@@ -219,6 +219,8 @@
 
   function evidenceMethodLabel(value) {
     return {
+      EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION:
+        "Evaluate with ExitSpec · deterministic tool-selection fixture",
       EXIT_SPEC_STREAMING_PROBE: "Run from ExitSpec · first non-empty content",
       INFERDROME_EXTERNAL_BUNDLE: "Import sealed Inferdrome evidence · native vLLM semantics",
     }[value] || "";
@@ -236,7 +238,79 @@
     );
   }
 
+  function hasTrustedManagedCriterion(criterion) {
+    const ttft = criterion?.ttft_p95;
+    const errorRate = criterion?.error_rate;
+    const identity = criterion?.evidence_identity;
+    return Boolean(
+      criterion?.criterion_type === "inference_performance_v3" &&
+        hasExactKeys(ttft, [
+          "aggregation",
+          "definition_id",
+          "metric",
+          "minimum_successful_samples",
+          "must_pass",
+          "operator",
+          "population",
+          "reducer_id",
+          "threshold_ns",
+          "unit",
+        ]) &&
+        ttft.metric === "time_to_first_token" &&
+        ttft.definition_id === "vllm_first_choices_event_v0_26" &&
+        ttft.aggregation === "p95" &&
+        ttft.unit === "nanoseconds" &&
+        ttft.operator === "lt" &&
+        Number.isInteger(ttft.threshold_ns) &&
+        ttft.threshold_ns > 0 &&
+        ttft.reducer_id === "nearest_rank_v1" &&
+        ttft.population ===
+          "successful_measured_requests_with_observed_ttft" &&
+        ttft.minimum_successful_samples === 100 &&
+        ttft.must_pass === true &&
+        hasExactKeys(errorRate, [
+          "aggregation",
+          "denominator",
+          "exact_attempts",
+          "metric",
+          "must_pass",
+          "numerator",
+          "operator",
+          "threshold_basis_points",
+        ]) &&
+        errorRate.metric === "error_rate" &&
+        errorRate.aggregation === "rate" &&
+        errorRate.operator === "lt" &&
+        Number.isInteger(errorRate.threshold_basis_points) &&
+        errorRate.threshold_basis_points > 0 &&
+        errorRate.threshold_basis_points < 10000 &&
+        errorRate.numerator ===
+          "failed_or_anomalous_native_measured_requests" &&
+        errorRate.denominator === "all_measured_requests" &&
+        errorRate.exact_attempts === 100 &&
+        errorRate.must_pass === true &&
+        identity?.schema_version ===
+          "exitspec.inferdrome-evidence-identity.v1" &&
+        identity.evidence_schema_version === "inferdrome.evidence.v1" &&
+        identity.producer_name === "vllm" &&
+        identity.producer_version === "0.26.0" &&
+        identity.adapter_id === "vllm_bench_serve" &&
+        identity.adapter_version === "1.0.0" &&
+        identity.configured_max_concurrency > 0 &&
+        identity.exact_measured_attempts === 100 &&
+        identity.warmup_requests >= 0 &&
+        identity.binding_mode === "EXTERNAL_RECEIPT_BINDING" &&
+        identity.chronology === "RETROSPECTIVE" &&
+        identity.producer_contract_link === "ABSENT" &&
+        criterion.concurrency_semantics ===
+          "configured_maximum_concurrency_not_observed_overlap"
+    );
+  }
+
   function hasTrustedCountingPolicy(criterion) {
+    if (criterion?.criterion_type === "inference_performance_v3") {
+      return hasTrustedManagedCriterion(criterion);
+    }
     if (criterion?.criterion_type !== "inference_performance_v2") {
       return true;
     }
@@ -532,9 +606,14 @@
     elements.sample.textContent = criterion.sample;
     elements.workload.textContent = criterion.workload;
     elements.rule.textContent = criterionRuleText(boundCriterion);
-    elements.adapter.textContent =
-      `${boundCriterion.adapter}@${boundCriterion.adapter_version} · ` +
-      boundCriterion.workload_slice;
+    const managedIdentity =
+      boundCriterion.criterion_type === "inference_performance_v3"
+        ? boundCriterion.evidence_identity
+        : null;
+    elements.adapter.textContent = managedIdentity
+      ? `${managedIdentity.adapter_id}@${managedIdentity.adapter_version} · native first-choices-event · ${managedIdentity.chronology.toLowerCase()}`
+      : `${boundCriterion.adapter}@${boundCriterion.adapter_version} · ` +
+        boundCriterion.workload_slice;
     elements.criterionOwner.textContent = boundCriterion.owner;
     elements.sourceLocation.textContent = boundCriterion.source
       ? `${boundCriterion.source.speaker} · ${boundCriterion.source.location}`
@@ -566,6 +645,21 @@
   }
 
   function renderCountingPolicy(boundCriterion) {
+    if (boundCriterion?.criterion_type === "inference_performance_v3") {
+      const ttft = boundCriterion.ttft_p95;
+      const errorRate = boundCriterion.error_rate;
+      const identity = boundCriterion.evidence_identity;
+      elements.countingPolicy.hidden = false;
+      elements.countingPopulation.textContent =
+        `${errorRate.exact_attempts} measured records`;
+      elements.countingLatency.textContent =
+        "Native vLLM first-choices-event TTFT uses nearest_rank_v1. Role-only or empty-content choice events count as the first event.";
+      elements.countingReliability.textContent =
+        `Reliability uses all ${errorRate.exact_attempts} measured records; failed or anomalous records count.`;
+      elements.countingBoundary.textContent =
+        `${identity.chronology} evidence · warmups excluded · retry behavior ${"NOT_AVAILABLE"}. Invalid evidence is INGESTION REJECTED with no verdict; compatible but insufficient evidence is NOT PROVEN.`;
+      return;
+    }
     const policy = boundCriterion?.measurement_policy;
     elements.countingPolicy.hidden = !policy;
     if (!policy) {
@@ -582,6 +676,18 @@
   }
 
   function criterionRuleText(boundCriterion) {
+    if (boundCriterion?.criterion_type === "inference_performance_v3") {
+      const ttft = boundCriterion.ttft_p95;
+      const errorRate = boundCriterion.error_rate;
+      const thresholdMs = ttft.threshold_ns / 1000000;
+      const errorPercent = errorRate.threshold_basis_points / 100;
+      return (
+        `Native p95 TTFT < ${thresholdMs} ms · ` +
+        `${ttft.minimum_successful_samples} successful records · ` +
+        `error rate < ${errorPercent}% across ${errorRate.exact_attempts} records · ` +
+        `${ttft.reducer_id}`
+      );
+    }
     if (
       ["inference_performance_v1", "inference_performance_v2"].includes(
         boundCriterion?.criterion_type
@@ -985,7 +1091,7 @@
   const MOCK_REVIEW = {
     review_id: "local-synthetic-review",
     status: "PENDING",
-    evidence_method: "EXIT_SPEC_STREAMING_PROBE",
+    evidence_method: "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION",
     poc: {
       title: "Support-agent tool selection POC",
       customer_name: "Northstar Support (synthetic)",
@@ -993,7 +1099,7 @@
     contract: {
       id: "support-agent-poc",
       version: "3",
-      evidence_method: "EXIT_SPEC_STREAMING_PROBE",
+      evidence_method: "EXIT_SPEC_DETERMINISTIC_TOOL_SELECTION",
       excluded: [
         "Production rollout or traffic expansion",
         "Security, legal, and procurement approval",
