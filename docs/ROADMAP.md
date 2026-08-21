@@ -361,12 +361,15 @@ pass.
 
 The provider-neutral meeting connector contract, opaque synthetic webhook
 authentication seam, durable synthetic-only inbox, sealed-window source bridge,
-synthetic inbox-to-source orchestration core, local golden-fixture capture kit,
-and dated Zoom RTMS capability spike are implemented in
+synthetic inbox-to-source orchestration core, local provider-neutral
+meeting-session API, local golden-fixture capture kit, and dated Zoom RTMS
+capability spike are implemented in
 `meeting_connector.py`, `zoom_webhook_auth.py`, `meeting_event_inbox.py`,
 `meeting_source_handoff.py`, `meeting_source_orchestration.py`,
+`meeting_session_runtime.py`, `meeting_session_web_api.py`,
 `zoom_fixture_capture.py`,
 [MEETING_CONNECTOR_SPEC.md](MEETING_CONNECTOR_SPEC.md),
+[MEETING_SESSION_API.md](MEETING_SESSION_API.md),
 [MEETING_SOURCE_HANDOFF_SPEC.md](MEETING_SOURCE_HANDOFF_SPEC.md),
 [MEETING_SOURCE_ORCHESTRATION_SPEC.md](MEETING_SOURCE_ORCHESTRATION_SPEC.md),
 the [Zoom golden-fixture runbook](ZOOM_GOLDEN_FIXTURE_RUNBOOK.md),
@@ -393,6 +396,11 @@ The capture kit validates operator attestations, prepares an owner-only
 git-ignored workspace, seals an exact fixed inventory of opaque bytes, detects
 later mutation, and records a zero-authority privacy-review receipt. It makes no
 Zoom call, parses no artifact, and does not claim a sanitized fixture.
+The application API now drives one fixed synthetic adapter through disclosure,
+consent, start, durable inbox append, draft-now, and the existing review queue.
+It exposes no private meeting or transcript identities and explicitly reports
+that no provider is connected. It does not implement the product UI or a Zoom
+transport.
 
 The remaining train is:
 

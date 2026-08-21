@@ -264,6 +264,15 @@ and returns one content-free, digest-bound result. Finalization is serialized
 within one service instance; this is not a cross-process lock or a durable
 exactly-once completion claim.
 
+`ProcessLocalMeetingSessionRuntime` and its narrow HTTP projection add the
+application seam above that orchestration core. A server-owned fixed synthetic
+adapter drives disclosure -> consent -> start -> draft-now, then returns one
+content-free `DRAFT_READY` projection pointing to the existing human review
+page. The browser cannot provide provider identities, transcript events,
+transport proofs, or lifecycle authority. The adapter reports
+`provider_connected=false`; no Zoom packet schema or live connection is
+claimed. See [MEETING_SESSION_API.md](MEETING_SESSION_API.md).
+
 The bridge and orchestration core have no route and no inbox deletion
 authority. The accepted redacted source is currently process-local, so the
 durable private annex remains under its existing TTL instead of being deleted

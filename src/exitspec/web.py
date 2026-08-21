@@ -75,6 +75,13 @@ from .intake import (
 )
 from .inferdrome_bundle import verify_inferdrome_bundle
 from .inferdrome_catalog import InferdromeBundleCatalog
+from .meeting_event_inbox import SQLiteMeetingEventInbox
+from .meeting_session_runtime import ProcessLocalMeetingSessionRuntime
+from .meeting_session_web_api import (
+    handle_meeting_session_web_api_request,
+    is_meeting_session_web_api_target,
+    meeting_session_web_api_poc_id,
+)
 from .models import (
     ContractSeed,
     Criterion,
@@ -3029,7 +3036,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             raise ValueError(
                 "Wave-1 provider execution configuration is invalid."
         )
-        self._resource_stack = resource_stack
+        self._resource_stack = (
+            resource_stack if resource_stack is not None else ExitStack()
+        )
         self.draft_poc_service = ProcessLocalDraftPOCService()
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
             draft_lookup=self.draft_poc_service.get,
@@ -3108,6 +3117,29 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             )
         )
         super().__init__(address, ExitSpecDemoRequestHandler)
+        try:
+            meeting_runtime_root = Path(
+                self._resource_stack.enter_context(
+                    tempfile.TemporaryDirectory(
+                        prefix="exitspec-meeting-session-"
+                    )
+                )
+            ).resolve()
+            meeting_runtime_root.chmod(0o700)
+            self._meeting_event_inbox = SQLiteMeetingEventInbox(
+                meeting_runtime_root / "meeting-events.sqlite3"
+            )
+            self.meeting_session_runtime = ProcessLocalMeetingSessionRuntime(
+                drafts=self.draft_poc_service,
+                source_intake=self.poc_source_intake,
+                inbox=self._meeting_event_inbox,
+            )
+        except Exception:
+            super().server_close()
+            if resource_stack is None:
+                self._resource_stack.close()
+                self._resource_stack = None
+            raise
         self.session = session
         self.poc_closure_service = ProcessLocalPOCClosureService(
             evidence_resolver=self._terminal_evidence_binding,
@@ -3968,6 +4000,91 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._send_json(response.status, response.payload)
         return True
 
+    def _dispatch_meeting_session_read(self) -> bool:
+        response = handle_meeting_session_web_api_request(
+            method=self.command,
+            target=self.path,
+            payload=None,
+            runtime=self.server.meeting_session_runtime,
+        )
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
+    def _dispatch_meeting_session_write(self) -> bool:
+        if not is_meeting_session_web_api_target(self.path):
+            return False
+        parsed = urlparse(self.path)
+        if parsed.params or parsed.query or parsed.fragment:
+            response = handle_meeting_session_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload={},
+                runtime=self.server.meeting_session_runtime,
+            )
+            if response is None:
+                return False
+            self._send_json(response.status, response.payload)
+            return True
+        poc_id = meeting_session_web_api_poc_id(parsed.path)
+        if not self._has_json_media_type():
+            self._send_json(
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": UNSUPPORTED_MEDIA_TYPE_ERROR},
+            )
+            return True
+        if not self._has_allowed_origin(
+            require_present=True,
+            exact_request_origin=True,
+        ):
+            self._send_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": FORBIDDEN_ORIGIN_ERROR},
+            )
+            return True
+        if self.headers.get_all("Idempotency-Key"):
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Meeting session request is invalid."},
+            )
+            return True
+        allowed, _ = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: None,
+        )
+        if not allowed:
+            return True
+        try:
+            payload = self._read_poc_source_json()
+        except OverflowError:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"error": "Meeting session request is too large."},
+            )
+            return True
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Meeting session request is invalid."},
+            )
+            return True
+        allowed, response = self._run_unclosed_poc_mutation(
+            poc_id,
+            lambda: handle_meeting_session_web_api_request(
+                method=self.command,
+                target=self.path,
+                payload=payload,
+                runtime=self.server.meeting_session_runtime,
+            ),
+        )
+        if not allowed:
+            return True
+        if response is None:
+            return False
+        self._send_json(response.status, response.payload)
+        return True
+
     def _dispatch_stt_demo_write(self) -> bool:
         if not is_stt_demo_web_api_target(self.path):
             return False
@@ -4705,6 +4822,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if (
             code == HTTPStatus.NOT_IMPLEMENTED
             and hasattr(self, "path")
+            and is_meeting_session_web_api_target(self.path)
+            and self._dispatch_meeting_session_read()
+        ):
+            return
+        if (
+            code == HTTPStatus.NOT_IMPLEMENTED
+            and hasattr(self, "path")
             and is_poc_source_web_api_target(self.path)
             and self._dispatch_poc_source_read()
         ):
@@ -4765,6 +4889,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_performance_read():
             return
         if self._dispatch_stt_demo_read():
+            return
+        if self._dispatch_meeting_session_read():
             return
         if self._dispatch_poc_source_read():
             return
@@ -5145,6 +5271,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_performance_write():
             return
         if self._dispatch_stt_demo_write():
+            return
+        if self._dispatch_meeting_session_write():
             return
         if self._dispatch_poc_source_write():
             return
