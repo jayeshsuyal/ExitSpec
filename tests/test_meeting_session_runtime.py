@@ -165,7 +165,8 @@ def test_guided_session_uses_real_inbox_and_creates_review_only_source(tmp_path)
     assert "participant_synthetic_employee" not in serialized
     assert "participant_synthetic_customer" not in serialized
     assert '"meeting_id"' not in serialized
-    assert "p95 response latency" not in serialized.lower()
+    assert "p95 time to first token" not in serialized.lower()
+    assert "error rate must stay below" not in serialized.lower()
     assert MEETING_SESSION_NOTICE in serialized
 
 

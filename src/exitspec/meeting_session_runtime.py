@@ -92,18 +92,19 @@ _SYNTHETIC_SCRIPT = (
     (
         _SYNTHETIC_PARTICIPANTS[0],
         "Synthetic host",
-        "Criterion: p95 response latency must be at most 500 milliseconds at "
-        "concurrency four.",
+        "Criterion: p95 time to first token must be at most 500 milliseconds "
+        "at concurrency four.",
     ),
     (
         _SYNTHETIC_PARTICIPANTS[1],
         "Synthetic guest",
-        "Confirmed as a synthetic test requirement.",
+        "That matches my understanding.",
     ),
     (
         _SYNTHETIC_PARTICIPANTS[0],
         "Synthetic host",
-        "Timeouts count as errors over all measured attempts.",
+        "Criterion: error rate must stay below 1 percent; timeouts count as "
+        "errors over all measured attempts.",
     ),
     (
         _SYNTHETIC_PARTICIPANTS[1],

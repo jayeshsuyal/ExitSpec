@@ -138,9 +138,9 @@ Both participants should say only the following predetermined script:
 ```text
 Host: This is a synthetic ExitSpec Zoom RTMS test. Transcript only; no customer data.
 Guest: I consent to this synthetic transcript-only test.
-Host: Criterion: p95 response latency must be at most 500 milliseconds at concurrency four.
-Guest: Confirmed as a synthetic test requirement.
-Host: Timeouts count as errors over all measured attempts.
+Host: Criterion: p95 time to first token must be at most 500 milliseconds at concurrency four.
+Guest: That matches my understanding.
+Host: Criterion: error rate must stay below 1 percent; timeouts count as errors over all measured attempts.
 Guest: Confirmed.
 Host: End of synthetic test.
 ```
