@@ -32,6 +32,9 @@ STATIC_ROOT = PROJECT_ROOT / "src" / "exitspec" / "static"
 INFERDROME_SCHEMA_ROOT = (
     PROJECT_ROOT / "src" / "exitspec" / "schemas" / "inferdrome" / "v1"
 )
+INFERDROME_PROFILE_ROOT = (
+    PROJECT_ROOT / "src" / "exitspec" / "profiles" / "inferdrome" / "v1"
+)
 EXPECTED_INFERDROME_SCHEMAS = {
     "environment.schema.json": (
         "0a0c43552f86d45579786f30f71da62cf6c02ea7c5c2cfcf76dc1427dc9df777"
@@ -56,6 +59,20 @@ EXPECTED_INFERDROME_SCHEMAS = {
     ),
     "request-record.schema.json": (
         "a65f763947207f0a312770d743a623363ae4eec36336e0126e87df350ec07ee4"
+    ),
+}
+EXPECTED_INFERDROME_PROFILE_RESOURCES = {
+    "a10-handoff-manifest.json": (
+        "a6d91f202d805523e5a52a44174fd547ab6f460ea20113a7cabf4deaebd61fe0"
+    ),
+    "a10-publication-review.json": (
+        "700e374b22e91ef459b5e8a978f9cad94aececa694ff25bdf8b9bde25b51e22d"
+    ),
+    "local-gpu-proof.schema.json": (
+        "2f397c7608edd039fdbe904287f52c85647e54a71d608523b135332717de456a"
+    ),
+    "managed-vllm-0.26-evidence-profile.json": (
+        "8be8a31f332087297a78c3b20e9f790d732e90e36a6b6f2ffa5213957ff3ef51"
     ),
 }
 EXPECTED_STATIC_RESOURCES = {
@@ -406,6 +423,16 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
             archived_schema = archive.read(member)
             assert archived_schema == (INFERDROME_SCHEMA_ROOT / filename).read_bytes()
             assert _sha256(archived_schema) == expected_sha256
+        for filename, expected_sha256 in (
+            EXPECTED_INFERDROME_PROFILE_RESOURCES.items()
+        ):
+            member = "exitspec/profiles/inferdrome/v1/{0}".format(filename)
+            assert member in members
+            archived_profile = archive.read(member)
+            assert archived_profile == (
+                INFERDROME_PROFILE_ROOT / filename
+            ).read_bytes()
+            assert _sha256(archived_profile) == expected_sha256
         for filename in EXPECTED_STATIC_RESOURCES:
             member = "exitspec/static/{0}".format(filename)
             assert member in members

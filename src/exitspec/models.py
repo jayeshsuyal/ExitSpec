@@ -109,7 +109,9 @@ class DiscoveryTranscript(ExitSpecModel):
         expected = list(range(1, len(lines) + 1))
         actual = [line.line_number for line in lines]
         if actual != expected:
-            raise ValueError("Transcript line numbers must be contiguous and start at 1.")
+            raise ValueError(
+                "Transcript line numbers must be contiguous and start at 1."
+            )
         return lines
 
 
@@ -157,9 +159,7 @@ class ProportionRule(FrozenExitSpecModel):
     threshold: float = Field(ge=0.0, le=1.0)
     minimum_samples: int = Field(gt=0)
     confidence_level: float = Field(default=0.95, gt=0.0, lt=1.0)
-    confidence_method: ConfidenceMethod = (
-        ConfidenceMethod.WILSON_TWO_SIDED_LOWER_BOUND
-    )
+    confidence_method: ConfidenceMethod = ConfidenceMethod.WILSON_TWO_SIDED_LOWER_BOUND
 
     @model_validator(mode="after")
     def require_supported_comparison(self) -> "ProportionRule":
@@ -294,17 +294,13 @@ class InvalidEvidencePolicyV1(FrozenExitSpecModel):
         self,
     ) -> "InvalidEvidencePolicyV1":
         if self.terminal_outcomes != ("CANCELLED", "INTERNAL_ERROR"):
-            raise ValueError(
-                "Invalid terminal outcomes must use the canonical order."
-            )
+            raise ValueError("Invalid terminal outcomes must use the canonical order.")
         if self.record_conditions != (
             "MISSING_RECORD",
             "DUPLICATE_RECORD",
             "EXTRA_RECORD",
         ):
-            raise ValueError(
-                "Invalid record conditions must use the canonical order."
-            )
+            raise ValueError("Invalid record conditions must use the canonical order.")
         return self
 
 
@@ -344,10 +340,7 @@ class InferencePerformanceCriterion(FrozenExitSpecModel):
             raise ValueError(
                 "A criterion needs a source reference or must be explicitly human-added."
             )
-        if (
-            self.ttft_p95.minimum_successful_samples
-            > self.error_rate.minimum_attempts
-        ):
+        if self.ttft_p95.minimum_successful_samples > self.error_rate.minimum_attempts:
             raise ValueError(
                 "TTFT successful samples cannot exceed total attempted samples."
             )
@@ -372,10 +365,117 @@ class InferencePerformanceCriterionV2(InferencePerformanceCriterion):
         return self
 
 
+class InferdromeEvidenceIdentityV1(FrozenExitSpecModel):
+    """Complete supported identity for one external managed-vLLM evidence slice."""
+
+    schema_version: Literal["exitspec.inferdrome-evidence-identity.v1"]
+    evidence_schema_version: Literal["inferdrome.evidence.v1"]
+    producer_name: Literal["vllm"]
+    producer_version: Literal["0.26.0"]
+    adapter_id: Literal["vllm_bench_serve"]
+    adapter_version: Literal["1.0.0"]
+    native_schema_fingerprint: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    managed_profile_id: Literal["inferdrome.managed-vllm-0.26-evidence-profile.v1"]
+    managed_profile_sha256: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    local_gpu_proof_schema_id: Literal["urn:inferdrome:local-gpu-proof:v1"]
+    local_gpu_proof_schema_sha256: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    request_plan_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    workload_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    target_model: str = Field(min_length=1)
+    target_model_revision: str = Field(pattern=r"^[a-f0-9]{40}$")
+    target_tokenizer_revision: str = Field(pattern=r"^[a-f0-9]{40}$")
+    target_endpoint: str = Field(pattern=r"^http://127\.0\.0\.1:[0-9]{1,5}/$")
+    configured_max_concurrency: int = Field(gt=0, le=1_000)
+    exact_measured_attempts: int = Field(gt=0, le=1_000)
+    warmup_requests: int = Field(ge=0, le=1_000)
+    binding_mode: Literal["EXTERNAL_RECEIPT_BINDING"]
+    chronology: Literal["RETROSPECTIVE"]
+    producer_contract_link: Literal["ABSENT"]
+
+    @field_validator("target_endpoint")
+    @classmethod
+    def require_valid_loopback_port(cls, value: str) -> str:
+        port_text = value.removeprefix("http://127.0.0.1:").removesuffix("/")
+        if not port_text.isdecimal() or not 1 <= int(port_text) <= 65_535:
+            raise ValueError("External target endpoint requires a valid loopback port.")
+        return value
+
+
+class ExternalTTFTP95RuleV1(FrozenExitSpecModel):
+    """One exact external TTFT observation identity and integer threshold."""
+
+    metric: Literal["time_to_first_token"]
+    definition_id: Literal[
+        "vllm_first_choices_event_v0_26",
+        "first_nonempty_choices_delta_content_v1",
+    ]
+    aggregation: Literal["p95"]
+    unit: Literal["nanoseconds"]
+    operator: Literal["lt"]
+    threshold_ns: int = Field(gt=0, le=60_000_000_000)
+    reducer_id: Literal["nearest_rank_v1"]
+    population: Literal["successful_measured_requests_with_observed_ttft"]
+    minimum_successful_samples: int = Field(gt=0, le=1_000)
+    must_pass: Literal[True]
+
+
+class ExternalErrorRateRuleV1(FrozenExitSpecModel):
+    """Strict error ratio over the complete measured attempt population."""
+
+    metric: Literal["error_rate"]
+    aggregation: Literal["rate"]
+    operator: Literal["lt"]
+    threshold_basis_points: int = Field(gt=0, lt=10_000)
+    numerator: Literal["failed_or_anomalous_native_measured_requests"]
+    denominator: Literal["all_measured_requests"]
+    exact_attempts: int = Field(gt=0, le=1_000)
+    must_pass: Literal[True]
+
+
+class InferencePerformanceCriterionV3(FrozenExitSpecModel):
+    """Hash-bound native metric criterion for retrospective external evidence."""
+
+    criterion_type: Literal["inference_performance_v3"]
+    id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
+    title: str = Field(min_length=1)
+    must_have: Literal[True] = True
+    source: Optional[SourceReference] = None
+    human_added: bool = False
+    normalized_claim: str = Field(min_length=1)
+    ttft_p95: ExternalTTFTP95RuleV1
+    error_rate: ExternalErrorRateRuleV1
+    evidence_identity: InferdromeEvidenceIdentityV1
+    concurrency_semantics: Literal[
+        "configured_maximum_concurrency_not_observed_overlap"
+    ]
+    owner: str = Field(min_length=1)
+    evidence_policy: str = Field(min_length=1)
+    approved: bool = False
+
+    @model_validator(mode="after")
+    def require_traceable_and_exact_population(
+        self,
+    ) -> "InferencePerformanceCriterionV3":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A criterion needs a source reference or must be explicitly human-added."
+            )
+        if (
+            self.evidence_identity.exact_measured_attempts
+            != self.error_rate.exact_attempts
+            or self.ttft_p95.minimum_successful_samples > self.error_rate.exact_attempts
+        ):
+            raise ValueError(
+                "External latency and reliability populations must share one exact run."
+            )
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
     InferencePerformanceCriterionV2,
+    InferencePerformanceCriterionV3,
 ]
 
 
@@ -415,7 +515,9 @@ class CriterionDraft(ExitSpecModel):
                 "A criterion draft needs a transcript span or must be explicitly human-added."
             )
         if self.source_span is not None and self.human_added:
-            raise ValueError("A criterion draft cannot be both source-linked and human-added.")
+            raise ValueError(
+                "A criterion draft cannot be both source-linked and human-added."
+            )
         if self.human_added and not self.human_added_rationale:
             raise ValueError("Human-added drafts require human_added_rationale.")
         if not self.human_added and self.human_added_rationale is not None:
@@ -446,14 +548,20 @@ class CriterionDraft(ExitSpecModel):
                 )
 
         if self.status == DraftStatus.NEEDS_REVIEW and self.review is not None:
-            raise ValueError("Drafts needing review cannot already have a review decision.")
+            raise ValueError(
+                "Drafts needing review cannot already have a review decision."
+            )
         if self.status == DraftStatus.APPROVED:
             if self.review is None or self.review.decision != ReviewDecision.APPROVE:
                 raise ValueError("Approved drafts require an explicit approval review.")
             if self.proposed_criterion is None:
-                raise ValueError("Approved drafts require a complete proposed criterion.")
+                raise ValueError(
+                    "Approved drafts require a complete proposed criterion."
+                )
             if self.open_questions:
-                raise ValueError("Approved drafts cannot retain unresolved open questions.")
+                raise ValueError(
+                    "Approved drafts cannot retain unresolved open questions."
+                )
             if not self.proposed_criterion.approved:
                 raise ValueError("Approved drafts must contain an approved criterion.")
         if self.status == DraftStatus.REJECTED and (
@@ -500,7 +608,9 @@ class DiscoveryPack(ExitSpecModel):
     ) -> List[CriterionDraft]:
         draft_ids = [draft.id for draft in drafts]
         if len(draft_ids) != len(set(draft_ids)):
-            raise ValueError("Criterion draft IDs must be unique within a discovery pack.")
+            raise ValueError(
+                "Criterion draft IDs must be unique within a discovery pack."
+            )
         return drafts
 
     @model_validator(mode="after")
@@ -516,9 +626,7 @@ class DiscoveryPack(ExitSpecModel):
             if span.end_line > len(self.transcript.lines):
                 raise ValueError("A transcript span extends beyond the transcript.")
 
-            selected_lines = self.transcript.lines[
-                span.start_line - 1 : span.end_line
-            ]
+            selected_lines = self.transcript.lines[span.start_line - 1 : span.end_line]
             if any(line.speaker != span.speaker for line in selected_lines):
                 raise ValueError(
                     "A transcript span must contain lines from its declared speaker only."
@@ -583,7 +691,9 @@ class POCContract(FrozenExitSpecModel):
     @model_validator(mode="after")
     def validate_lifecycle_requirements(self) -> "POCContract":
         if self.status in (ContractStatus.APPROVED, ContractStatus.FROZEN):
-            unapproved = [criterion.id for criterion in self.criteria if not criterion.approved]
+            unapproved = [
+                criterion.id for criterion in self.criteria if not criterion.approved
+            ]
             if unapproved:
                 raise ValueError(
                     "Approved and frozen contracts require all criteria to be approved: "
@@ -649,9 +759,7 @@ class CriterionVerdict(ExitSpecModel):
     observed_rate: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     threshold: float = Field(ge=0.0, le=1.0)
     sample_count: int = Field(ge=0)
-    confidence_lower_bound: Optional[float] = Field(
-        default=None, ge=0.0, le=1.0
-    )
+    confidence_lower_bound: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     evidence_refs: List[str] = Field(default_factory=list)
     calculation_version: str = Field(min_length=1)
     reason: str = Field(min_length=1)

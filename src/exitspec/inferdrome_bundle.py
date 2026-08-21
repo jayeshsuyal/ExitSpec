@@ -13,6 +13,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import stat
@@ -30,6 +31,11 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from .canonical import CanonicalizationError, canonical_json_bytes
+from .inferdrome_managed_profile import (
+    ManagedInferdromeProfileError,
+    ManagedInferdromeProfileFacts,
+    validate_managed_invocation_profile,
+)
 
 INFERDROME_VERIFIER_VERSION: Final = "1.0.0"
 
@@ -43,6 +49,12 @@ _MAX_CONTROL_BYTES: Final = 1_048_576
 _MAX_INVOCATION_BYTES: Final = 2_097_152
 _MAX_PREFLIGHT_RESPONSE_BYTES: Final = 1_048_576
 _MAX_VERSION_BYTES: Final = 65_536
+_MAX_NATIVE_ARRAY_ITEMS: Final = 100_000
+_MAX_NATIVE_ITL_ITEMS: Final = 16_384
+_MAX_NATIVE_TEXT_CHARACTERS: Final = 16 * 1024 * 1024
+_MAX_NATIVE_ERROR_CHARACTERS: Final = 1024 * 1024
+_MAX_JSON_NUMBER_DIGITS: Final = 128
+_MAX_JSON_DECIMAL_EXPONENT: Final = 1_000
 _SEMVER_LINE = re.compile(
     r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\Z"
@@ -145,6 +157,50 @@ _UNAVAILABLE_METRICS: Final = (
     "http_status",
     "finish_reason",
 )
+_VLLM_NATIVE_FIELDS: Final = frozenset(
+    {
+        "backend",
+        "burstiness",
+        "completed",
+        "date",
+        "duration",
+        "endpoint_type",
+        "errors",
+        "failed",
+        "generated_texts",
+        "inferdrome_adapter_version",
+        "inferdrome_execution_fingerprint",
+        "inferdrome_producer_version",
+        "inferdrome_run_id",
+        "inferdrome_workload_sha256",
+        "input_lens",
+        "itls",
+        "label",
+        "max_concurrency",
+        "max_concurrent_requests",
+        "max_output_tokens_per_s",
+        "mean_e2el_ms",
+        "median_e2el_ms",
+        "model_id",
+        "num_prompts",
+        "output_lens",
+        "output_throughput",
+        "p50_e2el_ms",
+        "p95_e2el_ms",
+        "p99_e2el_ms",
+        "request_goodput",
+        "request_rate",
+        "request_throughput",
+        "rtfx",
+        "start_times",
+        "std_e2el_ms",
+        "tokenizer_id",
+        "total_input_tokens",
+        "total_output_tokens",
+        "total_token_throughput",
+        "ttfts",
+    }
+)
 
 
 class InferdromeBundleErrorCode(str, Enum):
@@ -220,6 +276,7 @@ class VerifiedInferdromeBundle:
     environment: Mapping[str, Any]
     records: tuple[Mapping[str, Any], ...]
     recalculated: RecalculatedInferdromeMeasurements
+    managed_profile: ManagedInferdromeProfileFacts | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -683,7 +740,7 @@ def verify_inferdrome_bundle(
         exact_by_role["producer_invocation"],
         "Inferdrome producer invocation",
     )
-    _parse_json_object(
+    native_result = _parse_native_result(
         exact_by_role["native_result"],
         "Inferdrome native result",
     )
@@ -693,7 +750,7 @@ def verify_inferdrome_bundle(
         reader.limits.max_jsonl_line_bytes,
         reader.limits.max_request_records,
     )
-    recalculated = _verify_cross_artifact_semantics(
+    recalculated, managed_profile = _verify_cross_artifact_semantics(
         descriptor=descriptor,
         role_paths=role_paths,
         exact_by_role=exact_by_role,
@@ -702,6 +759,7 @@ def verify_inferdrome_bundle(
         environment=documents["environment"],
         execution=documents["execution"],
         invocation=invocation,
+        native_result=native_result,
         definitions=documents["metric_definitions"],
         measurements=documents["measurements"],
         records=records,
@@ -717,6 +775,7 @@ def verify_inferdrome_bundle(
         environment=documents["environment"],
         records=records,
         recalculated=recalculated,
+        managed_profile=managed_profile,
     )
 
 
@@ -969,10 +1028,14 @@ def _verify_cross_artifact_semantics(
     environment: Mapping[str, Any],
     execution: Mapping[str, Any],
     invocation: Mapping[str, Any],
+    native_result: Mapping[str, Any],
     definitions: Mapping[str, Any],
     measurements: Mapping[str, Any],
     records: tuple[dict[str, Any], ...],
-) -> RecalculatedInferdromeMeasurements:
+) -> tuple[
+    RecalculatedInferdromeMeasurements,
+    ManagedInferdromeProfileFacts | None,
+]:
     run_id = descriptor.get("run_id")
     if any(
         value != run_id
@@ -1060,19 +1123,33 @@ def _verify_cross_artifact_semantics(
     _validate_plan_and_records(plan, resolved, execution, producer, role_paths, records)
     _validate_bundle_semantics(descriptor, resolved, plan, environment, records)
     _validate_environment(environment, descriptor, target, role_paths)
-    _validate_invocation(
+    managed_profile = _validate_invocation(
         invocation,
         descriptor,
         resolved,
         plan,
-    )
-    _validate_metric_definitions(definitions)
-    return _recalculate_and_compare(
-        records,
+        environment,
         execution,
-        definitions_digest,
-        measurements,
-        exact_by_role["request_records"],
+    )
+    if managed_profile is not None:
+        _validate_native_record_bindings(
+            native_result,
+            descriptor,
+            resolved,
+            invocation,
+            execution,
+            records,
+        )
+    _validate_metric_definitions(definitions)
+    return (
+        _recalculate_and_compare(
+            records,
+            execution,
+            definitions_digest,
+            measurements,
+            exact_by_role["request_records"],
+        ),
+        managed_profile,
     )
 
 
@@ -1396,15 +1473,36 @@ def _validate_invocation(
     descriptor: Mapping[str, Any],
     resolved: Mapping[str, Any],
     plan: Mapping[str, Any],
-) -> None:
+    environment: Mapping[str, Any],
+    execution: Mapping[str, Any],
+) -> ManagedInferdromeProfileFacts | None:
+    managed_profile: ManagedInferdromeProfileFacts | None = None
+    managed_invocation = "local_gpu_proof" in invocation
+    if managed_invocation:
+        try:
+            managed_profile = validate_managed_invocation_profile(
+                invocation,
+                descriptor=descriptor,
+                resolved=resolved,
+                environment=environment,
+                execution=execution,
+            )
+        except ManagedInferdromeProfileError as error:
+            _reject(
+                InferdromeBundleErrorCode.INTERNAL_INCONSISTENCY,
+                "Inferdrome managed producer evidence violates its pinned profile.",
+                error,
+            )
+    expected_fields = {
+        "argv",
+        "endpoint_preflight",
+        "metadata",
+        "schema_version",
+    }
+    if managed_invocation:
+        expected_fields.add("local_gpu_proof")
     if (
-        set(invocation)
-        != {
-            "argv",
-            "endpoint_preflight",
-            "metadata",
-            "schema_version",
-        }
+        set(invocation) != expected_fields
         or invocation.get("schema_version") != "inferdrome.producer-invocation.v1"
     ):
         _inconsistent("Inferdrome producer invocation field set is unsupported.")
@@ -1436,7 +1534,7 @@ def _validate_invocation(
     dataset_path = _absolute_argv_path(argv, "--dataset-path")
     result_directory = _absolute_argv_path(argv, "--result-dir")
     expected_argv = [
-        "vllm",
+        managed_profile.executable_path if managed_profile is not None else "vllm",
         "bench",
         "serve",
         "--backend",
@@ -1565,6 +1663,210 @@ def _validate_invocation(
         or result.get("response_sha256") != _sha256_tagged(response)
     ):
         _inconsistent("Inferdrome endpoint preflight result is inconsistent.")
+    return managed_profile
+
+
+def _validate_native_record_bindings(
+    native: Mapping[str, Any],
+    descriptor: Mapping[str, Any],
+    resolved: Mapping[str, Any],
+    invocation: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    records: tuple[dict[str, Any], ...],
+) -> None:
+    """Bind managed canonical records back to untouched native vLLM arrays."""
+
+    if set(native) != _VLLM_NATIVE_FIELDS:
+        _inconsistent("Inferdrome native vLLM result field set is unsupported.")
+    _native_string(native.get("date"), "native result date", 256)
+    label = native.get("label")
+    if label is not None:
+        _native_string(label, "native result label", 4_096)
+    for field in (
+        "max_output_tokens_per_s",
+        "mean_e2el_ms",
+        "median_e2el_ms",
+        "output_throughput",
+        "p50_e2el_ms",
+        "p95_e2el_ms",
+        "p99_e2el_ms",
+        "request_throughput",
+        "rtfx",
+        "std_e2el_ms",
+        "total_token_throughput",
+    ):
+        _native_nonnegative_decimal(native.get(field), f"native {field}")
+    request_goodput = native.get("request_goodput")
+    if request_goodput is not None:
+        _native_nonnegative_decimal(request_goodput, "native request goodput")
+    for field in (
+        "completed",
+        "failed",
+        "num_prompts",
+        "total_input_tokens",
+        "total_output_tokens",
+    ):
+        _native_nonnegative_integer(native.get(field), f"native {field}")
+    _native_nonnegative_integer(
+        native.get("max_concurrent_requests"),
+        "native maximum concurrent requests",
+    )
+    expected_count = len(records)
+    if not 0 < expected_count <= _MAX_NATIVE_ARRAY_ITEMS:
+        _inconsistent("Inferdrome native vLLM population is invalid.")
+    array_names = (
+        "errors",
+        "generated_texts",
+        "input_lens",
+        "itls",
+        "output_lens",
+        "start_times",
+        "ttfts",
+    )
+    arrays = {
+        name: _native_array(native.get(name), f"native {name}")
+        for name in array_names
+    }
+    if any(len(value) != expected_count for value in arrays.values()):
+        _inconsistent("Inferdrome native vLLM arrays have inconsistent populations.")
+
+    errors = tuple(
+        _native_string(item, "native producer error", _MAX_NATIVE_ERROR_CHARACTERS)
+        for item in arrays["errors"]
+    )
+    generated_texts = tuple(
+        _native_string(
+            item,
+            "native generated response",
+            _MAX_NATIVE_TEXT_CHARACTERS,
+        )
+        for item in arrays["generated_texts"]
+    )
+    input_lens = tuple(
+        _native_nonnegative_integer(item, "native input length")
+        for item in arrays["input_lens"]
+    )
+    output_lens = tuple(
+        _native_nonnegative_integer(item, "native output length")
+        for item in arrays["output_lens"]
+    )
+    ttfts = tuple(
+        _native_nonnegative_decimal(item, "native TTFT")
+        for item in arrays["ttfts"]
+    )
+    start_times = tuple(
+        _native_nonnegative_decimal(item, "native start time")
+        for item in arrays["start_times"]
+    )
+    itls: tuple[tuple[Decimal, ...], ...] = tuple(
+        tuple(
+            _native_nonnegative_decimal(item, "native inter-token interval")
+            for item in _native_array(raw, "native inter-token intervals")
+        )
+        for raw in arrays["itls"]
+    )
+    if any(len(values) > _MAX_NATIVE_ITL_ITEMS for values in itls):
+        _inconsistent("Inferdrome native inter-token population exceeds its limit.")
+
+    target = _mapping(resolved.get("target"), "resolved target")
+    workload = _mapping(resolved.get("workload"), "resolved workload")
+    traffic = _mapping(resolved.get("traffic"), "resolved traffic")
+    digests = _mapping(descriptor.get("digests"), "bundle digests")
+    metadata = _mapping(invocation.get("metadata"), "producer metadata")
+    argv = tuple(
+        str(item) for item in _sequence(invocation.get("argv"), "producer arguments")
+    )
+    if (
+        native.get("backend") != "openai-chat"
+        or native.get("endpoint_type") != "openai-chat"
+        or native.get("model_id") != target.get("model")
+        or native.get("tokenizer_id") != _absolute_argv_path(argv, "--tokenizer")
+        or native.get("num_prompts") != expected_count
+        or native.get("inferdrome_adapter_version") != _VLLM_ADAPTER_VERSION
+        or native.get("inferdrome_execution_fingerprint")
+        != digests.get("execution_fingerprint")
+        or native.get("inferdrome_producer_version") != "0.26.0"
+        or native.get("inferdrome_run_id") != descriptor.get("run_id")
+        or native.get("inferdrome_workload_sha256") != workload.get("sha256")
+        or any(native.get(key) != metadata.get(key) for key in metadata)
+    ):
+        _inconsistent("Inferdrome native vLLM identity disagrees with frozen inputs.")
+
+    if traffic.get("kind") == "concurrent":
+        expected_request_rate: str | Decimal = "inf"
+        expected_burstiness = Decimal(1)
+        expected_concurrency = traffic.get("concurrency")
+    else:
+        expected_request_rate = Decimal(str(traffic.get("requests_per_second")))
+        expected_burstiness = Decimal(str(traffic.get("burstiness")))
+        expected_concurrency = traffic.get("max_concurrency")
+    if expected_concurrency is not None:
+        _native_nonnegative_integer(native.get("max_concurrency"), "native concurrency")
+    if (
+        native.get("request_rate") != expected_request_rate
+        or _native_decimal(native.get("burstiness"), "native burstiness")
+        != expected_burstiness
+        or native.get("max_concurrency") != expected_concurrency
+    ):
+        _inconsistent("Inferdrome native vLLM traffic disagrees with its plan.")
+
+    native_failed = sum(1 for error in errors if error)
+    native_completed = expected_count - native_failed
+    if (
+        native.get("completed") != native_completed
+        or native.get("failed") != native_failed
+        or native.get("total_input_tokens") != sum(input_lens)
+        or native.get("total_output_tokens") != sum(output_lens)
+        or _seconds_to_ns(
+            _native_nonnegative_decimal(native.get("duration"), "native duration")
+        )
+        != execution.get("measurement_window_ns")
+    ):
+        _inconsistent("Inferdrome native vLLM population summary is inconsistent.")
+
+    first_start = min(start_times)
+    for index, record in enumerate(records):
+        outcome = _mapping(record.get("outcome"), "record outcome")
+        timing = _mapping(record.get("timing"), "record timing")
+        tokens = _mapping(record.get("tokens"), "record tokens")
+        content = _mapping(record.get("content"), "record content")
+        error = errors[index]
+        generated = generated_texts[index]
+        if error:
+            expected_status = "FAILED"
+        elif output_lens[index] == 0 and not generated:
+            expected_status = "ANOMALOUS_EMPTY_STREAM"
+        else:
+            expected_status = "SUCCESS"
+        expected_ttft = (
+            _seconds_to_ns(ttfts[index])
+            if expected_status == "SUCCESS"
+            else None
+        )
+        expected_itls = (
+            [_seconds_to_ns(item) for item in itls[index]]
+            if expected_status == "SUCCESS"
+            else []
+        )
+        if (
+            outcome.get("status") != expected_status
+            or outcome.get("producer_error") != (error or None)
+            or timing.get("start_offset_ns")
+            != _seconds_to_ns(start_times[index] - first_start)
+            or timing.get("ttft_ns") != expected_ttft
+            or timing.get("itl_ns") != expected_itls
+            or tokens.get("input_tokens") != input_lens[index]
+            or tokens.get("output_tokens") != output_lens[index]
+            or content.get("response_sha256")
+            != _sha256_tagged(generated.encode("utf-8"))
+            or _mapping(record.get("native_source"), "native source").get(
+                "array_index"
+            )
+            != index
+        ):
+            _inconsistent(
+                "Inferdrome canonical record disagrees with native vLLM evidence."
+            )
 
 
 def _validate_metric_definitions(definitions: Mapping[str, Any]) -> None:
@@ -1969,6 +2271,19 @@ def _decimal_ratio(numerator: int, denominator: int) -> str:
     return format(value, "f")
 
 
+def _seconds_to_ns(value: Decimal) -> int:
+    precision = max(50, len(value.as_tuple().digits) + abs(value.adjusted()) + 20)
+    with localcontext() as context:
+        context.prec = precision
+        nanoseconds = (value * Decimal(1_000_000_000)).quantize(
+            Decimal(1),
+            rounding=ROUND_HALF_EVEN,
+        )
+    if nanoseconds < 0 or nanoseconds > Decimal(2**63 - 1):
+        _inconsistent("Inferdrome native timing exceeds its integer range.")
+    return int(nanoseconds)
+
+
 def _validate_text_artifacts(exact_by_role: Mapping[str, bytes]) -> None:
     for role in ("producer_version", "native_stdout", "native_stderr"):
         try:
@@ -2091,6 +2406,64 @@ def _parse_canonical_object(content: bytes, label: str) -> dict[str, Any]:
     return value
 
 
+def _parse_native_result(content: bytes, label: str) -> dict[str, Any]:
+    """Parse native result numbers as bounded decimals for exact replay."""
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} is not valid UTF-8.",
+            error,
+        )
+
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                _reject(
+                    InferdromeBundleErrorCode.SCHEMA_INVALID,
+                    f"{label} contains duplicate JSON keys.",
+                )
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} contains a non-finite number.",
+        )
+
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+            parse_float=lambda raw: _bounded_json_decimal(raw, label),
+            parse_int=lambda raw: _bounded_json_integer(raw, label),
+        )
+    except InferdromeBundleRejected:
+        raise
+    except (
+        json.JSONDecodeError,
+        InvalidOperation,
+        RecursionError,
+        ValueError,
+    ) as error:
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} is not valid bounded JSON.",
+            error,
+        )
+    if type(value) is not dict:
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} must contain one JSON object.",
+        )
+    return value
+
+
 def _parse_json_object(content: bytes, label: str) -> dict[str, Any]:
     try:
         text = content.decode("utf-8")
@@ -2123,6 +2496,8 @@ def _parse_json_object(content: bytes, label: str) -> dict[str, Any]:
             text,
             object_pairs_hook=unique_object,
             parse_constant=reject_constant,
+            parse_float=lambda raw: _bounded_json_float(raw, label),
+            parse_int=lambda raw: _bounded_json_integer(raw, label),
         )
     except InferdromeBundleRejected:
         raise
@@ -2138,6 +2513,78 @@ def _parse_json_object(content: bytes, label: str) -> dict[str, Any]:
             f"{label} must contain one JSON object.",
         )
     return value
+
+
+def _bounded_json_decimal(raw: str, label: str) -> Decimal:
+    value = Decimal(raw)
+    if (
+        not value.is_finite()
+        or len(value.as_tuple().digits) > _MAX_JSON_NUMBER_DIGITS
+        or abs(value.adjusted()) > _MAX_JSON_DECIMAL_EXPONENT
+    ):
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} contains a number outside consumer limits.",
+        )
+    return value
+
+
+def _bounded_json_float(raw: str, label: str) -> float:
+    value = _bounded_json_decimal(raw, label)
+    converted = float(value)
+    if not math.isfinite(converted):
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} contains a number outside binary float limits.",
+        )
+    return converted
+
+
+def _bounded_json_integer(raw: str, label: str) -> int:
+    digits = raw[1:] if raw.startswith("-") else raw
+    if len(digits) > _MAX_JSON_NUMBER_DIGITS:
+        _reject(
+            InferdromeBundleErrorCode.SCHEMA_INVALID,
+            f"{label} contains an integer outside consumer limits.",
+        )
+    return int(raw)
+
+
+def _native_array(value: object, label: str) -> list[Any]:
+    if type(value) is not list or len(value) > _MAX_NATIVE_ARRAY_ITEMS:
+        _inconsistent(f"Inferdrome {label} is not a bounded array.")
+    return value
+
+
+def _native_string(value: object, label: str, limit: int) -> str:
+    if type(value) is not str or len(value) > limit:
+        _inconsistent(f"Inferdrome {label} is not a bounded string.")
+    return value
+
+
+def _native_nonnegative_integer(value: object, label: str) -> int:
+    if type(value) is not int or value < 0 or value > 2**63 - 1:
+        _inconsistent(f"Inferdrome {label} is not a non-negative integer.")
+    return value
+
+
+def _native_decimal(value: object, label: str) -> Decimal:
+    if type(value) is int:
+        result = Decimal(value)
+    elif isinstance(value, Decimal):
+        result = value
+    else:
+        _inconsistent(f"Inferdrome {label} is not a decimal number.")
+    if not result.is_finite():
+        _inconsistent(f"Inferdrome {label} is not finite.")
+    return result
+
+
+def _native_nonnegative_decimal(value: object, label: str) -> Decimal:
+    result = _native_decimal(value, label)
+    if result < 0:
+        _inconsistent(f"Inferdrome {label} is negative.")
+    return result
 
 
 @cache
