@@ -260,6 +260,34 @@
                 </a>
               </div>
               <section
+                class="managed-result-summary"
+                id="managed-result-summary"
+                aria-label="Verified managed evidence summary"
+                hidden
+              >
+                <dl class="managed-result-metrics">
+                  <div>
+                    <dt>P95 TTFT</dt>
+                    <dd id="managed-result-p95-ttft">—</dd>
+                  </div>
+                  <div>
+                    <dt>Error rate</dt>
+                    <dd id="managed-result-error-rate">—</dd>
+                  </div>
+                  <div>
+                    <dt>Records</dt>
+                    <dd id="managed-result-records">—</dd>
+                  </div>
+                </dl>
+                <p class="managed-concurrency-summary">
+                  Required concurrency
+                  <strong id="managed-result-required-concurrency">—</strong>
+                  <span aria-hidden="true">·</span>
+                  Observed concurrency
+                  <strong id="managed-result-observed-concurrency">—</strong>
+                </p>
+              </section>
+              <section
                 class="closure-panel"
                 id="closure-panel"
                 aria-labelledby="closure-heading"

@@ -1,7 +1,7 @@
 # Inferdrome evidence import
 
-Status: independent v1 importer and pathless local `/app` orchestration
-implemented on 2026-08-07.
+Status: independent v1 importer, pinned managed-vLLM receipt path, and pathless
+local `/app` orchestration implemented through 2026-08-20.
 
 ExitSpec can ingest a completed `inferdrome.evidence.v1` directory without
 installing or importing Inferdrome. Inferdrome owns execution and canonical
@@ -108,6 +108,60 @@ customer-confirmed frozen performance agreement
         -> immutable ExitSpec Evidence Pack
         -> existing human handoff or stop decision
 ```
+
+That flow remains the generic v2 compatibility path. Native vLLM first-event
+TTFT is deliberately not substituted for its frozen first-nonempty-content
+metric, so native latency evidence normally remains `NOT_PROVEN` for that
+criterion.
+
+## Pinned managed-vLLM v3 path
+
+The retained real-A10 handoff has a separate, narrower v3 path. It does not
+rename or weaken the generic importer. Before customer review, the employee
+chooses one independently verified, pathless managed-evidence profile from:
+
+```text
+GET /api/pocs/{poc_id}/agreement/managed-evidence
+```
+
+The response contains only bounded display facts and the verified `run_id`
+plus bundle digest. It never contains a filesystem path, runs root, archive
+path, native output, request content, or response text.
+
+The managed flow is:
+
+```text
+reviewed customer requirements
+        -> pathless managed profile selection
+        -> one verified projection captured in the agreement draft
+        -> exact run ID + bundle digest hash-bound in the workload reference
+        -> customer review and confirmation of native metric semantics
+        -> frozen v3 contract
+        -> re-resolve and reverify the same sealed bundle
+        -> independently recalculate canonical request records
+        -> INGESTION_REJECTED with no verdict or PASS / FAIL / NOT_PROVEN
+        -> managed v2 receipt and immutable Evidence Pack
+```
+
+Review and freeze use the captured projection; they do not reread mutable
+producer storage. Import is the separate trust boundary and always resolves
+and verifies the frozen selection again. A caller cannot switch to a different
+run or digest after confirmation.
+
+The managed contract explicitly freezes:
+
+- `vllm_first_choices_event_v0_26` with `nearest_rank_v1`;
+- 100 measured attempts and 100 required successful TTFT samples;
+- all measured records as the reliability denominator;
+- failed-or-anomalous native measured records as the numerator;
+- configured maximum concurrency as distinct from achieved overlap;
+- retrospective chronology and absent producer contract link; and
+- unavailable retry, hardware-attestation, execution-attestation, and
+  production-authorization claims.
+
+Invalid, unsafe, corrupt, synthetic, or unsupported input is
+`INGESTION_REJECTED` and has no acceptance verdict. Only an internally valid,
+compatible bundle can become `NOT_PROVEN`, `FAIL`, or `PASS`.
 
 An Inferdrome agreement cannot call ExitSpec's local streaming probe, and a
 local-probe agreement cannot import Inferdrome evidence. The evidence method is

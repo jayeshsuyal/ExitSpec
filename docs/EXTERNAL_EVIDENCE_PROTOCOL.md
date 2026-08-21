@@ -215,13 +215,29 @@ Missing identity is not a wildcard. A newer producer version is not compatible
 merely because it parses. A conversion is not permitted unless a future frozen
 criterion and reviewed adapter explicitly define and test that conversion.
 
-Semantic incompatibility produces `INGESTION_REJECTED`; ExitSpec must not relabel
-the external measurement, silently substitute a reducer, or weaken the frozen
-criterion to admit it.
+An unknown, unsupported, ambiguous, or internally inconsistent producer/profile
+identity produces `INGESTION_REJECTED`; ExitSpec must not relabel the external
+measurement, silently substitute a reducer, or weaken the frozen criterion to
+admit it.
+
+A narrower case remains an acceptance-applicability result, not an ingestion
+failure: ExitSpec may recognize and fully validate an exact supported evidence
+profile while proving that its observations do not satisfy the frozen
+criterion's requested identity or slice. For example, valid configured-
+concurrency-4 evidence evaluated against a configured-concurrency-8 criterion,
+or native first-choices-event TTFT evaluated against a
+first-nonempty-content criterion, is admitted evidence but yields
+`NOT_PROVEN`. The incompatible observation is never substituted into the
+criterion. This distinction keeps malformed producer semantics at the trust
+boundary while preserving honest insufficiency inside acceptance evaluation.
 
 ## Trust boundary and integrity limits
 
 External evidence is always untrusted input.
+
+The first profile-specific implementation of these rules is documented in
+[Managed Inferdrome receipts](INFERDROME_MANAGED_RECEIPTS.md). It is a separate
+retrospective v2 receipt path and does not change the existing v1 importer.
 
 Hashes and a sealed bundle can prove internal byte consistency and detect
 mutation after publication. Alone, they do not prove:

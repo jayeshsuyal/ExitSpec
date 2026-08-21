@@ -10,6 +10,8 @@
   const REVIEW_ID_PATTERN = /^review-[a-f0-9]{24}$/;
   const REVIEW_URL_PATTERN = /^\/review\/[A-Za-z0-9_-]{32,512}$/;
   const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+  const TAGGED_SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
+  const INFERDROME_RUN_ID_PATTERN = /^run-[a-f0-9]{32}$/;
   const ROUTE_PATTERN =
     /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/agreement$/;
   const METRICS = Object.freeze([
@@ -40,7 +42,7 @@
     model: "exitspec/reference-stream-v1",
     path: "/api/reference/inference/v1/chat/completions",
   });
-  const INFERDROME_TARGET = Object.freeze({
+  const GENERIC_INFERDROME_TARGET = Object.freeze({
     target_provider: "vllm-local",
     endpoint_class: "openai-compatible-chat-completions",
     endpoint: "http://127.0.0.1:18083/v1/chat/completions",
@@ -91,6 +93,53 @@
     "schema_version",
     "warmups_included",
   ]);
+  const MANAGED_COUNTING_POLICY_KEYS = Object.freeze([
+    "chronology",
+    "compatible_insufficient_evidence_disposition",
+    "concurrency_semantics",
+    "error_threshold_basis_points",
+    "exact_attempts",
+    "ingestion_failure_disposition",
+    "latency_population",
+    "metric_definition_id",
+    "minimum_successful_samples",
+    "policy_sha256",
+    "producer_contract_link",
+    "reducer_id",
+    "reliability_denominator",
+    "reliability_numerator",
+    "required_configured_max_concurrency",
+    "retry_behavior",
+    "schema_version",
+    "warmup_requests",
+    "warmups_included",
+  ]);
+  const MANAGED_EVIDENCE_KEYS = Object.freeze([
+    "configured",
+    "profiles",
+    "rejected_count",
+  ]);
+  const MANAGED_PROFILE_KEYS = Object.freeze([
+    "adapter",
+    "bundle_digest",
+    "chronology",
+    "claims_assurance",
+    "display_name",
+    "endpoint",
+    "endpoint_class",
+    "gpu_models",
+    "measured_requests",
+    "metric_definition_id",
+    "model",
+    "observed_configured_max_concurrency",
+    "privacy",
+    "producer",
+    "profile_id",
+    "reducer_id",
+    "run_id",
+    "target_provider",
+    "warmup_requests",
+  ]);
   const POC_DRAFT_KEYS = Object.freeze([
     "archive_state",
     "archived_at",
@@ -139,6 +188,11 @@
     "reviewer",
     "target_provider",
   ]);
+  const MANAGED_DRAFT_KEYS = Object.freeze([
+    ...DRAFT_KEYS,
+    "inferdrome_bundle_digest",
+    "inferdrome_run_id",
+  ]);
   const CONFIRMATION_KEYS = Object.freeze([
     "agreement_acknowledged",
     "confirmation_id",
@@ -168,6 +222,11 @@
     "parent_version",
     "target_provider",
   ]);
+  const MANAGED_FROZEN_CONTRACT_KEYS = Object.freeze([
+    ...FROZEN_CONTRACT_KEYS,
+    "inferdrome_bundle_digest",
+    "inferdrome_run_id",
+  ]);
   const REVISION_KEYS = Object.freeze([
     "contract_version",
     "parent_contract_id",
@@ -186,6 +245,9 @@
     routeMatch && POC_ID_PATTERN.test(routeMatch[1]) ? routeMatch[1] : null;
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const agreementApi = pocId ? `/api/pocs/${pocId}/agreement` : null;
+  const managedEvidenceApi = agreementApi
+    ? `${agreementApi}/managed-evidence`
+    : null;
   const reviewApi = agreementApi ? `${agreementApi}/review` : null;
   const freezeApi = agreementApi ? `${agreementApi}/freeze` : null;
   const revisionApi = agreementApi ? `${agreementApi}/revision` : null;
@@ -210,6 +272,15 @@
   );
   const evidenceMethodNote = document.querySelector(
     "#evidence-method-note"
+  );
+  const managedEvidencePanel = document.querySelector(
+    "#managed-evidence-profile"
+  );
+  const managedEvidenceSelect = document.querySelector(
+    "#managed-evidence-profile-select"
+  );
+  const managedProfileStatus = document.querySelector(
+    "#managed-profile-status"
   );
   const draftStatus = document.querySelector("#draft-status");
   const endpointDetails = document.querySelector(".endpoint-fields");
@@ -258,6 +329,7 @@
   ]);
 
   let agreementState = null;
+  let managedEvidenceCatalog = null;
   let inFlight = null;
   let pendingDraftAttempt = null;
   let pendingReviewReissueAttempt = null;
@@ -400,6 +472,7 @@
           parsed.hash === "" &&
           (value === pocApi ||
             value === agreementApi ||
+            value === managedEvidenceApi ||
             value === reviewApi ||
             value === freezeApi ||
             value === revisionApi)
@@ -494,9 +567,63 @@
     );
   }
 
+  function isTrustedManagedProfile(profile) {
+    return Boolean(
+      hasExactKeys(profile, MANAGED_PROFILE_KEYS) &&
+        isSingleLineText(profile.profile_id, 200) &&
+        isSingleLineText(profile.display_name, 300) &&
+        INFERDROME_RUN_ID_PATTERN.test(profile.run_id) &&
+        TAGGED_SHA256_PATTERN.test(profile.bundle_digest) &&
+        profile.target_provider === "inferdrome-managed-vllm" &&
+        profile.endpoint_class === "retained-loopback-vllm-benchmark" &&
+        isExactTargetUrl(profile.endpoint) &&
+        isSingleLineText(profile.model, 300) &&
+        profile.producer === "vllm@0.26.0" &&
+        profile.adapter === "vllm_bench_serve@1.0.0" &&
+        profile.metric_definition_id === "vllm_first_choices_event_v0_26" &&
+        profile.reducer_id === "nearest_rank_v1" &&
+        profile.measured_requests === 100 &&
+        isExactInteger(profile.observed_configured_max_concurrency, 1, 1000) &&
+        isExactInteger(profile.warmup_requests, 0, 1000) &&
+        Array.isArray(profile.gpu_models) &&
+        profile.gpu_models.length > 0 &&
+        profile.gpu_models.length <= 8 &&
+        profile.gpu_models.every((gpu) => isSingleLineText(gpu, 160)) &&
+        profile.chronology === "RETROSPECTIVE" &&
+        profile.claims_assurance === "INTERNAL_CONSISTENCY_ONLY" &&
+        [
+          "SYNTHETIC_NATIVE_RESPONSE_CONTENT_RETAINED_SERVER_SIDE",
+          "NO_NATIVE_RESPONSE_CONTENT",
+        ].includes(profile.privacy)
+    );
+  }
+
+  function isTrustedManagedEvidenceCatalog(payload) {
+    return Boolean(
+      hasExactKeys(payload, MANAGED_EVIDENCE_KEYS) &&
+        typeof payload.configured === "boolean" &&
+        isExactInteger(payload.rejected_count, 0, 1000) &&
+        Array.isArray(payload.profiles) &&
+        payload.profiles.length <= 32 &&
+        payload.profiles.every(isTrustedManagedProfile) &&
+        new Set(payload.profiles.map((profile) => profile.run_id)).size ===
+          payload.profiles.length &&
+        (payload.configured || payload.profiles.length === 0)
+    );
+  }
+
+  function hasManagedSelection(value) {
+    return Boolean(
+      value &&
+        INFERDROME_RUN_ID_PATTERN.test(value.inferdrome_run_id) &&
+        TAGGED_SHA256_PATTERN.test(value.inferdrome_bundle_digest)
+    );
+  }
+
   function isTrustedDraft(draft) {
     return Boolean(
-      hasExactKeys(draft, DRAFT_KEYS) &&
+      (hasExactKeys(draft, DRAFT_KEYS) ||
+        hasExactKeys(draft, MANAGED_DRAFT_KEYS)) &&
         DRAFT_ID_PATTERN.test(draft.draft_id) &&
         SHA256_PATTERN.test(draft.draft_sha256) &&
         hasValidVersionLineage(draft) &&
@@ -506,6 +633,9 @@
         isExactTargetUrl(draft.endpoint) &&
         isSingleLineText(draft.model, 300) &&
         EVIDENCE_METHODS.includes(draft.evidence_method) &&
+        (hasExactKeys(draft, DRAFT_KEYS) ||
+          (draft.evidence_method === "INFERDROME_EXTERNAL_BUNDLE" &&
+            hasManagedSelection(draft))) &&
         isSingleLineText(draft.reviewer, 160) &&
         isSafeBoundedText(draft.rationale, 2000)
     );
@@ -543,7 +673,8 @@
 
   function isTrustedFrozenContract(contract) {
     return Boolean(
-      hasExactKeys(contract, FROZEN_CONTRACT_KEYS) &&
+      (hasExactKeys(contract, FROZEN_CONTRACT_KEYS) ||
+        hasExactKeys(contract, MANAGED_FROZEN_CONTRACT_KEYS)) &&
         hasValidVersionLineage(contract) &&
         SHA256_PATTERN.test(contract.canonical_hash) &&
         CONFIRMATION_ID_PATTERN.test(contract.confirmation_id) &&
@@ -552,7 +683,10 @@
         isSingleLineText(contract.endpoint_class, 160) &&
         isExactTargetUrl(contract.endpoint) &&
         isSingleLineText(contract.model, 300) &&
-        EVIDENCE_METHODS.includes(contract.evidence_method)
+        EVIDENCE_METHODS.includes(contract.evidence_method) &&
+        (hasExactKeys(contract, FROZEN_CONTRACT_KEYS) ||
+          (contract.evidence_method === "INFERDROME_EXTERNAL_BUNDLE" &&
+            hasManagedSelection(contract)))
     );
   }
 
@@ -576,7 +710,7 @@
   }
 
   function isTrustedCountingPolicy(policy) {
-    return Boolean(
+    const legacy = Boolean(
       hasExactKeys(policy, COUNTING_POLICY_KEYS) &&
         policy.schema_version === "exitspec.measurement-population.v1" &&
         SHA256_PATTERN.test(policy.policy_sha256) &&
@@ -594,6 +728,34 @@
           "HTTP_ERROR|TIMEOUT|PROTOCOL_ERROR|TRANSPORT_ERROR" &&
         policy.invalid_evidence_disposition === "NOT_PROVEN"
     );
+    if (legacy) {
+      return true;
+    }
+    return Boolean(
+      hasExactKeys(policy, MANAGED_COUNTING_POLICY_KEYS) &&
+        policy.schema_version === "exitspec.inferdrome-managed-counting.v1" &&
+        SHA256_PATTERN.test(policy.policy_sha256) &&
+        policy.metric_definition_id === "vllm_first_choices_event_v0_26" &&
+        policy.reducer_id === "nearest_rank_v1" &&
+        policy.latency_population ===
+          "successful_measured_requests_with_observed_ttft" &&
+        policy.minimum_successful_samples === 100 &&
+        policy.exact_attempts === 100 &&
+        policy.reliability_numerator ===
+          "failed_or_anomalous_native_measured_requests" &&
+        policy.reliability_denominator === "all_measured_requests" &&
+        isExactInteger(policy.error_threshold_basis_points, 1, 9999) &&
+        isExactInteger(policy.required_configured_max_concurrency, 1, 1000) &&
+        policy.concurrency_semantics ===
+          "configured_maximum_concurrency_not_observed_overlap" &&
+        isExactInteger(policy.warmup_requests, 0, 1000) &&
+        policy.warmups_included === false &&
+        policy.retry_behavior === "NOT_AVAILABLE" &&
+        policy.chronology === "RETROSPECTIVE" &&
+        policy.producer_contract_link === "ABSENT" &&
+        policy.ingestion_failure_disposition === "INGESTION_REJECTED" &&
+        policy.compatible_insufficient_evidence_disposition === "NOT_PROVEN"
+    );
   }
 
   function targetMatches(left, right) {
@@ -602,7 +764,11 @@
         left.endpoint_class === right.endpoint_class &&
         left.endpoint === right.endpoint &&
         left.model === right.model &&
-        left.evidence_method === right.evidence_method
+        left.evidence_method === right.evidence_method &&
+        hasManagedSelection(left) === hasManagedSelection(right) &&
+        (!hasManagedSelection(left) ||
+          (left.inferdrome_run_id === right.inferdrome_run_id &&
+            left.inferdrome_bundle_digest === right.inferdrome_bundle_digest))
     );
   }
 
@@ -715,6 +881,13 @@
         payload.draft.endpoint === attempt.payload.endpoint &&
         payload.draft.model === attempt.payload.model &&
         payload.draft.evidence_method === attempt.payload.evidence_method &&
+        hasManagedSelection(payload.draft) ===
+          hasManagedSelection(attempt.payload) &&
+        (!hasManagedSelection(payload.draft) ||
+          (payload.draft.inferdrome_run_id ===
+              attempt.payload.inferdrome_run_id &&
+            payload.draft.inferdrome_bundle_digest ===
+              attempt.payload.inferdrome_bundle_digest)) &&
         payload.draft.reviewer === attempt.payload.reviewer &&
         payload.draft.rationale === attempt.payload.rationale &&
         (agreementState?.revision === null
@@ -871,6 +1044,88 @@
       : null;
   }
 
+  function selectedManagedProfile() {
+    const runId = managedEvidenceSelect.value;
+    if (!runId || !managedEvidenceCatalog) {
+      return null;
+    }
+    return (
+      managedEvidenceCatalog.profiles.find(
+        (profile) => profile.run_id === runId
+      ) || null
+    );
+  }
+
+  function profileMatchesTarget(profile) {
+    return Boolean(
+      profile &&
+        targetProviderInput.value.trim() === profile.target_provider &&
+        endpointClassInput.value.trim() === profile.endpoint_class &&
+        endpointInput.value.trim() === profile.endpoint &&
+        modelInput.value.trim() === profile.model
+    );
+  }
+
+  function renderManagedProfileSummary() {
+    const external =
+      selectedEvidenceMethod() === "INFERDROME_EXTERNAL_BUNDLE";
+    managedEvidencePanel.hidden = !external;
+    if (!external) {
+      return;
+    }
+    const profile = selectedManagedProfile();
+    document.querySelector("#managed-profile-model").textContent =
+      profile?.model || "Choose a profile";
+    document.querySelector("#managed-profile-hardware").textContent =
+      profile ? profile.gpu_models.join(" · ") : "—";
+    document.querySelector("#managed-profile-workload").textContent = profile
+      ? `${profile.measured_requests} requests · concurrency ${profile.observed_configured_max_concurrency}`
+      : "—";
+    document.querySelector("#managed-profile-semantics").textContent = profile
+      ? "Native first choices event · nearest-rank p95"
+      : "—";
+    managedProfileStatus.textContent = profile
+      ? "This exact run and digest will be frozen into the customer agreement."
+      : managedEvidenceCatalog?.configured
+        ? "Choose one verified profile, or use the legacy external target fields."
+        : "Managed evidence is not configured. The legacy external path remains available.";
+  }
+
+  function renderManagedEvidenceCatalog() {
+    const priorSelection =
+      managedEvidenceSelect.value ||
+      agreementState?.draft?.inferdrome_run_id ||
+      "";
+    managedEvidenceSelect.replaceChildren();
+    const placeholder = new Option(
+      managedEvidenceCatalog?.configured
+        ? "Choose a verified evidence profile"
+        : "Managed evidence is not configured",
+      ""
+    );
+    managedEvidenceSelect.append(placeholder);
+    managedEvidenceCatalog?.profiles.forEach((profile) => {
+      const option = new Option(
+        `${profile.display_name} · ${profile.measured_requests} requests · c${profile.observed_configured_max_concurrency}`,
+        profile.run_id
+      );
+      option.selected = profile.run_id === priorSelection;
+      managedEvidenceSelect.append(option);
+    });
+    renderManagedProfileSummary();
+  }
+
+  function applyManagedProfile(profile) {
+    targetProviderInput.value = profile.target_provider;
+    endpointClassInput.value = profile.endpoint_class;
+    endpointInput.value = profile.endpoint;
+    modelInput.value = profile.model;
+    evidenceMethodInputs.forEach((input) => {
+      input.checked = input.value === "INFERDROME_EXTERNAL_BUNDLE";
+    });
+    endpointDetails.open = false;
+  }
+
   function validatedDraftFields() {
     const targetProvider = targetProviderInput.value.trim();
     const endpointClass = endpointClassInput.value.trim();
@@ -890,7 +1145,7 @@
     ) {
       return null;
     }
-    return {
+    const fields = {
       target_provider: targetProvider,
       endpoint_class: endpointClass,
       endpoint,
@@ -899,6 +1154,18 @@
       reviewer,
       rationale,
     };
+    const managedProfile = selectedManagedProfile();
+    if (managedProfile !== null) {
+      if (
+        evidenceMethod !== "INFERDROME_EXTERNAL_BUNDLE" ||
+        !profileMatchesTarget(managedProfile)
+      ) {
+        return null;
+      }
+      fields.inferdrome_run_id = managedProfile.run_id;
+      fields.inferdrome_bundle_digest = managedProfile.bundle_digest;
+    }
+    return fields;
   }
 
   function setControlsAvailability(controls, enabled) {
@@ -918,6 +1185,23 @@
       available && inFlight === null && pendingDraftAttempt === null;
     setControlsAvailability(draftControls, editable);
     setControlsAvailability(evidenceMethodInputs, editable);
+    const managedProfile = selectedManagedProfile();
+    managedEvidenceSelect.disabled = Boolean(
+      !editable ||
+        selectedEvidenceMethod() !== "INFERDROME_EXTERNAL_BUNDLE" ||
+        !managedEvidenceCatalog?.configured ||
+        managedEvidenceCatalog.profiles.length === 0
+    );
+    if (managedProfile !== null) {
+      [
+        targetProviderInput,
+        endpointClassInput,
+        endpointInput,
+        modelInput,
+      ].forEach((control) => {
+        control.disabled = true;
+      });
+    }
     useReferenceTargetButton.disabled = !editable;
     useInferdromeTargetButton.disabled = !editable;
     createDraftButton.disabled = Boolean(
@@ -941,8 +1225,11 @@
       method === "EXIT_SPEC_STREAMING_PROBE"
         ? "ExitSpec will execute the frozen streaming workload."
         : method === "INFERDROME_EXTERNAL_BUNDLE"
-          ? "ExitSpec will import, validate, and independently recalculate one sealed Inferdrome bundle. Native vLLM TTFT must still match the frozen definition."
+          ? selectedManagedProfile()
+            ? "This verified profile uses native vLLM first-choices-event TTFT and will be frozen by run and digest."
+            : "ExitSpec will import, validate, and independently recalculate one sealed Inferdrome bundle. Native vLLM TTFT must still match the frozen definition."
           : "Select the evidence method first.";
+    renderManagedProfileSummary();
   }
 
   function useReferenceTarget() {
@@ -962,6 +1249,7 @@
     evidenceMethodInputs.forEach((input) => {
       input.checked = input.value === "EXIT_SPEC_STREAMING_PROBE";
     });
+    managedEvidenceSelect.value = "";
     endpointDetails.open = true;
     clearError();
     updateDraftControls();
@@ -977,14 +1265,21 @@
     ) {
       return;
     }
-    targetProviderInput.value = INFERDROME_TARGET.target_provider;
-    endpointClassInput.value = INFERDROME_TARGET.endpoint_class;
-    endpointInput.value = INFERDROME_TARGET.endpoint;
-    modelInput.value = INFERDROME_TARGET.model;
-    evidenceMethodInputs.forEach((input) => {
-      input.checked = input.value === "INFERDROME_EXTERNAL_BUNDLE";
-    });
-    endpointDetails.open = true;
+    const profile =
+      selectedManagedProfile() || managedEvidenceCatalog?.profiles[0] || null;
+    if (profile !== null) {
+      managedEvidenceSelect.value = profile.run_id;
+      applyManagedProfile(profile);
+    } else {
+      targetProviderInput.value = GENERIC_INFERDROME_TARGET.target_provider;
+      endpointClassInput.value = GENERIC_INFERDROME_TARGET.endpoint_class;
+      endpointInput.value = GENERIC_INFERDROME_TARGET.endpoint;
+      modelInput.value = GENERIC_INFERDROME_TARGET.model;
+      evidenceMethodInputs.forEach((input) => {
+        input.checked = input.value === "INFERDROME_EXTERNAL_BUNDLE";
+      });
+      endpointDetails.open = true;
+    }
     clearError();
     updateDraftControls();
     draftReviewerInput.focus();
@@ -1083,8 +1378,10 @@
       draft.endpoint_class;
     document.querySelector("#review-endpoint").textContent = draft.endpoint;
     document.querySelector("#review-evidence-method-boundary").textContent =
-      external
-        ? "ExitSpec will treat the bundle as untrusted input, independently recalculate supported measurements, and fail closed on semantic mismatch. Native vLLM first-event TTFT does not automatically satisfy the frozen first-nonempty-content rule."
+      hasManagedSelection(draft)
+        ? `Selected run ${draft.inferdrome_run_id} and its exact digest are part of this agreement. ExitSpec will independently verify native vLLM first-choices-event TTFT before deciding.`
+        : external
+          ? "ExitSpec will treat the bundle as untrusted input, independently recalculate supported measurements, and fail closed on semantic mismatch. Native vLLM first-event TTFT does not automatically satisfy the frozen first-nonempty-content rule."
         : "ExitSpec will execute the exact frozen streaming workload and verify its own sealed artifacts before releasing a verdict.";
     const criteria = document.querySelector("#customer-criteria-list");
     criteria.replaceChildren();
@@ -1093,15 +1390,24 @@
     const countingPanel = document.querySelector("#counting-policy");
     countingPanel.hidden = counting === null;
     if (counting !== null) {
+      const managed =
+        counting.schema_version ===
+        "exitspec.inferdrome-managed-counting.v1";
       document.querySelector("#counting-attempts").textContent = String(
         counting.exact_attempts
       );
       document.querySelector("#counting-latency").textContent =
-        "Successful requests with valid first-token timing";
+        managed
+          ? "Successful native records with first-choices-event timing"
+          : "Successful requests with valid first-token timing";
       document.querySelector("#counting-reliability").textContent =
-        `All ${counting.exact_attempts} attempts; HTTP, timeout, protocol, and transport errors count`;
+        managed
+          ? `All ${counting.exact_attempts} records; failed or anomalous records count`
+          : `All ${counting.exact_attempts} attempts; HTTP, timeout, protocol, and transport errors count`;
       document.querySelector("#counting-exclusions").textContent =
-        "Warmups and readiness preflight are excluded. No retries. Invalid or incomplete evidence is NOT PROVEN.";
+        managed
+          ? "Warmups are excluded. Retry data is unavailable. Invalid evidence is INGESTION REJECTED with no verdict; compatible but insufficient evidence is NOT PROVEN."
+          : "Warmups and readiness preflight are excluded. No retries. Invalid or incomplete evidence is NOT PROVEN.";
     }
     const notProven = document.querySelector(
       "#customer-not-proven-list"
@@ -1445,6 +1751,7 @@
     setControlsAvailability(evidenceMethodInputs, false);
     useReferenceTargetButton.disabled = true;
     useInferdromeTargetButton.disabled = true;
+    managedEvidenceSelect.disabled = true;
     createDraftButton.disabled = true;
     customerReviewLink.removeAttribute("href");
     customerReviewLink.setAttribute("aria-disabled", "true");
@@ -1470,10 +1777,34 @@
   evidenceMethodInputs.forEach((control) => {
     control.addEventListener("change", () => {
       if (inFlight === null && pendingDraftAttempt === null) {
+        if (
+          selectedEvidenceMethod() !== "INFERDROME_EXTERNAL_BUNDLE"
+        ) {
+          managedEvidenceSelect.value = "";
+        }
         clearError();
         updateDraftControls();
       }
     });
+  });
+  managedEvidenceSelect.addEventListener("change", () => {
+    if (inFlight !== null || pendingDraftAttempt !== null) {
+      return;
+    }
+    const profile = selectedManagedProfile();
+    if (profile !== null) {
+      applyManagedProfile(profile);
+    } else if (
+      selectedEvidenceMethod() === "INFERDROME_EXTERNAL_BUNDLE"
+    ) {
+      targetProviderInput.value = GENERIC_INFERDROME_TARGET.target_provider;
+      endpointClassInput.value = GENERIC_INFERDROME_TARGET.endpoint_class;
+      endpointInput.value = GENERIC_INFERDROME_TARGET.endpoint;
+      modelInput.value = GENERIC_INFERDROME_TARGET.model;
+      endpointDetails.open = true;
+    }
+    clearError();
+    updateDraftControls();
   });
 
   useReferenceTargetButton.addEventListener(
@@ -1518,6 +1849,12 @@
           evidence_method: fields.evidence_method,
           reviewer: fields.reviewer,
           rationale: fields.rationale,
+          ...(fields.inferdrome_run_id
+            ? {
+                inferdrome_run_id: fields.inferdrome_run_id,
+                inferdrome_bundle_digest: fields.inferdrome_bundle_digest,
+              }
+            : {}),
           idempotency_key: idempotencyKey,
         },
       };
@@ -1638,6 +1975,7 @@
       !pocId ||
       !pocApi ||
       !agreementApi ||
+      !managedEvidenceApi ||
       !reviewApi ||
       !freezeApi ||
       !revisionApi
@@ -1648,17 +1986,21 @@
       return;
     }
     try {
-      const [draft, projection] = await Promise.all([
+      const [draft, projection, managedEvidence] = await Promise.all([
         requestJson(pocApi),
         requestJson(agreementApi),
+        requestJson(managedEvidenceApi),
       ]);
       if (
         !isTrustedPOCDraft(draft) ||
-        !isTrustedAgreementProjection(projection)
+        !isTrustedAgreementProjection(projection) ||
+        !isTrustedManagedEvidenceCatalog(managedEvidence)
       ) {
         throw new SafeRequestError(200, true);
       }
       agreementState = projection;
+      managedEvidenceCatalog = managedEvidence;
+      renderManagedEvidenceCatalog();
       document.querySelector("#poc-title").textContent = draft.display_name;
       document.querySelector("#poc-context").textContent =
         `${draft.customer_label} · ${draft.owner}`;
@@ -1676,6 +2018,8 @@
     pendingReviewReissueAttempt = null;
     pendingFreezeAttempt = null;
     pendingRevisionAttempt = null;
+    managedEvidenceCatalog = null;
+    managedEvidenceSelect.replaceChildren();
     draftControls.forEach((control) => {
       control.value = "";
     });
