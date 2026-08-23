@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from http import HTTPStatus
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .poc_creation import POC_ID_PATTERN
@@ -63,11 +63,18 @@ def handle_poc_proposal_web_api_request(
     target: str,
     payload: Mapping[str, Any] | None,
     runtime: ProcessLocalProposalReviewService,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ) = None,
 ) -> POCProposalWebAPIResponse | None:
     """Handle one exact proposal-review API request."""
 
     if type(runtime) is not ProcessLocalProposalReviewService:
         raise TypeError("runtime must be a ProcessLocalProposalReviewService.")
+    if current_proposal_lookup is not None and not callable(
+        current_proposal_lookup
+    ):
+        raise TypeError("current_proposal_lookup must be callable.")
     if not is_poc_proposal_web_api_target(target):
         return None
 
@@ -81,6 +88,7 @@ def handle_poc_proposal_web_api_request(
             action=action,
             payload=payload,
             runtime=runtime,
+            current_proposal_lookup=current_proposal_lookup,
         )
     except (POCProposalWebAPIRequestError, ProposalReviewInvalid, ValueError):
         return _error(HTTPStatus.BAD_REQUEST, "Proposal review request is invalid.")
@@ -154,6 +162,9 @@ def _dispatch(
     action: str | None,
     payload: Mapping[str, Any] | None,
     runtime: ProcessLocalProposalReviewService,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ),
 ) -> POCProposalWebAPIResponse:
     if type(method) is not str:
         raise POCProposalWebAPIRequestError
@@ -161,7 +172,11 @@ def _dispatch(
     if method == "GET":
         if payload is not None or proposal_id is not None or action is not None:
             raise POCProposalWebAPIRequestError
-        all_proposals = runtime.list_proposals(poc_id)
+        all_proposals = _current_proposals(
+            runtime,
+            poc_id,
+            current_proposal_lookup=current_proposal_lookup,
+        )
         proposals = tuple(
             item
             for item in all_proposals
@@ -207,6 +222,20 @@ def _dispatch(
             decision = ProposalDecision(body["decision"])
         except (TypeError, ValueError) as error:
             raise POCProposalWebAPIRequestError from error
+        if current_proposal_lookup is not None:
+            current = _current_proposals(
+                runtime,
+                poc_id,
+                current_proposal_lookup=current_proposal_lookup,
+            )
+            if not any(
+                item.proposal_id == proposal_id
+                and item.review_state == ProposalReviewState.NEEDS_REVIEW
+                for item in current
+            ):
+                raise ProposalReviewProposalUnavailable(
+                    "Proposal is not current for this agreement version."
+                )
         result = runtime.decide(
             poc_id,
             proposal_id,
@@ -235,6 +264,44 @@ def _dispatch(
         HTTPStatus.METHOD_NOT_ALLOWED,
         "Proposal review method is not allowed.",
     )
+
+
+def _current_proposals(
+    runtime: ProcessLocalProposalReviewService,
+    poc_id: str,
+    *,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ),
+) -> tuple[ProposalReviewItem, ...]:
+    try:
+        raw = (
+            runtime.list_proposals(poc_id)
+            if current_proposal_lookup is None
+            else current_proposal_lookup(poc_id)
+        )
+    except ProposalReviewError:
+        raise
+    except Exception as error:
+        raise ProposalReviewLookupUnavailable(
+            "Current agreement proposal scope is unavailable."
+        ) from error
+    if not isinstance(raw, (tuple, list)):
+        raise ProposalReviewLookupUnavailable(
+            "Current agreement proposal scope is unavailable."
+        )
+    proposals = tuple(raw)
+    if (
+        any(
+            type(item) is not ProposalReviewItem or item.poc_id != poc_id
+            for item in proposals
+        )
+        or len({item.proposal_id for item in proposals}) != len(proposals)
+    ):
+        raise ProposalReviewLookupUnavailable(
+            "Current agreement proposal scope is unavailable."
+        )
+    return proposals
 
 
 def _require_object_payload(

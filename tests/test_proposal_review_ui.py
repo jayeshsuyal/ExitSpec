@@ -70,6 +70,7 @@ def test_one_proposal_and_two_explicit_decisions_are_visible():
     assert 'id="source-kind"' in html
     assert 'id="source-quote"' in html
     assert 'id="normalized-claim"' in html
+    assert 'id="proposal-support"' in html
     assert 'id="progress-copy"' in html
     assert html.count('name="decision"') == 2
     assert 'value="KEEP_FOR_CONTRACT"' in html
@@ -85,8 +86,9 @@ def test_copy_keeps_triage_separate_from_every_authority_boundary():
     javascript = _asset(JS_PATH)
 
     assert (
-        "KEEP is triage only. It does not approve, confirm, freeze,\n"
-        "                  run, or issue a verdict."
+        "This demo executes one TTFT and one error-rate claim. Other\n"
+        "                  claims stay NOT_PROVEN. KEEP remains triage only—it does not\n"
+        "                  approve, freeze, run, or issue a verdict."
     ) in html
     assert "No contract was created or approved." in html
     assert (
@@ -420,10 +422,11 @@ def test_completion_is_concise_honest_and_links_to_real_definition_step():
     assert "remain separate steps" in completion_html
     assert 'id="define-criteria"' in completion_html
     assert "Define acceptance criteria" in completion_html
-    assert "keptCount > 0" in completion_js
+    assert "keptCount === 2" in completion_js
+    assert "Add the missing executable requirement" in completion_js
     assert "`/app/pocs/${encodeURIComponent(pocId)}/define`" in completion_js
     assert "defineCriteriaLink.hidden = false;" in completion_js
-    assert 'defineCriteriaLink.textContent = "Add another source";' in completion_js
+    assert '"Add another source"' in completion_js
     assert "`/app/pocs/${encodeURIComponent(pocId)}/sources/new`" in completion_js
     assert "window.location.replace(destination);" in completion_js
     assert "initialCount === 0" in completion_js

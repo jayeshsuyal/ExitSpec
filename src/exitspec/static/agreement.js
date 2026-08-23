@@ -1698,7 +1698,7 @@
           : "Get the customer decision";
       document.querySelector("#current-task-copy").textContent =
         changesRequested
-          ? "Preserve this version, then capture the requested change as new source evidence."
+          ? "Preserve this version, then capture a complete replacement test plan for the next version."
           : "Share the separate review link. Freeze unlocks only after confirmation.";
       if (!changesRequested) {
         customerReviewLink.focus({ preventScroll: true });
@@ -1717,9 +1717,9 @@
       document.querySelector("#current-task-heading").textContent =
         `Build agreement version ${agreementState.revision.contract_version}`;
       document.querySelector("#current-task-copy").textContent =
-        "Capture, review, and define the customer's requested changes before drafting.";
+        "Capture, review, and define a complete replacement TTFT + error-rate plan before drafting.";
       document.querySelector("#revision-copy").textContent =
-        `Version ${agreementState.revision.parent_contract_version} is preserved. Continue from the workspace to build version ${agreementState.revision.contract_version}.`;
+        `Version ${agreementState.revision.parent_contract_version} is preserved. Build version ${agreementState.revision.contract_version} from a complete replacement TTFT + error-rate source.`;
       continueRevision.href = "/app";
       revisionPanel.focus();
       return;

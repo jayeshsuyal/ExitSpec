@@ -72,6 +72,9 @@
     terminalDecision: $("#terminal-decision"),
     terminalRecordedAt: $("#terminal-recorded-at"),
     terminalReviewer: $("#terminal-reviewer"),
+    terminalBoundary: $("#terminal-boundary"),
+    terminalNextTitle: $("#terminal-next-title"),
+    terminalNextDetail: $("#terminal-next-detail"),
     localDemoReturn: $("#local-demo-return"),
     returnToApp: $("#return-to-app"),
     localDemoNotice: $("#local-demo-notice"),
@@ -488,6 +491,14 @@
         return;
       }
       token = "local-synthetic-preview";
+    }
+
+    // The explicit local preview is a browser-only fixture. Do not probe a
+    // production review endpoint for a token that can never exist; doing so
+    // creates a misleading 404 in an otherwise healthy demo.
+    if (localSyntheticRequested) {
+      hydrate(MOCK_REVIEW, true);
+      return;
     }
 
     let response;
@@ -983,13 +994,17 @@
     const synthetic = Boolean(decision.synthetic);
     const localReturn = review?.local_demo;
     const safeLocalReturnUrl = safeLocalReturnPath(localReturn?.return_url);
-    const immutableDynamicPOC = Boolean(
+    const dynamicPOCAgreement = Boolean(
       safeLocalReturnUrl?.endsWith("/agreement")
     );
 
     elements.terminalMark.textContent = changesRequested ? "↺" : "✓";
     elements.terminalMark.className =
       `state-mark ${changesRequested ? "state-mark--changes" : "state-mark--success"}`;
+    elements.terminalBoundary.classList.toggle(
+      "terminal-boundary--changes",
+      changesRequested
+    );
     elements.terminalEyebrow.textContent = replay
       ? "Already recorded"
       : synthetic
@@ -1003,9 +1018,7 @@
       : replay
         ? "ExitSpec found the same completed decision. The original record is unchanged."
         : changesRequested
-          ? immutableDynamicPOC
-            ? "This immutable local POC stops here. The owner must start a new POC with the requested changes."
-            : "The POC owner can revise the draft and issue a new version for review."
+          ? "This version stays immutable. The POC owner can preserve it and issue a revised version for review."
           : "Recorded against the exact contract version below.";
     elements.terminalContract.textContent =
       `${review.contract.id} · Version ${review.contract.version}`;
@@ -1018,11 +1031,28 @@
     );
     elements.terminalReviewer.textContent =
       decision.reviewer_display_name || review.identity.display_name;
+    if (synthetic) {
+      elements.terminalNextTitle.textContent = changesRequested
+        ? "Preview only: a real request would return for revision."
+        : "Preview only: a real confirmation would unlock contract freeze.";
+      elements.terminalNextDetail.textContent =
+        "No agreement, evidence, or lifecycle state changed.";
+    } else if (changesRequested) {
+      elements.terminalNextTitle.textContent =
+        "Next: revise the test plan and issue a new version.";
+      elements.terminalNextDetail.textContent =
+        "This agreement version stays immutable and cannot be frozen.";
+    } else {
+      elements.terminalNextTitle.textContent =
+        "Next: freeze the confirmed contract.";
+      elements.terminalNextDetail.textContent =
+        "The POC owner freezes this exact version before any proof run.";
+    }
     const canReturnToLocalApp = Boolean(safeLocalReturnUrl);
     elements.localDemoReturn.hidden = !canReturnToLocalApp;
     if (canReturnToLocalApp) {
       elements.returnToApp.href = safeLocalReturnUrl;
-      elements.returnToApp.textContent = immutableDynamicPOC
+      elements.returnToApp.textContent = dynamicPOCAgreement
         ? "Return to the POC agreement"
         : "Return to the local POC owner";
       elements.localDemoNotice.textContent =

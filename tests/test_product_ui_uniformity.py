@@ -119,6 +119,12 @@ def test_customer_review_is_a_focused_confirmation_surface():
     assert "Confirmation freezes this test plan." in html
     assert "Confirm POC agreement" in html
     assert "I confirm these requirements and test conditions." in html
+    assert 'id="terminal-next-title"' in html
+    assert 'id="terminal-next-detail"' in html
+    assert "Next: freeze the confirmed contract." in javascript
+    assert "Next: revise the test plan and issue a new version." in javascript
+    assert "No agreement, evidence, or lifecycle state changed." in javascript
+    assert ".terminal-boundary--changes" in css
     assert "plus the target system, workload, evidence method" not in javascript
     assert ".review-layout" in css
     assert "position: sticky" in css

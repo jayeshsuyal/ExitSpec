@@ -1877,9 +1877,15 @@
   function applyDraft(draft, sourceList) {
     preferredSource = draft.first_source_choice;
     selectedSource = preferredSource;
+    const hasExistingSources = sourceList.sources.length > 0;
     document.querySelector("#poc-title").textContent = draft.display_name;
     document.querySelector("#poc-context").textContent =
       `${draft.customer_label} · local draft`;
+    document.querySelector("#current-task-heading").textContent =
+      hasExistingSources ? "Add one customer source" : "Capture one customer source";
+    document.querySelector("#task-guidance").textContent = hasExistingSources
+      ? "New text creates fresh proposals. For an agreement revision, include the complete replacement TTFT + error-rate plan; prior criteria are not silently carried forward."
+      : "The original starting choice is selected first. You may choose another source without changing the POC type.";
     document.querySelector("#existing-source-count").textContent =
       `${sourceList.sources.length} existing ${sourceList.sources.length === 1 ? "source" : "sources"}`;
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from urllib.parse import urljoin
 
 import pytest
@@ -109,6 +110,12 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
                 expect(customer_page.locator("#terminal-title")).to_have_text(
                     "POC agreement confirmed"
                 )
+                expect(
+                    customer_page.locator("#terminal-next-title")
+                ).to_have_text("Next: freeze the confirmed contract.")
+                expect(
+                    customer_page.locator("#terminal-boundary")
+                ).not_to_have_class(re.compile("terminal-boundary--changes"))
 
                 expect(employee_page.locator("#freeze-contract")).to_be_visible()
                 expect(employee_page.locator("#freeze-contract")).to_be_enabled()
@@ -141,4 +148,51 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
             finally:
                 customer_context.close()
                 employee_context.close()
+                browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_customer_review_request_changes_stops_before_freeze(tmp_path):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            errors = _capture_browser_errors(page)
+            try:
+                page.goto(
+                    f"{base_url}/review/local-synthetic-preview"
+                    "?mock=local-synthetic"
+                )
+                expect(page.locator("#review-view")).to_be_visible()
+                page.locator("#request-changes").click()
+                expect(page.locator("#change-details")).to_be_visible()
+                page.locator("#change-rationale").fill(
+                    "Use a stricter customer-approved threshold."
+                )
+                page.locator("#request-changes").click()
+
+                expect(page.locator("#terminal-title")).to_have_text(
+                    "Changes requested"
+                )
+                expect(page.locator("#terminal-next-title")).to_have_text(
+                    "Preview only: a real request would return for revision."
+                )
+                expect(page.locator("#terminal-next-detail")).to_have_text(
+                    "No agreement, evidence, or lifecycle state changed."
+                )
+                expect(page.locator("#terminal-boundary")).to_have_class(
+                    re.compile("terminal-boundary--changes")
+                )
+                assert errors == []
+            finally:
+                context.close()
                 browser.close()

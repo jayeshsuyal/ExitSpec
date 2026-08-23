@@ -125,6 +125,57 @@ def test_get_returns_only_current_redacted_needs_review_proposals():
     assert len(intake.proposal_inputs(POC_ID)) == 2
 
 
+def test_active_agreement_scope_excludes_prior_version_counts_and_writes():
+    _, _, runtime = _services()
+    all_items = runtime.list_proposals(POC_ID)
+    current_id = all_items[1].proposal_id
+
+    def current_scope(poc_id: str):
+        assert poc_id == POC_ID
+        return tuple(
+            item
+            for item in runtime.list_proposals(poc_id)
+            if item.proposal_id == current_id
+        )
+
+    listed = handle_poc_proposal_web_api_request(
+        method="GET",
+        target=ROOT,
+        payload=None,
+        runtime=runtime,
+        current_proposal_lookup=current_scope,
+    )
+    assert listed is not None
+    assert listed.payload["review_summary"] == {
+        "total": 1,
+        "needs_review": 1,
+        "kept_for_contract": 0,
+        "discarded": 0,
+    }
+    assert [item["proposal_id"] for item in listed.payload["proposals"]] == [
+        current_id
+    ]
+
+    stale = handle_poc_proposal_web_api_request(
+        method="POST",
+        target=f"{ROOT}/{all_items[0].proposal_id}/decision",
+        payload={
+            "decision": "KEEP_FOR_CONTRACT",
+            "reviewer": "Jayesh",
+            "rationale": "A prior version cannot re-enter the current queue.",
+            "idempotency_key": "stale-version-proposal-write",
+        },
+        runtime=runtime,
+        current_proposal_lookup=current_scope,
+    )
+    assert stale is not None
+    assert stale.status == HTTPStatus.NOT_FOUND
+    assert all(
+        item.review_state.value == "NEEDS_REVIEW"
+        for item in runtime.list_proposals(POC_ID)
+    )
+
+
 def test_keep_decision_is_triage_only_and_leaves_one_pending_proposal():
     _, _, runtime = _services()
     proposal = _handle(runtime, "GET", ROOT).payload["proposals"][0]

@@ -2650,7 +2650,7 @@ def _agreement_aware_workspace_projection(
                     "derived_phase": WorkspacePhase.DEFINE,
                     "next_action_code": WorkspaceAction.ADD_SOURCE,
                     "next_human_action": (
-                        "Capture the customer's requested changes as a new source."
+                        "Capture a complete replacement TTFT and error-rate plan as a new source."
                     ),
                     "action_since": snapshot.revision.requested_at,
                     "updated_at": max(
@@ -4223,11 +4223,17 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         return True
 
     def _dispatch_poc_proposal_read(self) -> bool:
+        poc_id = _proposal_collection_api_poc_id(urlparse(self.path).path)
+        if poc_id is not None and not self._allow_active_proposal_poc(poc_id):
+            return True
         response = handle_poc_proposal_web_api_request(
             method=self.command,
             target=self.path,
             payload=None,
             runtime=self.server.proposal_review_service,
+            current_proposal_lookup=(
+                self.server.performance_lifecycle_service.current_proposals
+            ),
         )
         if response is None:
             return False
@@ -4244,12 +4250,17 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 target=self.path,
                 payload={},
                 runtime=self.server.proposal_review_service,
+                current_proposal_lookup=(
+                    self.server.performance_lifecycle_service.current_proposals
+                ),
             )
             if response is None:
                 return False
             self._send_json(response.status, response.payload)
             return True
         poc_id = _poc_scoped_api_poc_id(parsed.path, "proposals")
+        if poc_id is not None and not self._allow_active_proposal_poc(poc_id):
+            return True
         if not self._has_json_media_type():
             self._send_json(
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -4292,6 +4303,9 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 target=self.path,
                 payload=payload,
                 runtime=self.server.proposal_review_service,
+                current_proposal_lookup=(
+                    self.server.performance_lifecycle_service.current_proposals
+                ),
             ),
         )
         if not allowed:
@@ -4299,6 +4313,31 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if response is None:
             return False
         self._send_json(response.status, response.payload)
+        return True
+
+    def _allow_active_proposal_poc(self, poc_id: str) -> bool:
+        """Keep archived or unknown drafts outside proposal review routes."""
+
+        try:
+            draft = self.server.draft_poc_service.get(poc_id)
+        except ValueError:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "Proposal review request is invalid."},
+            )
+            return False
+        except DraftPOCNotFound:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Proposal was not found."},
+            )
+            return False
+        if draft.archive_state != DraftPOCArchiveState.ACTIVE:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "Proposal was not found."},
+            )
+            return False
         return True
 
     def _dispatch_poc_contract_definition_read(self) -> bool:
@@ -4315,6 +4354,9 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             payload=None,
             definition_runtime=self.server.contract_definition_service,
             proposal_runtime=self.server.proposal_review_service,
+            current_proposal_lookup=(
+                self.server.performance_lifecycle_service.current_proposals
+            ),
         )
         if response is None:
             return False
@@ -4332,6 +4374,9 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 payload={},
                 definition_runtime=self.server.contract_definition_service,
                 proposal_runtime=self.server.proposal_review_service,
+                current_proposal_lookup=(
+                    self.server.performance_lifecycle_service.current_proposals
+                ),
             )
             if response is None:
                 return False
@@ -4385,6 +4430,9 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                 payload=payload,
                 definition_runtime=self.server.contract_definition_service,
                 proposal_runtime=self.server.proposal_review_service,
+                current_proposal_lookup=(
+                    self.server.performance_lifecycle_service.current_proposals
+                ),
             ),
         )
         if not allowed:
@@ -6439,6 +6487,22 @@ def _poc_scoped_api_poc_id(
         return None
     if collection == "proposals" and (
         len(parts) != 6 or parts[5] != "decision"
+    ):
+        return None
+    poc_id = unquote(parts[2])
+    if not poc_id or "/" in poc_id or "\\" in poc_id:
+        return None
+    return poc_id
+
+
+def _proposal_collection_api_poc_id(request_path: str) -> Optional[str]:
+    """Return a POC identity for the exact proposal collection route."""
+
+    parts = request_path.strip("/").split("/")
+    if (
+        len(parts) != 4
+        or parts[:2] != ["api", "pocs"]
+        or parts[3] != "proposals"
     ):
         return None
     poc_id = unquote(parts[2])

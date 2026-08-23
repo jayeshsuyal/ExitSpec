@@ -257,6 +257,43 @@ def test_get_returns_only_current_kept_proposals_with_null_definitions():
     assert proposals[1]["source_kind"] == "MEETING"
 
 
+def test_active_agreement_scope_excludes_prior_kept_definitions_and_writes():
+    _, review, definitions = _services()
+    current_error = tuple(
+        proposal
+        for proposal in review.list_proposals(POC_ID)
+        if proposal.proposal_id == ERROR_PROPOSAL_ID
+    )
+
+    def current_scope(poc_id: str):
+        return current_error if poc_id == POC_ID else ()
+
+    listed = handle_poc_contract_definition_web_api_request(
+        method="GET",
+        target=ROOT,
+        payload=None,
+        definition_runtime=definitions,
+        proposal_runtime=review,
+        current_proposal_lookup=current_scope,
+    )
+    assert listed is not None
+    assert [item["proposal_id"] for item in listed.payload["proposals"]] == [
+        ERROR_PROPOSAL_ID
+    ]
+
+    stale = handle_poc_contract_definition_web_api_request(
+        method="POST",
+        target=ROOT,
+        payload=_body(proposal_id=TTFT_PROPOSAL_ID),
+        definition_runtime=definitions,
+        proposal_runtime=review,
+        current_proposal_lookup=current_scope,
+    )
+    assert stale is not None
+    assert stale.status == HTTPStatus.NOT_FOUND
+    assert definitions.definitions() == ()
+
+
 def test_post_creates_then_exactly_replays_a_compact_definition():
     _, review, definitions = _services()
 

@@ -47,6 +47,9 @@
   const INCLUSIVE_LIMIT =
     "(?:<=|≤|at\\s+most|no\\s+more\\s+than|within)";
   const DECIMAL = "(\\d+(?:\\.\\d+)?)";
+  const LOCAL_PROBE_WARMUP_COUNT = 10;
+  const LOCAL_PROBE_REQUEST_TIMEOUT_SECONDS = 30;
+  const LOCAL_PROBE_MAX_WORST_CASE_SECONDS = 15 * 60;
   const DISPOSITIONS = Object.freeze([
     "CREATED",
     "IDEMPOTENT_REPLAY",
@@ -427,6 +430,59 @@
     return Number.isFinite(threshold) ? threshold : null;
   }
 
+  function uniqueBoundedIntegerMatch(claim, patterns, minimum, maximum) {
+    const values = [];
+    patterns.forEach((pattern) => {
+      Array.from(claim.matchAll(pattern)).forEach((match) => {
+        const value = Number(match[1]);
+        if (isExactInteger(value, minimum, maximum)) {
+          values.push(value);
+        }
+      });
+    });
+    const unique = [...new Set(values)];
+    return unique.length === 1 ? unique[0] : null;
+  }
+
+  function boundedWorkloadSuggestion(claim) {
+    return {
+      minimumSamples: uniqueBoundedIntegerMatch(
+        claim,
+        [
+          /\b(?:across|over|for|using)\s+(?:at\s+least\s+)?(?:all\s+)?(\d{1,4})\s+(?:measured\s+)?(?:requests?|attempts?|samples?|cases?)\b/gi,
+          /\b(?:minimum\s+samples?|sample\s+size|request\s+count)\s*(?:of|=|:)?\s*(\d{1,4})\b/gi,
+        ],
+        1,
+        1000
+      ),
+      concurrency: uniqueBoundedIntegerMatch(
+        claim,
+        [
+          /\b(?:at\s+)?concurrenc(?:y|ies)\s*(?:of|=|:)?\s*(\d{1,2})\b/gi,
+        ],
+        1,
+        32
+      ),
+    };
+  }
+
+  function localProbeSafetyProblem(minimumSamples, concurrency) {
+    if (
+      !isExactInteger(minimumSamples, 1, 1000) ||
+      !isExactInteger(concurrency, 1, 32) ||
+      concurrency > minimumSamples
+    ) {
+      return null;
+    }
+    const worstCaseSeconds =
+      (Math.ceil(LOCAL_PROBE_WARMUP_COUNT / concurrency) +
+        Math.ceil(minimumSamples / concurrency)) *
+      LOCAL_PROBE_REQUEST_TIMEOUT_SECONDS;
+    return worstCaseSeconds > LOCAL_PROBE_MAX_WORST_CASE_SECONDS
+      ? `The exact ${minimumSamples}-request workload at concurrency ${concurrency} exceeds the local demo's 15-minute safety budget. Confirm a smaller sample or higher concurrency with the customer; ExitSpec will not change it silently.`
+      : null;
+  }
+
   function boundedClaimSuggestion(claim) {
     const hasErrorRateCue = ERROR_RATE_CUE.test(claim);
     const hasTtftCue = TTFT_CUE.test(claim);
@@ -544,6 +600,10 @@
     );
     const reviewer = reviewerInput.value.trim();
     const rationale = rationaleInput.value.trim();
+    const safetyProblem = localProbeSafetyProblem(
+      minimumSamples,
+      concurrency
+    );
     if (
       !config ||
       !OPERATORS.includes(operator) ||
@@ -558,6 +618,7 @@
       minimumSamples === null ||
       concurrency === null ||
       concurrency > minimumSamples ||
+      safetyProblem !== null ||
       promptTokensMin === null ||
       promptTokensMax === null ||
       outputTokensMin === null ||
@@ -619,6 +680,10 @@
     const hasProposal = currentProposal() !== null;
     const fieldsValid = validatedDefinitionFields() !== null;
     const editable = hasProposal && !inFlight && !pendingAttempt;
+    const safetyProblem = localProbeSafetyProblem(
+      integerValue(minimumSamplesInput, 1, 1000),
+      integerValue(concurrencyInput, 1, 32)
+    );
 
     setFieldAvailability(editable);
     saveButton.disabled =
@@ -632,7 +697,8 @@
         ? "The response was interrupted. Retry will use the same definition key."
         : fieldsValid
           ? "Verify the source and save this definition."
-          : "Complete every required value to unlock Save definition.";
+          : safetyProblem ||
+            "Complete every required value to unlock Save definition.";
   }
 
   function renderProgress() {
@@ -658,6 +724,12 @@
 
   function resetFormForProposal(proposal) {
     const suggestion = boundedClaimSuggestion(proposal.normalized_claim);
+    const workloadSuggestion = boundedWorkloadSuggestion(
+      proposal.normalized_claim
+    );
+    const priorDefinition = proposals.find(
+      (item) => item.definition !== null
+    )?.definition;
     metricInput.value = suggestion.metric || "";
     operatorInput.value = "LT";
     thresholdInput.value = "";
@@ -668,13 +740,43 @@
       thresholdInput.value = String(suggestion.threshold);
     }
     updateMetricBoundary();
-    suggestionStatus.textContent = suggestion.message;
-    minimumSamplesInput.value = "100";
-    concurrencyInput.value = "4";
-    promptTokensMinInput.value = "512";
-    promptTokensMaxInput.value = "4096";
-    outputTokensMinInput.value = "64";
-    outputTokensMaxInput.value = "512";
+    const minimumSamples =
+      workloadSuggestion.minimumSamples ??
+      priorDefinition?.minimum_samples ??
+      100;
+    const concurrency =
+      workloadSuggestion.concurrency ??
+      priorDefinition?.concurrency ??
+      4;
+    const sampleSource =
+      workloadSuggestion.minimumSamples !== null
+        ? `${minimumSamples} requests from this claim`
+        : priorDefinition
+          ? `${minimumSamples} requests carried from Criterion 1`
+          : `${minimumSamples} requests as the visible local-demo default`;
+    const concurrencySource =
+      workloadSuggestion.concurrency !== null
+        ? `concurrency ${concurrency} from this claim`
+        : priorDefinition
+          ? `concurrency ${concurrency} carried from Criterion 1`
+          : `concurrency ${concurrency} as the visible local-demo default`;
+    suggestionStatus.textContent =
+      `${suggestion.message} Workload: ${sampleSource}; ${concurrencySource}. ` +
+      "Verify every value.";
+    minimumSamplesInput.value = String(minimumSamples);
+    concurrencyInput.value = String(concurrency);
+    promptTokensMinInput.value = String(
+      priorDefinition?.prompt_tokens_min ?? 512
+    );
+    promptTokensMaxInput.value = String(
+      priorDefinition?.prompt_tokens_max ?? 4096
+    );
+    outputTokensMinInput.value = String(
+      priorDefinition?.output_tokens_min ?? 64
+    );
+    outputTokensMaxInput.value = String(
+      priorDefinition?.output_tokens_max ?? 512
+    );
     reviewerInput.value = "";
     rationaleInput.value = "";
   }

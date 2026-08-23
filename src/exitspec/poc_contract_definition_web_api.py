@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from http import HTTPStatus
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .poc_contract_definition import (
@@ -99,6 +99,9 @@ def handle_poc_contract_definition_web_api_request(
     payload: Mapping[str, Any] | None,
     definition_runtime: ProcessLocalContractDefinitionService,
     proposal_runtime: ProcessLocalProposalReviewService,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ) = None,
 ) -> POCContractDefinitionWebAPIResponse | None:
     """Handle one exact POC contract-definition API request.
 
@@ -116,6 +119,10 @@ def handle_poc_contract_definition_web_api_request(
         raise TypeError(
             "proposal_runtime must be a ProcessLocalProposalReviewService."
         )
+    if current_proposal_lookup is not None and not callable(
+        current_proposal_lookup
+    ):
+        raise TypeError("current_proposal_lookup must be callable.")
     if not is_poc_contract_definition_web_api_target(target):
         return None
 
@@ -133,6 +140,7 @@ def handle_poc_contract_definition_web_api_request(
             payload=payload,
             definition_runtime=definition_runtime,
             proposal_runtime=proposal_runtime,
+            current_proposal_lookup=current_proposal_lookup,
         )
     except (
         POCContractDefinitionWebAPIRequestError,
@@ -220,6 +228,9 @@ def _dispatch(
     payload: Mapping[str, Any] | None,
     definition_runtime: ProcessLocalContractDefinitionService,
     proposal_runtime: ProcessLocalProposalReviewService,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ),
 ) -> POCContractDefinitionWebAPIResponse:
     if type(method) is not str:
         raise POCContractDefinitionWebAPIRequestError
@@ -227,7 +238,11 @@ def _dispatch(
     if method == "GET":
         if payload is not None:
             raise POCContractDefinitionWebAPIRequestError
-        proposals = _current_kept_proposals(proposal_runtime, poc_id)
+        proposals = _current_kept_proposals(
+            proposal_runtime,
+            poc_id,
+            current_proposal_lookup=current_proposal_lookup,
+        )
         definitions = _current_definition_receipts(
             definition_runtime,
             poc_id=poc_id,
@@ -249,6 +264,8 @@ def _dispatch(
     if method == "POST":
         body = _require_object_payload(payload)
         _require_only_fields(body, _DEFINITION_FIELDS)
+        if type(body["proposal_id"]) is not str:
+            raise POCContractDefinitionWebAPIRequestError
         try:
             metric = InferencePerformanceMetric(body["metric"])
             operator = ContractDefinitionOperator(body["operator"])
@@ -267,6 +284,28 @@ def _dispatch(
             reviewer=body["reviewer"],
             rationale=body["rationale"],
         )
+        if current_proposal_lookup is not None:
+            current = _current_proposals(
+                proposal_runtime,
+                poc_id,
+                current_proposal_lookup=current_proposal_lookup,
+            )
+            matching = next(
+                (
+                    proposal
+                    for proposal in current
+                    if proposal.proposal_id == body["proposal_id"]
+                ),
+                None,
+            )
+            if matching is None:
+                raise ContractDefinitionProposalUnavailable(
+                    "Proposal is not current for this agreement version."
+                )
+            if matching.review_state != ProposalReviewState.KEEP_FOR_CONTRACT:
+                raise ContractDefinitionProposalNotKept(
+                    "Current proposal was not kept for contract work."
+                )
         result = definition_runtime.define(
             poc_id,
             body["proposal_id"],
@@ -297,12 +336,59 @@ def _dispatch(
 def _current_kept_proposals(
     runtime: ProcessLocalProposalReviewService,
     poc_id: str,
+    *,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ) = None,
 ) -> tuple[ProposalReviewItem, ...]:
+    detached = _current_proposals(
+        runtime,
+        poc_id,
+        current_proposal_lookup=current_proposal_lookup,
+    )
     return tuple(
         proposal
-        for proposal in runtime.list_proposals(poc_id)
+        for proposal in detached
         if proposal.review_state == ProposalReviewState.KEEP_FOR_CONTRACT
     )
+
+
+def _current_proposals(
+    runtime: ProcessLocalProposalReviewService,
+    poc_id: str,
+    *,
+    current_proposal_lookup: (
+        Callable[[str], Sequence[ProposalReviewItem]] | None
+    ) = None,
+) -> tuple[ProposalReviewItem, ...]:
+    try:
+        raw = (
+            runtime.list_proposals(poc_id)
+            if current_proposal_lookup is None
+            else current_proposal_lookup(poc_id)
+        )
+    except ProposalReviewError:
+        raise
+    except Exception as error:
+        raise ProposalReviewLookupUnavailable(
+            "Current agreement proposal scope is unavailable."
+        ) from error
+    if not isinstance(raw, (tuple, list)):
+        raise ProposalReviewLookupUnavailable(
+            "Current agreement proposal scope is unavailable."
+        )
+    detached = tuple(raw)
+    if (
+        any(
+            type(item) is not ProposalReviewItem or item.poc_id != poc_id
+            for item in detached
+        )
+        or len({item.proposal_id for item in detached}) != len(detached)
+    ):
+        raise ProposalReviewLookupUnavailable(
+            "Current agreement proposal scope is unavailable."
+        )
+    return detached
 
 
 def _current_definition_receipts(

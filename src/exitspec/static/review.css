@@ -1084,6 +1084,10 @@ textarea:focus {
   padding-left: 0.78rem;
 }
 
+.terminal-boundary--changes {
+  border-left-color: var(--warning);
+}
+
 .terminal-boundary strong {
   display: block;
   margin-bottom: 0.12rem;

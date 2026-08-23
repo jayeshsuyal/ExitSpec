@@ -213,7 +213,8 @@ def test_refresh_restores_review_counts_and_define_action_after_exhaustion(
     assert javascript[0] == 200
     assert "review_summary.kept_for_contract" in javascript[1]
     assert "review_summary.discarded" in javascript[1]
-    assert "if (pocId && keptCount > 0)" in javascript[1]
+    assert "if (pocId && keptCount === 2)" in javascript[1]
+    assert "Add the missing executable requirement" in javascript[1]
 
 
 def test_archived_poc_refuses_proposal_reads_and_decisions(tmp_path):

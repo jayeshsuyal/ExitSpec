@@ -26,6 +26,9 @@
     "IDEMPOTENT_REPLAY",
     "DECISION_REPLAY",
   ]);
+  const ERROR_RATE_CUE = /\berror[\s-]*rate\b/i;
+  const TTFT_CUE =
+    /\b(?:ttft|time\s+to\s+(?:the\s+)?first\s+token|first[\s-]*token(?:\s+latency)?)\b/i;
   const routeMatch =
     window.location.search === "" && window.location.hash === ""
       ? window.location.pathname.match(ROUTE_PATTERN)
@@ -50,6 +53,7 @@
   let initialCount = 0;
   let keptCount = 0;
   let discardedCount = 0;
+  const selectedMetricCues = new Set();
   let pocCustomerLabel = null;
   let inFlight = false;
   let pendingAttempt = null;
@@ -289,6 +293,22 @@
     return proposals[0] || null;
   }
 
+  function executableMetricCue(proposal) {
+    if (!proposal) {
+      return null;
+    }
+    const hasTTFT = TTFT_CUE.test(proposal.normalized_claim);
+    const hasErrorRate = ERROR_RATE_CUE.test(proposal.normalized_claim);
+    if (hasTTFT === hasErrorRate) {
+      return null;
+    }
+    return hasTTFT ? "TTFT_P95_MS" : "ERROR_RATE_PERCENT";
+  }
+
+  function metricCueLabel(metricCue) {
+    return metricCue === "TTFT_P95_MS" ? "TTFT" : "error rate";
+  }
+
   function clearError() {
     errorPanel.hidden = true;
     errorPanel.textContent = "";
@@ -332,7 +352,15 @@
   }
 
   function updateDecisionControls() {
-    const hasProposal = currentProposal() !== null;
+    const proposal = currentProposal();
+    const hasProposal = proposal !== null;
+    const metricCue = executableMetricCue(proposal);
+    const duplicateMetric =
+      metricCue !== null && selectedMetricCues.has(metricCue);
+    const executableSlotAvailable =
+      metricCue !== null &&
+      !duplicateMetric &&
+      keptCount < 2;
     const fieldsValid = validatedReviewFields() !== null;
     const editable = hasProposal && !inFlight && !pendingAttempt;
     const pendingDecision = pendingAttempt
@@ -345,7 +373,7 @@
       inFlight ||
       (pendingAttempt
         ? pendingDecision !== "KEEP_FOR_CONTRACT"
-        : !fieldsValid);
+        : !fieldsValid || !executableSlotAvailable);
     discardButton.disabled =
       !hasProposal ||
       inFlight ||
@@ -363,8 +391,14 @@
       ? "Recording this triage decision…"
       : pendingAttempt
         ? "The response was interrupted. Retry will use the same decision key."
-        : fieldsValid
-          ? "Choose one triage decision."
+        : fieldsValid && metricCue === null
+          ? "The current evaluator cannot execute this claim. Discard keeps it visible as NOT_PROVEN."
+          : fieldsValid && duplicateMetric
+            ? `One ${metricCueLabel(metricCue)} claim is already selected. Discard this duplicate to NOT_PROVEN.`
+            : fieldsValid && keptCount >= 2
+              ? "The two executable slots are filled. Discard remaining claims to NOT_PROVEN."
+              : fieldsValid
+                ? "Choose one triage decision."
           : "Enter the reviewer and rationale to unlock both decisions.";
   }
 
@@ -402,6 +436,12 @@
       proposal.source_quote;
     document.querySelector("#normalized-claim").textContent =
       proposal.normalized_claim;
+    const metricCue = executableMetricCue(proposal);
+    const support = document.querySelector("#proposal-support");
+    support.setAttribute("data-supported", String(metricCue !== null));
+    support.textContent = metricCue === null
+      ? "Not executable in this demo · discard to NOT_PROVEN"
+      : `Executable candidate · ${metricCueLabel(metricCue)}`;
     reviewerInput.value = "";
     rationaleInput.value = "";
     pendingAttempt = null;
@@ -415,6 +455,7 @@
     proposals = [];
     document.querySelector("#source-quote").textContent = "";
     document.querySelector("#normalized-claim").textContent = "";
+    document.querySelector("#proposal-support").textContent = "";
     reviewerInput.value = "";
     rationaleInput.value = "";
     pendingAttempt = null;
@@ -424,7 +465,7 @@
       initialCount === 0
         ? "There are no source proposals awaiting review. No contract was created or approved."
         : `${initialCount} proposals reviewed: ${keptCount} kept for contract authoring and ${discardedCount} discarded. No contract was created or approved.`;
-    if (pocId && keptCount > 0) {
+    if (pocId && keptCount === 2) {
       const destination = `/app/pocs/${encodeURIComponent(pocId)}/define`;
       defineCriteriaLink.textContent = "Define acceptance criteria";
       defineCriteriaLink.href = destination;
@@ -436,7 +477,10 @@
         // The verified fallback panel remains available if navigation is blocked.
       }
     } else {
-      defineCriteriaLink.textContent = "Add another source";
+      defineCriteriaLink.textContent =
+        keptCount === 1
+          ? "Add the missing executable requirement"
+          : "Add another source";
       defineCriteriaLink.href = pocId
         ? `/app/pocs/${encodeURIComponent(pocId)}/sources/new`
         : "/app";
@@ -566,6 +610,12 @@
       if (!isTrustedDecisionResponse(response, pendingAttempt)) {
         throw new SafeRequestError(200, true);
       }
+      if (pendingAttempt.payload.decision === "KEEP_FOR_CONTRACT") {
+        const metricCue = executableMetricCue(proposal);
+        if (metricCue !== null) {
+          selectedMetricCues.add(metricCue);
+        }
+      }
       pendingAttempt = null;
       proposals.shift();
       decisionRecorded = true;
@@ -624,6 +674,7 @@
 
   window.addEventListener("pagehide", () => {
     proposals = [];
+    selectedMetricCues.clear();
     pocCustomerLabel = null;
     pendingAttempt = null;
     reviewerInput.value = "";
