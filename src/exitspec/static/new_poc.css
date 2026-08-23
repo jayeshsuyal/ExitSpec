@@ -48,7 +48,7 @@
   max-width: 620px;
   margin-bottom: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .draft-boundary {
@@ -126,7 +126,7 @@
 .panel-heading p {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .source-options {
@@ -187,13 +187,13 @@
 
 .source-option strong {
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .source-option small {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .identity-fields {
@@ -215,7 +215,7 @@
 
 .identity-fields label > span {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 720;
 }
 
@@ -228,7 +228,7 @@
   background: var(--navigation);
   color: var(--text);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   resize: vertical;
 }
 
@@ -260,7 +260,7 @@
 .creation-footer p {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 #create-poc {
@@ -270,7 +270,7 @@
   padding: 7px 14px;
   background: var(--orange);
   color: var(--canvas);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 820;
   cursor: pointer;
 }
@@ -302,7 +302,7 @@
 
 .created-panel > p {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .next-intake {
@@ -337,7 +337,7 @@
 .authority-note {
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .return-link {
@@ -350,7 +350,7 @@
   padding: 7px 13px;
   background: var(--orange);
   color: var(--canvas);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 820;
   text-decoration: none;
 }

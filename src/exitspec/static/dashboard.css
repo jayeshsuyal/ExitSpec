@@ -357,7 +357,7 @@ dd {
 .list-header p {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .continue-heading .eyebrow {
@@ -592,7 +592,7 @@ dd {
   padding: 4px 9px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 720;
   white-space: nowrap;
 }
@@ -780,7 +780,7 @@ dd {
 .empty-state p {
   margin-bottom: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .empty-state button {
@@ -788,7 +788,7 @@ dd {
   padding: 0;
   background: transparent;
   color: var(--orange);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 760;
   cursor: pointer;
 }

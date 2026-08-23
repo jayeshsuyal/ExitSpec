@@ -361,6 +361,13 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 employee_page.locator(".new-poc-link").click()
                 expect(employee_page).to_have_url(f"{base_url}/app/pocs/new")
                 _assert_bounded_employee_shell(employee_page)
+                source_copy_size = employee_page.locator(
+                    ".source-option small"
+                ).first.evaluate(
+                    "element => Number.parseFloat("
+                    "getComputedStyle(element).fontSize)"
+                )
+                assert source_copy_size >= 12
 
                 employee_page.locator(
                     'input[name="first_source_choice"][value="EMAIL"]'

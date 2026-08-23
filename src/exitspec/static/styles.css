@@ -668,6 +668,20 @@ body:has(#step-decide.is-current) #custody-evidence .custody-number {
   scrollbar-width: thin;
 }
 
+/*
+ * Keep the guided decision dock visible without covering the criterion values
+ * immediately above it at the supported 1280 x 720 recording viewport.
+ */
+@media (min-width: 761px) and (min-height: 681px) {
+  #define.task-view {
+    padding-bottom: 4px;
+  }
+
+  #define .candidate-actions {
+    padding-top: 6px;
+  }
+}
+
 .candidate-list,
 .run-card,
 .evidence-card,

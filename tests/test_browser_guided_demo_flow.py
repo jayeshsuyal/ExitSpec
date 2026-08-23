@@ -66,6 +66,22 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
                     panel_box["y"] + panel_box["height"]
                 )
 
+                decision_bar_box = employee_page.locator(
+                    ".candidate-actions"
+                ).bounding_box()
+                rule_value_boxes = employee_page.locator(
+                    ".rule-rows dd"
+                ).evaluate_all(
+                    "elements => elements.map(element => { "
+                    "const box = element.getBoundingClientRect(); "
+                    "return { y: box.y, height: box.height }; })"
+                )
+                assert decision_bar_box is not None
+                assert rule_value_boxes
+                assert max(
+                    box["y"] + box["height"] for box in rule_value_boxes
+                ) <= decision_bar_box["y"]
+
                 matches_intent.click()
                 employee_page.get_by_role(
                     "button", name="Keep as context"
