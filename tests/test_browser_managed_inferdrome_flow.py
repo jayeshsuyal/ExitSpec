@@ -258,26 +258,26 @@ def test_exact_a10_email_to_managed_receipt_and_handoff(tmp_path: Path) -> None:
                 )
                 expect(
                     customer_page.locator("#review-counting-population")
-                ).to_have_text("100 measured records")
+                ).to_have_text("100 measured requests")
                 expect(
                     customer_page.locator("#review-counting-latency")
-                ).to_contain_text("Role-only or empty-content")
+                ).to_contain_text("role-only or empty content counts")
                 expect(
                     customer_page.locator("#review-counting-reliability")
-                ).to_contain_text("failed or anomalous records count")
+                ).to_contain_text("failed or anomalous requests count")
                 expect(
                     customer_page.locator("#review-counting-boundary")
-                ).to_contain_text("retry behavior NOT_AVAILABLE")
+                ).to_contain_text("retries = NOT_AVAILABLE")
                 expect(
                     customer_page.locator("#review-counting-boundary")
-                ).to_contain_text("INGESTION REJECTED with no verdict")
+                ).to_contain_text("invalid bundle = INGESTION REJECTED")
                 expect(
                     customer_page.locator("#review-counting-boundary")
-                ).to_contain_text("insufficient evidence is NOT PROVEN")
+                ).to_contain_text("insufficient evidence = NOT PROVEN")
                 customer_page.locator("#agreement-checkbox").check()
                 customer_page.locator("#confirm-requirements").click()
                 expect(customer_page.locator("#terminal-title")).to_have_text(
-                    "Requirements confirmed"
+                    "POC agreement confirmed"
                 )
 
                 employee_page.reload(wait_until="domcontentloaded")

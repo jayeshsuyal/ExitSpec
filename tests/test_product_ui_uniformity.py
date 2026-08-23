@@ -105,6 +105,25 @@ def test_product_exposes_one_canonical_three_step_journey():
         assert "Step 5 of 5 · Decide" not in html, name
 
 
+def test_customer_review_is_a_focused_confirmation_surface():
+    html = _read("review.html")
+    javascript = _read("review.js")
+    css = _read("review.css")
+
+    assert "Confirm the POC test plan" in html
+    assert "What must be proven" in html
+    assert 'id="criteria-summary-list"' in html
+    assert 'id="measurement-details"' in html
+    assert 'id="scope-details"' in html
+    assert html.count('class="review-detail-group"') == 2
+    assert "Confirmation freezes this test plan." in html
+    assert "Confirm POC agreement" in html
+    assert "I confirm these requirements and test conditions." in html
+    assert "plus the target system, workload, evidence method" not in javascript
+    assert ".review-layout" in css
+    assert "position: sticky" in css
+
+
 def test_static_pages_have_no_duplicate_dom_ids():
     for path in sorted(STATIC_ROOT.glob("*.html")):
         audit = _IdAudit()

@@ -414,7 +414,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     customer_page.locator("#terminal-state")
                 ).to_be_visible()
                 expect(customer_page.locator("#terminal-title")).to_have_text(
-                    "Requirements confirmed"
+                    "POC agreement confirmed"
                 )
 
                 employee_page.reload(wait_until="domcontentloaded")

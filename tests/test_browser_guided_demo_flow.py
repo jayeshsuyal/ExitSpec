@@ -82,16 +82,32 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
                 assert review_href is not None
                 customer_page.goto(urljoin(base_url, review_href))
                 expect(customer_page.locator("#review-view")).to_be_visible()
+                expect(
+                    customer_page.get_by_role(
+                        "heading", name="Confirm the POC test plan"
+                    )
+                ).to_be_visible()
+                expect(
+                    customer_page.locator("#criteria-summary-list > li")
+                ).to_have_count(1)
+                expect(customer_page.locator(".review-detail-group")).to_have_count(2)
+                assert customer_page.evaluate(
+                    "document.documentElement.scrollHeight <= window.innerHeight"
+                )
+                expect(customer_page.locator("#change-details")).to_be_hidden()
                 expect(customer_page.locator("#evidence-method")).to_have_text(
                     "Evaluate with ExitSpec · deterministic tool-selection fixture"
                 )
                 expect(customer_page.locator("#criterion-adapter")).to_contain_text(
                     "deterministic_tool_selection@1.0.0"
                 )
+                customer_page.locator("#request-changes").click()
+                expect(customer_page.locator("#change-details")).to_be_visible()
+                expect(customer_page.locator("#change-rationale")).to_be_focused()
                 customer_page.locator("#agreement-checkbox").check()
                 customer_page.locator("#confirm-requirements").click()
                 expect(customer_page.locator("#terminal-title")).to_have_text(
-                    "Requirements confirmed"
+                    "POC agreement confirmed"
                 )
 
                 expect(employee_page.locator("#freeze-contract")).to_be_visible()

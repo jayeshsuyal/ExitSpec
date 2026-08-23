@@ -18,6 +18,8 @@
     customerName: $("#customer-name"),
     contractId: $("#contract-id"),
     contractVersion: $("#contract-version"),
+    criteriaCount: $("#criteria-count"),
+    criteriaList: $("#criteria-summary-list"),
     position: $("#criterion-position"),
     criterionTitle: $("#criterion-title"),
     importance: $("#criterion-importance"),
@@ -580,13 +582,52 @@
     elements.ackGroup.hidden = !record.acknowledgement_required;
     elements.ack.checked = false;
     elements.ackLabel.textContent =
-      `I reviewed all ${record.contract.criteria.length} ` +
-      `${record.contract.criteria.length === 1 ? "requirement" : "requirements"} ` +
-      "plus the target system, workload, evidence method, owners, exclusions, " +
-      "and retention policy—including how results are counted—and confirm this " +
-      "exact draft matches the intended POC.";
+      "I confirm these requirements and test conditions.";
+    renderCriteriaSummary();
     renderCriterion();
     showOnly(elements.review);
+  }
+
+  function renderCriteriaSummary() {
+    const criteria = review.contract.criteria;
+    elements.criteriaCount.textContent =
+      `${criteria.length} ${criteria.length === 1 ? "requirement" : "requirements"}`;
+    elements.criteriaList.replaceChildren();
+
+    criteria.forEach((criterion, index) => {
+      const item = document.createElement("li");
+      item.className = "requirement-row";
+
+      const identity = document.createElement("div");
+      identity.className = "requirement-row__identity";
+      const number = document.createElement("span");
+      number.className = "requirement-number";
+      number.setAttribute("aria-hidden", "true");
+      number.textContent = String(index + 1).padStart(2, "0");
+      const title = document.createElement("h3");
+      title.textContent = criterion.title;
+      const importance = document.createElement("span");
+      importance.className = "requirement-kind";
+      importance.textContent =
+        criterion.required === false ? "Supporting" : "Required";
+      identity.append(number, title, importance);
+
+      const target = document.createElement("div");
+      target.className = "requirement-row__target";
+      const targetLabel = document.createElement("span");
+      targetLabel.textContent = "Target";
+      const targetValue = document.createElement("strong");
+      targetValue.textContent = criterion.threshold;
+      target.append(targetLabel, targetValue);
+
+      const method = document.createElement("p");
+      method.className = "requirement-row__method";
+      method.textContent =
+        `${criterion.metric} · ${criterion.sample} · ${criterion.workload}`;
+
+      item.append(identity, target, method);
+      elements.criteriaList.append(item);
+    });
   }
 
   function renderCriterion() {
@@ -632,7 +673,7 @@
 
     const exclusions = [
       ...(review.agreement.non_goals || []),
-      ...(criterion.excluded || []),
+      ...review.contract.criteria.flatMap((item) => item.excluded || []),
     ];
     elements.exclusions.replaceChildren();
     [...new Set(exclusions.length ? exclusions : ["Anything not stated here"])].forEach(
@@ -651,13 +692,13 @@
       const identity = boundCriterion.evidence_identity;
       elements.countingPolicy.hidden = false;
       elements.countingPopulation.textContent =
-        `${errorRate.exact_attempts} measured records`;
+        `${errorRate.exact_attempts} measured requests`;
       elements.countingLatency.textContent =
-        "Native vLLM first-choices-event TTFT uses nearest_rank_v1. Role-only or empty-content choice events count as the first event.";
+        "TTFT p95: first choices event (role-only or empty content counts) · nearest rank";
       elements.countingReliability.textContent =
-        `Reliability uses all ${errorRate.exact_attempts} measured records; failed or anomalous records count.`;
+        `Error rate: all ${errorRate.exact_attempts} requests; failed or anomalous requests count`;
       elements.countingBoundary.textContent =
-        `${identity.chronology} evidence · warmups excluded · retry behavior ${"NOT_AVAILABLE"}. Invalid evidence is INGESTION REJECTED with no verdict; compatible but insufficient evidence is NOT PROVEN.`;
+        `${identity.chronology} evidence · warmups excluded · retries = NOT_AVAILABLE · invalid bundle = INGESTION REJECTED (no verdict) · insufficient evidence = NOT PROVEN`;
       return;
     }
     const policy = boundCriterion?.measurement_policy;
@@ -668,11 +709,11 @@
     const attempts = policy.measured_population.exact_attempts;
     elements.countingPopulation.textContent = `${attempts} measured attempts`;
     elements.countingLatency.textContent =
-      "Latency uses successful measured requests with valid first-token timing.";
+      "TTFT p95: successful requests only; failures still count toward reliability";
     elements.countingReliability.textContent =
-      `Reliability uses all ${attempts} attempts; HTTP, timeout, protocol, and transport errors count.`;
+      `Error rate: all ${attempts} attempts; HTTP, timeout, protocol, and transport errors count`;
     elements.countingBoundary.textContent =
-      "Warmups and readiness preflight are excluded · no retries · invalid evidence is NOT PROVEN.";
+      "Warmups and preflight excluded · no retries · invalid evidence is NOT PROVEN";
   }
 
   function criterionRuleText(boundCriterion) {
@@ -767,7 +808,7 @@
     elements.confirm.textContent =
       submitting && decision === "CONFIRM"
         ? "Recording confirmation…"
-        : "Confirm requirements";
+        : "Confirm POC agreement";
     elements.requestChanges.textContent =
       submitting && decision === "REQUEST_CHANGES"
         ? "Recording request…"
@@ -811,6 +852,7 @@
       return;
     }
     if (decision === "REQUEST_CHANGES" && !rationale) {
+      elements.changes.hidden = false;
       elements.changes.open = true;
       formMessage("Add a short note describing what should change.");
       requestAnimationFrame(() => elements.rationale.focus());
@@ -821,7 +863,7 @@
       review.acknowledgement_required &&
       !elements.ack.checked
     ) {
-      formMessage("Check the agreement box before confirming these requirements.");
+      formMessage("Check the confirmation box before confirming this agreement.");
       elements.ack.focus();
       return;
     }
@@ -955,7 +997,7 @@
         : "Decision recorded";
     elements.terminalTitle.textContent = changesRequested
       ? "Changes requested"
-      : "Requirements confirmed";
+      : "POC agreement confirmed";
     elements.terminalMessage.textContent = synthetic
       ? "This was a local synthetic interaction. No customer decision was submitted."
       : replay
@@ -964,12 +1006,12 @@
           ? immutableDynamicPOC
             ? "This immutable local POC stops here. The owner must start a new POC with the requested changes."
             : "The POC owner can revise the draft and issue a new version for review."
-          : "Your confirmation is recorded against the exact contract version below.";
+          : "Recorded against the exact contract version below.";
     elements.terminalContract.textContent =
       `${review.contract.id} · Version ${review.contract.version}`;
     elements.terminalDecision.textContent = changesRequested
       ? "Changes requested"
-      : "Requirements confirmed";
+      : "POC agreement confirmed";
     elements.terminalRecordedAt.textContent = formatDate(
       decision.recorded_at,
       "Recorded by ExitSpec"
