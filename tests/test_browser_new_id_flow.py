@@ -28,10 +28,20 @@ from tests.poc_inferdrome_helpers import (
 
 DISPLAY_NAME = "Browser inference acceptance POC"
 CUSTOMER_LABEL = "Northstar"
+MEASURED_REQUESTS = 96
+CONCURRENCY = 6
 EMAIL_TEXT = (
     "From: buyer@example.com\n"
-    "The p95 time to first token must stay below 500 ms. "
-    "Error rate must remain below 1%."
+    "The p95 time to first token must stay below 650 ms at concurrency 6 "
+    "across 96 measured requests. "
+    "Error rate must remain below 2% over all 96 attempts. "
+    "Monthly infrastructure cost must stay below $100."
+)
+REVISION_EMAIL_TEXT = (
+    "From: buyer@example.com\n"
+    "Revised acceptance plan: p95 time to first token must stay below 700 ms "
+    "at concurrency 8 across 96 measured requests. "
+    "Error rate must remain below 3% over all 96 attempts."
 )
 
 
@@ -109,14 +119,22 @@ def _expect_suggested_definition(expect, page, normalized_claim: str) -> str:
     if "first token" in claim:
         expect(page.locator("#metric")).to_have_value("TTFT_P95_MS")
         expect(page.locator("#operator")).to_have_value("LT")
-        expect(page.locator("#threshold")).to_have_value("500")
+        expect(page.locator("#threshold")).to_have_value("650")
+        expect(page.locator("#minimum-samples")).to_have_value(
+            str(MEASURED_REQUESTS)
+        )
+        expect(page.locator("#concurrency")).to_have_value(str(CONCURRENCY))
         return "P95 time to first token is bounded by the customer email."
     if "error rate" in claim:
         expect(page.locator("#metric")).to_have_value(
             "ERROR_RATE_PERCENT"
         )
         expect(page.locator("#operator")).to_have_value("LT")
-        expect(page.locator("#threshold")).to_have_value("1")
+        expect(page.locator("#threshold")).to_have_value("2")
+        expect(page.locator("#minimum-samples")).to_have_value(
+            str(MEASURED_REQUESTS)
+        )
+        expect(page.locator("#concurrency")).to_have_value(str(CONCURRENCY))
         return "Error rate is bounded by the customer email."
     raise AssertionError(
         "The browser flow received an unexpected measurable proposal: "
@@ -205,6 +223,109 @@ def _create_browser_meeting_poc(expect, page, base_url: str, name: str) -> str:
     return route_match.group(1)
 
 
+def _capture_define_supported_email(
+    expect,
+    page,
+    base_url: str,
+    poc_id: str,
+    *,
+    email_text: str,
+    ttft_threshold: str,
+    error_threshold: str,
+    proposal_count: int,
+    concurrency: str,
+) -> None:
+    """Drive one bounded email through review and immutable definition."""
+
+    source_route = f"{base_url}/app/pocs/{poc_id}/sources/new"
+    if page.url != source_route:
+        page.goto(source_route)
+    expect(page.locator("#source-current-task")).to_have_attribute(
+        "aria-busy", "false"
+    )
+    page.locator('input[name="source_kind"][value="EMAIL"]').check()
+    page.locator("#email-text").fill(email_text)
+    page.locator("#capture-source").click()
+
+    expect(page).to_have_url(f"{base_url}/app/pocs/{poc_id}/review")
+    kept_claims: list[str] = []
+    for position in range(1, proposal_count + 1):
+        expect(page.locator("#proposal-heading")).to_have_text(
+            f"Proposal {position}"
+        )
+        claim = page.locator("#normalized-claim").text_content().strip()
+        page.locator("#reviewer").fill("field_engineer")
+        if "first token" in claim.lower() or "error rate" in claim.lower():
+            expect(page.locator("#proposal-support")).to_contain_text(
+                "Executable candidate"
+            )
+            page.locator("#rationale").fill(
+                "Keep this source-backed executable requirement."
+            )
+            kept_claims.append(claim)
+            page.locator("#keep-proposal").click()
+        else:
+            expect(page.locator("#proposal-support")).to_contain_text(
+                "Not executable in this demo"
+            )
+            page.locator("#rationale").fill(
+                "Retain this unsupported claim as NOT_PROVEN context."
+            )
+            expect(page.locator("#keep-proposal")).to_be_disabled()
+            page.locator("#discard-proposal").click()
+
+    assert len(kept_claims) == 2
+    expect(page).to_have_url(f"{base_url}/app/pocs/{poc_id}/define")
+    for position in (1, 2):
+        expect(page.locator("#proposal-heading")).to_have_text(
+            f"Criterion {position}"
+        )
+        claim = page.locator("#normalized-claim").text_content().strip()
+        if "first token" in claim.lower():
+            expect(page.locator("#metric")).to_have_value("TTFT_P95_MS")
+            expect(page.locator("#threshold")).to_have_value(ttft_threshold)
+        elif "error rate" in claim.lower():
+            expect(page.locator("#metric")).to_have_value(
+                "ERROR_RATE_PERCENT"
+            )
+            expect(page.locator("#threshold")).to_have_value(error_threshold)
+        else:
+            raise AssertionError(f"Unsupported claim reached definition: {claim!r}")
+        expect(page.locator("#minimum-samples")).to_have_value(
+            str(MEASURED_REQUESTS)
+        )
+        expect(page.locator("#concurrency")).to_have_value(concurrency)
+        page.locator("#reviewer").fill("field_engineer")
+        page.locator("#rationale").fill(
+            "Verified against the complete customer source."
+        )
+        expect(page.locator("#save-definition")).to_be_enabled()
+        page.locator("#save-definition").click()
+
+    expect(page).to_have_url(f"{base_url}/app/pocs/{poc_id}/agreement")
+
+
+def _prepare_local_review(expect, page, poc_id: str) -> str:
+    """Prepare one local target and return its separate customer-review path."""
+
+    expect(page.locator("#agreement-workbench")).to_have_attribute(
+        "aria-busy", "false"
+    )
+    page.locator("#use-reference-target").click()
+    page.locator("#draft-reviewer").fill("field_engineer")
+    page.locator("#draft-rationale").fill(
+        "Use the deterministic local target for this browser proof."
+    )
+    expect(page.locator("#create-customer-draft")).to_be_enabled()
+    page.locator("#create-customer-draft").click()
+    link = page.locator("#customer-review-link")
+    expect(link).to_be_visible()
+    expect(link).to_have_attribute("href", re.compile(r"^/review/[A-Za-z0-9_-]+$"))
+    href = link.get_attribute("href")
+    assert href is not None
+    return href
+
+
 @pytest.mark.skipif(
     os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
     reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
@@ -240,6 +361,13 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 employee_page.locator(".new-poc-link").click()
                 expect(employee_page).to_have_url(f"{base_url}/app/pocs/new")
                 _assert_bounded_employee_shell(employee_page)
+                source_copy_size = employee_page.locator(
+                    ".source-option small"
+                ).first.evaluate(
+                    "element => Number.parseFloat("
+                    "getComputedStyle(element).fontSize)"
+                )
+                assert source_copy_size >= 12
 
                 employee_page.locator(
                     'input[name="first_source_choice"][value="EMAIL"]'
@@ -280,8 +408,8 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 ).to_have_attribute("aria-busy", "false")
                 _assert_bounded_employee_shell(employee_page)
 
-                reviewed_claims: list[str] = []
-                for position in (1, 2):
+                kept_claims: list[str] = []
+                for position in (1, 2, 3):
                     expect(
                         employee_page.locator("#proposal-heading")
                     ).to_have_text(f"Proposal {position}")
@@ -290,27 +418,42 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         .text_content()
                         .strip()
                     )
-                    reviewed_claims.append(claim)
                     employee_page.locator("#reviewer").fill(
                         "field_engineer"
                     )
-                    employee_page.locator("#rationale").fill(
-                        "Keep this explicit measurable inference requirement."
-                    )
-                    expect(
-                        employee_page.locator("#keep-proposal")
-                    ).to_be_enabled()
-                    employee_page.locator("#keep-proposal").click()
-                    if position == 1:
+                    if "cost" in claim.lower():
+                        expect(
+                            employee_page.locator("#proposal-support")
+                        ).to_contain_text("Not executable in this demo")
+                        employee_page.locator("#rationale").fill(
+                            "Keep this customer claim visible as NOT_PROVEN."
+                        )
+                        expect(
+                            employee_page.locator("#keep-proposal")
+                        ).to_be_disabled()
+                        employee_page.locator("#discard-proposal").click()
+                    else:
+                        expect(
+                            employee_page.locator("#proposal-support")
+                        ).to_contain_text("Executable candidate")
+                        employee_page.locator("#rationale").fill(
+                            "Keep this explicit measurable inference requirement."
+                        )
+                        expect(
+                            employee_page.locator("#keep-proposal")
+                        ).to_be_enabled()
+                        kept_claims.append(claim)
+                        employee_page.locator("#keep-proposal").click()
+                    if position < 3:
                         expect(
                             employee_page.locator("#proposal-heading")
-                        ).to_have_text("Proposal 2")
+                        ).to_have_text(f"Proposal {position + 1}")
                         _assert_bounded_employee_shell(employee_page)
 
                 assert {"first token", "error rate"} == {
                     cue
                     for cue in ("first token", "error rate")
-                    if any(cue in claim.lower() for claim in reviewed_claims)
+                    if any(cue in claim.lower() for claim in kept_claims)
                 }
 
                 define_route = f"{base_url}/app/pocs/{poc_id}/define"
@@ -348,7 +491,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         ).to_have_text("Criterion 2")
                         _assert_bounded_employee_shell(employee_page)
 
-                assert set(defined_claims) == set(reviewed_claims)
+                assert set(defined_claims) == set(kept_claims)
 
                 agreement_route = f"{base_url}/app/pocs/{poc_id}/agreement"
                 expect(employee_page).to_have_url(agreement_route)
@@ -401,20 +544,23 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 ).to_be_visible()
                 expect(
                     customer_page.locator("#review-counting-population")
-                ).to_have_text("100 measured attempts")
+                ).to_have_text(f"{MEASURED_REQUESTS} measured attempts")
                 expect(
                     customer_page.locator("#review-counting-reliability")
-                ).to_contain_text("all 100 attempts")
+                ).to_contain_text(f"all {MEASURED_REQUESTS} attempts")
                 expect(
                     customer_page.locator("#review-counting-boundary")
                 ).to_contain_text("NOT PROVEN")
+                expect(customer_page.locator("#excluded-list")).to_contain_text(
+                    "Monthly infrastructure cost"
+                )
                 customer_page.locator("#agreement-checkbox").check()
                 customer_page.locator("#confirm-requirements").click()
                 expect(
                     customer_page.locator("#terminal-state")
                 ).to_be_visible()
                 expect(customer_page.locator("#terminal-title")).to_have_text(
-                    "Requirements confirmed"
+                    "POC agreement confirmed"
                 )
 
                 employee_page.reload(wait_until="domcontentloaded")
@@ -447,7 +593,10 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 ).to_be_visible()
                 expect(
                     employee_page.locator("#outcome-breakdown")
-                ).to_contain_text("100 attempts · 100 successful")
+                ).to_contain_text(
+                    f"{MEASURED_REQUESTS} attempts · "
+                    f"{MEASURED_REQUESTS} successful"
+                )
                 _assert_bounded_employee_shell(employee_page)
                 evidence_link = employee_page.locator("#evidence-pack-link")
                 expect(evidence_link).to_be_visible()
@@ -473,10 +622,15 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     ).to_have_text("How results were counted")
                     expect(
                         evidence_page.locator(".counting-copy")
-                    ).to_contain_text("100 attempts · 100 successful")
+                    ).to_contain_text(
+                        f"{MEASURED_REQUESTS} attempts · "
+                        f"{MEASURED_REQUESTS} successful"
+                    )
                     expect(
                         evidence_page.locator(".counting-copy")
-                    ).to_contain_text("all 100 measured attempts")
+                    ).to_contain_text(
+                        f"all {MEASURED_REQUESTS} measured attempts"
+                    )
                 finally:
                     evidence_page.close()
 
@@ -527,6 +681,163 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 assert employee_errors == []
                 assert customer_errors == []
                 assert evidence_errors == []
+            finally:
+                customer_context.close()
+                employee_context.close()
+                browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_customer_changes_create_version_two_before_freeze_and_proof(tmp_path):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            employee_context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            customer_context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            employee = employee_context.new_page()
+            customer = customer_context.new_page()
+            employee_errors = _capture_browser_errors(employee)
+            customer_errors = _capture_browser_errors(customer)
+            employee.set_default_timeout(10_000)
+            customer.set_default_timeout(10_000)
+            try:
+                employee.goto(f"{base_url}/app/pocs/new")
+                employee.locator(
+                    'input[name="first_source_choice"][value="EMAIL"]'
+                ).check()
+                employee.locator("#display-name").fill(
+                    "Revision-safe inference POC"
+                )
+                employee.locator("#customer-label").fill("Northstar")
+                employee.locator("#use-case").fill(
+                    "Preserve customer-requested agreement versions."
+                )
+                employee.locator("#owner").fill("field_engineer")
+                employee.locator("#create-poc").click()
+                source_route = re.compile(
+                    rf"^{re.escape(base_url)}/app/pocs/"
+                    r"(poc_[a-z0-9][a-z0-9_-]{2,63})/sources/new$"
+                )
+                expect(employee).to_have_url(source_route)
+                match = source_route.fullmatch(employee.url)
+                assert match is not None
+                poc_id = match.group(1)
+
+                _capture_define_supported_email(
+                    expect,
+                    employee,
+                    base_url,
+                    poc_id,
+                    email_text=EMAIL_TEXT,
+                    ttft_threshold="650",
+                    error_threshold="2",
+                    proposal_count=3,
+                    concurrency=str(CONCURRENCY),
+                )
+                first_review = _prepare_local_review(expect, employee, poc_id)
+
+                customer.goto(urljoin(base_url, first_review))
+                expect(customer.locator("#contract-version")).to_have_text("1")
+                customer.locator("#request-changes").click()
+                expect(customer.locator("#change-details")).to_be_visible()
+                customer.locator("#change-rationale").fill(
+                    "Use 700 ms, 3% error, and concurrency 8 for the full plan."
+                )
+                customer.locator("#request-changes").click()
+                expect(customer.locator("#terminal-title")).to_have_text(
+                    "Changes requested"
+                )
+                expect(customer.locator("#terminal-next-title")).to_have_text(
+                    "Next: revise the test plan and issue a new version."
+                )
+                expect(customer.locator("#return-to-app")).to_have_attribute(
+                    "href", f"/app/pocs/{poc_id}/agreement"
+                )
+
+                employee.reload(wait_until="domcontentloaded")
+                expect(employee.locator("#changes-requested-actions")).to_be_visible()
+                expect(employee.locator("#start-revision")).to_be_enabled()
+                employee.locator("#start-revision").click()
+                expect(employee).to_have_url(
+                    f"{base_url}/app/pocs/{poc_id}/sources/new"
+                )
+                expect(employee.locator("#current-task-heading")).to_have_text(
+                    "Add one customer source"
+                )
+                expect(employee.locator("#task-guidance")).to_contain_text(
+                    "complete replacement TTFT + error-rate plan"
+                )
+
+                retired_review = customer_context.request.get(
+                    urljoin(
+                        base_url,
+                        first_review.replace("/review/", "/api/review/", 1),
+                    )
+                )
+                assert retired_review.status == 404
+
+                _capture_define_supported_email(
+                    expect,
+                    employee,
+                    base_url,
+                    poc_id,
+                    email_text=REVISION_EMAIL_TEXT,
+                    ttft_threshold="700",
+                    error_threshold="3",
+                    proposal_count=2,
+                    concurrency="8",
+                )
+                second_review = _prepare_local_review(expect, employee, poc_id)
+                assert second_review != first_review
+
+                customer.goto(urljoin(base_url, second_review))
+                expect(customer.locator("#review-view")).to_be_visible()
+                expect(customer.locator("#contract-version")).to_have_text("2")
+                expect(customer.locator("#criterion-rule")).to_contain_text(
+                    "700 ms"
+                )
+                expect(customer.locator("#criterion-rule")).to_contain_text(
+                    "3%"
+                )
+                customer.locator("#agreement-checkbox").check()
+                customer.locator("#confirm-requirements").click()
+                expect(customer.locator("#terminal-title")).to_have_text(
+                    "POC agreement confirmed"
+                )
+                expect(customer.locator("#terminal-next-title")).to_have_text(
+                    "Next: freeze the confirmed contract."
+                )
+
+                employee.reload(wait_until="domcontentloaded")
+                expect(employee.locator("#freeze-panel")).to_be_visible()
+                employee.locator("#freeze-contract").click()
+                expect(employee).to_have_url(f"{base_url}/app/pocs/{poc_id}")
+                employee.locator("#execution-acknowledged").check()
+                employee.locator("#run-proof").click()
+                expect(employee.locator("#evidence-verdict")).to_have_text(
+                    "PASS", timeout=20_000
+                )
+                expect(employee.locator("#requirement-list")).to_contain_text(
+                    "< 700 ms"
+                )
+                expect(employee.locator("#requirement-list")).to_contain_text(
+                    "< 3%"
+                )
+                expect(employee.locator("#configured-concurrency")).to_have_text(
+                    "8"
+                )
+                assert employee_errors == []
+                assert customer_errors == []
             finally:
                 customer_context.close()
                 employee_context.close()

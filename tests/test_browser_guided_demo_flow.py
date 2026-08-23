@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from urllib.parse import urljoin
 
 import pytest
@@ -65,6 +66,22 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
                     panel_box["y"] + panel_box["height"]
                 )
 
+                decision_bar_box = employee_page.locator(
+                    ".candidate-actions"
+                ).bounding_box()
+                rule_value_boxes = employee_page.locator(
+                    ".rule-rows dd"
+                ).evaluate_all(
+                    "elements => elements.map(element => { "
+                    "const box = element.getBoundingClientRect(); "
+                    "return { y: box.y, height: box.height }; })"
+                )
+                assert decision_bar_box is not None
+                assert rule_value_boxes
+                assert max(
+                    box["y"] + box["height"] for box in rule_value_boxes
+                ) <= decision_bar_box["y"]
+
                 matches_intent.click()
                 employee_page.get_by_role(
                     "button", name="Keep as context"
@@ -82,17 +99,39 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
                 assert review_href is not None
                 customer_page.goto(urljoin(base_url, review_href))
                 expect(customer_page.locator("#review-view")).to_be_visible()
+                expect(
+                    customer_page.get_by_role(
+                        "heading", name="Confirm the POC test plan"
+                    )
+                ).to_be_visible()
+                expect(
+                    customer_page.locator("#criteria-summary-list > li")
+                ).to_have_count(1)
+                expect(customer_page.locator(".review-detail-group")).to_have_count(2)
+                assert customer_page.evaluate(
+                    "document.documentElement.scrollHeight <= window.innerHeight"
+                )
+                expect(customer_page.locator("#change-details")).to_be_hidden()
                 expect(customer_page.locator("#evidence-method")).to_have_text(
                     "Evaluate with ExitSpec · deterministic tool-selection fixture"
                 )
                 expect(customer_page.locator("#criterion-adapter")).to_contain_text(
                     "deterministic_tool_selection@1.0.0"
                 )
+                customer_page.locator("#request-changes").click()
+                expect(customer_page.locator("#change-details")).to_be_visible()
+                expect(customer_page.locator("#change-rationale")).to_be_focused()
                 customer_page.locator("#agreement-checkbox").check()
                 customer_page.locator("#confirm-requirements").click()
                 expect(customer_page.locator("#terminal-title")).to_have_text(
-                    "Requirements confirmed"
+                    "POC agreement confirmed"
                 )
+                expect(
+                    customer_page.locator("#terminal-next-title")
+                ).to_have_text("Next: freeze the confirmed contract.")
+                expect(
+                    customer_page.locator("#terminal-boundary")
+                ).not_to_have_class(re.compile("terminal-boundary--changes"))
 
                 expect(employee_page.locator("#freeze-contract")).to_be_visible()
                 expect(employee_page.locator("#freeze-contract")).to_be_enabled()
@@ -125,4 +164,51 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
             finally:
                 customer_context.close()
                 employee_context.close()
+                browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_customer_review_request_changes_stops_before_freeze(tmp_path):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            errors = _capture_browser_errors(page)
+            try:
+                page.goto(
+                    f"{base_url}/review/local-synthetic-preview"
+                    "?mock=local-synthetic"
+                )
+                expect(page.locator("#review-view")).to_be_visible()
+                page.locator("#request-changes").click()
+                expect(page.locator("#change-details")).to_be_visible()
+                page.locator("#change-rationale").fill(
+                    "Use a stricter customer-approved threshold."
+                )
+                page.locator("#request-changes").click()
+
+                expect(page.locator("#terminal-title")).to_have_text(
+                    "Changes requested"
+                )
+                expect(page.locator("#terminal-next-title")).to_have_text(
+                    "Preview only: a real request would return for revision."
+                )
+                expect(page.locator("#terminal-next-detail")).to_have_text(
+                    "No agreement, evidence, or lifecycle state changed."
+                )
+                expect(page.locator("#terminal-boundary")).to_have_class(
+                    re.compile("terminal-boundary--changes")
+                )
+                assert errors == []
+            finally:
+                context.close()
                 browser.close()

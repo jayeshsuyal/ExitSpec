@@ -54,6 +54,9 @@ MAX_OUTPUT_TOKENS = 1_000_000
 MAX_TTFT_P95_MS = 60_000.0
 MAX_PERFORMANCE_SAMPLES = 1_000
 MAX_PERFORMANCE_CONCURRENCY = 32
+LOCAL_PROBE_WARMUP_COUNT = 10
+LOCAL_PROBE_REQUEST_TIMEOUT_SECONDS = 30
+LOCAL_PROBE_MAX_WORST_CASE_SECONDS = 15 * 60
 
 _DEFAULT_MAX_PROPOSALS_PER_POC = 1_024
 _DEFAULT_MAX_KNOWN_PROPOSALS = 32_768
@@ -302,6 +305,15 @@ class InferencePerformanceCriterionDefinition(_FrozenContractDefinitionModel):
         if self.concurrency > self.minimum_samples:
             raise ValueError(
                 "concurrency cannot exceed minimum_samples."
+            )
+        worst_case_seconds = (
+            math.ceil(LOCAL_PROBE_WARMUP_COUNT / self.concurrency)
+            + math.ceil(self.minimum_samples / self.concurrency)
+        ) * LOCAL_PROBE_REQUEST_TIMEOUT_SECONDS
+        if worst_case_seconds > LOCAL_PROBE_MAX_WORST_CASE_SECONDS:
+            raise ValueError(
+                "minimum_samples and concurrency exceed the local probe's "
+                "15-minute worst-case safety budget."
             )
         if self.prompt_tokens_min > self.prompt_tokens_max:
             raise ValueError(

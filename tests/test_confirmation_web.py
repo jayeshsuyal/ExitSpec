@@ -457,9 +457,11 @@ def test_customer_review_page_is_served_without_echoing_token_in_markup(tmp_path
         with urlopen(base_url + review_path, timeout=5) as response:
             html = response.read().decode("utf-8")
 
-        assert "Confirm requirements" in html
+        assert "Confirm POC agreement" in html
         assert "Request changes" in html
-        assert "View exact fingerprinted agreement" in html
+        assert "Scope, exclusions, and exact agreement" in html
+        assert 'id="criteria-summary-list"' in html
+        assert 'id="measurement-details"' in html
         assert 'id="target-model"' in html
         assert 'id="workload-fixture"' in html
         assert 'id="workload-sha256"' in html

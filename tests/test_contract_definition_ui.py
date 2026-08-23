@@ -163,6 +163,9 @@ def test_measurement_defaults_fail_toward_explicit_human_review():
     assert "No safe metric and threshold suggestion was found." in javascript
     assert 'metricInput.value = suggestion.metric || "";' in javascript
     assert 'thresholdInput.value = "";' in javascript
+    assert "boundedWorkloadSuggestion" in javascript
+    assert "localProbeSafetyProblem" in javascript
+    assert "ExitSpec will not change it silently" in javascript
     assert "defaultThreshold" not in javascript
     assert "current runner binds a hashed prompt fixture" in html
     assert "does not prove token distributions" in html
@@ -192,7 +195,10 @@ def test_claim_cues_are_bounded_and_never_auto_approve():
     assert "threshold < METRIC_CONFIG.TTFT_P95_MS.minimum" in suggestion
     assert "threshold > METRIC_CONFIG.TTFT_P95_MS.maximum" in suggestion
     assert "matches.length !== 1" in javascript
-    assert "suggestionStatus.textContent = suggestion.message;" in reset
+    assert "suggestionStatus.textContent =" in reset
+    assert "workloadSuggestion.minimumSamples" in reset
+    assert "workloadSuggestion.concurrency" in reset
+    assert "priorDefinition?.minimum_samples" in reset
     assert "proposal.normalized_claim" in reset
     assert "approved" not in suggestion.lower()
     assert "confirmed" not in suggestion.lower()

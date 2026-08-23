@@ -535,6 +535,15 @@ def test_concurrency_cannot_exceed_the_measured_sample_count():
         _criterion(minimum_samples=4, concurrency=5)
 
 
+def test_definition_cannot_create_a_later_local_probe_safety_trap():
+    with pytest.raises(ValidationError, match="15-minute"):
+        _criterion(minimum_samples=120, concurrency=4)
+
+    compatible = _criterion(minimum_samples=120, concurrency=5)
+    assert compatible.minimum_samples == 120
+    assert compatible.concurrency == 5
+
+
 @pytest.mark.parametrize(
     "updates",
     (

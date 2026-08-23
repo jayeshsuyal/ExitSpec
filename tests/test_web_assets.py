@@ -280,10 +280,11 @@ def test_customer_confirmation_returns_only_to_valid_seeded_or_dynamic_pocs():
     assert 'safeLocalReturnUrl?.endsWith("/agreement")' in terminal
     assert '"Changes requested"' in terminal
     assert (
-        '"This immutable local POC stops here. The owner must start a new POC '
-        'with the requested changes."'
+        '"This version stays immutable. The POC owner can preserve it and '
+        'issue a revised version for review."'
         in terminal
     )
+    assert '"Next: revise the test plan and issue a new version."' in terminal
 
 
 def test_rule_editor_places_progressive_details_before_state_changing_actions():

@@ -57,9 +57,11 @@
         <header class="review-heading">
           <div>
             <p class="eyebrow">Review the POC agreement</p>
-            <h1 id="poc-title">POC requirements</h1>
+            <h1>Confirm the POC test plan</h1>
             <p class="customer-line">
-              Prepared for <strong id="customer-name">the customer</strong>
+              <strong id="poc-title">POC requirements</strong>
+              <span aria-hidden="true">·</span>
+              <span id="customer-name">the customer</span>
             </p>
           </div>
           <dl class="contract-reference" aria-label="Contract reference">
@@ -76,242 +78,279 @@
 
         <aside class="boundary-note" aria-label="What this confirmation means">
           <span class="boundary-note__mark" aria-hidden="true">i</span>
-          <div>
-            <strong>This is a draft agreement—not evidence.</strong>
-            <p>
-              Confirming records that these requirements match the intended POC.
-              It does not produce evidence, a PASS verdict, or production authorization.
-            </p>
-          </div>
+          <p>
+            <strong>Confirmation freezes this test plan.</strong>
+            It creates no evidence, verdict, or production approval.
+          </p>
         </aside>
 
-        <div class="criterion-layout">
-          <article class="criterion-card" aria-labelledby="criterion-title">
-            <header class="criterion-header">
-              <div>
-                <p class="criterion-position" id="criterion-position">
-                  Requirement 1 of 1
-                </p>
-                <h2 id="criterion-title" tabindex="-1">Requirement</h2>
-              </div>
-              <p id="criterion-importance" class="importance-label">Required for the POC</p>
-            </header>
-
-            <p id="criterion-summary" class="criterion-summary"></p>
-
-            <figure class="source-quote">
-              <figcaption>From the agreed source</figcaption>
-              <blockquote id="source-quote"></blockquote>
-            </figure>
-
-            <dl class="measurement-grid" aria-label="How this requirement will be measured">
-              <div>
-                <dt>Metric</dt>
-                <dd id="criterion-metric">—</dd>
-              </div>
-              <div>
-                <dt>Threshold</dt>
-                <dd id="criterion-threshold">—</dd>
-              </div>
-              <div>
-                <dt>Sample</dt>
-                <dd id="criterion-sample">—</dd>
-              </div>
-              <div>
-                <dt>Workload</dt>
-                <dd id="criterion-workload">—</dd>
-              </div>
-            </dl>
-
-            <section
-              class="counting-policy"
-              id="review-counting-policy"
-              aria-labelledby="review-counting-title"
-              hidden
-            >
-              <div>
-                <p class="context-label" id="review-counting-title">
-                  How results are counted
-                </p>
-                <strong id="review-counting-population">—</strong>
-              </div>
-              <ul>
-                <li id="review-counting-latency">—</li>
-                <li id="review-counting-reliability">—</li>
-                <li id="review-counting-boundary">—</li>
-              </ul>
-            </section>
-
-            <details class="criterion-details">
-              <summary>Bound execution details</summary>
-              <dl aria-label="Exact execution details for this requirement">
+        <div class="review-layout">
+          <div class="review-primary">
+            <section class="agreement-summary" aria-labelledby="requirements-title">
+              <header class="section-heading">
                 <div>
-                  <dt>Rule</dt>
-                  <dd id="criterion-rule">—</dd>
+                  <p class="context-label">What must be proven</p>
+                  <h2 id="requirements-title">POC requirements</h2>
                 </div>
-                <div>
-                  <dt>Adapter</dt>
-                  <dd id="criterion-adapter">—</dd>
-                </div>
-                <div>
-                  <dt>Requirement owner</dt>
-                  <dd id="criterion-owner">—</dd>
-                </div>
-                <div>
-                  <dt>Source</dt>
-                  <dd id="criterion-source-location">—</dd>
-                </div>
-                <div class="criterion-details__wide">
-                  <dt>Evidence policy</dt>
-                  <dd id="criterion-evidence-policy">—</dd>
-                </div>
-              </dl>
-            </details>
+                <span id="criteria-count" class="section-count">1 requirement</span>
+              </header>
 
-            <nav class="criterion-navigation" aria-label="Requirements">
-              <button id="previous-criterion" class="text-button" type="button">
-                <span aria-hidden="true">←</span> Previous
-              </button>
-              <div
-                id="criterion-progress"
-                class="criterion-progress"
-                role="progressbar"
-                aria-label="Requirements reviewed"
-                aria-valuemin="1"
-                aria-valuemax="1"
-                aria-valuenow="1"
-              >
-                <span></span>
-              </div>
-              <button id="next-criterion" class="text-button" type="button">
-                Next <span aria-hidden="true">→</span>
-              </button>
-            </nav>
-          </article>
+              <ol
+                id="criteria-summary-list"
+                class="requirements-summary"
+                aria-label="POC requirements"
+              ></ol>
 
-          <aside class="review-context" aria-label="Review details">
-            <section aria-labelledby="scope-title">
-              <p class="context-label" id="scope-title">Bound scope</p>
-              <dl class="scope-details">
+              <dl class="target-summary" aria-label="Bound target and workload">
                 <div>
-                  <dt>Evidence method</dt>
-                  <dd id="evidence-method">—</dd>
-                </div>
-                <div>
-                  <dt>Target model</dt>
+                  <dt>Target</dt>
                   <dd id="target-model">—</dd>
                 </div>
                 <div>
-                  <dt>Provider · endpoint</dt>
-                  <dd id="target-runtime">—</dd>
-                </div>
-                <div>
-                  <dt>Fixed workload</dt>
+                  <dt>Workload</dt>
                   <dd id="workload-fixture">—</dd>
                 </div>
-                <div>
-                  <dt>Workload SHA-256</dt>
-                  <dd id="workload-sha256" class="digest">—</dd>
-                </div>
-                <div>
-                  <dt>Agreement owners</dt>
-                  <dd id="agreement-owners">—</dd>
-                </div>
-                <div>
-                  <dt>Evidence retention</dt>
-                  <dd id="evidence-retention">—</dd>
-                </div>
               </dl>
-            </section>
 
-            <section aria-labelledby="excluded-title">
-              <p class="context-label" id="excluded-title">Not included</p>
-              <ul id="excluded-list" class="excluded-list"></ul>
-            </section>
-
-            <section class="access-details" aria-labelledby="access-title">
-              <p class="context-label" id="access-title">Your review access</p>
-              <dl>
-                <div>
-                  <dt>Reviewing as</dt>
-                  <dd id="reviewer-identity">Verified reviewer</dd>
+              <section
+                class="counting-policy"
+                id="review-counting-policy"
+                aria-labelledby="review-counting-title"
+                hidden
+              >
+                <div class="counting-policy__heading">
+                  <p class="context-label" id="review-counting-title">
+                    How results are counted
+                  </p>
+                  <strong id="review-counting-population">—</strong>
                 </div>
-                <div>
-                  <dt>Link expires</dt>
-                  <dd id="review-expiry">—</dd>
+                <div class="counting-rules">
+                  <p id="review-counting-latency">—</p>
+                  <p id="review-counting-reliability">—</p>
+                  <p id="review-counting-boundary">—</p>
                 </div>
-              </dl>
-              <p id="identity-notice" class="identity-notice"></p>
+              </section>
             </section>
 
-            <details class="exact-agreement">
-              <summary>View exact fingerprinted agreement</summary>
-              <p>
-                Every field below is included in the confirmation fingerprint.
-                Internal review notes and raw transcripts are not.
-              </p>
-              <pre id="agreement-manifest" tabindex="0"></pre>
+            <details class="review-detail-group" id="measurement-details">
+              <summary>
+                <span>Measurement details</span>
+                <small>Source, exact rule, and execution method</small>
+              </summary>
+              <article class="criterion-card" aria-labelledby="criterion-title">
+                <header class="criterion-header">
+                  <div>
+                    <p class="criterion-position" id="criterion-position">
+                      Requirement 1 of 1
+                    </p>
+                    <h2 id="criterion-title" tabindex="-1">Requirement</h2>
+                  </div>
+                  <p id="criterion-importance" class="importance-label">
+                    Required for the POC
+                  </p>
+                </header>
+
+                <p id="criterion-summary" class="criterion-summary"></p>
+
+                <dl class="measurement-grid" aria-label="How this requirement will be measured">
+                  <div>
+                    <dt>Metric</dt>
+                    <dd id="criterion-metric">—</dd>
+                  </div>
+                  <div>
+                    <dt>Threshold</dt>
+                    <dd id="criterion-threshold">—</dd>
+                  </div>
+                  <div>
+                    <dt>Sample</dt>
+                    <dd id="criterion-sample">—</dd>
+                  </div>
+                  <div>
+                    <dt>Workload</dt>
+                    <dd id="criterion-workload">—</dd>
+                  </div>
+                </dl>
+
+                <figure class="source-quote">
+                  <figcaption>From the agreed source</figcaption>
+                  <blockquote id="source-quote"></blockquote>
+                </figure>
+
+                <section class="criterion-details" aria-labelledby="execution-title">
+                  <p class="context-label" id="execution-title">Bound execution details</p>
+                  <dl aria-label="Exact execution details for this requirement">
+                    <div>
+                      <dt>Rule</dt>
+                      <dd id="criterion-rule">—</dd>
+                    </div>
+                    <div>
+                      <dt>Adapter</dt>
+                      <dd id="criterion-adapter">—</dd>
+                    </div>
+                    <div>
+                      <dt>Requirement owner</dt>
+                      <dd id="criterion-owner">—</dd>
+                    </div>
+                    <div>
+                      <dt>Source</dt>
+                      <dd id="criterion-source-location">—</dd>
+                    </div>
+                    <div class="criterion-details__wide">
+                      <dt>Evidence policy</dt>
+                      <dd id="criterion-evidence-policy">—</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <nav class="criterion-navigation" aria-label="Requirements">
+                  <button id="previous-criterion" class="text-button" type="button">
+                    <span aria-hidden="true">←</span> Previous
+                  </button>
+                  <div
+                    id="criterion-progress"
+                    class="criterion-progress"
+                    role="progressbar"
+                    aria-label="Requirements reviewed"
+                    aria-valuemin="1"
+                    aria-valuemax="1"
+                    aria-valuenow="1"
+                  >
+                    <span></span>
+                  </div>
+                  <button id="next-criterion" class="text-button" type="button">
+                    Next <span aria-hidden="true">→</span>
+                  </button>
+                </nav>
+              </article>
             </details>
-          </aside>
+
+            <details class="review-detail-group" id="scope-details">
+              <summary>
+                <span>Scope, exclusions, and exact agreement</span>
+                <small>Bound system, access, fingerprint, and audit record</small>
+              </summary>
+              <div class="review-context" aria-label="Review details">
+                <section aria-labelledby="scope-title">
+                  <p class="context-label" id="scope-title">Bound scope</p>
+                  <dl class="scope-details">
+                    <div>
+                      <dt>Evidence method</dt>
+                      <dd id="evidence-method">—</dd>
+                    </div>
+                    <div>
+                      <dt>Provider · endpoint</dt>
+                      <dd id="target-runtime">—</dd>
+                    </div>
+                    <div>
+                      <dt>Workload SHA-256</dt>
+                      <dd id="workload-sha256" class="digest">—</dd>
+                    </div>
+                    <div>
+                      <dt>Agreement owners</dt>
+                      <dd id="agreement-owners">—</dd>
+                    </div>
+                    <div>
+                      <dt>Evidence retention</dt>
+                      <dd id="evidence-retention">—</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section aria-labelledby="excluded-title">
+                  <p class="context-label" id="excluded-title">Not included</p>
+                  <ul id="excluded-list" class="excluded-list"></ul>
+                </section>
+
+                <section class="access-details" aria-labelledby="access-title">
+                  <p class="context-label" id="access-title">Review access</p>
+                  <dl>
+                    <div>
+                      <dt>Reviewing as</dt>
+                      <dd id="reviewer-identity">Verified reviewer</dd>
+                    </div>
+                    <div>
+                      <dt>Link expires</dt>
+                      <dd id="review-expiry">—</dd>
+                    </div>
+                  </dl>
+                  <p id="identity-notice" class="identity-notice"></p>
+                </section>
+
+                <section class="exact-agreement" aria-labelledby="exact-agreement-title">
+                  <p class="context-label" id="exact-agreement-title">
+                    Exact fingerprinted agreement
+                  </p>
+                  <p>
+                    Every field below is included in the confirmation fingerprint.
+                    Internal review notes and raw transcripts are not.
+                  </p>
+                  <pre id="agreement-manifest" tabindex="0"></pre>
+                </section>
+              </div>
+            </details>
+          </div>
+
+          <form id="decision-form" class="decision-panel" novalidate>
+            <div class="decision-heading">
+              <p class="context-label">Your decision</p>
+              <h2>Ready to confirm?</h2>
+            </div>
+
+            <div id="acknowledgement-group" class="acknowledgement" hidden>
+              <input id="agreement-checkbox" type="checkbox" />
+              <label id="agreement-label" for="agreement-checkbox">
+                I confirm these requirements and test conditions.
+              </label>
+            </div>
+
+            <details id="change-details" class="change-details" hidden>
+              <summary>Describe requested changes</summary>
+              <label for="change-rationale">
+                What should change?
+                <span>Required</span>
+              </label>
+              <textarea
+                id="change-rationale"
+                rows="3"
+                maxlength="2000"
+                placeholder="Describe the incorrect or missing requirement."
+              ></textarea>
+            </details>
+
+            <p id="form-message" class="form-message" role="alert" hidden></p>
+
+            <div class="decision-actions">
+              <button
+                id="confirm-requirements"
+                class="button button--primary"
+                type="submit"
+                name="decision"
+                value="CONFIRM"
+              >
+                Confirm POC agreement
+              </button>
+              <button
+                id="request-changes"
+                class="button button--secondary"
+                type="submit"
+                name="decision"
+                value="REQUEST_CHANGES"
+              >
+                Request changes
+              </button>
+            </div>
+
+            <p class="decision-footnote">
+              Your decision is recorded against this exact version.
+            </p>
+          </form>
         </div>
-
-        <form id="decision-form" class="decision-panel" novalidate>
-          <div id="acknowledgement-group" class="acknowledgement" hidden>
-            <input id="agreement-checkbox" type="checkbox" />
-            <label id="agreement-label" for="agreement-checkbox">
-              I reviewed every requirement and confirm that this draft matches the
-              intended POC agreement.
-            </label>
-          </div>
-
-          <details id="change-details" class="change-details">
-            <summary>Need something changed?</summary>
-            <label for="change-rationale">
-              What should change?
-              <span>Required when requesting changes</span>
-            </label>
-            <textarea
-              id="change-rationale"
-              rows="3"
-              maxlength="2000"
-              placeholder="Describe the incorrect or missing requirement."
-            ></textarea>
-          </details>
-
-          <p id="form-message" class="form-message" role="alert" hidden></p>
-
-          <div class="decision-actions">
-            <button
-              id="confirm-requirements"
-              class="button button--primary"
-              type="submit"
-              name="decision"
-              value="CONFIRM"
-            >
-              Confirm requirements
-            </button>
-            <button
-              id="request-changes"
-              class="button button--secondary"
-              type="submit"
-              name="decision"
-              value="REQUEST_CHANGES"
-            >
-              Request changes
-            </button>
-          </div>
-
-          <p class="decision-footnote">
-            ExitSpec records your decision against this exact contract version.
-            A later measurement run creates the evidence.
-          </p>
-        </form>
       </section>
 
       <section id="terminal-state" class="state-card state-card--terminal" aria-labelledby="terminal-title" hidden>
         <div id="terminal-mark" class="state-mark state-mark--success" aria-hidden="true">✓</div>
         <p class="eyebrow" id="terminal-eyebrow">Decision recorded</p>
-        <h1 id="terminal-title">Requirements confirmed</h1>
+        <h1 id="terminal-title">POC agreement confirmed</h1>
         <p id="terminal-message">
           Your decision is recorded against the exact contract version below.
         </p>
@@ -335,12 +374,10 @@
           </div>
         </dl>
 
-        <aside class="terminal-boundary">
-          <strong>No evidence was created by this confirmation.</strong>
-          <p>
-            The POC must still run against the confirmed requirements before
-            ExitSpec can report a verdict. Production approval remains a separate
-            human decision.
+        <aside class="terminal-boundary" id="terminal-boundary">
+          <strong id="terminal-next-title">Next: freeze the confirmed contract.</strong>
+          <p id="terminal-next-detail">
+            The POC owner freezes this exact version before any proof run.
           </p>
         </aside>
 
@@ -364,7 +401,7 @@
     </main>
 
     <footer class="site-footer">
-      <p>ExitSpec records the agreement. Evidence is created by the POC run.</p>
+      <p>ExitSpec · Secure customer review</p>
     </footer>
   </body>
 </html>

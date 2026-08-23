@@ -248,6 +248,21 @@
   overflow-wrap: anywhere;
 }
 
+.proposal-support {
+  margin: 9px 0 0;
+  border-left: 2px solid var(--orange);
+  padding-left: 9px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.4;
+}
+
+.proposal-support[data-supported="false"] {
+  border-left-color: var(--warning);
+  color: var(--warning);
+}
+
 .source-safety-note {
   margin: 0;
   border-top: 1px solid var(--border);
