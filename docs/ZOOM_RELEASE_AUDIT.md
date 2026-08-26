@@ -44,7 +44,7 @@ UI/API compatibility, migrations, rollback behavior, and tests.
   PR #137: the
   `pytest>=8,<9` declaration allowed vulnerable pytest 8.4.2
   (`PYSEC-2026-1845`, fixed in 9.0.3). It is fixed by PR #137, which
-  constraining pytest to `>=9.0.3,<10`, adding the Python audit tool to the dev
+  constrains pytest to `>=9.0.3,<10`, adds the Python audit tool to the dev
   extra, and running the same audit in the engineering gate.
 
 Accepted lower-risk limitations are explicit and rollback-safe: the Zoom
