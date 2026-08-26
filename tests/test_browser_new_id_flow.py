@@ -1485,3 +1485,105 @@ def test_guided_meeting_session_fails_closed_to_paste_on_bad_disclosure(
             finally:
                 context.close()
                 browser.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("EXITSPEC_BROWSER_E2E") != "1",
+    reason="set EXITSPEC_BROWSER_E2E=1 to run the Chromium lifecycle test",
+)
+def test_guided_zoom_handoff_reaches_one_existing_review_draft(tmp_path):
+    from playwright import sync_api
+
+    expect = sync_api.expect
+
+    with _running_server(tmp_path) as base_url:
+        with sync_api.sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1280, "height": 720}
+            )
+            page = context.new_page()
+            page_errors = _capture_browser_errors(page)
+            missing_resources: list[str] = []
+            page.on(
+                "response",
+                lambda response: (
+                    missing_resources.append(response.url)
+                    if response.status == 404
+                    else None
+                ),
+            )
+            page.set_default_timeout(10_000)
+            page.set_default_navigation_timeout(10_000)
+
+            try:
+                poc_id = _create_browser_meeting_poc(
+                    expect,
+                    page,
+                    base_url,
+                    "Browser Zoom handoff POC",
+                )
+                expect(page.locator("#meeting-mode-zoom")).to_be_enabled()
+                page.locator("#meeting-mode-zoom").check()
+                expect(page.locator("#meeting-zoom-panel")).to_be_visible()
+                expect(page.locator("#zoom-guided-disclosure")).to_contain_text(
+                    "Local Zoom RTMS handoff only"
+                )
+                _assert_bounded_employee_shell(page)
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Start listening"
+                )
+                expect(page.locator("#capture-source")).to_be_disabled()
+
+                page.locator("#zoom-guided-consent").check()
+                page.locator("#capture-source").click()
+                expect(page.locator("#zoom-guided-state-badge")).to_have_text(
+                    "Listening"
+                )
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Stop meeting"
+                )
+
+                page.locator("#capture-source").click()
+                expect(page.locator("#zoom-guided-state-badge")).to_have_text(
+                    "Draft ready"
+                )
+                expect(page.locator("#capture-source")).to_have_text(
+                    "Open draft"
+                )
+                page.locator("#capture-source").click()
+                expect(page.locator("#capture-result")).to_be_visible()
+                expect(page.locator("#proposal-count")).to_have_text(
+                    "2 proposals"
+                )
+                expect(page.locator("#review-proposals")).to_have_text(
+                    "Open draft"
+                )
+                _assert_bounded_employee_shell(page)
+                page.set_viewport_size({"width": 320, "height": 900})
+                narrow_metrics = _layout_metrics(page)
+                assert narrow_metrics["scrollWidth"] <= narrow_metrics["clientWidth"]
+                expect(page.locator("body")).not_to_contain_text(
+                    "guided-customer"
+                )
+                source_payload = page.evaluate(
+                    """async (url) => (await fetch(url)).json()""",
+                    f"{base_url}/api/pocs/{poc_id}/sources",
+                )
+                assert len(source_payload["sources"]) == 1
+                assert source_payload["sources"][0]["status"] == "NEEDS_REVIEW"
+                page.locator("#review-proposals").click()
+                expect(page).to_have_url(
+                    f"{base_url}/app/pocs/{poc_id}/review"
+                )
+                unexpected_errors = [
+                    error
+                    for error in page_errors
+                    if not error.startswith(
+                        "console: Failed to load resource:"
+                    )
+                ]
+                assert unexpected_errors == [], missing_resources
+            finally:
+                context.close()
+                browser.close()

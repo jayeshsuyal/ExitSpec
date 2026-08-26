@@ -177,6 +177,15 @@
                   </label>
                   <label>
                     <input
+                      id="meeting-mode-zoom"
+                      type="radio"
+                      name="meeting_mode"
+                      value="ZOOM"
+                    />
+                    <span>Zoom RTMS handoff</span>
+                  </label>
+                  <label>
+                    <input
                       id="meeting-mode-paste"
                       type="radio"
                       name="meeting_mode"
@@ -286,6 +295,75 @@
                       ExitSpec runs a fixed two-person transcript through the
                       durable meeting inbox. The result is redacted and sent to
                       human review; it cannot approve or freeze anything.
+                    </p>
+                  </details>
+                </section>
+
+                <section
+                  class="meeting-session zoom-guided-panel"
+                  id="meeting-zoom-panel"
+                  aria-labelledby="zoom-guided-heading"
+                  hidden
+                >
+                  <header class="meeting-session-header">
+                    <div>
+                      <p class="eyebrow">Source-aware handoff</p>
+                      <h4 id="zoom-guided-heading">Zoom RTMS → review draft</h4>
+                    </div>
+                    <span
+                      class="meeting-connection-badge"
+                      id="zoom-guided-state-badge"
+                    >
+                      Ready to listen
+                    </span>
+                  </header>
+
+                  <p
+                    class="meeting-session-disclosure"
+                    id="zoom-guided-disclosure"
+                  >
+                    Loading the local Zoom handoff boundary…
+                  </p>
+
+                  <ol
+                    class="meeting-session-progress"
+                    id="zoom-guided-progress"
+                    aria-label="Zoom handoff progress"
+                  >
+                    <li data-zoom-guided-step="LISTENING" aria-current="step">
+                      <span>1</span>
+                      <strong>Listening</strong>
+                    </li>
+                    <li data-zoom-guided-step="PROCESSING">
+                      <span>2</span>
+                      <strong>Processing</strong>
+                    </li>
+                    <li data-zoom-guided-step="DRAFT_READY">
+                      <span>3</span>
+                      <strong>Draft ready</strong>
+                    </li>
+                  </ol>
+
+                  <label class="zoom-guided-consent-label">
+                    <input id="zoom-guided-consent" type="checkbox" />
+                    <span>I authorize this local synthetic Zoom handoff.</span>
+                  </label>
+
+                  <p
+                    class="meeting-session-status"
+                    id="zoom-guided-status"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Review the notice before starting the local handoff.
+                  </p>
+
+                  <details class="meeting-session-details">
+                    <summary>What this path proves</summary>
+                    <p>
+                      The bounded RTMS decoder and state machine attach one
+                      source through the existing proposal spine. It does not
+                      connect to Zoom or confirm, freeze, run, or score anything.
                     </p>
                   </details>
                 </section>

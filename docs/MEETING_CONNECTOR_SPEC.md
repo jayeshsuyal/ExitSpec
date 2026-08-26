@@ -447,7 +447,9 @@ authority.
    handoff with no Zoom connection claim.
 13. **Guided product UI (implemented, synthetic only):** the existing meeting
     source offers one finite consent, start, draft-now, and safe-recovery flow,
-    then hands off to human proposal review without changing the product spine.
+    plus the additive [Zoom RTMS guided `/app` handoff](ZOOM_GUIDED_APP_HANDOFF_SPEC.md).
+    Both paths hand off to human proposal review without changing the product
+    spine.
 14. **Synthetic live E2E and hardening:** one real Zoom meeting with two
     consenting synthetic participants completes the existing ExitSpec demo loop.
 
