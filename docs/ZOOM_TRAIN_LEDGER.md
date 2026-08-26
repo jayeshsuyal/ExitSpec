@@ -11,7 +11,7 @@ intentionally absent.
 | [#131](https://github.com/jayeshsuyal/ExitSpec/pull/131) | RTMS packet decoder | `codex/zoom-train-pr3-rtms-decoder` | `7ba4878` / `c8e7104` | [run 32927361818](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32927361818) | Python 3.12/3.13, Browser E2E, operator CI green; merged |
 | [#132](https://github.com/jayeshsuyal/ExitSpec/pull/132) | Session state and idempotency | `codex/zoom-train-pr4-session-idempotency` | `2150ec1` / `baa7c64` | [run 32928353177](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32928353177) | Python 3.12/3.13, Browser E2E, operator CI green; merged |
 | [#133](https://github.com/jayeshsuyal/ExitSpec/pull/133) | Zoom transcript proposal bridge | `codex/zoom-train-pr5-proposal-bridge` | `e367010` / `146cc0b` | [run 32929276328](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32929276328) | Python 3.12/3.13, Browser E2E, operator CI green; merged |
-| PR6 pending | Guided `/app` handoff | `codex/zoom-train-pr6-guided-app` | `bbae108` | pending | Full Python, distribution, operator, HTTP, and Chromium checks green; not yet opened |
+| [#134](https://github.com/jayeshsuyal/ExitSpec/pull/134) | Guided `/app` handoff | `codex/zoom-train-pr6-guided-app` | `bbae108` + ledger `b932a79` | [run 32931253782](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32931253782) | Full Python 3.12/3.13, distribution, operator, HTTP, and Chromium checks green; open/mergeable |
 | PR7 pending | Adversarial E2E, regression audit, demo readiness | pending | pending | pending | Pending PR6 merge |
 
 ## Train risks and external gates
