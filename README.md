@@ -359,16 +359,20 @@ A local-only Zoom golden-fixture capture kit now prepares an owner-only,
 git-ignored synthetic workspace; requires the reviewed scopes, transcript-only
 media, RTMS credits, two consenting test participants, and a bounded schedule;
 hash-seals a fixed opaque artifact inventory; independently detects mutation;
-and records a content-free privacy-review receipt. It calls no provider, parses
-no Zoom bytes, publishes no fixture, and grants no mapper, network, contract,
-measurement, or verdict authority. A separate dev-only
+and records a content-free privacy-review receipt. One private diagnostic
+capture has since been observed, but it is incomplete and remains untrusted;
+no golden fixture or live Zoom-to-POC loop is claimed. A separate setup/runtime
+evidence boundary keeps one-time app and endpoint attestation distinct from
+per-meeting evidence. The capture kit calls no provider, parses no Zoom bytes,
+publishes no fixture, and grants no mapper, network, contract, measurement, or
+verdict authority. A separate dev-only
 [`tools/zoom_fixture_operator`](tools/zoom_fixture_operator) acquisition tool
 is excluded from the Python wheel and `/app`. It can receive the three reviewed
 RTMS lifecycle events, complete process-memory OAuth, request transcript-only
 RTMS, and preserve bounded opaque observations only after a compatible private
-preflight workspace and three explicit live gates are present. It cannot create
-an ExitSpec source or product decision. The first real synthetic capture and
-sanitized repository fixture remain pending.
+preflight workspace and four explicit live gates are present. It cannot create
+an ExitSpec source or product decision. A sanitized repository fixture remains
+pending; the existing private diagnostic capture is not a golden fixture.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment

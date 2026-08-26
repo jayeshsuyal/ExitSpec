@@ -74,8 +74,10 @@ chmod 600 tools/zoom_fixture_operator/.env.operator
 
 Enter the three Zoom app values locally. Never place them in chat, a command
 argument, Git, an issue, a screenshot, or a log. Use fresh unguessable callback
-paths. Keep all three live gates `false` until the plan, credits, consent, and
-schedule are true.
+paths. Keep all four live gates `false` until the plan, credits, consent,
+schedule, and external credential-rotation receipt are true. The fourth gate
+accepts only a content-free `zoomcredrot_` receipt ID; it never contains the
+credential.
 
 ## Run once
 
