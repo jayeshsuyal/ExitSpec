@@ -14,6 +14,7 @@ intentionally absent.
 | [#134](https://github.com/jayeshsuyal/ExitSpec/pull/134) | Guided `/app` handoff | `codex/zoom-train-pr6-guided-app` | `bbae108` + ledger `b932a79`/`3a486c6` / merge `b0230e4` | [run 32931484770](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32931484770) | Full Python 3.12/3.13, distribution, operator, HTTP, and Chromium checks green; merged |
 | [#135](https://github.com/jayeshsuyal/ExitSpec/pull/135) | Adversarial E2E, regression audit, demo readiness | `codex/zoom-train-pr7-adversarial-e2e` | `a2e8793` + ledger `f9e34cb`/`aee54c0` / merge `a98cfda` | [run 32932715724](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32932715724) | Python 3.12/3.13, Browser E2E, operator, npm audit CI green; merged |
 | [#136](https://github.com/jayeshsuyal/ExitSpec/pull/136) | Ledger bookkeeping | `codex/zoom-train-ledger-final` | `297ecf0` / `080288a` | [run 32933056045](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32933056045) | Documentation-only follow-up; all CI jobs green; merged |
+| [#137](https://github.com/jayeshsuyal/ExitSpec/pull/137) | Holistic release audit and dependency gate | `codex/zoom-release-audit` | `cb7fde6` / `bd4c92e` | [run 32935064411](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32935064411) | Full audit, Python dependency audit, browser, operator, and Python matrix green; merged |
 
 ## Holistic release audit
 
@@ -22,6 +23,11 @@ The post-PR7 conductor gate is recorded in
 passes the complete review, regression, privacy, dependency, UI, and E2E audit.
 The real Zoom release claim remains blocked on credential rotation/disablement,
 explicit privacy/custody authorization, and a fresh authorized live call.
+
+Post-merge verification for `main` commit `bd4c92e` passed all four required
+jobs in [run 32935303222](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32935303222):
+Python 3.12, Python 3.13, Browser E2E, and the synthetic-only Zoom fixture
+operator gate.
 
 ## Train risks and external gates
 
