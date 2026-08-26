@@ -44,12 +44,14 @@ from .poc_proposal_review import (
     derive_proposal_id,
 )
 from .poc_sources import (
+    EXTERNAL_ID_PATTERN,
     POCSourceAttachmentResult,
     POCSourceRevisionRequired,
     PreparedPOCSource,
     PreparedRequirementCandidate,
     ProcessLocalPOCSourceService,
     SourceKind,
+    VERSION_PATTERN,
 )
 from .redaction import (
     POLICY_VERSION,
@@ -698,6 +700,44 @@ class ProcessLocalPOCSourceIntake:
             expected_content_sha256=expected_content_sha256,
         )
 
+    def capture_zoom_rtms_transcript(
+        self,
+        *,
+        poc_id: str,
+        redacted_transcript_text: str,
+        expected_content_sha256: str,
+        source_external_id: str,
+        adapter_version: str,
+        idempotency_key: str,
+    ) -> POCSourceReceipt:
+        """Attach one digest-bound, already-normalized Zoom transcript.
+
+        The caller owns the Zoom decoder and provenance checks. This method
+        only re-runs the existing redaction, source anchoring, candidate
+        extraction, and append-only source attachment boundary.
+        """
+
+        if (
+            type(expected_content_sha256) is not str
+            or _SHA256.fullmatch(expected_content_sha256) is None
+            or type(source_external_id) is not str
+            or re.fullmatch(EXTERNAL_ID_PATTERN, source_external_id) is None
+            or type(adapter_version) is not str
+            or re.fullmatch(VERSION_PATTERN, adapter_version) is None
+        ):
+            raise POCSourceIntakeInvalid(
+                "The Zoom source binding is outside its supported contract."
+            )
+        return self._capture_meeting_text(
+            poc_id=poc_id,
+            transcript_text=redacted_transcript_text,
+            idempotency_key=idempotency_key,
+            adapter_name="zoom_rtms",
+            adapter_version=adapter_version,
+            external_id=source_external_id,
+            expected_content_sha256=expected_content_sha256,
+        )
+
     def _capture_meeting_text(
         self,
         *,
@@ -705,6 +745,7 @@ class ProcessLocalPOCSourceIntake:
         transcript_text: str,
         idempotency_key: str,
         adapter_name: str,
+        adapter_version: str = _ADAPTER_VERSION,
         external_id: str | None = None,
         expected_content_sha256: str | None = None,
     ) -> POCSourceReceipt:
@@ -774,7 +815,7 @@ class ProcessLocalPOCSourceIntake:
             content_sha256=content_sha256,
             candidates=candidates,
             adapter_name=adapter_name,
-            adapter_version=_ADAPTER_VERSION,
+            adapter_version=adapter_version,
             redaction_policy_version=_REDACTION_VERSION,
             observed_at=observed_at,
         )
