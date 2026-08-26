@@ -1,6 +1,6 @@
 # Post-train holistic Zoom-to-POC release audit
 
-Status: local synthetic release audit complete on the post-train audit branch.
+Status: local synthetic release audit complete on `main` commit `bd4c92e`.
 This record is intentionally separate from the seven implementation PRs. It
 does not claim a fresh live Zoom run or promote the private diagnostic capture.
 
@@ -34,14 +34,16 @@ UI/API compatibility, migrations, rollback behavior, and tests.
 | [#134](https://github.com/jayeshsuyal/ExitSpec/pull/134) | `web.py` dispatch, source-intake API, existing email/manual paths, static workbench, closure/evidence routes | No P0/P1/P2 defect. Same-origin and closed-POC gates remain active; desktop and mobile review found no horizontal overflow or theme break. |
 | [#135](https://github.com/jayeshsuyal/ExitSpec/pull/135) | Full adversarial E2E, existing customer/evaluator/Evidence Pack flows, runbook/checklist | PR7-001 was fixed before merge. No new P0/P1/P2 defect; all specified replay, failure, provider, stale-decision, leakage, and unsupported-metric cases are covered. |
 | [#136](https://github.com/jayeshsuyal/ExitSpec/pull/136) | Ledger only | Bookkeeping-only follow-up; no runtime or contract change. |
+| [#137](https://github.com/jayeshsuyal/ExitSpec/pull/137) | Whole integrated train, dependency constraint, engineering gate, and final release controls | PR7-001 was fixed before merge; the post-train dependency finding was fixed by this PR. No open P0/P1/P2 defect remains. |
 
 ### P0/P1/P2 finding log
 
 - P0: none.
 - P1: none.
-- P2: one dependency finding was discovered by the holistic audit: the
+- P2: one dependency finding was discovered by the holistic audit and fixed in
+  PR #137: the
   `pytest>=8,<9` declaration allowed vulnerable pytest 8.4.2
-  (`PYSEC-2026-1845`, fixed in 9.0.3). It is fixed on this audit branch by
+  (`PYSEC-2026-1845`, fixed in 9.0.3). It is fixed by PR #137, which
   constraining pytest to `>=9.0.3,<10`, adding the Python audit tool to the dev
   extra, and running the same audit in the engineering gate.
 
@@ -87,12 +89,16 @@ with no horizontal overflow. Browser console warnings/errors were absent.
 
 ### GitHub review
 
-PRs #129 through #136 are merged to `main`; each recorded test, browser, and
+PRs #129 through #137 are merged to `main`; each recorded test, browser, and
 operator CI job is green, with no open review threads or comments. The final
 PR7 run is
 [32932715724](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32932715724)
 and the ledger follow-up run is
 [32933056045](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32933056045).
+PR #137's audit run is
+[32935064411](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32935064411).
+After that merge, `main` commit `bd4c92e` passed the same four-job gate in
+[32935303222](https://github.com/jayeshsuyal/ExitSpec/actions/runs/32935303222).
 The failed-log views were empty. A full log download was attempted but GitHub's
 API returned a transient connectivity error; no merge decision was based only
 on the status badge.
