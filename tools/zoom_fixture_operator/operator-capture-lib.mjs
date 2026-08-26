@@ -273,6 +273,21 @@ export function verifyOAuthState(secret, state, { nowMs = Date.now(), maxAgeMs =
   return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
+export function assertCredentialRotationGate({
+  networkAuthorized,
+  creditsConfirmed,
+  syntheticCaptureAuthorized,
+  rotationAttested,
+  rotationReceiptId,
+}) {
+  if (!networkAuthorized || !creditsConfirmed || !syntheticCaptureAuthorized) {
+    return;
+  }
+  if (rotationAttested !== true || !/^zoomcredrot_[a-f0-9]{64}$/.test(String(rotationReceiptId ?? ""))) {
+    throw new Error("Live Zoom calls remain blocked until credential rotation is attested.");
+  }
+}
+
 function toBoundedBuffer(value) {
   const body = Buffer.isBuffer(value) ? value : Buffer.from(value ?? "");
   if (body.length < 1 || body.length > MAX_BODY_BYTES) {

@@ -1,12 +1,13 @@
 # Zoom golden-fixture capture runbook
 
-Status: implemented local capture kit; first real synthetic capture pending
+Status: implemented local capture kit; one private diagnostic capture exists
+but remains incomplete and untrusted; no golden fixture is claimed
 
 This runbook prepares the evidence required to decide whether ExitSpec may
 implement a Zoom RTMS packet mapper. It does not implement that mapper and does
 not connect ExitSpec to Zoom.
 
-The capture kit has one narrow authority:
+The capture kit has one narrow legacy authority:
 
 > preserve an exact, private, synthetic-only set of opaque bytes long enough
 > to inspect Zoom's observed behavior safely.
@@ -16,10 +17,16 @@ publishes a fixture, starts a meeting, authorizes a network transport, creates
 an ExitSpec source, confirms or freezes a contract, starts measurement, or
 assigns a verdict.
 
+The setup/runtime evidence boundary is documented separately in
+[`ZOOM_SETUP_RUNTIME_EVIDENCE_SPEC.md`](ZOOM_SETUP_RUNTIME_EVIDENCE_SPEC.md).
+New captures must bind a one-time setup attestation to a per-meeting runtime
+plan. The legacy v1 sealer remains unchanged so an incomplete v1 capture is
+not silently reinterpreted.
+
 ## Why this gate exists
 
 Documentation and matching field names are not enough to freeze a provider
-adapter. The first real fixture must establish the exact signing input, packet
+adapter. The first usable fixture must establish the exact signing input, packet
 shapes, ordering, duplicate behavior, reconnect behavior, participant identity,
 transcript finality, timestamps, and privacy surface for one pinned Zoom
 version.
@@ -123,8 +130,9 @@ zero-downstream-authority boundary. Startup independently runs the canonical
 hand-written structural lookalikes, mutated controls, and expired capture
 windows cannot authorize acquisition. It applies the same 16 MiB per-artifact
 and 64 MiB total limits as the sealer. It can make real Zoom calls only when
-all three environment gates explicitly state that network use, Developer Pack
-credits, and the synthetic capture are authorized.
+all four environment gates explicitly state that network use, Developer Pack
+credits, the synthetic capture, and external credential rotation are
+authorized.
 
 This tooling exists only to collect the fixture needed for later design. Its
 provider-specific connection logic is not a frozen mapper and no observed
@@ -159,7 +167,8 @@ production requirements.
 
 ## 3. Preserve the exact opaque artifacts
 
-Store one non-empty original capture under every fixed filename below. Do not
+For legacy v1 custody, store one non-empty original capture under every fixed
+filename below. Do not
 pretty-print, reorder, decode, redact, normalize, concatenate after the fact,
 or rename the bytes. If the capture tool emits a native binary or textual dump,
 preserve that exact output as the `.bin` file.
@@ -187,6 +196,11 @@ All files belong directly in:
 
 The sealer rejects an absent, empty, extra, oversized, symlinked, hard-linked,
 or changing artifact. It does not inspect artifact content.
+
+The current private diagnostic capture is missing the endpoint-validation
+request and response roles. It therefore remains incomplete under the legacy
+contract. Do not fill those files retroactively, decode the capture, or call it
+golden.
 
 ## 4. Seal and independently verify custody
 

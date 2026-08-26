@@ -7,6 +7,7 @@ import express from "express";
 import WebSocket from "ws";
 
 import {
+  assertCredentialRotationGate,
   assertFreshCaptureDirectory,
   assertPreparedCaptureWorkspace,
   computeEndpointValidationResponse,
@@ -43,6 +44,8 @@ const CAPTURE_WINDOW_SECONDS = boundedInteger(
 const NETWORK_AUTHORIZED = process.env.ALLOW_REAL_ZOOM_NETWORK === "true";
 const CREDITS_CONFIRMED = process.env.RTMS_CREDITS_CONFIRMED === "true";
 const SYNTHETIC_ONLY_CONFIRMED = process.env.SYNTHETIC_CAPTURE_AUTHORIZED === "true";
+const CREDENTIAL_ROTATION_ATTESTED = process.env.ZOOM_CREDENTIAL_ROTATION_ATTESTED === "true";
+const CREDENTIAL_ROTATION_RECEIPT_ID = process.env.ZOOM_CREDENTIAL_ROTATION_RECEIPT_ID ?? "";
 const OAUTH_REDIRECT_URI = `${PUBLIC_BASE_URL}${OAUTH_CALLBACK_PATH}`;
 const WEBHOOK_URL = `${PUBLIC_BASE_URL}${WEBHOOK_PATH}`;
 const OPERATOR_CSRF = crypto.randomBytes(32).toString("hex");
@@ -52,6 +55,13 @@ if (PUBLIC_PORT === OPERATOR_PORT || WEBHOOK_PATH === OAUTH_CALLBACK_PATH) {
   throw new Error("Public and operator controls must use distinct endpoints.");
 }
 const PREPARED_WORKSPACE = assertPreparedCaptureWorkspace(RAW_DIRECTORY, CAPTURE_ID);
+assertCredentialRotationGate({
+  networkAuthorized: NETWORK_AUTHORIZED,
+  creditsConfirmed: CREDITS_CONFIRMED,
+  syntheticCaptureAuthorized: SYNTHETIC_ONLY_CONFIRMED,
+  rotationAttested: CREDENTIAL_ROTATION_ATTESTED,
+  rotationReceiptId: CREDENTIAL_ROTATION_RECEIPT_ID,
+});
 verifyCanonicalExitSpecPreflight(PREPARED_WORKSPACE.repositoryRoot);
 assertFreshCaptureDirectory(RAW_DIRECTORY);
 const recorder = createArtifactRecorder(RAW_DIRECTORY);
@@ -89,6 +99,7 @@ const configurationSnapshot = safePublicConfigurationSnapshot({
     real_zoom_network_authorized: NETWORK_AUTHORIZED,
     rtms_credits_confirmed: CREDITS_CONFIRMED,
     synthetic_capture_authorized: SYNTHETIC_ONLY_CONFIRMED,
+    credential_rotation_attested: CREDENTIAL_ROTATION_ATTESTED,
     acceptance_verdict_authority: false,
     mapper_authority: false,
     publication_authority: false,
@@ -634,6 +645,13 @@ async function updateRtmsStatus(action, meetingId, participantUserId = null) {
   if (!NETWORK_AUTHORIZED || !CREDITS_CONFIRMED || !SYNTHETIC_ONLY_CONFIRMED) {
     throw new Error("Real Zoom calls remain blocked by operator configuration.");
   }
+  assertCredentialRotationGate({
+    networkAuthorized: NETWORK_AUTHORIZED,
+    creditsConfirmed: CREDITS_CONFIRMED,
+    syntheticCaptureAuthorized: SYNTHETIC_ONLY_CONFIRMED,
+    rotationAttested: CREDENTIAL_ROTATION_ATTESTED,
+    rotationReceiptId: CREDENTIAL_ROTATION_RECEIPT_ID,
+  });
   if (!consentConfirmedAt) throw new Error("Both synthetic participants must confirm consent first.");
   if (!/^\d{9,13}$/.test(meetingId)) throw new Error("Meeting ID is invalid.");
   const accessToken = await getAccessToken();

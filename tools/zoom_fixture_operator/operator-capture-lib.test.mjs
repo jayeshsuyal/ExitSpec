@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   ARTIFACT_FILES,
+  assertCredentialRotationGate,
   assertFreshCaptureDirectory,
   assertPreparedCaptureWorkspace,
   computeEndpointValidationResponse,
@@ -194,4 +195,31 @@ test("OAuth state is signed, time-bounded, and tamper evident", () => {
   assert.equal(verifyOAuthState(SECRET, state, { nowMs: createdAt + 1000 }), true);
   assert.equal(verifyOAuthState(SECRET, `${state.slice(0, -1)}0`, { nowMs: createdAt + 1000 }), false);
   assert.equal(verifyOAuthState(SECRET, state, { nowMs: createdAt + 11 * 60 * 1000 }), false);
+});
+
+test("live calls require a content-free external credential rotation receipt", () => {
+  assert.doesNotThrow(() => assertCredentialRotationGate({
+    networkAuthorized: false,
+    creditsConfirmed: true,
+    syntheticCaptureAuthorized: true,
+    rotationAttested: false,
+    rotationReceiptId: "",
+  }));
+  assert.throws(
+    () => assertCredentialRotationGate({
+      networkAuthorized: true,
+      creditsConfirmed: true,
+      syntheticCaptureAuthorized: true,
+      rotationAttested: false,
+      rotationReceiptId: "",
+    }),
+    /credential rotation is attested/,
+  );
+  assert.doesNotThrow(() => assertCredentialRotationGate({
+    networkAuthorized: true,
+    creditsConfirmed: true,
+    syntheticCaptureAuthorized: true,
+    rotationAttested: true,
+    rotationReceiptId: `zoomcredrot_${"a".repeat(64)}`,
+  }));
 });

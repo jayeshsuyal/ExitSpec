@@ -8,6 +8,11 @@ synthetic-only authentication seam for opaque webhook bytes, and the
 implemented provider-neutral sealed-window-to-source bridge, and the
 implemented local synthetic meeting-session application boundary.
 
+The setup/runtime custody correction is defined in
+[ZOOM_SETUP_RUNTIME_EVIDENCE_SPEC.md](ZOOM_SETUP_RUNTIME_EVIDENCE_SPEC.md).
+One-time app and endpoint attestation is not per-meeting transport evidence;
+neither one grants downstream product authority.
+
 The first platform integration will use **Zoom Realtime Media Streams (RTMS),
 transcript only**, for an explicitly synthetic meeting with consenting test
 participants. It will not request audio, video, screen share, or chat.
