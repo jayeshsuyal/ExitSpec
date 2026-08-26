@@ -13,6 +13,11 @@ The setup/runtime custody correction is defined in
 One-time app and endpoint attestation is not per-meeting transport evidence;
 neither one grants downstream product authority.
 
+The bounded transcript packet boundary is defined in
+[ZOOM_RTMS_DECODER_SPEC.md](ZOOM_RTMS_DECODER_SPEC.md). It is limited to the
+reviewed synthetic envelope and is not a claim that the current incomplete
+private capture is a golden fixture.
+
 The first platform integration will use **Zoom Realtime Media Streams (RTMS),
 transcript only**, for an explicitly synthetic meeting with consenting test
 participants. It will not request audio, video, screen share, or chat.
@@ -380,6 +385,14 @@ privacy-review decision. It does not parse or sanitize Zoom bytes and cannot
 authorize a mapper, network transport, fixture publication, source creation,
 or product decision. No sanitized repository fixture is claimed yet.
 
+The implemented
+[bounded RTMS transcript decoder](ZOOM_RTMS_DECODER_SPEC.md) accepts only the
+versioned synthetic transcript subset, requires explicit server-owned speaker
+pseudonyms and digest-only provenance, and refuses unknown or ambiguous input.
+It produces review-only normalized segments; it does not read the private
+capture, open a network connection, create a source, or grant product
+authority.
+
 ## Implementation train
 
 1. **PR108 — connector contract and capability spike:** provider-neutral
@@ -394,28 +407,31 @@ or product decision. No sanitized repository fixture is claimed yet.
 4. **Golden-fixture capture kit (implemented):** synthetic plan preflight,
    fixed opaque-byte inventory, private git-ignored custody, independent hash
    verification, privacy-review receipt, and zero parser or network authority.
-5. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
+5. **Bounded RTMS transcript decoder (implemented):** versioned synthetic
+   vectors, strict limits, explicit pseudonyms, digest-only provenance, and
+   review-only normalized segments; no raw-capture reader or network authority.
+6. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
    the provider-neutral contract using the pinned fixture; fake transport only.
-6. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
+7. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
    signing-input extraction, OAuth, REST start/stop, handshakes, reconnect, and
    shutdown fail closed.
-7. **Source bridge (implemented):** sealer-minted transcript windows enter the
+8. **Source bridge (implemented):** sealer-minted transcript windows enter the
    existing redacted `MEETING` source and proposal-review path with stable
    stream identity, exact replay, changed-content conflict, neutral labels, and
    content-free provenance. It has no route or inbox-deletion authority.
-8. **Synthetic source orchestration (implemented):** recover and independently
+9. **Synthetic source orchestration (implemented):** recover and independently
    revalidate the durable inbox, recheck current consent while sealing, invoke
    the source bridge, and return one digest-bound zero-authority result. This is
    process-local coordination, not the live Zoom transport or a cross-process
    exactly-once claim.
-9. **Guided meeting-session API (implemented, synthetic only):** a
+10. **Guided meeting-session API (implemented, synthetic only):** a
    provider-neutral server-owned adapter seam, disclosure, consent, start,
    draft-now, content-free recovery, exact replay, and existing review-queue
    handoff with no Zoom connection claim.
-10. **Guided product UI (implemented, synthetic only):** the existing meeting
+11. **Guided product UI (implemented, synthetic only):** the existing meeting
     source offers one finite consent, start, draft-now, and safe-recovery flow,
     then hands off to human proposal review without changing the product spine.
-11. **Synthetic live E2E and hardening:** one real Zoom meeting with two
+12. **Synthetic live E2E and hardening:** one real Zoom meeting with two
    consenting synthetic participants completes the existing ExitSpec demo loop.
 
 ## Exit gate for the complete Zoom train
