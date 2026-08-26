@@ -159,4 +159,8 @@ run_gate \
   "Zoom fixture operator JavaScript syntax" \
   npm run check --prefix tools/zoom_fixture_operator
 
+run_gate \
+  "Python dependency vulnerability audit" \
+  "${python_command}" -m pip_audit --local --skip-editable --format columns
+
 printf '\nExitSpec engineering gate passed.\n'
