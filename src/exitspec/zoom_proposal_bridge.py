@@ -71,6 +71,7 @@ class ZoomProposalBridgeFailureCode(str, Enum):
     SOURCE_ATTACH_FAILED = "ZOOM_PROPOSAL_BRIDGE_SOURCE_ATTACH_FAILED"
     PROPOSAL_PROJECTION_FAILED = "ZOOM_PROPOSAL_BRIDGE_PROPOSAL_PROJECTION_FAILED"
     COMPLETION_FAILED = "ZOOM_PROPOSAL_BRIDGE_COMPLETION_FAILED"
+    EXISTING_POC_UNAVAILABLE = "ZOOM_PROPOSAL_BRIDGE_EXISTING_POC_UNAVAILABLE"
 
 
 _FAILURE_DETAILS: dict[ZoomProposalBridgeFailureCode, tuple[str, str]] = {
@@ -101,6 +102,10 @@ _FAILURE_DETAILS: dict[ZoomProposalBridgeFailureCode, tuple[str, str]] = {
     ZoomProposalBridgeFailureCode.COMPLETION_FAILED: (
         "The Zoom session could not record its completed handoff.",
         "recover_the_zoom_session_safely",
+    ),
+    ZoomProposalBridgeFailureCode.EXISTING_POC_UNAVAILABLE: (
+        "The selected draft POC cannot accept a Zoom source.",
+        "return_to_the_active_meeting_source",
     ),
 }
 
@@ -446,72 +451,147 @@ class ZoomProposalBridge:
                 raise ZoomProposalBridgeError(
                     ZoomProposalBridgeFailureCode.POC_CREATE_FAILED
                 ) from None
-            try:
-                source_receipt = self._source_intake.capture_zoom_rtms_transcript(
-                    poc_id=poc_id,
-                    redacted_transcript_text=source_text,
-                    expected_content_sha256=content_sha256,
-                    source_external_id=source_external_id,
-                    adapter_version=ZOOM_PROPOSAL_ADAPTER_VERSION,
-                    idempotency_key=source_key,
-                )
-            except (POCSourceIntakeError, TypeError, ValueError):
-                raise ZoomProposalBridgeError(
-                    ZoomProposalBridgeFailureCode.SOURCE_ATTACH_FAILED
-                ) from None
-            try:
-                proposals = self._source_intake.proposal_inputs(poc_id)
-                if any(
-                    proposal.source_receipt_id != source_receipt.source_receipt_id
-                    for proposal in proposals
-                ):
-                    raise ValueError
-                assessments = tuple(
-                    ZoomProposalAssessment(
-                        proposal_id=proposal.proposal_id,
-                        catalog_metric=_catalog_metric(proposal),
-                    )
-                    for proposal in proposals
-                )
-            except (POCSourceIntakeError, TypeError, ValueError):
-                raise ZoomProposalBridgeError(
-                    ZoomProposalBridgeFailureCode.PROPOSAL_PROJECTION_FAILED
-                ) from None
-            result = ZoomProposalBridgeResult(
+            return self._attach_and_complete(
+                session=session,
                 poc_id=poc_id,
-                source_receipt_id=source_receipt.source_receipt_id,
-                source_provenance=provenance,
-                proposals=proposals,
-                assessments=assessments,
-                proposal_count=len(proposals),
-                review_url=f"/app/pocs/{poc_id}/review",
-                idempotent_replay=(
-                    created.idempotent_replay or source_receipt.idempotent_replay
-                ),
+                provenance=provenance,
+                source_text=source_text,
+                content_sha256=content_sha256,
+                source_external_id=source_external_id,
+                source_key=source_key,
+                completion_key=completion_key,
+                idempotent_replay=created.idempotent_replay,
             )
-            result_sha256 = _digest(
-                _BRIDGE_DOMAIN,
-                result.model_dump(mode="json")
-                | {"idempotent_replay": False},
+
+    def bridge_into_existing_poc(
+        self,
+        *,
+        session: ZoomSessionStateMachine,
+        poc_id: object,
+    ) -> ZoomProposalBridgeResult:
+        """Attach one completed Zoom session to the active meeting draft.
+
+        The original ``bridge`` method remains the standalone ingest path used
+        by the PR5 contract. This additive handoff path is for the existing
+        ``/app/pocs/{id}/sources/new`` workflow: it never creates a second POC.
+        """
+
+        if type(session) is not ZoomSessionStateMachine or not isinstance(
+            poc_id, str
+        ) or re.fullmatch(_POC_ID_PATTERN, poc_id) is None:
+            raise ZoomProposalBridgeError(
+                ZoomProposalBridgeFailureCode.INVALID_REQUEST
             )
-            try:
-                completion = session.processing_succeeded(
-                    result_sha256=result_sha256,
-                    idempotency_key=completion_key,
+        try:
+            draft = self._drafts.get(poc_id)
+            if (
+                draft.archive_state.value != "ACTIVE"
+                or draft.first_source_choice is not FirstSourceChoice.MEETING
+            ):
+                raise ValueError
+            processing_input = session.processing_input()
+        except (DraftPOCCreationError, ZoomSessionError, TypeError, ValueError):
+            raise ZoomProposalBridgeError(
+                ZoomProposalBridgeFailureCode.EXISTING_POC_UNAVAILABLE
+            ) from None
+        provenance = _provenance_from_input(processing_input)
+        segments = processing_input.segments_for_bridge()
+        source_text = _source_text(segments)
+        content_sha256 = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+        source_external_id = "zoom.rtms." + provenance.source_binding_sha256[:32]
+        source_key = _stable_key(_SOURCE_KEY_DOMAIN, session.snapshot().session_id)
+        completion_key = _stable_key(
+            _SESSION_COMPLETION_KEY_DOMAIN,
+            session.snapshot().session_id,
+        )
+        with self._lock:
+            return self._attach_and_complete(
+                session=session,
+                poc_id=poc_id,
+                provenance=provenance,
+                source_text=source_text,
+                content_sha256=content_sha256,
+                source_external_id=source_external_id,
+                source_key=source_key,
+                completion_key=completion_key,
+                idempotent_replay=False,
+            )
+
+    def _attach_and_complete(
+        self,
+        *,
+        session: ZoomSessionStateMachine,
+        poc_id: str,
+        provenance: ZoomSourceProvenance,
+        source_text: str,
+        content_sha256: str,
+        source_external_id: str,
+        source_key: str,
+        completion_key: str,
+        idempotent_replay: bool,
+    ) -> ZoomProposalBridgeResult:
+        try:
+            source_receipt = self._source_intake.capture_zoom_rtms_transcript(
+                poc_id=poc_id,
+                redacted_transcript_text=source_text,
+                expected_content_sha256=content_sha256,
+                source_external_id=source_external_id,
+                adapter_version=ZOOM_PROPOSAL_ADAPTER_VERSION,
+                idempotency_key=source_key,
+            )
+        except (POCSourceIntakeError, TypeError, ValueError):
+            raise ZoomProposalBridgeError(
+                ZoomProposalBridgeFailureCode.SOURCE_ATTACH_FAILED
+            ) from None
+        try:
+            proposals = tuple(
+                proposal
+                for proposal in self._source_intake.proposal_inputs(poc_id)
+                if proposal.source_receipt_id == source_receipt.source_receipt_id
+            )
+            assessments = tuple(
+                ZoomProposalAssessment(
+                    proposal_id=proposal.proposal_id,
+                    catalog_metric=_catalog_metric(proposal),
                 )
-            except ZoomSessionError:
-                raise ZoomProposalBridgeError(
-                    ZoomProposalBridgeFailureCode.COMPLETION_FAILED
-                ) from None
-            return result.model_copy(
-                update={
-                    "idempotent_replay": (
-                        result.idempotent_replay
-                        or completion.idempotent_replay
-                        or completion.duplicate_suppressed
-                    )
-                }
+                for proposal in proposals
             )
+        except (POCSourceIntakeError, TypeError, ValueError):
+            raise ZoomProposalBridgeError(
+                ZoomProposalBridgeFailureCode.PROPOSAL_PROJECTION_FAILED
+            ) from None
+        result = ZoomProposalBridgeResult(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt.source_receipt_id,
+            source_provenance=provenance,
+            proposals=proposals,
+            assessments=assessments,
+            proposal_count=len(proposals),
+            review_url=f"/app/pocs/{poc_id}/review",
+            idempotent_replay=(idempotent_replay or source_receipt.idempotent_replay),
+        )
+        result_sha256 = _digest(
+            _BRIDGE_DOMAIN,
+            result.model_dump(mode="json") | {"idempotent_replay": False},
+        )
+        try:
+            completion = session.processing_succeeded(
+                result_sha256=result_sha256,
+                idempotency_key=completion_key,
+            )
+        except ZoomSessionError:
+            raise ZoomProposalBridgeError(
+                ZoomProposalBridgeFailureCode.COMPLETION_FAILED
+            ) from None
+        return result.model_copy(
+            update={
+                "idempotent_replay": (
+                    result.idempotent_replay
+                    or completion.idempotent_replay
+                    or completion.duplicate_suppressed
+                )
+            }
+        )
 
 
 __all__ = [

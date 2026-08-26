@@ -12,6 +12,11 @@
     "meeting_synthetic_disclosure_v1";
   const MEETING_SESSION_MODE = "FIXED_SYNTHETIC_MEETING";
   const MEETING_SESSION_PROVIDER = "exitspec.synthetic";
+  const ZOOM_GUIDED_SCHEMA = "exitspec.zoom-guided-handoff/1.0";
+  const ZOOM_GUIDED_DISCLOSURE_ID = "zoom_rtms_local_handoff_v1";
+  const ZOOM_GUIDED_MODE = "ZOOM_RTMS_LOCAL_SYNTHETIC";
+  const ZOOM_GUIDED_PROVIDER = "ZOOM_RTMS";
+  const ZOOM_GUIDED_SESSION_ID_PATTERN = /^zoomsess_[a-f0-9]{64}$/;
   const MEETING_SESSION_STATE_ACTIONS = Object.freeze({
     SETUP: "RECORD_CONSENT",
     READY: "START_CAPTURE",
@@ -41,6 +46,20 @@
       "The synthetic meeting adapter stopped safely. Retry the same step.",
     MEETING_SESSION_FINALIZATION_FAILED:
       "The transcript did not reach human review. Retry the same draft step.",
+  });
+  const ZOOM_GUIDED_FAILURES = Object.freeze({
+    ZOOM_GUIDED_HANDOFF_CONSENT_REQUIRED:
+      "Review the local Zoom handoff notice before listening starts.",
+    ZOOM_GUIDED_HANDOFF_NOT_STARTED:
+      "Start the local Zoom handoff before stopping or processing it.",
+    ZOOM_GUIDED_HANDOFF_POC_UNAVAILABLE:
+      "This draft cannot accept a Zoom source. Return to the active POC.",
+    ZOOM_GUIDED_HANDOFF_WRONG_SOURCE:
+      "This POC did not choose Meeting as its starting source.",
+    ZOOM_SESSION_INVALID_TRANSITION:
+      "The Zoom handoff step is no longer current. Reload the active draft.",
+    ZOOM_SESSION_IDEMPOTENCY_CONFLICT:
+      "This Zoom handoff action conflicts with an earlier attempt. Reload the active draft.",
   });
   const STT_CAPTURE_ID_PATTERN = /^sttcap_[a-f0-9]{64}$/;
   const STT_OPERATION_ID_PATTERN = /^sttop_[a-f0-9]{64}$/;
@@ -124,6 +143,10 @@
   const meetingSessionCurrentApi = meetingSessionsApi
     ? `${meetingSessionsApi}/current`
     : null;
+  const zoomGuidedApi = pocApi ? `${pocApi}/zoom-handoff` : null;
+  const zoomGuidedDisclosureApi = pocApi
+    ? `${pocApi}/zoom-handoff-disclosure`
+    : null;
 
   const form = document.querySelector("#source-intake-form");
   const chooser = document.querySelector("#source-chooser");
@@ -142,6 +165,18 @@
   );
   const meetingSessionPanel = document.querySelector(
     "#meeting-session-panel"
+  );
+  const zoomGuidedPanel = document.querySelector("#meeting-zoom-panel");
+  const zoomGuidedStateBadge = document.querySelector(
+    "#zoom-guided-state-badge"
+  );
+  const zoomGuidedDisclosureCopy = document.querySelector(
+    "#zoom-guided-disclosure"
+  );
+  const zoomGuidedStatus = document.querySelector("#zoom-guided-status");
+  const zoomGuidedConsent = document.querySelector("#zoom-guided-consent");
+  const zoomGuidedSteps = Array.from(
+    document.querySelectorAll("[data-zoom-guided-step]")
   );
   const meetingPastePanel = document.querySelector("#meeting-paste-panel");
   const meetingRecordPanel = document.querySelector("#meeting-record-panel");
@@ -212,6 +247,14 @@
     CONSENT: null,
     START: null,
     DRAFT: null,
+  };
+  let zoomGuidedDisclosure = null;
+  let zoomGuidedHandoff = null;
+  let zoomGuidedUnavailable = false;
+  const zoomGuidedOperationKeys = {
+    start: null,
+    stop: null,
+    process: null,
   };
   let sttDisclosure = null;
   let sttUnavailable = false;
@@ -294,6 +337,8 @@
           value === sourcesApi ||
           value === sttDisclosureApi ||
           value === sttConsentsApi ||
+          value === zoomGuidedApi ||
+          value === zoomGuidedDisclosureApi ||
           value === meetingSessionsApi ||
           value === meetingSessionDisclosureApi ||
           value === meetingSessionCurrentApi ||
@@ -361,6 +406,13 @@
         MEETING_SESSION_FAILURES,
         payload.code
       )
+      ? payload.code
+      : null;
+  }
+
+  function trustedZoomGuidedFailure(payload) {
+    return hasExactKeys(payload, ["code", "error", "next_action"]) &&
+      Object.prototype.hasOwnProperty.call(ZOOM_GUIDED_FAILURES, payload.code)
       ? payload.code
       : null;
   }
@@ -550,6 +602,108 @@
       hasExactKeys(payload, ["idempotent_replay", "session"]) &&
         typeof payload.idempotent_replay === "boolean" &&
         isTrustedMeetingSession(payload.session)
+    );
+  }
+
+  function isTrustedZoomGuidedDisclosure(payload) {
+    return Boolean(
+      hasExactKeys(payload, [
+        "consent_required_before_capture",
+        "disclosure_id",
+        "live_network",
+        "may_assign_verdict",
+        "may_confirm_contract",
+        "may_freeze_contract",
+        "may_start_measurement",
+        "mode",
+        "notice",
+        "provider",
+        "provider_connected",
+        "raw_transcript_returned_to_browser",
+        "schema_version",
+        "source_authority",
+        "synthetic_only",
+        "transcript_only",
+      ]) &&
+        payload.schema_version === ZOOM_GUIDED_SCHEMA &&
+        payload.disclosure_id === ZOOM_GUIDED_DISCLOSURE_ID &&
+        payload.mode === ZOOM_GUIDED_MODE &&
+        payload.provider === ZOOM_GUIDED_PROVIDER &&
+        payload.provider_connected === false &&
+        payload.live_network === false &&
+        payload.synthetic_only === true &&
+        payload.transcript_only === true &&
+        payload.consent_required_before_capture === true &&
+        payload.raw_transcript_returned_to_browser === false &&
+        payload.source_authority === "UNTRUSTED_SOURCE_ONLY" &&
+        payload.may_confirm_contract === false &&
+        payload.may_freeze_contract === false &&
+        payload.may_start_measurement === false &&
+        payload.may_assign_verdict === false &&
+        isSafeBoundedText(payload.notice, 1200)
+    );
+  }
+
+  function isTrustedZoomGuidedHandoff(payload) {
+    return Boolean(
+      hasExactKeys(payload, [
+        "failure_code",
+        "live_connection",
+        "may_assign_verdict",
+        "may_confirm_contract",
+        "may_freeze_contract",
+        "may_start_measurement",
+        "next_action",
+        "poc_id",
+        "proposal_count",
+        "raw_transcript_returned_to_browser",
+        "review_state",
+        "review_url",
+        "schema_version",
+        "session_id",
+        "source_authority",
+        "source_provider",
+        "state",
+        "synthetic_only",
+      ]) &&
+        payload.schema_version === ZOOM_GUIDED_SCHEMA &&
+        payload.poc_id === pocId &&
+        (payload.session_id === null ||
+          ZOOM_GUIDED_SESSION_ID_PATTERN.test(payload.session_id)) &&
+        ["IDLE", "LISTENING", "PROCESSING", "DRAFT_READY", "FAILED"].includes(
+          payload.state
+        ) &&
+        [
+          "AUTHORIZE_AND_LISTEN",
+          "WAIT_FOR_STOP",
+          "PROCESS_TRANSCRIPT",
+          "OPEN_DRAFT",
+          "RESTART_HANDOFF",
+        ].includes(payload.next_action) &&
+        Number.isSafeInteger(payload.proposal_count) &&
+        payload.proposal_count >= 0 &&
+        payload.proposal_count <= 64 &&
+        ["NOT_STARTED", "NEEDS_REVIEW"].includes(payload.review_state) &&
+        (payload.review_url === null ||
+          payload.review_url === `/app/pocs/${pocId}/review`) &&
+        payload.source_provider === ZOOM_GUIDED_PROVIDER &&
+        payload.source_authority === "UNTRUSTED_SOURCE_ONLY" &&
+        payload.synthetic_only === true &&
+        payload.live_connection === false &&
+        payload.raw_transcript_returned_to_browser === false &&
+        payload.may_confirm_contract === false &&
+        payload.may_freeze_contract === false &&
+        payload.may_start_measurement === false &&
+        payload.may_assign_verdict === false &&
+        (payload.failure_code === null || isSafeBoundedText(payload.failure_code, 120))
+    );
+  }
+
+  function isTrustedZoomGuidedAction(payload) {
+    return Boolean(
+      hasExactKeys(payload, ["handoff", "idempotent_replay"]) &&
+        typeof payload.idempotent_replay === "boolean" &&
+        isTrustedZoomGuidedHandoff(payload.handoff)
     );
   }
 
@@ -879,7 +1033,8 @@
       const failurePayload = await response.json().catch(() => null);
       const failureCode =
         trustedSttProviderFailure(failurePayload) ||
-        trustedMeetingSessionFailure(failurePayload);
+        trustedMeetingSessionFailure(failurePayload) ||
+        trustedZoomGuidedFailure(failurePayload);
       throw new SafeRequestError(
         response.status,
         failureCode ? false : retrySameAttempt,
@@ -929,6 +1084,236 @@
     return meetingSessionConsentCheckboxes.every(
       (checkbox) => checkbox.checked
     );
+  }
+
+  function zoomGuidedOperationKey(action) {
+    if (!Object.prototype.hasOwnProperty.call(zoomGuidedOperationKeys, action)) {
+      return null;
+    }
+    if (!zoomGuidedOperationKeys[action]) {
+      zoomGuidedOperationKeys[action] = newScopedIdempotencyKey(
+        `zoom-guided-${action}`
+      );
+    }
+    return zoomGuidedOperationKeys[action];
+  }
+
+  function renderZoomGuidedControls() {
+    const active = selectedSource === "MEETING" && meetingMode === "ZOOM";
+    const state = zoomGuidedHandoff ? zoomGuidedHandoff.state : "IDLE";
+    const stepByState = { IDLE: 0, LISTENING: 0, PROCESSING: 1, DRAFT_READY: 2 };
+    const currentStep = stepByState[state] ?? 0;
+    zoomGuidedSteps.forEach((step, index) => {
+      const stepState =
+        index < currentStep
+          ? "complete"
+          : index === currentStep
+            ? "current"
+            : "upcoming";
+      step.dataset.state = stepState;
+      if (stepState === "current") {
+        step.setAttribute("aria-current", "step");
+      } else {
+        step.removeAttribute("aria-current");
+      }
+    });
+    const zoomGuidedConsentLabel = zoomGuidedConsent.closest("label");
+    if (zoomGuidedConsentLabel) {
+      zoomGuidedConsentLabel.hidden = state !== "IDLE";
+    }
+    zoomGuidedConsent.disabled =
+      !active || inFlight || zoomGuidedUnavailable || state !== "IDLE";
+    zoomGuidedStateBadge.dataset.state = "idle";
+    zoomGuidedStatus.dataset.state = "idle";
+    if (zoomGuidedUnavailable) {
+      zoomGuidedStateBadge.textContent = "Unavailable";
+      zoomGuidedStatus.dataset.state = "blocked";
+      zoomGuidedStatus.textContent =
+        "The local Zoom handoff boundary could not be validated. Use Paste transcript.";
+    } else if (state === "IDLE") {
+      zoomGuidedStateBadge.textContent = "Ready to listen";
+      zoomGuidedStatus.textContent = zoomGuidedConsent.checked
+        ? "Ready. Start listening to the fixed local RTMS transcript."
+        : "Review the notice before starting the local handoff.";
+    } else if (state === "LISTENING") {
+      zoomGuidedStateBadge.dataset.state = "live";
+      zoomGuidedStateBadge.textContent = "Listening";
+      zoomGuidedStatus.dataset.state = "live";
+      zoomGuidedStatus.textContent =
+        "Listening to the bounded synthetic RTMS stream. Stop when the meeting ends.";
+    } else if (state === "PROCESSING") {
+      zoomGuidedStateBadge.dataset.state = "ready";
+      zoomGuidedStateBadge.textContent = "Processing";
+      zoomGuidedStatus.dataset.state = "ready";
+      zoomGuidedStatus.textContent =
+        "Decoding and attaching the source through the existing proposal spine…";
+    } else if (state === "DRAFT_READY") {
+      zoomGuidedStateBadge.dataset.state = "draft";
+      zoomGuidedStateBadge.textContent = "Draft ready";
+      zoomGuidedStatus.dataset.state = "draft";
+      zoomGuidedStatus.textContent =
+        "One Zoom-sourced review draft is ready. Open it to edit the measurable requirements.";
+    } else {
+      zoomGuidedStateBadge.dataset.state = "blocked";
+      zoomGuidedStateBadge.textContent = "Needs restart";
+      zoomGuidedStatus.dataset.state = "blocked";
+      zoomGuidedStatus.textContent =
+        "The handoff failed safely. Reload the active draft before trying again.";
+    }
+    if (!active) {
+      return;
+    }
+    captureButton.hidden = false;
+    captureButton.disabled =
+      inFlight ||
+      zoomGuidedUnavailable ||
+      !zoomGuidedDisclosure ||
+      (state === "IDLE" && !zoomGuidedConsent.checked) ||
+      state === "PROCESSING" ||
+      state === "FAILED";
+    if (state === "IDLE") {
+      captureButton.textContent = inFlight ? "Starting…" : "Start listening";
+      status.textContent = inFlight
+        ? "Authorizing the local Zoom RTMS handoff…"
+        : "The handoff is synthetic-only and remains untrusted until human review.";
+    } else if (state === "LISTENING") {
+      captureButton.textContent = inFlight ? "Stopping…" : "Stop meeting";
+      status.textContent = inFlight
+        ? "Stopping the RTMS stream and preparing the bounded transcript…"
+        : "Stop when the meeting ends; processing begins next.";
+    } else if (state === "PROCESSING") {
+      captureButton.textContent = "Processing…";
+      status.textContent = "The normalized transcript is being attached to this draft.";
+    } else if (state === "DRAFT_READY") {
+      captureButton.textContent = "Open draft";
+      status.textContent = "The next action opens the review-only draft.";
+    } else {
+      captureButton.textContent = "Restart handoff";
+      status.textContent = "Reload the active draft to restart safely.";
+    }
+  }
+
+  async function loadZoomGuidedHandoff() {
+    try {
+      const disclosure = await requestJson(zoomGuidedDisclosureApi);
+      if (!isTrustedZoomGuidedDisclosure(disclosure)) {
+        throw new SafeRequestError(200, true);
+      }
+      zoomGuidedDisclosure = disclosure;
+      zoomGuidedDisclosureCopy.textContent = disclosure.notice;
+      const current = await requestJson(zoomGuidedApi);
+      if (!isTrustedZoomGuidedHandoff(current)) {
+        throw new SafeRequestError(200, true);
+      }
+      zoomGuidedHandoff = current;
+    } catch {
+      zoomGuidedDisclosure = null;
+      zoomGuidedHandoff = null;
+      zoomGuidedUnavailable = true;
+      zoomGuidedDisclosureCopy.textContent =
+        "The local Zoom handoff boundary could not be validated. Use Paste transcript instead.";
+    }
+    renderSelectedSource();
+  }
+
+  async function runZoomGuidedAction(action, body, expectedState) {
+    const response = await requestJson(zoomGuidedApi, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...body }),
+    });
+    if (
+      !isTrustedZoomGuidedAction(response) ||
+      response.handoff.state !== expectedState
+    ) {
+      throw new SafeRequestError(200, true);
+    }
+    zoomGuidedHandoff = response.handoff;
+    return response;
+  }
+
+  function safeZoomGuidedFailureCopy(error) {
+    if (
+      error instanceof SafeRequestError &&
+      error.failureCode &&
+      Object.prototype.hasOwnProperty.call(
+        ZOOM_GUIDED_FAILURES,
+        error.failureCode
+      )
+    ) {
+      return ZOOM_GUIDED_FAILURES[error.failureCode];
+    }
+    return "The Zoom handoff did not return a trusted result. Reload the active draft and try again.";
+  }
+
+  async function advanceZoomGuidedHandoff() {
+    if (
+      selectedSource !== "MEETING" ||
+      meetingMode !== "ZOOM" ||
+      inFlight ||
+      zoomGuidedUnavailable ||
+      !zoomGuidedDisclosure
+    ) {
+      return;
+    }
+    const state = zoomGuidedHandoff ? zoomGuidedHandoff.state : "IDLE";
+    if (state === "DRAFT_READY") {
+      renderSuccess(
+        { proposal_count: zoomGuidedHandoff.proposal_count },
+        { redirect: false, openLabel: "Open draft" }
+      );
+      return;
+    }
+    if (state === "IDLE" && !zoomGuidedConsent.checked) {
+      return;
+    }
+    inFlight = true;
+    clearError();
+    renderSelectedSource();
+    try {
+      if (state === "IDLE") {
+        await runZoomGuidedAction(
+          "start",
+          {
+            consent_acknowledged: true,
+            idempotency_key: zoomGuidedOperationKey("start"),
+          },
+          "LISTENING"
+        );
+      } else if (state === "LISTENING") {
+        await runZoomGuidedAction(
+          "stop",
+          { idempotency_key: zoomGuidedOperationKey("stop") },
+          "PROCESSING"
+        );
+        inFlight = false;
+        renderSelectedSource();
+        await new Promise((resolve) => window.setTimeout(resolve, 80));
+        inFlight = true;
+        await runZoomGuidedAction(
+          "process",
+          { idempotency_key: zoomGuidedOperationKey("process") },
+          "DRAFT_READY"
+        );
+      } else if (state === "PROCESSING") {
+        await runZoomGuidedAction(
+          "process",
+          { idempotency_key: zoomGuidedOperationKey("process") },
+          "DRAFT_READY"
+        );
+      }
+      if (zoomGuidedHandoff?.state === "DRAFT_READY") {
+        renderSelectedSource();
+      }
+    } catch (error) {
+      errorPanel.textContent = safeZoomGuidedFailureCopy(error);
+      errorPanel.hidden = false;
+    } finally {
+      inFlight = false;
+      if (!form.hidden) {
+        renderSelectedSource();
+      }
+    }
   }
 
   function supportsSyntheticRecording() {
@@ -1314,7 +1699,9 @@
     const maximum = sttDisclosure ? sttDisclosure.max_duration_ms : 8000;
     const minimum = sttDisclosure ? sttDisclosure.min_duration_ms : 250;
     const locked = inFlight || Boolean(pendingAttempt);
-    const sessionLocked = Boolean(meetingSession);
+    const sessionLocked =
+      Boolean(meetingSession) ||
+      Boolean(zoomGuidedHandoff && zoomGuidedHandoff.state !== "IDLE");
 
     meetingModeChooser.disabled =
       selectedSource !== "MEETING" || locked || recording || sessionLocked;
@@ -1323,7 +1710,9 @@
         meetingModeChooser.disabled ||
         (radio.value === "RECORD" && (!sttDisclosure || sttUnavailable)) ||
         (radio.value === "SESSION" &&
-          (!meetingSessionDisclosure || meetingSessionUnavailable));
+          (!meetingSessionDisclosure || meetingSessionUnavailable)) ||
+        (radio.value === "ZOOM" &&
+          (!zoomGuidedDisclosure || zoomGuidedUnavailable));
     });
     consentCheckboxes.forEach((checkbox) => {
       checkbox.disabled =
@@ -1374,10 +1763,12 @@
 
   function renderMeetingMode() {
     meetingSessionPanel.hidden = meetingMode !== "SESSION";
+    zoomGuidedPanel.hidden = meetingMode !== "ZOOM";
     meetingPastePanel.hidden = meetingMode !== "PASTE";
     meetingRecordPanel.hidden = meetingMode !== "RECORD";
     renderRecordingControls();
     renderMeetingSessionControls();
+    renderZoomGuidedControls();
   }
 
   async function loadSttDisclosure() {
@@ -1741,7 +2132,9 @@
   }
 
   function setControlsDisabled(disabled) {
-    const sessionLocked = Boolean(meetingSession);
+    const sessionLocked =
+      Boolean(meetingSession) ||
+      Boolean(zoomGuidedHandoff && zoomGuidedHandoff.state !== "IDLE");
     chooser.disabled = disabled;
     if (sessionLocked) {
       chooser.disabled = true;
@@ -1761,6 +2154,8 @@
   function renderSelectedSource() {
     const sessionPath =
       selectedSource === "MEETING" && meetingMode === "SESSION";
+    const zoomPath =
+      selectedSource === "MEETING" && meetingMode === "ZOOM";
     const recordingPath =
       selectedSource === "MEETING" && meetingMode === "RECORD";
     const recording = isRecording();
@@ -1784,6 +2179,11 @@
 
     if (sessionPath) {
       renderMeetingSessionControls();
+      return;
+    }
+
+    if (zoomPath) {
+      renderZoomGuidedControls();
       return;
     }
 
@@ -1841,9 +2241,11 @@
     meetingSessionConsentCheckboxes.forEach((checkbox) => {
       checkbox.checked = false;
     });
+    zoomGuidedConsent.checked = false;
   }
 
-  function renderSuccess(payload) {
+  function renderSuccess(payload, options) {
+    options = options || {};
     const destination = `/app/pocs/${encodeURIComponent(pocId)}/review`;
     clearSensitiveInputs();
     pendingAttempt = null;
@@ -1859,6 +2261,7 @@
     document.querySelector("#review-state").textContent = "NEEDS_REVIEW";
     const reviewProposals = document.querySelector("#review-proposals");
     reviewProposals.setAttribute("href", destination);
+    reviewProposals.textContent = options.openLabel || "Review proposals";
     reviewProposals.hidden = false;
     const addAnotherSource = document.querySelector("#add-another-source");
     addAnotherSource.setAttribute(
@@ -1867,10 +2270,12 @@
     );
     addAnotherSource.hidden = false;
     resultPanel.focus();
-    try {
-      window.location.replace(destination);
-    } catch {
-      // The verified fallback panel remains available if navigation is blocked.
+    if (options.redirect !== false) {
+      try {
+        window.location.replace(destination);
+      } catch {
+        // The verified fallback panel remains available if navigation is blocked.
+      }
     }
   }
 
@@ -1931,6 +2336,8 @@
         sourceInputs[selectedSource].focus();
       } else if (selectedSource === "MEETING" && meetingMode === "SESSION") {
         meetingSessionNoticeAck.focus();
+      } else if (selectedSource === "MEETING" && meetingMode === "ZOOM") {
+        zoomGuidedConsent.focus();
       } else {
         document.querySelector("#record-demo-heading").focus?.();
       }
@@ -1950,6 +2357,8 @@
         sourceInputs.MEETING.focus();
       } else if (meetingMode === "SESSION") {
         meetingSessionNoticeAck.focus();
+      } else if (meetingMode === "ZOOM") {
+        zoomGuidedConsent.focus();
       } else {
         recordingNoticeAck.focus();
       }
@@ -1972,6 +2381,13 @@
         renderSelectedSource();
       }
     });
+  });
+
+  zoomGuidedConsent.addEventListener("change", () => {
+    if (!inFlight && meetingMode === "ZOOM") {
+      clearError();
+      renderSelectedSource();
+    }
   });
 
   startRecordingButton.addEventListener("click", beginRecording);
@@ -2000,6 +2416,11 @@
 
     if (selectedSource === "MEETING" && meetingMode === "SESSION") {
       await advanceMeetingSession();
+      return;
+    }
+
+    if (selectedSource === "MEETING" && meetingMode === "ZOOM") {
+      await advanceZoomGuidedHandoff();
       return;
     }
 
@@ -2077,7 +2498,9 @@
       !sttApi ||
       !meetingSessionsApi ||
       !meetingSessionDisclosureApi ||
-      !meetingSessionCurrentApi
+      !meetingSessionCurrentApi ||
+      !zoomGuidedApi ||
+      !zoomGuidedDisclosureApi
     ) {
       blockIntake(
         "This source-intake address is invalid. Return to the POC workspace."
@@ -2094,11 +2517,18 @@
       }
       applyDraft(draft, sourceList);
       if (preferredSource === "MEETING") {
-        await Promise.all([loadSttDisclosure(), loadMeetingSession()]);
+        await Promise.all([
+          loadSttDisclosure(),
+          loadMeetingSession(),
+          loadZoomGuidedHandoff(),
+        ]);
       } else {
         meetingSessionUnavailable = true;
         meetingSessionDisclosureCopy.textContent =
           "Guided sessions require Meeting as the POC starting source. Paste a transcript instead.";
+        zoomGuidedUnavailable = true;
+        zoomGuidedDisclosureCopy.textContent =
+          "Guided Zoom handoffs require Meeting as the POC starting source. Paste a transcript instead.";
         await loadSttDisclosure();
         renderSelectedSource();
       }
