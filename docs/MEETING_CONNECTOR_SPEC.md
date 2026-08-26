@@ -15,8 +15,13 @@ neither one grants downstream product authority.
 
 The bounded transcript packet boundary is defined in
 [ZOOM_RTMS_DECODER_SPEC.md](ZOOM_RTMS_DECODER_SPEC.md). It is limited to the
-reviewed synthetic envelope and is not a claim that the current incomplete
+pinned synthetic envelope and is not a claim that the current incomplete
 private capture is a golden fixture.
+
+The bounded session lifecycle is defined in
+[ZOOM_SESSION_STATE_SPEC.md](ZOOM_SESSION_STATE_SPEC.md). It coordinates one
+decoded session locally, finalizes once on stop, and exposes no downstream
+authority.
 
 The first platform integration will use **Zoom Realtime Media Streams (RTMS),
 transcript only**, for an explicitly synthetic meeting with consenting test
@@ -410,29 +415,33 @@ authority.
 5. **Bounded RTMS transcript decoder (implemented):** versioned synthetic
    vectors, strict limits, explicit pseudonyms, digest-only provenance, and
    review-only normalized segments; no raw-capture reader or network authority.
-6. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
+6. **Meeting session state machine (implemented):** bounded
+   STARTING/LISTENING/INTERRUPTED/RECONNECTING/PROCESSING/DRAFT_READY/FAILED
+   lifecycle, packet-digest duplicate suppression, one-time stop finalization,
+   and private crash recovery; no proposal authority.
+7. **Golden-fixture mapper:** after the fixture gate, raw Zoom packets map into
    the provider-neutral contract using the pinned fixture; fake transport only.
-7. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
+8. **Zoom webhook and RTMS transport:** secrets remain server-owned; the HTTP
    signing-input extraction, OAuth, REST start/stop, handshakes, reconnect, and
    shutdown fail closed.
-8. **Source bridge (implemented):** sealer-minted transcript windows enter the
+9. **Source bridge (implemented):** sealer-minted transcript windows enter the
    existing redacted `MEETING` source and proposal-review path with stable
    stream identity, exact replay, changed-content conflict, neutral labels, and
    content-free provenance. It has no route or inbox-deletion authority.
-9. **Synthetic source orchestration (implemented):** recover and independently
+10. **Synthetic source orchestration (implemented):** recover and independently
    revalidate the durable inbox, recheck current consent while sealing, invoke
    the source bridge, and return one digest-bound zero-authority result. This is
    process-local coordination, not the live Zoom transport or a cross-process
    exactly-once claim.
-10. **Guided meeting-session API (implemented, synthetic only):** a
+11. **Guided meeting-session API (implemented, synthetic only):** a
    provider-neutral server-owned adapter seam, disclosure, consent, start,
    draft-now, content-free recovery, exact replay, and existing review-queue
    handoff with no Zoom connection claim.
-11. **Guided product UI (implemented, synthetic only):** the existing meeting
+12. **Guided product UI (implemented, synthetic only):** the existing meeting
     source offers one finite consent, start, draft-now, and safe-recovery flow,
     then hands off to human proposal review without changing the product spine.
-12. **Synthetic live E2E and hardening:** one real Zoom meeting with two
-   consenting synthetic participants completes the existing ExitSpec demo loop.
+13. **Synthetic live E2E and hardening:** one real Zoom meeting with two
+    consenting synthetic participants completes the existing ExitSpec demo loop.
 
 ## Exit gate for the complete Zoom train
 
