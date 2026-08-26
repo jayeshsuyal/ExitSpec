@@ -372,7 +372,10 @@ RTMS lifecycle events, complete process-memory OAuth, request transcript-only
 RTMS, and preserve bounded opaque observations only after a compatible private
 preflight workspace and four explicit live gates are present. It cannot create
 an ExitSpec source or product decision. A sanitized repository fixture remains
-pending; the existing private diagnostic capture is not a golden fixture.
+pending; the existing private diagnostic capture is not a golden fixture. The
+privacy-reviewed fixture pipeline now requires explicit consent, enum-only
+minimization, and a second-person review before any generated fixture can be
+written.
 
 ExitSpec does not yet provide hosted identity, durable confirmation storage,
 multi-tenant authorization, generic metric execution, production deployment

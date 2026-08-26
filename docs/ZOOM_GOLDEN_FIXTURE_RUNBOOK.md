@@ -239,6 +239,12 @@ inventory, or identity drift fails closed.
 
 ## 5. Complete the privacy review
 
+The executable consent/minimization/second-review process is specified in
+[`ZOOM_PRIVACY_FIXTURE_PIPELINE_SPEC.md`](ZOOM_PRIVACY_FIXTURE_PIPELINE_SPEC.md).
+Do not open the private original until an explicit
+`exitspec.zoom-rtms-raw-review-consent.v1` receipt binds the exact capture and
+custody manifest. A content-free custody manifest alone is not consent.
+
 Inspect the private original in an isolated operator environment. Never copy
 it into a Git worktree, issue, PR, chat, log, or public artifact.
 
@@ -274,6 +280,10 @@ The review must explicitly preserve these facts:
 The immutable public-shaped receipt hashes the reviewer label instead of
 exposing it. A different second review conflicts; it cannot silently replace
 the first.
+
+The PR 2 pipeline accepts only enum-valued observations and payload digests
+after this gate. It has no raw-capture reader and therefore cannot be used to
+bypass the consent boundary.
 
 ## 6. Golden-fixture decision
 
