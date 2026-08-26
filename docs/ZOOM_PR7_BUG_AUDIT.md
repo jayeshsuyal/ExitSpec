@@ -1,6 +1,10 @@
 # PR7 adversarial bug audit
 
-Status: pre-merge audit completed for the local synthetic path. No new product-severity finding remains open.
+Status: pre-merge audit completed for the local synthetic path. The separate
+post-merge holistic audit is recorded in
+[`ZOOM_RELEASE_AUDIT.md`](ZOOM_RELEASE_AUDIT.md). No P0/P1/P2 product finding
+remains open; the holistic audit found and fixed one vulnerable pytest dev
+dependency range on the audit branch.
 
 ## Finding log
 
