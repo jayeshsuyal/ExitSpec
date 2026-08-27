@@ -471,11 +471,227 @@ class InferencePerformanceCriterionV3(FrozenExitSpecModel):
         return self
 
 
+class ProspectiveCanonicalizationBindingV1(FrozenExitSpecModel):
+    """Pinned serialization, hashing, and producer-link derivation rules."""
+
+    canonicalization_scheme_id: Literal["rfc8785_jcs_v1"]
+    canonical_bytes_encoding: Literal["utf-8_rfc8785_jcs"]
+    hash_algorithm_id: Literal["sha256_v1"]
+    hash_encoding_id: Literal["lowercase_hex_without_prefix"]
+    link_derivation_policy_id: Literal[
+        "exitspec.producer_link.sha256_canonical_hash.v1"
+    ]
+    link_derivation_input: Literal["bare_canonical_hash"]
+    link_derivation_operation: Literal["prefix_sha256_no_second_hash"]
+
+
+class ProspectiveTrafficPolicyV1(FrozenExitSpecModel):
+    """The fixed run-independent traffic identity for Inferdrome P1."""
+
+    schema_version: Literal["exitspec.inferdrome-traffic.v1"]
+    policy_id: Literal["inferdrome.concurrent.vllm.v1"]
+    kind: Literal["concurrent"]
+    configured_concurrency: Literal[4]
+    warmup_requests: Literal[10]
+    measured_requests: Literal[100]
+
+
+class ProspectiveSamplingPolicyV1(FrozenExitSpecModel):
+    """The fixed deterministic sampling identity for Inferdrome P1."""
+
+    schema_version: Literal["exitspec.inferdrome-sampling.v1"]
+    policy_id: Literal["inferdrome.qwen2.5-deterministic.v1"]
+    prompt_content_policy: Literal["include"]
+    requested_output_tokens: Literal[32]
+    temperature: Literal[0]
+    seed: Literal[42]
+
+
+class ProspectiveReliabilityPopulationV1(FrozenExitSpecModel):
+    """The existing strict reliability population, repeated additively."""
+
+    schema_version: Literal["exitspec.inferdrome-reliability-population.v1"]
+    population_id: Literal["exitspec.inferdrome-reliability.v1"]
+    operator: Literal["lt"]
+    threshold_basis_points: Literal[100]
+    numerator: Literal["failed_or_anomalous_native_measured_requests"]
+    denominator: Literal["all_measured_requests"]
+    exact_attempts: Literal[100]
+
+
+class InferdromeEvidenceIdentityV2(FrozenExitSpecModel):
+    """Run-independent managed evidence identity for prospective handoff.
+
+    This identity intentionally has no request-plan, bundle, observed
+    measurement, observed run identity, or producer-link value.  The producer link is derived only after the
+    customer-confirmed contract has been frozen.
+    """
+
+    schema_version: Literal["exitspec.inferdrome-evidence-identity.v2"]
+    case_id: Literal[
+        "native-p95-under-20ms",
+        "native-p95-under-10ms",
+        "semantic-first-nonempty-under-20ms",
+    ]
+    evidence_schema_version: Literal["inferdrome.evidence.v1"]
+    sequence_requirement: Literal["OPERATOR_MUST_FREEZE_BEFORE_MEASUREMENT"]
+    chronology_assurance: Literal["UNAVAILABLE"]
+    producer_name: Literal["vllm"]
+    producer_version: Literal["0.26.0"]
+    adapter_id: Literal["vllm_bench_serve"]
+    adapter_version: Literal["1.0.0"]
+    native_schema_fingerprint: Literal[
+        "sha256:3a4fdee6fe9b45ce5b42c41fd3bfc6614245a36ecfe6f94de92b59717a136abb"
+    ]
+    managed_profile_id: Literal["inferdrome.managed-vllm-0.26-evidence-profile.v1"]
+    managed_profile_sha256: Literal[
+        "sha256:9d03b5d0822ed829ddbfa4c87c75530885b9ad51ee2c0cb7c5e31a075996fe34"
+    ]
+    local_gpu_proof_schema_id: Literal["urn:inferdrome:local-gpu-proof:v1"]
+    local_gpu_proof_schema_sha256: Literal[
+        "sha256:cf83bbdea2bba4c30b8f0e2c5f34f34a4077501207881fdbdab021571d665547"
+    ]
+    target_engine: Literal["vllm"]
+    target_engine_version: Literal["0.26.0"]
+    target_api: Literal["openai_chat_completions"]
+    target_model: Literal["Qwen/Qwen2.5-0.5B-Instruct"]
+    target_model_revision: Literal["7ae557604adf67be50417f59c2c2f167def9a775"]
+    target_tokenizer_revision: Literal["7ae557604adf67be50417f59c2c2f167def9a775"]
+    target_endpoint: Literal["http://127.0.0.1:18080/"]
+    workload_id: Literal["inferdrome.qwen2.5-real-gpu-workload.v1"]
+    workload_digest: Literal[
+        "sha256:22bf3389cc29ee946ae567870d7f8d7b458594224542a796e8990c15b1cfcd63"
+    ]
+    source_schema_version: Literal["inferdrome.source-experiment.v1"]
+    traffic: ProspectiveTrafficPolicyV1
+    sampling: ProspectiveSamplingPolicyV1
+    execution_mode: Literal["attached_endpoint"]
+    max_runtime_seconds: Literal[900]
+    max_measured_requests: Literal[100]
+    measurement_streaming: Literal[True]
+    produced_evidence_metric_definition_id: Literal["vllm_first_choices_event_v0_26"]
+    choices_span_definition_id: Literal["last_choices_event_span_v1"]
+    metric_definitions_version: Literal["1.0.0"]
+    reducer_version: Literal["1.0.0"]
+    native_output_sensitivity: Literal["RESPONSE_CONTENT"]
+    canonical_response_content: Literal["omit"]
+    include_request_plan: Literal[True]
+    expected_execution_fingerprint: Literal[
+        "sha256:76d984ea57a0e7cb00520255a6e362f22885d713a875195a7397771937060edd"
+    ]
+    requested_criterion_metric_definition_id: Literal[
+        "vllm_first_choices_event_v0_26",
+        "first_nonempty_choices_delta_content_v1",
+    ]
+    run_aggregation_policy: Literal["independent_single_run_no_pooling"]
+    reducer_id: Literal["nearest_rank_v1"]
+    latency_population: Literal["successful_measured_requests_with_observed_ttft"]
+    reliability_population: ProspectiveReliabilityPopulationV1
+    claims_assurance: Literal["INTERNAL_CONSISTENCY_ONLY"]
+    canonicalization: ProspectiveCanonicalizationBindingV1
+
+    @model_validator(mode="after")
+    def require_case_metric_pairing(self) -> "InferdromeEvidenceIdentityV2":
+        expected_metric = {
+            "native-p95-under-20ms": "vllm_first_choices_event_v0_26",
+            "native-p95-under-10ms": "vllm_first_choices_event_v0_26",
+            "semantic-first-nonempty-under-20ms": (
+                "first_nonempty_choices_delta_content_v1"
+            ),
+        }[self.case_id]
+        if self.requested_criterion_metric_definition_id != expected_metric:
+            raise ValueError("Prospective case and metric definition disagree.")
+        return self
+
+
+class ProspectiveTTFTP95RuleV2(FrozenExitSpecModel):
+    """Versioned prospective TTFT semantics with strict integer thresholds."""
+
+    schema_version: Literal["exitspec.inferdrome-ttft-p95.v2"]
+    metric: Literal["time_to_first_token"]
+    definition_id: Literal[
+        "vllm_first_choices_event_v0_26",
+        "first_nonempty_choices_delta_content_v1",
+    ]
+    aggregation: Literal["p95"]
+    unit: Literal["nanoseconds"]
+    operator: Literal["lt"]
+    threshold_ns: Literal[10_000_000, 20_000_000]
+    reducer_id: Literal["nearest_rank_v1"]
+    population: Literal["successful_measured_requests_with_observed_ttft"]
+    minimum_successful_samples: Literal[100]
+    equality_outcome: Literal["FAIL"]
+    must_pass: Literal[True]
+
+
+class InferencePerformanceCriterionV4(FrozenExitSpecModel):
+    """Customer-confirmed, run-independent prospective Inferdrome criterion."""
+
+    criterion_type: Literal["inference_performance_v4"]
+    id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
+    title: str = Field(min_length=1)
+    must_have: Literal[True] = True
+    source: Optional[SourceReference] = None
+    human_added: bool = False
+    normalized_claim: str = Field(min_length=1)
+    case_id: Literal[
+        "native-p95-under-20ms",
+        "native-p95-under-10ms",
+        "semantic-first-nonempty-under-20ms",
+    ]
+    ttft_p95: ProspectiveTTFTP95RuleV2
+    error_rate: ExternalErrorRateRuleV1
+    evidence_identity: InferdromeEvidenceIdentityV2
+    concurrency_semantics: Literal[
+        "configured_maximum_concurrency_not_observed_overlap"
+    ]
+    owner: str = Field(min_length=1)
+    evidence_policy: str = Field(min_length=1)
+    approved: bool = False
+
+    @model_validator(mode="after")
+    def require_run_independent_exact_case(self) -> "InferencePerformanceCriterionV4":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A criterion needs a source reference or must be explicitly human-added."
+            )
+        if self.case_id != self.evidence_identity.case_id:
+            raise ValueError("Prospective criterion and evidence identity disagree.")
+        expected = {
+            "native-p95-under-20ms": (
+                "vllm_first_choices_event_v0_26",
+                20_000_000,
+            ),
+            "native-p95-under-10ms": (
+                "vllm_first_choices_event_v0_26",
+                10_000_000,
+            ),
+            "semantic-first-nonempty-under-20ms": (
+                "first_nonempty_choices_delta_content_v1",
+                20_000_000,
+            ),
+        }[self.case_id]
+        if (
+            self.ttft_p95.definition_id,
+            self.ttft_p95.threshold_ns,
+        ) != expected:
+            raise ValueError("Prospective case metric or threshold is invalid.")
+        if (
+            self.error_rate.threshold_basis_points != 100
+            or self.error_rate.exact_attempts != 100
+        ):
+            raise ValueError(
+                "Prospective reliability must retain the exact strict 1% rule."
+            )
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
     InferencePerformanceCriterionV2,
     InferencePerformanceCriterionV3,
+    InferencePerformanceCriterionV4,
 ]
 
 
