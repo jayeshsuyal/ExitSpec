@@ -8,6 +8,13 @@ support-tool-selection proportion rule over a fixed 200-case synthetic fixture.
 Wave 2 adds a bounded synthetic-email source path to that slice; it does not add
 a mailbox integration or another measurement type.
 
+The locked Train A convergence target is defined in the
+[Golden Loop Contract](GOLDEN_LOOP_CONTRACT.md) and its
+[machine-readable acceptance matrix](../examples/product/request-to-proof-acceptance-v1.json).
+That contract is the implementation-independent constitution for Train A slices
+A2–A7 of the Request → Proof release train; the current seeded and source-specific
+compositions remain explicitly characterized gaps until those PRs land.
+
 ```text
 employee-selected manifest-approved synthetic email
         |
