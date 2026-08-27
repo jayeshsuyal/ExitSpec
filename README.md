@@ -28,6 +28,12 @@ Engineering changes follow the
 decision, one binary exit gate, adversarial verification, and inspectable
 evidence.
 
+Train A’s v0.3 work is governed by the
+[Golden Loop Contract](docs/GOLDEN_LOOP_CONTRACT.md) and its
+[machine-readable acceptance matrix](examples/product/request-to-proof-acceptance-v1.json).
+The contract records the source-agnostic Request → Proof constitution, current
+characterization boundary, and ownership of gaps for PRs #2–#7.
+
 ## What the current product does
 
 The local browser product implements one guided **Define → Confirm → Prove**
