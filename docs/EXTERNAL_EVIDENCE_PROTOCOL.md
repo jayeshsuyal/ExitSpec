@@ -21,6 +21,12 @@ API specification. The bounded implementation is documented separately in
 [`INFERDROME_IMPORT.md`](INFERDROME_IMPORT.md). It does not change an existing
 frozen customer contract or authorize arbitrary external bundles.
 
+The prospective managed-Inferdrome handshake is documented separately in
+[`INFERDROME_PROSPECTIVE_HANDOFF.md`](INFERDROME_PROSPECTIVE_HANDOFF.md). P1 is
+the pre-capture contract-confirmation and source handoff only; P2 remains
+deferred until the three prospective bundles exist for separate admission and
+verification.
+
 ## Implementation amendment: bounded Inferdrome v1 importer
 
 The first importer gate is satisfied only for the exact synthetic capability
