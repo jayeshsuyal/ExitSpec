@@ -5,16 +5,21 @@
   "status": "FROZEN_FOR_TRAIN",
   "release_train": "A",
   "release_target": "v0.3.0",
-  "decision": "A source-agnostic Request -> Proof spine is the release constitution for PRs #2 through #7. Source input and provider output are untrusted proposal material; only explicit human review, exact customer confirmation, frozen contract policy, and independent ExitSpec verification may advance the chain.",
-  "pr_1_statement": "PR #1 makes the constitution and its executable characterization boundary inspectable. It does not claim that the complete v0.3 release statement is implemented.",
+  "decision": "A source-agnostic Request -> Proof spine is the release constitution for Train A slices A2 through A7. Source input and provider output are untrusted proposal material; only explicit human review, exact customer confirmation, frozen contract policy, and independent ExitSpec verification may advance the chain.",
+  "a1_statement": "Train A slice A1 makes the constitution and its executable characterization boundary inspectable. It does not claim that the complete v0.3 release statement is implemented.",
   "source_model": {
     "stable_product_object": "POC",
     "source_types": [
       "email",
       "meeting_transcript",
-      "note",
       "document",
       "existing_contract"
+    ],
+    "domain_source_kinds": [
+      "EMAIL",
+      "MEETING",
+      "DOCUMENT",
+      "EXISTING_CONTRACT"
     ],
     "human_added_is_source_type": false,
     "source_is_authority": false,
@@ -25,8 +30,42 @@
     "source_may_issue_evidence": false,
     "source_may_issue_verdict": false,
     "new_source_default": "source-linked NEEDS_REVIEW candidates",
-    "notes_compatibility": "The current browser maps Notes or document to the existing DOCUMENT source boundary until a distinct note vocabulary is introduced by a versioned contract."
+    "input_aliases": {
+      "notes": "DOCUMENT"
+    },
+    "notes_compatibility": "Notes is a UI/input alias for the existing DOCUMENT SourceKind; it is not an independent domain source type in v0.3."
   },
+  "run_statuses": [
+    "QUEUED",
+    "VALIDATING",
+    "RUNNING",
+    "AGGREGATING",
+    "COMPLETED",
+    "BLOCKED",
+    "FAILED_INTERNAL",
+    "CANCELLED"
+  ],
+  "evidence_presentation_states": [
+    "NOT_RUN",
+    "PASS",
+    "FAIL",
+    "BLOCKED",
+    "NOT_PROVEN"
+  ],
+  "ingestion_dispositions": [
+    "ADMITTED",
+    "INGESTION_REJECTED"
+  ],
+  "acceptance_verdicts": [
+    "PASS",
+    "FAIL",
+    "BLOCKED",
+    "NOT_PROVEN"
+  ],
+  "claim_scopes": [
+    "MUST_HAVE",
+    "ADVISORY"
+  ],
   "capability_outcomes": [
     "EXECUTABLE",
     "EVIDENCE_IMPORT",
@@ -40,28 +79,42 @@
     "FROZEN",
     "SUPERSEDED"
   ],
-  "evidence_states": [
-    "NOT_RUN",
-    "RUNNING",
-    "PASS",
-    "FAIL",
-    "BLOCKED",
-    "NOT_PROVEN"
-  ],
+  "mixed_claim_policy": {
+    "retained_claim_visibility": "Every retained claim remains visible with exactly one planner disposition and exactly one scope: MUST_HAVE or ADVISORY.",
+    "clarification_required_must_have": "CLARIFICATION_REQUIRED on a MUST_HAVE claim blocks customer-ready confirmation and freeze until resolved or explicitly excluded by a new reviewed version.",
+    "unsupported_claim": "UNSUPPORTED claims cannot enter an executable criterion; they remain visible as excluded or unproven limitations with rationale and cannot be hidden by PASS on supported criteria.",
+    "overall_acceptance_reduction": {
+      "all_frozen_must_have_pass": "PASS",
+      "any_must_have_fail": "FAIL",
+      "absent_or_insufficient_supported_evidence": "NOT_PROVEN",
+      "external_operational_blocker": "BLOCKED"
+    },
+    "a1_is_policy_only": true,
+    "implementation_owner": "A6"
+  },
+  "state_model": {
+    "run_status": "RunStatus/operation state only. RUNNING describes an in-flight operation and is never an evidence presentation state or acceptance verdict.",
+    "evidence_presentation": "Workspace/presentation state only: NOT_RUN or one of the terminal acceptance verdict values. It does not add a verdict value.",
+    "ingestion_disposition": "External-evidence trust-boundary outcome: ADMITTED reaches acceptance evaluation; INGESTION_REJECTED means invalid, corrupt, unsafe, unsupported, or incompatible evidence with no acceptance verdict.",
+    "acceptance_verdict": "ExitSpec's independent acceptance result, exactly PASS, FAIL, BLOCKED, or NOT_PROVEN. A valid recognized profile that is insufficient or inapplicable is admitted and may become NOT_PROVEN."
+  },
   "authority": {
     "source_and_provider": "May normalize bounded material and propose source-linked facts; all output remains untrusted proposal material.",
     "internal_human": "May review, retain, reject, or correct a proposal and define a criterion with rationale.",
     "customer": "May confirm the exact visible agreement version or request changes.",
     "contract_service": "May validate lifecycle invariants and freeze only the exactly confirmed contract.",
-    "approved_adapter": "May execute an approved plan or import evidence and return typed facts, artifacts, and provenance.",
-    "exitspec_verifier": "May independently validate evidence and calculate the typed acceptance verdict.",
-    "deployment": "Remains outside ExitSpec; PASS is not production, procurement, spend, traffic, or security authorization."
+    "approved_adapter": "May execute an approved plan or import evidence and return typed facts, artifacts, and declared provenance.",
+    "exitspec_verifier": "May independently validate evidence, enforce declared provenance and integrity bindings, and calculate the typed acceptance verdict.",
+    "deployment": "Remains outside ExitSpec; PASS is not production, procurement, spend, traffic, or security authorization.",
+    "identity_assurance": "Process-local reviewer and confirmer labels establish the recorded decision boundary only; they are not authenticated person or organization identity proof. Hosted identity is outside v0.3."
   },
   "fail_closed_rules": [
     "Malformed, oversized, unredacted, unanchored, conflicting, stale, or unavailable source material does not create an accepted source or silently disappear.",
     "Unknown provider fields, authority-bearing provider output, provider errors, and source-instruction text cannot advance lifecycle state.",
     "Unsupported or ambiguous claims remain visible as clarification-required or unsupported; they are never invented as executable criteria.",
     "A missing, invalid, stale, tampered, insufficient, or producer-only verdict is not PASS.",
+    "External evidence that is invalid, corrupt, unsafe, unsupported, or incompatible is INGESTION_REJECTED with no acceptance verdict; it is not relabeled NOT_PROVEN.",
+    "A valid recognized external evidence profile that is insufficient or inapplicable is admitted for acceptance evaluation and may become NOT_PROVEN; it is never substituted into a different criterion.",
     "A request change creates a successor version; it never mutates the prior agreement, decision, freeze, run, or pack.",
     "A producer-generated verdict is evidence input only and is never accepted as ExitSpec's verdict."
   ],
@@ -73,30 +126,30 @@
       "observable": "The source and later agreement/proof records retain the same POC identity, while exact replay is idempotent.",
       "failure_outcome": "Duplicate or conflicting identity fails without a second object or cross-POC write.",
       "authority_boundary": "POC creation and source attachment",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_poc_creation.py::test_first_source_choice_only_selects_the_next_intake_route",
         "tests/test_poc_source_intake.py::test_same_source_isolated_beneath_two_pocs_and_key_reuse_cannot_cross"
       ],
-      "target_pr": "PR #2",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A2",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
       "id": "GL-02",
       "stage": "source_intake",
-      "statement": "Email, notes, meeting, document, and existing-contract input are bounded, normalized, redacted where applicable, and provenance-bound before candidate projection.",
-      "observable": "Each accepted source has a safe receipt, content binding, source identity, and source-linked candidate quotes.",
+      "statement": "Email, notes-as-DOCUMENT, meeting, document, and existing-contract input are bounded, normalized, redacted where applicable, and bound to declared provenance before candidate projection.",
+      "observable": "Each accepted source has a safe receipt, content binding, source identity, declared provenance, and source-linked candidate quotes.",
       "failure_outcome": "Unsafe, malformed, oversized, or unavailable input makes no source write and exposes a bounded next action.",
       "authority_boundary": "Source adapter",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_poc_source_intake.py::test_pasted_email_is_redacted_and_creates_review_only_proposals",
         "tests/test_poc_source_intake.py::test_meeting_is_redacted_parsed_and_deterministically_anchored",
-        "tests/test_poc_source_intake.py::test_frozen_contract_digest_is_validated_then_lifecycle_authority_is_discarded"
+        "tests/test_poc_source_intake.py::test_meeting_refuses_malformed_or_oversized_input_without_a_write"
       ],
-      "target_pr": "PR #2",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A2",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -106,13 +159,13 @@
       "observable": "Provider or local authoring output is locally validated, exactly anchored to safe source content, and remains NEEDS_REVIEW.",
       "failure_outcome": "Unknown fields, authority fields, source mismatches, or provider failures are rejected or reduced to a safe typed error.",
       "authority_boundary": "Provider or authoring adapter",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "covered",
+      "a1_baseline_coverage": [
         "tests/test_assisted_authoring.py::test_happy_batch_is_redaction_first_source_exact_and_review_only",
         "tests/test_assisted_authoring.py::test_provider_schema_rejects_every_authority_field_before_typed_conversion"
       ],
-      "target_pr": "PR #3",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A3",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -122,59 +175,62 @@
       "observable": "No candidate disappears between intake and planning; each classification has a reason and a next action.",
       "failure_outcome": "Ambiguous or unsupported claims remain visible and cannot enter an executable plan.",
       "authority_boundary": "Capability planner",
-      "current_status": "characterized_gap",
-      "current_coverage": [
-        "tests/test_golden_loop_characterization.py::test_current_source_spine_converges_email_notes_and_meeting_to_review_only_candidates"
+      "a1_baseline_status": "characterized_gap",
+      "a1_baseline_coverage": [
+        "tests/test_golden_loop_characterization.py::test_current_capability_planning_gap_is_explicit"
       ],
-      "target_pr": "PR #4",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A4",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
       "id": "GL-05",
       "stage": "human_review",
-      "statement": "Human review is the only proposal-approval boundary.",
-      "observable": "Every proposal starts NEEDS_REVIEW and an explicit named decision is required before it is retained for contract definition.",
-      "failure_outcome": "Unreviewed, rejected, cross-POC, or stale proposals cannot define a criterion or advance downstream state.",
-      "authority_boundary": "Internal human review",
-      "current_status": "covered",
-      "current_coverage": [
+      "statement": "Human review is the only proposal-retention and triage boundary.",
+      "observable": "Every proposal starts NEEDS_REVIEW and an explicit process-local reviewer decision is required before it is retained for contract definition; KEEP_FOR_CONTRACT is not contract approval.",
+      "failure_outcome": "Unreviewed, rejected, cross-POC, or stale proposals cannot be retained for contract definition or advance downstream state.",
+      "authority_boundary": "Internal human proposal retention and triage",
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
+        "tests/test_poc_proposal_review.py::test_list_exposes_only_current_source_bound_needs_review_proposals",
         "tests/test_poc_proposal_review.py::test_keep_creates_safe_immutable_human_triage_receipt_only",
-        "tests/test_poc_proposal_review.py::test_keep_is_overlaid_without_becoming_contract_approval"
+        "tests/test_poc_proposal_review.py::test_keep_is_overlaid_without_becoming_contract_approval",
+        "tests/test_poc_proposal_review.py::test_cross_poc_proposal_ids_fail_closed_without_mutation",
+        "tests/test_poc_proposal_review.py::test_unknown_and_stale_proposals_have_distinct_fail_closed_errors"
       ],
-      "target_pr": "PR #3",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A3",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
       "id": "GL-06",
       "stage": "criterion_planning",
-      "statement": "Each retained executable claim declares measurable scope, operator, threshold, population, evidence method, adapter policy, and provenance.",
+      "statement": "Each retained executable claim declares measurable scope, operator, threshold, population, evidence method, adapter policy, and declared provenance.",
       "observable": "A criterion plan is complete enough to choose execution or evidence import, or it remains explicitly unresolved.",
       "failure_outcome": "Missing capability, method, or policy becomes clarification-required or NOT_PROVEN; it is not guessed.",
       "authority_boundary": "Criterion and evidence-method planner",
-      "current_status": "characterized_gap",
-      "current_coverage": [
-        "tests/test_poc_contract_definition.py::test_kept_proposal_creates_one_immutable_ttft_definition_receipt"
+      "a1_baseline_status": "characterized_gap",
+      "a1_baseline_coverage": [
+        "tests/test_golden_loop_characterization.py::test_current_evidence_method_planning_gap_is_explicit"
       ],
-      "target_pr": "PR #4",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A4",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
       "id": "GL-07",
       "stage": "agreement_assembly",
-      "statement": "An agreement contains only reviewed, retained claims and preserves exact provenance for each criterion.",
+      "statement": "An agreement contains only reviewed, retained claims and preserves declared provenance and integrity bindings for each criterion.",
       "observable": "The customer-visible agreement is derived from approved inputs and identifies its criteria, owners, non-goals, workload, and evidence policy.",
       "failure_outcome": "Unresolved, rejected, cross-POC, or conflicting inputs fail without changing prior agreement truth.",
       "authority_boundary": "Contract assembly",
-      "current_status": "partial",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_authoring.py::test_only_approved_drafts_can_enter_the_contract_and_freeze",
         "tests/test_contracts.py::test_freeze_assigns_verifiable_canonical_digest"
       ],
-      "target_pr": "PR #5",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A5",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -184,13 +240,13 @@
       "observable": "Only an affirmative, acknowledged decision bound to the exact contract identity and rendered content can continue the freeze path.",
       "failure_outcome": "Missing acknowledgement, stale version, mismatched fingerprint, expired capability, or conflicting replay is refused.",
       "authority_boundary": "Customer review",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "covered",
+      "a1_baseline_coverage": [
         "tests/test_confirmations.py::test_confirmation_for_wrong_contract_version_cannot_freeze",
         "tests/test_confirmation_invariants.py::test_confirmation_authority_is_bound_to_exact_version_and_fingerprint"
       ],
-      "target_pr": "PR #5",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A5",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -200,13 +256,13 @@
       "observable": "The successor records its parent version, while the prior agreement, decision, and capability remain immutable historical truth.",
       "failure_outcome": "No proof or freeze action can continue from a requested-change or stale predecessor state.",
       "authority_boundary": "Agreement revision",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "covered",
+      "a1_baseline_coverage": [
         "tests/test_poc_performance_lifecycle_web_api.py::test_requested_changes_open_a_source_backed_v2_without_mutating_v1",
         "tests/test_confirmation_web.py::test_request_changes_can_start_a_structured_new_contract_version"
       ],
-      "target_pr": "PR #5",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A5",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -216,46 +272,45 @@
       "observable": "The frozen contract has a valid digest and confirmation binding; its nested graph cannot be edited in place.",
       "failure_outcome": "Freeze before confirmation, after mutation, or with a digest mismatch fails closed.",
       "authority_boundary": "Contract freeze",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_confirmations.py::test_affirmative_confirmation_allows_exact_contract_to_freeze",
         "tests/test_contracts.py::test_frozen_contract_rejects_nested_assignment"
       ],
-      "target_pr": "PR #5",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A5",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
       "id": "GL-11",
       "stage": "evidence_orchestration",
-      "statement": "Execution or evidence import uses a server-owned plan bound to the frozen contract and returns typed facts, artifacts, and provenance.",
+      "statement": "Execution or evidence import uses a server-owned plan bound to the frozen contract and returns typed facts, artifacts, and declared provenance.",
       "observable": "An approved adapter is selected from the frozen plan; caller-controlled endpoints, workloads, credentials, counts, or verdicts cannot override it.",
       "failure_outcome": "Unfrozen, unsupported, caller-overridden, or unavailable execution/import is refused or remains BLOCKED/NOT_PROVEN.",
       "authority_boundary": "Approved measurement or evidence adapter",
-      "current_status": "partial",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_poc_performance_run.py::test_run_requires_explicit_acknowledgement_and_exact_idempotency",
         "tests/test_poc_inferdrome_import.py::test_mutation_after_catalog_resolution_is_ingestion_rejected_not_verdict"
       ],
-      "characterized_boundary": "The current web composition still has seeded support-agent and bounded performance branches; generic adapter selection is a PR #6 concern.",
-      "target_pr": "PR #6",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A6",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
       "id": "GL-12",
       "stage": "independent_verification",
-      "statement": "ExitSpec independently verifies evidence integrity, provenance, scope, and sufficiency.",
-      "observable": "Evidence is checked against the frozen contract, expected workload, metadata, artifacts, and deterministic recalculation before publication.",
+      "statement": "ExitSpec independently validates evidence integrity, declared provenance bindings, scope, and sufficiency.",
+      "observable": "Evidence is checked against the frozen contract, declared provenance and integrity bindings, expected workload, metadata, artifacts, and deterministic recalculation before publication.",
       "failure_outcome": "Missing, stale, malformed, tampered, or insufficient evidence cannot produce PASS.",
       "authority_boundary": "ExitSpec evidence verifier",
-      "current_status": "partial",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_verdicts.py::test_invalid_evidence_is_not_proven",
         "tests/test_inferdrome_bundle_security.py::test_changed_artifact_bytes_fail_exact_hash_verification"
       ],
-      "target_pr": "PR #6",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A6",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -265,14 +320,16 @@
       "observable": "The typed verdict is independently reproducible from the criterion, measured facts, and calculation version.",
       "failure_outcome": "Producer verdicts, point estimates without sufficient evidence, and invalid calculations are never trusted as PASS.",
       "authority_boundary": "Deterministic ExitSpec verdict engine",
-      "current_status": "covered",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_verdicts.py::test_197_of_200_passes_wilson_rule",
+        "tests/test_verdicts.py::test_rate_below_threshold_fails_with_sufficient_evidence",
         "tests/test_verdicts.py::test_external_block_is_not_a_customer_failure",
+        "tests/test_verdicts.py::test_197_of_200_without_evidence_is_not_proven",
         "tests/test_performance_verdicts.py::test_v2_cancelled_or_missing_evidence_is_not_proven"
       ],
-      "target_pr": "PR #6",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A6",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -282,12 +339,10 @@
       "observable": "The current projection points to the verified run state and exposes a reason and next action; historical attempts remain distinct.",
       "failure_outcome": "A failed or invalid replacement cannot inherit PASS from an earlier run.",
       "authority_boundary": "Run lifecycle and workspace projection",
-      "current_status": "characterized_gap",
-      "current_coverage": [
-        "tests/test_workspace_projection.py::test_terminal_verdicts_project_decide_without_changing_verdict"
-      ],
-      "target_pr": "PR #6",
-      "blocking_for_pr_1": false,
+      "a1_baseline_status": "unverified_gap",
+      "a1_baseline_coverage": [],
+      "target_train_slice": "A6",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -297,13 +352,13 @@
       "observable": "The pack exposes verdict, calculation, limitation, next action, contract hash, artifact references, and the non-authorization boundary.",
       "failure_outcome": "No pack is published before verified terminal evidence; PASS never authorizes deployment or another external action.",
       "authority_boundary": "Evidence Pack renderer and human handoff",
-      "current_status": "partial",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_evidence_pack_library.py::test_projection_is_bounded_immutable_and_authority_free",
         "tests/test_workspace_closure.py::test_closure_records_exact_evidence_and_never_authorizes_shipping"
       ],
-      "target_pr": "PR #6",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A6",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     },
     {
@@ -313,32 +368,33 @@
       "observable": "Dynamic source paths converge on the same workbench, browser tests exercise the release-required path, and desktop/mobile layout checks are explicit.",
       "failure_outcome": "Dead routes, hidden overflow, silent skips, source-specific forks, or missing evidence state block v0.3 readiness.",
       "authority_boundary": "Browser and release gate",
-      "current_status": "partial",
-      "current_coverage": [
+      "a1_baseline_status": "partial",
+      "a1_baseline_coverage": [
         "tests/test_product_ui_uniformity.py::test_product_exposes_one_canonical_three_step_journey",
         "tests/test_browser_new_id_flow.py::test_new_id_email_flow_reaches_completed_pass_evidence_pack"
       ],
-      "characterized_boundary": "The standard browser job runs the dynamic new-ID file only; guided/demo and managed evidence browser paths are not all mandatory in the current gate.",
-      "target_pr": "PR #7",
-      "blocking_for_pr_1": false,
+      "target_train_slice": "A7",
+      "blocking_for_a1": false,
       "blocking_for_v0_3": true
     }
   ],
   "preserved_semantics": [
     "Existing agreement, source, run, verdict, evidence, and receipt identifiers remain unchanged unless a later PR adds a new explicitly versioned identifier.",
+    "RUNNING remains a RunStatus/operation state and never becomes an evidence presentation state or acceptance verdict.",
     "PASS, FAIL, BLOCKED, NOT_PROVEN, and the presentation-only NOT_RUN state retain their current meanings.",
+    "INGESTION_REJECTED is an ingestion disposition with no acceptance verdict; admitted but insufficient or inapplicable exact-profile evidence may become NOT_PROVEN.",
     "A Wilson lower bound remains a Wilson lower bound; it is not renamed or described as a confidence interval by this contract.",
     "PASS is evidence about the frozen criterion only and never deployment authorization."
   ],
   "gap_ownership": {
-    "PR #2": "Unify email, notes, and meeting intake behind one generic source spine and remove seeded-path dependence.",
-    "PR #3": "Complete schema-bound assisted authoring and the source-linked human proposal review path.",
-    "PR #4": "Add the capability and evidence-method planner with executable, evidence-import, clarification-required, and unsupported outcomes.",
-    "PR #5": "Generalize confirmation, revision, exact-version binding, and immutable freeze lifecycle.",
-    "PR #6": "Generalize evidence orchestration, independent verification, verdict calculation, and feedback/next-action projection.",
-    "PR #7": "Unify UI routes, make the browser release gate no-skip, prove clean install/distribution, and establish v0.3 readiness."
+    "A2": "Unify email, notes-as-DOCUMENT, and meeting intake behind one generic source spine and remove seeded-path dependence.",
+    "A3": "Complete schema-bound assisted authoring and the source-linked human proposal review path.",
+    "A4": "Add the capability and evidence-method planner with executable, evidence-import, clarification-required, and unsupported outcomes.",
+    "A5": "Generalize confirmation, revision, exact-version binding, and immutable freeze lifecycle.",
+    "A6": "Generalize evidence orchestration, independent verification, verdict calculation, mixed-claim reduction, and feedback/next-action projection.",
+    "A7": "Unify UI routes, add a no-skip executable closure ledger for every required test node, prove clean install/distribution, and establish v0.3 readiness."
   },
-  "out_of_scope_for_pr_1": [
+  "out_of_scope_for_a1": [
     "Routing qualification, profile admission, campaign evidence, SLO-attainment semantics, multi-run reducer, and qualification receipts.",
     "Docker or guarded staging, real Zoom transport, live mailbox identity, durable hosted authorization, and production deployment.",
     "New lifecycle behavior, new verdict semantics, source-specific product forks, or deletion/absorption of unrelated files."

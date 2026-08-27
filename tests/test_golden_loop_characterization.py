@@ -156,7 +156,7 @@ def test_current_source_spine_does_not_promote_instruction_text_or_provider_like
     assert '"verdict"' not in serialized
 
 
-def test_current_review_boundary_is_explicit_and_does_not_create_a_planner():
+def test_current_capability_planning_gap_is_explicit():
     runtime, _, poc_id = _runtime()
     runtime.capture_document(
         poc_id=poc_id,
@@ -180,6 +180,16 @@ def test_current_review_boundary_is_explicit_and_does_not_create_a_planner():
     )
     assert all(item.decision is None for item in listed)
     assert not hasattr(runtime, "capability_plan")
+
+
+def test_current_evidence_method_planning_gap_is_explicit():
+    runtime, _, poc_id = _runtime()
+    runtime.capture_document(
+        poc_id=poc_id,
+        document_text="The evidence method must be independently verifiable.",
+        idempotency_key="characterization-evidence-method",
+    )
+
     assert not hasattr(runtime, "evidence_method_plan")
 
 
@@ -199,5 +209,5 @@ def test_seeded_composition_is_recorded_as_a_gap_instead_of_presented_as_generic
 
     assert "SYNTHETIC_SUPPORT_AGENT_POC_ID" in web_source
     assert "poc_support_agent_demo" in web_source
-    assert row["current_status"] == "partial"
-    assert "seeded" in row["characterized_boundary"]
+    assert row["a1_baseline_status"] == "partial"
+    assert row["target_train_slice"] == "A6"

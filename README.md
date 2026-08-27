@@ -32,7 +32,7 @@ Train A’s v0.3 work is governed by the
 [Golden Loop Contract](docs/GOLDEN_LOOP_CONTRACT.md) and its
 [machine-readable acceptance matrix](examples/product/request-to-proof-acceptance-v1.json).
 The contract records the source-agnostic Request → Proof constitution, current
-characterization boundary, and ownership of gaps for PRs #2–#7.
+characterization boundary, and ownership of gaps for Train A slices A2–A7.
 
 ## What the current product does
 

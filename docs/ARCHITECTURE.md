@@ -11,8 +11,8 @@ a mailbox integration or another measurement type.
 The locked Train A convergence target is defined in the
 [Golden Loop Contract](GOLDEN_LOOP_CONTRACT.md) and its
 [machine-readable acceptance matrix](../examples/product/request-to-proof-acceptance-v1.json).
-That contract is the implementation-independent constitution for the PR #2–#7
-Request → Proof release train; the current seeded and source-specific
+That contract is the implementation-independent constitution for Train A slices
+A2–A7 of the Request → Proof release train; the current seeded and source-specific
 compositions remain explicitly characterized gaps until those PRs land.
 
 ```text
