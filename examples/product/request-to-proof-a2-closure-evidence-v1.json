@@ -1,0 +1,36 @@
+{
+  "schema_version": "exitspec.request-to-proof-a2-closure-evidence.v1",
+  "train_slice": "A2",
+  "status": "IMPLEMENTED_AND_TESTED",
+  "scope": "GL-01 and GL-02 only",
+  "claims": {
+    "GL-01": {
+      "statement": "One stable POC identity spans dynamic creation, source attachment, source listing, and proposal projection.",
+      "proof": [
+        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_has_no_seeded_dependency_and_preserves_poc_id"
+      ]
+    },
+    "GL-02": {
+      "statement": "EMAIL, MEETING, DOCUMENT, and EXISTING_CONTRACT converge through one typed local intake dispatch; notes is an input alias for DOCUMENT.",
+      "proof": [
+        "tests/test_a2_source_spine.py::test_one_typed_spine_accepts_all_kinds_and_notes_is_document_alias",
+        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_has_no_seeded_dependency_and_preserves_poc_id"
+      ]
+    }
+  },
+  "authority_boundary": {
+    "source_authority": "UNTRUSTED_SOURCE_ONLY",
+    "proposal_state": "NEEDS_REVIEW",
+    "may_approve": false,
+    "may_confirm": false,
+    "may_freeze": false,
+    "may_execute": false,
+    "may_issue_evidence": false,
+    "may_issue_verdict": false
+  },
+  "limitations": [
+    "Storage is process-local, in-memory, non-durable, and not shared across workers.",
+    "This closure does not claim A3 assisted authoring, planner, lifecycle, proof, evidence, deployment, or provider integration."
+  ],
+  "frozen_baseline_edited": false
+}

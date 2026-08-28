@@ -13,6 +13,7 @@ from .demo_data import support_agent_demo_paths
 from .performance_operations import PerformanceOperationStatus
 from .performance_runner import run_performance_proof
 from .runner import run_demo
+from .poc_source_demo import serve_source_neutral_demo
 from .web import serve_demo
 
 
@@ -157,6 +158,14 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--output-dir", type=Path, default=Path("runs"))
     serve.add_argument(
+        "--source-neutral",
+        action="store_true",
+        help=(
+            "Run the source-neutral A2 local intake demo without the seeded "
+            "support-agent session or downstream proof routes."
+        ),
+    )
+    serve.add_argument(
         "--open-browser",
         action="store_true",
         help="Open the loopback demo URL after the server starts.",
@@ -274,6 +283,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 3
         return 4
     if args.command == "serve":
+        if args.source_neutral:
+            server = serve_source_neutral_demo(
+                host=args.host,
+                port=args.port,
+                open_browser=args.open_browser,
+            )
+            print(
+                "ExitSpec source-neutral A2 demo: "
+                "http://{0}:{1}/app/pocs/new".format(
+                    args.host,
+                    server.server_port,
+                )
+            )
+            print("Process-local source intake only. Press Ctrl+C to stop.")
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                server.server_close()
+            return 0
         fireworks_api_key = (
             os.environ.get("FIREWORKS_API_KEY")
             if args.enable_fireworks or args.enable_fireworks_stt

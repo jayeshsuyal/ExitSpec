@@ -6590,7 +6590,14 @@ def _poc_scoped_api_poc_id(
     if collection == "sources" and (
         len(parts) != 5
         or parts[4]
-        not in {"email", "email-text", "meeting", "document", "contract"}
+        not in {
+            "email",
+            "email-text",
+            "meeting",
+            "document",
+            "notes",
+            "contract",
+        }
     ):
         return None
     if collection == "proposals" and (

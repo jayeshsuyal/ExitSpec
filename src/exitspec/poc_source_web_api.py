@@ -14,8 +14,11 @@ import re
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
 from .poc_creation import POC_ID_PATTERN
 from .poc_source_intake import (
+    POCSourceInput,
     POCSourceFixtureUnavailable,
     POCSourceIntakeCapacityExceeded,
     POCSourceIntakeError,
@@ -32,17 +35,25 @@ from .poc_sources import (
     POCSourceIdempotencyConflict,
     POCSourceRevisionRequired,
     POCSourceStaleRevision,
+    SourceKind,
 )
 
 
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
 _SOURCE_ROOT_PREFIX = "/api/pocs/"
 _CAPTURE_ROUTES = {
-    "email": ("fixture_case_id", "capture_email"),
-    "email-text": ("email_text", "capture_email_text"),
-    "meeting": ("transcript_text", "capture_meeting"),
-    "document": ("document_text", "capture_document"),
-    "contract": ("contract_json", "capture_contract"),
+    # The fixture route remains a compatibility-only adapter. Every dynamic
+    # text/contract route below enters through the typed source-neutral spine.
+    "email": ("fixture_case_id", "capture_email", None),
+    "email-text": ("email_text", "capture_source", SourceKind.EMAIL),
+    "meeting": ("transcript_text", "capture_source", SourceKind.MEETING),
+    "document": ("document_text", "capture_source", SourceKind.DOCUMENT),
+    "notes": ("document_text", "capture_source", SourceKind.DOCUMENT),
+    "contract": (
+        "contract_json",
+        "capture_source",
+        SourceKind.EXISTING_CONTRACT,
+    ),
 }
 
 
@@ -145,6 +156,11 @@ def handle_poc_source_web_api_request(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Source intake is temporarily unavailable.",
         )
+    except ValidationError:
+        return _error(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "The source input was not accepted.",
+        )
     except (TypeError, ValueError):
         return _error(HTTPStatus.BAD_REQUEST, "Source intake request is invalid.")
 
@@ -203,16 +219,25 @@ def _dispatch(
         route_contract = _CAPTURE_ROUTES.get(route or "")
         if route_contract is None:
             return _error(HTTPStatus.NOT_FOUND, "Source intake route was not found.")
-        source_field, method_name = route_contract
+        source_field, method_name, source_kind = route_contract
         _require_only_fields(body, {source_field, "idempotency_key"})
-        capture = getattr(runtime, method_name)
-        receipt = capture(
-            poc_id=poc_id,
-            **{
-                source_field: body[source_field],
-                "idempotency_key": body["idempotency_key"],
-            },
-        )
+        if source_kind is None:
+            receipt = getattr(runtime, method_name)(
+                poc_id=poc_id,
+                **{
+                    source_field: body[source_field],
+                    "idempotency_key": body["idempotency_key"],
+                },
+            )
+        else:
+            receipt = runtime.capture_source(
+                poc_id=poc_id,
+                source=POCSourceInput(
+                    source_kind=source_kind,
+                    content=body[source_field],
+                ),
+                idempotency_key=body["idempotency_key"],
+            )
         status = (
             HTTPStatus.OK
             if receipt.idempotent_replay

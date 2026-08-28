@@ -240,6 +240,20 @@ support-agent recording, choose **Guided demo** on the dashboard or open
 seeded support-agent demo before opening it. Follow the
 [three-minute product demo](docs/DEMO_RUNBOOK.md).
 
+For the Train A A2 source-neutral intake journey, start the separate bounded
+runtime instead:
+
+```bash
+exitspec serve --source-neutral --open-browser
+```
+
+It opens `/app/pocs/new`, creates a fresh process-local POC, and routes Email,
+Meeting paste, Notes/document, and Existing contract through the same typed
+source intake spine. Notes is only an input alias for `DOCUMENT`. This runtime
+does not seed the support-agent POC and exposes no approval, lifecycle, proof,
+evidence, provider, or deployment route. Its redacted source state is
+in-memory, non-durable, and limited to the current process.
+
 For the guided Wave 2 email demo, open
 `http://127.0.0.1:8765/app?intake=email` from a clean server and follow the
 [90-second runbook](docs/WAVE2_EMAIL_DEMO_RUNBOOK.md).

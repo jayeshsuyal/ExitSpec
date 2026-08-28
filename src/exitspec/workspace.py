@@ -37,7 +37,6 @@ class WorkspacePhase(str, Enum):
 class WorkspaceSourceType(str, Enum):
     EMAIL = "email"
     MEETING_TRANSCRIPT = "meeting_transcript"
-    NOTE = "note"
     DOCUMENT = "document"
     EXISTING_CONTRACT = "existing_contract"
 
@@ -605,7 +604,6 @@ def _source_type_label(source_type: WorkspaceSourceType) -> str:
     return {
         WorkspaceSourceType.EMAIL: "Email",
         WorkspaceSourceType.MEETING_TRANSCRIPT: "Meeting transcript",
-        WorkspaceSourceType.NOTE: "Note",
         WorkspaceSourceType.DOCUMENT: "Document",
         WorkspaceSourceType.EXISTING_CONTRACT: "Existing contract",
     }[source_type]

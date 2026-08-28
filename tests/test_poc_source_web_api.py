@@ -103,6 +103,12 @@ def test_empty_source_list_is_read_only_and_exact():
             "The error rate must remain below 1%.",
             "DOCUMENT",
         ),
+        (
+            "notes",
+            "document_text",
+            "Notes: the error rate must remain below 1%.",
+            "DOCUMENT",
+        ),
     ),
 )
 def test_capture_returns_only_the_safe_six_field_receipt(
