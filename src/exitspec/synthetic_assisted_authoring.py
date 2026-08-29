@@ -13,9 +13,12 @@ from typing import Any, Dict, List, Mapping
 
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .assisted_authoring import (
+    ASSISTED_AUTHORING_MODEL,
+    ASSISTED_AUTHORING_SCHEMA_VERSION,
     ExactToolSelectionPolicy,
     ProposalBatch,
     ProposalClassification,
+    SourceNeutralProposalBatch,
 )
 from .providers import (
     ProviderError,
@@ -24,6 +27,7 @@ from .providers import (
     StructuredJSONRequest,
     StructuredJSONResult,
 )
+from .poc_sources import SourceKind
 
 
 SYNTHETIC_ASSISTED_MODEL = "synthetic-assisted-authoring-v1"
@@ -241,3 +245,161 @@ def safe_receipt_facts(receipt: ProviderReceipt) -> Dict[str, Any]:
         ),
         "pricing_version": receipt.pricing_version,
     }
+
+
+_SOURCE_NEUTRAL_SIGNAL = re.compile(
+    r"(?i)(?:\bmust\b|\bshall\b|\bshould\b|\bneeds?\b|\brequires?\b|"
+    r"\btarget\b|\bat\s+least\b|\bat\s+most\b|\bbelow\b|\babove\b|"
+    r"\bwithin\b|\blatency\b|\bthroughput\b|\baccuracy\b|"
+    r"\berror\s+rate\b|\bbudget\b|\bcost\b|\bthreshold\b)"
+)
+_SOURCE_NEUTRAL_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_SOURCE_NEUTRAL_PERCENT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*%")
+_SOURCE_NEUTRAL_SAMPLES = re.compile(
+    r"(?<!\w)(\d[\d,]*)\s+"
+    r"(?:fixed\s+|approved\s+|valid\s+|total\s+|evaluation\s+|test\s+)*"
+    r"(?:cases|samples|requests|examples)\b",
+    re.IGNORECASE,
+)
+
+
+def _source_neutral_input(
+    request: StructuredJSONRequest[SourceNeutralProposalBatch],
+) -> Mapping[str, Any]:
+    def reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+
+    try:
+        content = request.messages[-1].content
+        prefix, separator, encoded = content.partition("\n")
+        if prefix != "Untrusted redacted source JSON follows:" or not separator:
+            raise ValueError
+        payload = json.loads(
+            encoded,
+            object_pairs_hook=reject_duplicate_pairs,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
+        )
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) != {
+                "source_kind",
+                "source_content_sha256",
+                "source_revision",
+                "text",
+            }
+            or not isinstance(payload["source_kind"], str)
+            or payload["source_kind"] not in {kind.value for kind in SourceKind}
+            or not isinstance(payload["source_content_sha256"], str)
+            or not re.fullmatch(r"[a-f0-9]{64}", payload["source_content_sha256"])
+            or type(payload["source_revision"]) is not int
+            or payload["source_revision"] < 1
+            or not isinstance(payload["text"], str)
+            or not payload["text"].strip()
+            or len(payload["text"]) > 64_000
+        ):
+            raise ValueError
+        return payload
+    except Exception:
+        raise ProviderError(
+            ProviderErrorCode.MALFORMED_RESPONSE,
+            "The synthetic assisted-authoring adapter could not read its redacted input.",
+        ) from None
+
+
+class SyntheticSourceNeutralAssistedAuthoringExecutor:
+    """Deterministic local seam for the A3 source-neutral authoring action."""
+
+    provider_name = "synthetic"
+    model = ASSISTED_AUTHORING_MODEL
+    endpoint = "local://exitspec/source-neutral-assisted-authoring"
+    adapter_name = "synthetic_source_neutral_assisted_authoring"
+    adapter_version = "1"
+
+    def execute(
+        self,
+        request: StructuredJSONRequest[SourceNeutralProposalBatch],
+    ) -> StructuredJSONResult[SourceNeutralProposalBatch]:
+        if request.model != self.model:
+            raise ProviderError(
+                ProviderErrorCode.PRECONDITION_FAILED,
+                "The synthetic assisted-authoring model is not available.",
+            )
+        source = _source_neutral_input(request)
+        fragments: list[str] = []
+        for line in source["text"].splitlines():
+            for fragment in _SOURCE_NEUTRAL_SENTENCE.split(line.strip()):
+                candidate = fragment.strip()
+                if (
+                    candidate
+                    and len(candidate) <= 4_000
+                    and _SOURCE_NEUTRAL_SIGNAL.search(candidate) is not None
+                    and candidate not in fragments
+                ):
+                    fragments.append(candidate)
+                    if len(fragments) == 64:
+                        break
+            if len(fragments) == 64:
+                break
+        if not fragments:
+            raise ProviderError(
+                ProviderErrorCode.MALFORMED_RESPONSE,
+                "The synthetic assisted-authoring adapter produced no proposal material.",
+            )
+
+        proposals: list[dict[str, Any]] = []
+        for ordinal, quote in enumerate(fragments, start=1):
+            percentages = tuple(_SOURCE_NEUTRAL_PERCENT.finditer(quote))
+            sample_counts = tuple(_SOURCE_NEUTRAL_SAMPLES.finditer(quote))
+            numeric_facts = None
+            if len(percentages) == 1 or len(sample_counts) == 1:
+                numeric_facts = {
+                    "threshold": (
+                        round(float(percentages[0].group(1)) / 100.0, 12)
+                        if len(percentages) == 1
+                        else None
+                    ),
+                    "minimum_samples": (
+                        int(sample_counts[0].group(1).replace(",", ""))
+                        if len(sample_counts) == 1
+                        else None
+                    ),
+                }
+            proposals.append(
+                {
+                    "proposal_key": "proposal-{0:03d}".format(ordinal),
+                    "source_quote": quote,
+                    "normalized_claim": " ".join(quote.split()),
+                    "numeric_facts": numeric_facts,
+                }
+            )
+        payload = {
+            "schema_version": ASSISTED_AUTHORING_SCHEMA_VERSION,
+            "proposals": proposals,
+        }
+        try:
+            request.validate_response_instance(payload)
+            output = request.validate_output(payload)
+        except Exception:
+            raise ProviderError(
+                ProviderErrorCode.INVALID_OUTPUT,
+                "The synthetic assisted-authoring adapter produced invalid proposal material.",
+            ) from None
+        receipt = ProviderReceipt(
+            provider=self.provider_name,
+            model=request.model,
+            endpoint=self.endpoint,
+            attempts=1,
+            latency_ms=0.0,
+            input_tokens=request.estimated_input_tokens,
+            output_tokens=None,
+            total_tokens=None,
+            provider_request_id=None,
+            estimated_cost_usd=None,
+            pricing_version=None,
+        )
+        return StructuredJSONResult(output=output, receipt=receipt)

@@ -1,0 +1,44 @@
+{
+  "schema_version": "exitspec.request-to-proof-a3-closure-evidence.v1",
+  "train_slice": "A3",
+  "status": "IMPLEMENTED_AND_TESTED",
+  "scope": "GL-03 and GL-05 only",
+  "claims": {
+    "GL-03": {
+      "statement": "A fresh process-local POC can run one explicit source-neutral assisted-authoring action against an accepted A2 source, producing only versioned, locally validated, exact-source-anchored NEEDS_REVIEW proposals with content-free binding receipts.",
+      "proof": [
+        "tests/test_a3_assisted_review.py::test_a3_source_neutral_action_binds_exact_source_and_requires_named_human_triage",
+        "tests/test_a3_assisted_review.py::test_a3_redacts_before_provider_and_public_receipts_are_content_free",
+        "tests/test_a3_assisted_review.py::test_a3_untrusted_schema_authority_anchor_and_numeric_failures_create_nothing",
+        "tests/test_a3_assisted_review.py::test_a3_duplicate_identity_nonfinite_and_no_output_provider_fail_closed",
+        "tests/test_a3_assisted_review.py::test_a3_replay_conflict_isolation_and_concurrent_same_key_are_immutable"
+      ]
+    },
+    "GL-05": {
+      "statement": "Only a named human may KEEP_FOR_CONTRACT or DISCARD the current source-bound proposal through the existing review service; retained output is a bounded A4 projection with no criterion, approval, confirmation, freeze, evidence, execution, verdict, or deployment authority.",
+      "proof": [
+        "tests/test_a3_assisted_review.py::test_a3_source_neutral_action_binds_exact_source_and_requires_named_human_triage",
+        "tests/test_a3_assisted_review.py::test_a3_review_api_reuses_human_decision_and_retained_projection"
+      ]
+    }
+  },
+  "authority_boundary": {
+    "source_authority": "UNTRUSTED_SOURCE_ONLY",
+    "proposal_state": "NEEDS_REVIEW",
+    "retention_state": "KEEP_FOR_CONTRACT_ONLY",
+    "may_approve": false,
+    "may_confirm": false,
+    "may_freeze": false,
+    "may_select_evidence": false,
+    "may_execute": false,
+    "may_import_evidence": false,
+    "may_issue_verdict": false,
+    "may_authorize_deployment": false
+  },
+  "limitations": [
+    "Storage is process-local, in-memory, non-durable, and not shared across workers.",
+    "The deterministic local seam is provider-neutral; no live provider credentials or network call are required.",
+    "This closure does not claim A4 criterion authoring, contract confirmation or freeze, evidence selection or execution, verdict, deployment, persistence, Train B, Docker, or release readiness."
+  ],
+  "frozen_baseline_edited": false
+}

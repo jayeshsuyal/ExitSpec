@@ -39,6 +39,8 @@ from .poc_sources import (
     EXTERNAL_ID_PATTERN,
     POCSourceAttachmentResult,
     POCSourceRevisionRequired,
+    POCSourceNotFound,
+    POCSourceSnapshot,
     PreparedPOCSource,
     PreparedRequirementCandidate,
     ProcessLocalPOCSourceService,
@@ -491,6 +493,46 @@ class ProcessLocalPOCSourceIntake:
                     )
                 )
         return tuple(proposals)
+
+    def source_snapshot(
+        self,
+        poc_id: str,
+        source_receipt_id: str,
+    ) -> POCSourceSnapshot:
+        """Return one current redacted source for an explicit A3 action.
+
+        The source receipt is the only lookup handle accepted here.  A prior
+        revision is rejected so assisted authoring cannot operate on stale
+        source content while presenting it as current.
+        """
+
+        if (
+            type(source_receipt_id) is not str
+            or not source_receipt_id.startswith("srcpt_")
+        ):
+            raise POCSourceIntakeInvalid(
+                "The source receipt is outside its supported bounds."
+            )
+        source_id = "src_" + source_receipt_id.removeprefix("srcpt_")
+        try:
+            self._source_service._require_active_draft(poc_id)
+            snapshot = self._source_service.get(poc_id, source_id)
+            latest = self._source_service.latest_for_identity(
+                poc_id,
+                snapshot.kind,
+                snapshot.external_id,
+            )
+        except POCSourceIntakeError:
+            raise
+        except POCSourceNotFound:
+            raise POCSourceIntakeInvalid(
+                "The source receipt is unavailable in this process."
+            ) from None
+        if latest.source_id != snapshot.source_id:
+            raise POCSourceIntakeRevisionRequired(
+                "The source receipt is stale; use the latest source revision."
+            )
+        return snapshot
 
     def capture_source(
         self,

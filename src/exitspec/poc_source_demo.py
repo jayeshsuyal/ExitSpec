@@ -1,4 +1,4 @@
-"""Source-neutral, process-local browser runtime for Train A A2.
+"""Source-neutral, process-local browser runtime for Train A A2/A3.
 
 This runtime deliberately owns only draft identity, source attachment, and
 human proposal projection. It does not construct the seeded session, load
@@ -21,6 +21,7 @@ import webbrowser
 
 from pydantic import ValidationError
 
+from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
 from .poc_creation import (
     DraftPOCCapacityExceeded,
@@ -32,6 +33,10 @@ from .poc_creation import (
 )
 from .poc_proposal_review import (
     ProcessLocalProposalReviewService,
+)
+from .poc_assisted_authoring_web_api import (
+    handle_poc_assisted_authoring_web_api_request,
+    is_poc_assisted_authoring_web_api_target,
 )
 from .poc_proposal_web_api import handle_poc_proposal_web_api_request
 from .poc_source_intake import (
@@ -56,6 +61,9 @@ from .poc_sources import (
     POCSourceStaleRevision,
     SourceKind,
 )
+from .synthetic_assisted_authoring import (
+    SyntheticSourceNeutralAssistedAuthoringExecutor,
+)
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -67,6 +75,9 @@ _SOURCE_PAGE_RE = re.compile(
 )
 _REVIEW_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/review$"
+)
+_ASSISTED_PAGE_RE = re.compile(
+    r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring$"
 )
 _DRAFT_API_RE = re.compile(r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})$")
 _SOURCE_API_RE = re.compile(
@@ -97,6 +108,9 @@ _ASSET_NAMES = frozenset(
         "proposal_review.html",
         "proposal_review.css",
         "proposal_review.js",
+        "assisted_authoring.html",
+        "assisted_authoring.css",
+        "assisted_authoring.js",
         "workbench.css",
     }
 )
@@ -114,18 +128,31 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         address: tuple[str, int],
         *,
         static_root: Path = STATIC_ROOT,
+        assisted_authoring_executor: Any | None = None,
     ) -> None:
         self.draft_poc_service = ProcessLocalDraftPOCService()
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
             draft_lookup=self.draft_poc_service.get,
         )
+        self.assisted_authoring_service = ProcessLocalAssistedAuthoringService(
+            source_lookup=self.poc_source_intake.source_snapshot,
+            executor=(
+                SyntheticSourceNeutralAssistedAuthoringExecutor()
+                if assisted_authoring_executor is None
+                else assisted_authoring_executor
+            ),
+        )
         self.proposal_review_service = ProcessLocalProposalReviewService(
-            proposal_lookup=self.poc_source_intake.proposal_inputs,
+            proposal_lookup=self._proposal_inputs_for_review,
         )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
         super().__init__(address, SourceNeutralPOCDemoRequestHandler)
+
+    def _proposal_inputs_for_review(self, poc_id: str):
+        assisted = self.assisted_authoring_service.proposal_inputs(poc_id)
+        return assisted or self.poc_source_intake.proposal_inputs(poc_id)
 
     def workspace_payload(self, selected_filter: str = "Active") -> dict[str, Any]:
         receipts: dict[str, tuple[Any, ...]] = {}
@@ -194,6 +221,17 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if draft_id is not None:
             self._send_draft(draft_id)
             return
+        if is_poc_assisted_authoring_web_api_target(parsed.path):
+            response = handle_poc_assisted_authoring_web_api_request(
+                method="GET",
+                target=parsed.path,
+                payload=None,
+                runtime=self.server.assisted_authoring_service,
+                review_runtime=self.server.proposal_review_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         if is_poc_source_web_api_target(parsed.path):
             response = handle_poc_source_web_api_request(
                 method="GET",
@@ -220,14 +258,20 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
             return
-        if _SOURCE_PAGE_RE.fullmatch(parsed.path) or _REVIEW_PAGE_RE.fullmatch(parsed.path):
+        if (
+            _SOURCE_PAGE_RE.fullmatch(parsed.path)
+            or _REVIEW_PAGE_RE.fullmatch(parsed.path)
+            or _ASSISTED_PAGE_RE.fullmatch(parsed.path)
+        ):
             poc_id = parsed.path.split("/")[3]
             if self._active_draft(poc_id):
-                self._file(
-                    "source_intake.html"
-                    if _SOURCE_PAGE_RE.fullmatch(parsed.path)
-                    else "proposal_review.html"
-                )
+                if _SOURCE_PAGE_RE.fullmatch(parsed.path):
+                    asset = "source_intake.html"
+                elif _REVIEW_PAGE_RE.fullmatch(parsed.path):
+                    asset = "proposal_review.html"
+                else:
+                    asset = "assisted_authoring.html"
+                self._file(asset)
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
             return
@@ -255,6 +299,17 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/pocs":
             self._create(payload)
             return
+        if is_poc_assisted_authoring_web_api_target(parsed.path):
+            response = handle_poc_assisted_authoring_web_api_request(
+                method="POST",
+                target=parsed.path,
+                payload=payload,
+                runtime=self.server.assisted_authoring_service,
+                review_runtime=self.server.proposal_review_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         source_match = _SOURCE_API_RE.fullmatch(parsed.path)
         if source_match is not None and source_match.group(2) is not None:
             self._capture(source_match.group(1), unquote(source_match.group(2)), payload)
@@ -556,7 +611,7 @@ def serve_source_neutral_demo(
     *,
     open_browser: bool = False,
 ) -> SourceNeutralPOCDemoServer:
-    """Construct the A2 browser runtime; the caller owns its serve loop."""
+    """Construct the local A2/A3 browser runtime; caller owns its serve loop."""
 
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("ExitSpec demo only binds to a loopback address.")

@@ -37,6 +37,7 @@
     routeMatch && POC_ID_PATTERN.test(routeMatch[1]) ? routeMatch[1] : null;
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const proposalsApi = pocApi ? `${pocApi}/proposals` : null;
+  const assistedApi = pocApi ? `${pocApi}/assisted-authoring` : null;
 
   const currentTask = document.querySelector("#proposal-current-task");
   const form = document.querySelector("#proposal-decision-form");
@@ -55,6 +56,7 @@
   let discardedCount = 0;
   const selectedMetricCues = new Set();
   let pocCustomerLabel = null;
+  let a3Mode = false;
   let inFlight = false;
   let pendingAttempt = null;
 
@@ -97,7 +99,7 @@
       ) {
         return false;
       }
-      if (value === pocApi || value === proposalsApi) {
+      if (value === pocApi || value === proposalsApi || value === assistedApi) {
         return true;
       }
       return proposals.some(
@@ -208,6 +210,56 @@
     return new Set(proposalIds).size === proposalIds.length;
   }
 
+  function isTrustedAssistedReceiptCollection(payload) {
+    if (
+      !hasExactKeys(payload, ["poc_id", "receipts"]) ||
+      payload.poc_id !== pocId ||
+      !Array.isArray(payload.receipts) ||
+      payload.receipts.length > 1024
+    ) {
+      return false;
+    }
+    const receiptIds = new Set();
+    return payload.receipts.every((receipt) => {
+      const valid =
+        hasExactKeys(receipt, [
+          "authoring_adapter_name",
+          "authoring_adapter_version",
+          "authoring_receipt_id",
+          "authoring_result_id",
+          "endpoint",
+          "idempotent_replay",
+          "model",
+          "poc_id",
+          "proposal_count",
+          "proposal_ids",
+          "provider",
+          "redaction_policy_version",
+          "schema_version",
+          "source_adapter_name",
+          "source_adapter_version",
+          "source_content_sha256",
+          "source_id",
+          "source_kind",
+          "source_receipt_id",
+          "source_revision",
+          "status",
+        ]) &&
+        receipt.poc_id === pocId &&
+        receipt.schema_version === "exitspec.assisted-authoring-receipt.v1" &&
+        /^arcp_[a-f0-9]{32}$/.test(receipt.authoring_receipt_id) &&
+        /^ares_[a-f0-9]{32}$/.test(receipt.authoring_result_id) &&
+        receipt.status === "NEEDS_REVIEW" &&
+        Number.isSafeInteger(receipt.proposal_count) &&
+        receipt.proposal_count > 0 &&
+        Array.isArray(receipt.proposal_ids) &&
+        receipt.proposal_ids.length === receipt.proposal_count &&
+        typeof receipt.idempotent_replay === "boolean";
+      if (valid) receiptIds.add(receipt.authoring_receipt_id);
+      return valid;
+    }) && receiptIds.size === payload.receipts.length;
+  }
+
   function isTrustedDecisionResponse(payload, attempt) {
     return Boolean(
       hasExactKeys(payload, [
@@ -294,7 +346,7 @@
   }
 
   function executableMetricCue(proposal) {
-    if (!proposal) {
+    if (!proposal || a3Mode) {
       return null;
     }
     const hasTTFT = TTFT_CUE.test(proposal.normalized_claim);
@@ -357,10 +409,11 @@
     const metricCue = executableMetricCue(proposal);
     const duplicateMetric =
       metricCue !== null && selectedMetricCues.has(metricCue);
-    const executableSlotAvailable =
+    const executableSlotAvailable = a3Mode || (
       metricCue !== null &&
       !duplicateMetric &&
-      keptCount < 2;
+      keptCount < 2
+    );
     const fieldsValid = validatedReviewFields() !== null;
     const editable = hasProposal && !inFlight && !pendingAttempt;
     const pendingDecision = pendingAttempt
@@ -391,7 +444,9 @@
       ? "Recording this triage decision…"
       : pendingAttempt
         ? "The response was interrupted. Retry will use the same decision key."
-        : fieldsValid && metricCue === null
+        : a3Mode && fieldsValid
+          ? "A3 source-bound proposal only · capability and policy classification remain a later step."
+          : fieldsValid && metricCue === null
           ? "The current evaluator cannot execute this claim. Discard keeps it visible as NOT_PROVEN."
           : fieldsValid && duplicateMetric
             ? `One ${metricCueLabel(metricCue)} claim is already selected. Discard this duplicate to NOT_PROVEN.`
@@ -439,7 +494,9 @@
     const metricCue = executableMetricCue(proposal);
     const support = document.querySelector("#proposal-support");
     support.setAttribute("data-supported", String(metricCue !== null));
-    support.textContent = metricCue === null
+    support.textContent = a3Mode
+      ? "Source-bound proposal material · later classification is not assigned here"
+      : metricCue === null
       ? "Not executable in this demo · discard to NOT_PROVEN"
       : `Executable candidate · ${metricCueLabel(metricCue)}`;
     reviewerInput.value = "";
@@ -466,16 +523,28 @@
         ? "There are no source proposals awaiting review. No contract was created or approved."
         : `${initialCount} proposals reviewed: ${keptCount} kept for contract authoring and ${discardedCount} discarded. No contract was created or approved.`;
     if (pocId && keptCount === 2) {
-      const destination = `/app/pocs/${encodeURIComponent(pocId)}/define`;
-      defineCriteriaLink.textContent = "Define acceptance criteria";
-      defineCriteriaLink.href = destination;
-      defineCriteriaLink.hidden = false;
-      completionPanel.focus();
-      try {
-        window.location.replace(destination);
-      } catch {
-        // The verified fallback panel remains available if navigation is blocked.
+      if (!a3Mode) {
+        const destination = `/app/pocs/${encodeURIComponent(pocId)}/define`;
+        defineCriteriaLink.textContent = "Define acceptance criteria";
+        defineCriteriaLink.href = destination;
+        defineCriteriaLink.hidden = false;
+        completionPanel.focus();
+        try {
+          window.location.replace(destination);
+        } catch {
+          // The verified fallback panel remains available if navigation is blocked.
+        }
+      } else {
+        defineCriteriaLink.textContent = "View retained proposal projection";
+        defineCriteriaLink.href = `/api/pocs/${encodeURIComponent(pocId)}/retained-proposals`;
+        defineCriteriaLink.hidden = false;
       }
+    } else if (a3Mode) {
+      defineCriteriaLink.textContent = "View retained proposal projection";
+      defineCriteriaLink.href = pocId
+        ? `/api/pocs/${encodeURIComponent(pocId)}/retained-proposals`
+        : "/app";
+      defineCriteriaLink.hidden = false;
     } else {
       defineCriteriaLink.textContent =
         keptCount === 1
@@ -507,6 +576,9 @@
     discardedCount = proposalList.review_summary.discarded;
     pocCustomerLabel = draft.customer_label;
     document.querySelector("#poc-title").textContent = draft.display_name;
+    const assistedLink = document.querySelector("#assisted-authoring-link");
+    assistedLink.href = `/app/pocs/${encodeURIComponent(pocId)}/assisted-authoring`;
+    assistedLink.hidden = false;
     renderPOCContext(proposalList.review_summary.needs_review);
     currentTask.setAttribute("aria-busy", "false");
     renderCurrentProposal();
@@ -663,6 +735,15 @@
         !isTrustedProposalList(proposalList)
       ) {
         throw new SafeRequestError(200, true);
+      }
+      if (assistedApi) {
+        try {
+          const assistedList = await requestJson(assistedApi);
+          a3Mode = isTrustedAssistedReceiptCollection(assistedList) &&
+            assistedList.receipts.length > 0;
+        } catch {
+          // The compatibility demo does not expose A3 metadata.
+        }
       }
       applyLoadedData(draft, proposalList);
     } catch {
