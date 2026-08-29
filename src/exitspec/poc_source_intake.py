@@ -17,17 +17,9 @@ from threading import RLock
 from typing import Any, Callable, Final, Literal, Tuple
 import unicodedata
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, field_validator
 
-from .adapters.rfc822 import (
-    Rfc822PreparationError,
-    prepare_support_agent_email_fixture,
-)
 from .contracts import verify_contract_digest
-from .demo_data import (
-    SupportAgentEmailResourceError,
-    support_agent_email_paths,
-)
 from .intake import (
     TranscriptIntakeError,
     redact_and_parse_pasted_transcript,
@@ -125,6 +117,29 @@ class POCSourceReceipt(FrozenExitSpecModel):
     proposal_count: int = Field(ge=0, le=MAX_PROPOSALS)
     status: Literal["NEEDS_REVIEW"] = "NEEDS_REVIEW"
     idempotent_replay: bool
+
+
+class POCSourceInput(FrozenExitSpecModel):
+    """One typed, source-neutral local input before adapter parsing."""
+
+    source_kind: SourceKind
+    content: str = Field(min_length=1, max_length=CONTRACT_INPUT_LIMIT)
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def normalize_content(cls, value: object) -> str:
+        if type(value) is not str:
+            raise ValueError("content must be text.")
+        normalized = unicodedata.normalize(
+            "NFC",
+            value.replace("\r\n", "\n").replace("\r", "\n"),
+        )
+        for character in normalized:
+            if character == "\n":
+                continue
+            if unicodedata.category(character).startswith("C"):
+                raise ValueError("content contains a forbidden control character.")
+        return normalized
 
 
 def _utc_now() -> datetime:
@@ -477,6 +492,52 @@ class ProcessLocalPOCSourceIntake:
                 )
         return tuple(proposals)
 
+    def capture_source(
+        self,
+        *,
+        poc_id: str,
+        source: POCSourceInput,
+        idempotency_key: str,
+    ) -> POCSourceReceipt:
+        """Dispatch every local source through one typed intake spine.
+
+        The dispatch owns source-kind selection only. Each adapter remains a
+        thin parser that returns the same redacted, provenance-bound source
+        snapshot to the shared attachment service.
+        """
+
+        if type(source) is not POCSourceInput:
+            raise TypeError("source must be a POCSourceInput.")
+        # Fail before parsing or observation bookkeeping when the POC is
+        # missing or archived. This keeps rejected scoped writes side-effect
+        # free at the shared intake boundary.
+        self._source_service._require_active_draft(poc_id)
+        if source.source_kind is SourceKind.EMAIL:
+            return self.capture_email_text(
+                poc_id=poc_id,
+                email_text=source.content,
+                idempotency_key=idempotency_key,
+            )
+        if source.source_kind is SourceKind.MEETING:
+            return self.capture_meeting(
+                poc_id=poc_id,
+                transcript_text=source.content,
+                idempotency_key=idempotency_key,
+            )
+        if source.source_kind is SourceKind.DOCUMENT:
+            return self.capture_document(
+                poc_id=poc_id,
+                document_text=source.content,
+                idempotency_key=idempotency_key,
+            )
+        if source.source_kind is SourceKind.EXISTING_CONTRACT:
+            return self.capture_contract(
+                poc_id=poc_id,
+                contract_json=source.content,
+                idempotency_key=idempotency_key,
+            )
+        raise POCSourceIntakeInvalid("The source kind was not accepted.")
+
     def capture_email(
         self,
         *,
@@ -485,6 +546,18 @@ class ProcessLocalPOCSourceIntake:
         idempotency_key: str,
     ) -> POCSourceReceipt:
         """Attach one of the two manifest-pinned synthetic email fixtures."""
+
+        # Keep the compatibility-only fixture adapter out of the generic
+        # source-neutral import path. Dynamic email text uses capture_source;
+        # this lazy import preserves the existing seeded demo separately.
+        from .adapters.rfc822 import (
+            Rfc822PreparationError,
+            prepare_support_agent_email_fixture,
+        )
+        from .demo_data import (
+            SupportAgentEmailResourceError,
+            support_agent_email_paths,
+        )
 
         if (
             type(fixture_case_id) is not str
@@ -954,6 +1027,7 @@ __all__ = [
     "POCSourceIntakeError",
     "POCSourceIntakeInvalid",
     "POCSourceIntakeRevisionRequired",
+    "POCSourceInput",
     "POCSourceReceipt",
     "ProcessLocalPOCSourceIntake",
 ]

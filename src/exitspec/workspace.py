@@ -37,7 +37,7 @@ class WorkspacePhase(str, Enum):
 class WorkspaceSourceType(str, Enum):
     EMAIL = "email"
     MEETING_TRANSCRIPT = "meeting_transcript"
-    NOTE = "note"
+    NOTE = "note"  # Deprecated compatibility identifier; A2 emits DOCUMENT.
     DOCUMENT = "document"
     EXISTING_CONTRACT = "existing_contract"
 
