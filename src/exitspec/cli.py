@@ -284,6 +284,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 4
     if args.command == "serve":
         if args.source_neutral:
+            incompatible = []
+            if args.enable_fireworks:
+                incompatible.append("--enable-fireworks")
+            if args.enable_fireworks_stt:
+                incompatible.append("--enable-fireworks-stt")
+            if args.inferdrome_runs_root is not None:
+                incompatible.append("--inferdrome-runs-root")
+            if incompatible:
+                raise ValueError(
+                    "--source-neutral cannot be combined with {0}.".format(
+                        ", ".join(incompatible)
+                    )
+                )
             server = serve_source_neutral_demo(
                 host=args.host,
                 port=args.port,

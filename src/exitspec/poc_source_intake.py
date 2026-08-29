@@ -130,12 +130,16 @@ class POCSourceInput(FrozenExitSpecModel):
     def normalize_content(cls, value: object) -> str:
         if type(value) is not str:
             raise ValueError("content must be text.")
-        for character in value:
+        normalized = unicodedata.normalize(
+            "NFC",
+            value.replace("\r\n", "\n").replace("\r", "\n"),
+        )
+        for character in normalized:
             if character == "\n":
                 continue
             if unicodedata.category(character).startswith("C"):
                 raise ValueError("content contains a forbidden control character.")
-        return value
+        return normalized
 
 
 def _utc_now() -> datetime:

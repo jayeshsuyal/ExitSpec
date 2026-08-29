@@ -7,14 +7,17 @@
     "GL-01": {
       "statement": "One stable POC identity spans dynamic creation, source attachment, source listing, and proposal projection.",
       "proof": [
-        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_has_no_seeded_dependency_and_preserves_poc_id"
+        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_has_no_seeded_dependency_and_preserves_poc_id",
+        "tests/test_a2_source_spine.py::test_a2_closure_evidence_is_bounded_and_references_executable_tests"
       ]
     },
     "GL-02": {
       "statement": "EMAIL, MEETING, DOCUMENT, and EXISTING_CONTRACT converge through one typed local intake dispatch; notes is an input alias for DOCUMENT.",
       "proof": [
         "tests/test_a2_source_spine.py::test_one_typed_spine_accepts_all_kinds_and_notes_is_document_alias",
-        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_has_no_seeded_dependency_and_preserves_poc_id"
+        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_has_no_seeded_dependency_and_preserves_poc_id",
+        "tests/test_a2_source_spine.py::test_source_neutral_http_runtime_accepts_each_kind_on_a_fresh_dynamic_poc",
+        "tests/test_a2_source_spine_browser.py::test_dynamic_browser_create_attach_list_proposal_journey_without_seeded_fallback"
       ]
     }
   },

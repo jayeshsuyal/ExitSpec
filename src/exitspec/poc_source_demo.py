@@ -325,9 +325,11 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 source=source,
                 idempotency_key=idempotency_key,
             )
+        except POCSourceDraftUnavailable:
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
+            return
         except (
             POCSourceDraftArchived,
-            POCSourceDraftUnavailable,
             POCSourceIdempotencyConflict,
             POCSourceRevisionRequired,
             POCSourceStaleRevision,
@@ -361,24 +363,98 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return False
 
     def _json_request_allowed(self) -> bool:
-        media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        if media_type != "application/json":
+        if not self._has_json_media_type():
             self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Content-Type must be application/json."})
             return False
-        origin = self.headers.get("Origin")
-        expected = {
-            "http://127.0.0.1:{0}".format(self.server.server_port),
-            "http://localhost:{0}".format(self.server.server_port),
-        }
-        if origin not in expected:
+        if not self._has_exact_loopback_origin():
             self._json(HTTPStatus.FORBIDDEN, {"error": "Origin is not allowed."})
             return False
         return True
 
+    def _has_json_media_type(self) -> bool:
+        values = self.headers.get_all("Content-Type") or []
+        if len(values) != 1:
+            return False
+        media_type, separator, parameter = values[0].partition(";")
+        if media_type.strip().lower() != "application/json":
+            return False
+        if not separator:
+            return True
+        name, equals, value = parameter.partition("=")
+        if name.strip().lower() != "charset" or not equals:
+            return False
+        charset = value.strip()
+        if charset.startswith('"') and charset.endswith('"') and len(charset) >= 2:
+            charset = charset[1:-1]
+        return bool(charset) and all(
+            character.isascii()
+            and (character.isalnum() or character in "!#$%&'*+-.^_`|~")
+            for character in charset
+        )
+
+    def _has_exact_loopback_origin(self) -> bool:
+        origins = self.headers.get_all("Origin") or []
+        hosts = self.headers.get_all("Host") or []
+        if len(origins) != 1 or len(hosts) != 1:
+            return False
+        origin = origins[0]
+        host = hosts[0]
+        if origin != origin.strip() or host != host.strip():
+            return False
+        try:
+            parsed_origin = urlparse(origin)
+            parsed_host = urlparse("http://" + host)
+            origin_hostname = parsed_origin.hostname
+            host_hostname = parsed_host.hostname
+            origin_port = parsed_origin.port
+            host_port = parsed_host.port
+        except ValueError:
+            return False
+        loopback = {"127.0.0.1", "localhost", "::1"}
+        if (
+            parsed_origin.scheme.lower() != "http"
+            or origin_hostname not in loopback
+            or host_hostname not in loopback
+            or parsed_origin.username is not None
+            or parsed_origin.password is not None
+            or parsed_host.username is not None
+            or parsed_host.password is not None
+            or parsed_origin.path
+            or parsed_origin.params
+            or parsed_origin.query
+            or parsed_origin.fragment
+            or parsed_host.path
+            or parsed_host.params
+            or parsed_host.query
+            or parsed_host.fragment
+        ):
+            return False
+        normalized_origin_host = "[::1]" if origin_hostname == "::1" else origin_hostname
+        normalized_request_host = "[::1]" if host_hostname == "::1" else host_hostname
+        expected_port = self.server.server_port
+        origin_authority = (
+            normalized_origin_host
+            if origin_port is None
+            else "{0}:{1}".format(normalized_origin_host, origin_port)
+        )
+        request_authority = (
+            normalized_request_host
+            if host_port is None
+            else "{0}:{1}".format(normalized_request_host, host_port)
+        )
+        return (
+            parsed_origin.netloc.lower() == origin_authority.lower()
+            and parsed_host.netloc.lower() == request_authority.lower()
+            and (80 if origin_port is None else origin_port) == expected_port
+            and (80 if host_port is None else host_port) == expected_port
+            and parsed_origin.netloc.lower() == parsed_host.netloc.lower()
+        )
+
     def _read_json(self) -> dict[str, Any]:
-        raw_length = self.headers.get("Content-Length")
-        if raw_length is None:
+        lengths = self.headers.get_all("Content-Length") or []
+        if len(lengths) != 1:
             raise ValueError("Content length is required.")
+        raw_length = lengths[0]
         try:
             length = int(raw_length)
         except ValueError as error:
