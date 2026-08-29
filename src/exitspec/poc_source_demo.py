@@ -9,6 +9,7 @@ The existing compatibility demo remains in :mod:`exitspec.web`.
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -68,6 +69,9 @@ from .synthetic_assisted_authoring import (
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
+# The byte cap is retained; these parser caps bound decoded-object work too.
+MAX_REQUEST_JSON_DEPTH = 32
+MAX_REQUEST_JSON_NODES = 4_096
 POC_ID_PATTERN = r"^poc_[a-z0-9][a-z0-9_-]{2,63}$"
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
 _SOURCE_PAGE_RE = re.compile(
@@ -134,17 +138,23 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
             draft_lookup=self.draft_poc_service.get,
         )
+        authoring_executor = (
+            SyntheticSourceNeutralAssistedAuthoringExecutor()
+            if assisted_authoring_executor is None
+            else assisted_authoring_executor
+        )
         self.assisted_authoring_service = ProcessLocalAssistedAuthoringService(
             source_lookup=self.poc_source_intake.source_snapshot,
             draft_lookup=self.draft_poc_service.get,
-            executor=(
-                SyntheticSourceNeutralAssistedAuthoringExecutor()
-                if assisted_authoring_executor is None
-                else assisted_authoring_executor
-            ),
+            executor=authoring_executor,
+            provider=getattr(authoring_executor, "provider_name", ""),
+            endpoint=getattr(authoring_executor, "endpoint", ""),
         )
         self.proposal_review_service = ProcessLocalProposalReviewService(
             proposal_lookup=self._proposal_inputs_for_review,
+        )
+        self.assisted_authoring_service.bind_decision_lookup(
+            self.proposal_review_service.source_has_decision
         )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
@@ -178,6 +188,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 
     def workspace_payload(self, selected_filter: str = "Active") -> dict[str, Any]:
         receipts: dict[str, tuple[Any, ...]] = {}
+        current_counts: dict[str, int] = {}
         pending: dict[str, int] = {}
         kept: dict[str, int] = {}
         for draft in self.draft_poc_service.snapshots():
@@ -192,6 +203,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
                 kept[draft.poc_id] = sum(
                     item.review_state.value == "KEEP_FOR_CONTRACT" for item in items
                 )
+                current_counts[draft.poc_id] = len(items)
             else:
                 receipts[draft.poc_id] = ()
                 pending[draft.poc_id] = 0
@@ -199,6 +211,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         return project_draft_dashboard(
             self.draft_poc_service.snapshots(),
             receipts,
+            current_proposal_counts_by_poc_id=current_counts,
             pending_proposal_counts_by_poc_id=pending,
             kept_proposal_counts_by_poc_id=kept,
             selected_filter=selected_filter,
@@ -558,8 +571,30 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 object_pairs_hook=reject_duplicate_pairs,
                 parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
             )
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
             raise ValueError("Request body must be valid JSON.") from error
+        nodes = 0
+
+        def validate_value(value: Any, depth: int) -> None:
+            nonlocal nodes
+            nodes += 1
+            if nodes > MAX_REQUEST_JSON_NODES or depth > MAX_REQUEST_JSON_DEPTH:
+                raise ValueError("Request JSON exceeds its supported bounds.")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("Request JSON contains a non-finite number.")
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if type(key) is not str:
+                        raise ValueError("Request JSON object keys must be text.")
+                    validate_value(child, depth + 1)
+            elif isinstance(value, list):
+                for child in value:
+                    validate_value(child, depth + 1)
+
+        try:
+            validate_value(payload, 0)
+        except (RecursionError, ValueError) as error:
+            raise ValueError("Request JSON exceeds its supported bounds.") from error
         if type(payload) is not dict:
             raise ValueError("Request body must be an object.")
         return payload
@@ -652,6 +687,8 @@ def serve_source_neutral_demo(
 
 __all__ = [
     "MAX_REQUEST_BYTES",
+    "MAX_REQUEST_JSON_DEPTH",
+    "MAX_REQUEST_JSON_NODES",
     "SourceNeutralPOCDemoServer",
     "serve_source_neutral_demo",
 ]

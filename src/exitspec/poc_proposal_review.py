@@ -709,6 +709,16 @@ class ProcessLocalProposalReviewService:
                 )
             return tuple(items)
 
+    def source_has_decision(self, poc_id: str, source_receipt_id: str) -> bool:
+        """Return whether any current proposal for a source was triaged."""
+
+        if type(source_receipt_id) is not str or not source_receipt_id.strip():
+            raise ProposalReviewInvalid("The source receipt identifier is invalid.")
+        return any(
+            item.source_receipt_id == source_receipt_id and item.decision is not None
+            for item in self.list_proposals(poc_id)
+        )
+
     def decide(
         self,
         poc_id: str,

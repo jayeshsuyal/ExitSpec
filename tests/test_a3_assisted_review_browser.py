@@ -146,6 +146,107 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             browser.close()
 
 
+def test_dynamic_browser_mixed_a2_a3_review_keeps_decision_across_reload():
+    sync_playwright = playwright_sync.sync_playwright
+    with _running_server() as base_url, sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        browser_errors: list[str] = []
+        failed_responses: list[str] = []
+        page.on(
+            "console",
+            lambda message: browser_errors.append(message.text)
+            if message.type == "error"
+            else None,
+        )
+        page.on(
+            "response",
+            lambda response: failed_responses.append(
+                f"{response.status} {response.url}"
+            )
+            if response.status >= 400
+            else None,
+        )
+        try:
+            page.goto(f"{base_url}/app/pocs/new")
+            page.locator('input[name="first_source_choice"][value="DOCUMENT"]').check()
+            page.locator("#display-name").fill("Mixed A2 A3 POC")
+            page.locator("#customer-label").fill("Mixed customer")
+            page.locator("#use-case").fill("Validate mixed source review.")
+            page.locator("#owner").fill("field_engineer")
+            page.locator("#create-poc").click()
+            page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/poc_[a-z0-9_-]+/sources/new$"))
+            page.locator("#document-text").fill("The error rate must remain below 1%.")
+            page.locator("#capture-source").click()
+            page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/poc_[a-z0-9_-]+/review$"))
+            poc_id = re.search(r"/pocs/(poc_[a-z0-9_-]+)/", page.url).group(1)
+
+            page.locator("#assisted-authoring-link").click()
+            page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/{poc_id}/assisted-authoring$"))
+            page.locator('input[name="source_receipt"]').check()
+            page.locator("#authoring-submit").click()
+            page.locator("#authoring-result").wait_for(state="visible")
+            source_receipt_id = page.locator('input[name="source_receipt"]').input_value()
+
+            capture = page.request.post(
+                f"{base_url}/api/pocs/{poc_id}/sources/email-text",
+                data=json.dumps(
+                    {
+                        "email_text": "The error rate must remain below 1%.",
+                        "idempotency_key": "mixed-email-source",
+                    }
+                ),
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": base_url,
+                },
+            )
+            assert capture.status == 201
+            email_receipt_id = capture.json()["source_receipt_id"]
+            assert email_receipt_id != source_receipt_id
+
+            page.locator("#open-proposal-review").click()
+            page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/{poc_id}/review$"))
+            page.wait_for_load_state("networkidle")
+            assert page.locator("#source-kind").inner_text().casefold() == "notes or document"
+            assert page.locator("#proposal-support").inner_text().startswith(
+                "Source-bound proposal material"
+            )
+            page.locator("#reviewer").fill("named.employee")
+            page.locator("#rationale").fill("Keep this exact A3 material for A4 drafting.")
+            page.locator("#keep-proposal").click()
+            page.wait_for_function(
+                "document.querySelector('#source-kind')?.textContent?.toLowerCase() === 'email'"
+            )
+            assert page.locator("#source-kind").inner_text().casefold() == "email"
+            assert page.locator("#proposal-support").inner_text().startswith(
+                "Executable candidate"
+            )
+
+            receipts = page.request.get(f"{base_url}/api/pocs/{poc_id}/assisted-authoring")
+            projection = page.request.get(
+                f"{base_url}/api/pocs/{poc_id}/assisted-authoring/current-review"
+            )
+            assert receipts.ok and projection.ok
+            receipt_payload = receipts.json()
+            projection_payload = projection.json()
+            assert receipt_payload["receipts"][0]["source_receipt_id"] == source_receipt_id
+            assert projection_payload["proposals"][0]["source_receipt_id"] == source_receipt_id
+            assert projection_payload["proposals"][0]["review_state"] == "KEEP_FOR_CONTRACT"
+
+            page.reload()
+            page.wait_for_load_state("networkidle")
+            assert page.locator("#source-kind").inner_text().casefold() == "email"
+            assert not page.locator("#proposal-support").inner_text().startswith(
+                "Source-bound proposal material"
+            )
+            assert page.locator("#assisted-authoring-link").is_visible()
+            assert failed_responses == []
+            assert browser_errors == []
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize(
     "capability_response",
     (

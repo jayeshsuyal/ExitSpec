@@ -232,8 +232,12 @@ def test_a3_capability_gates_metadata_and_hides_legacy_control():
     assert 'requestJson(stateApi)' in initialise
     assert 'isTrustedA3Capability(capability)' in initialise
     assert 'isTrustedLegacyCapability(capability)' in initialise
-    assert 'isTrustedAssistedReceiptCollection(assistedList, proposalList)' in initialise
-    assert "proposalIds.every((proposalId, index) => proposalId === queueIds[index])" in javascript
+    assert 'trustedAssistedProposals(' in initialise
+    assert 'currentReview,' in initialise
+    assert 'proposalList' in initialise
+    assert 'requestJson(currentReviewApi)' in initialise
+    assert "receiptProposalIds.some" in javascript
+    assert "new Set(receiptProposalIds).size !== receiptProposalIds.length" in javascript
     assert 'assistedLink.hidden = true;' in loaded
     assert 'assistedLink.hidden = false;' in loaded
 
@@ -256,9 +260,9 @@ def test_a3_receipts_bind_the_displayed_queue_and_fail_closed_on_ambiguous_state
     assert "receipt.source_adapter_version" in receipt
     assert "receipt.redaction_policy_version" in receipt
     assert "receipt.proposal_ids.every" in receipt
-    assert "proposalList.proposals.map" in collection
-    assert "proposalIds.length === queueIds.length" in collection
-    assert "if (payload.receipts.length === 0) return true;" in collection
+    assert "receiptProposalIds.some" in javascript
+    assert "projection.source_receipt_id !== proposal.source_receipt_id" in javascript
+    assert "projection.review_state !== \"NEEDS_REVIEW\"" in javascript
     assert "throw new SafeRequestError(503, true);" in javascript
 
 

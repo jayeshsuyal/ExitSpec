@@ -38,6 +38,9 @@
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const proposalsApi = pocApi ? `${pocApi}/proposals` : null;
   const assistedApi = pocApi ? `${pocApi}/assisted-authoring` : null;
+  const currentReviewApi = pocApi
+    ? `${pocApi}/assisted-authoring/current-review`
+    : null;
   const stateApi = "/api/state";
 
   const currentTask = document.querySelector("#proposal-current-task");
@@ -58,7 +61,8 @@
   const selectedMetricCues = new Set();
   let pocCustomerLabel = null;
   let a3Capability = false;
-  let a3Mode = false;
+  let hasA3Proposals = false;
+  let a3Proposals = new Map();
   let inFlight = false;
   let pendingAttempt = null;
 
@@ -105,7 +109,8 @@
         value === stateApi ||
         value === pocApi ||
         value === proposalsApi ||
-        value === assistedApi
+        value === assistedApi ||
+        value === currentReviewApi
       ) {
         return true;
       }
@@ -322,7 +327,7 @@
     );
   }
 
-  function isTrustedAssistedReceiptCollection(payload, proposalList) {
+  function isTrustedAssistedReceiptCollection(payload) {
     if (
       !hasExactKeys(payload, ["poc_id", "receipts"]) ||
       payload.poc_id !== pocId ||
@@ -332,20 +337,163 @@
       return false;
     }
     const receiptIds = new Set();
-    const proposalIds = [];
     for (const receipt of payload.receipts) {
       if (!isTrustedAssistedReceipt(receipt)) return false;
       receiptIds.add(receipt.authoring_receipt_id);
-      proposalIds.push(...receipt.proposal_ids);
     }
     if (receiptIds.size !== payload.receipts.length) return false;
-    if (!proposalList || !isTrustedProposalList(proposalList)) return false;
-    if (payload.receipts.length === 0) return true;
-    const queueIds = proposalList.proposals.map((proposal) => proposal.proposal_id);
-    return (
-      proposalIds.length === queueIds.length &&
-      proposalIds.every((proposalId, index) => proposalId === queueIds[index])
+    return true;
+  }
+
+  function isTrustedDecisionOverlay(decision, projection) {
+    if (projection.review_state === "NEEDS_REVIEW") return decision === null;
+    return Boolean(
+      hasExactKeys(decision, [
+        "decided_at",
+        "decision",
+        "poc_id",
+        "proposal_id",
+        "rationale",
+        "reviewer",
+        "source_kind",
+        "source_receipt_id",
+      ]) &&
+        decision.poc_id === pocId &&
+        decision.proposal_id === projection.proposal_id &&
+        decision.source_receipt_id === projection.source_receipt_id &&
+        decision.source_kind === projection.source_kind &&
+        DECISIONS.includes(decision.decision) &&
+        decision.decision === projection.review_state &&
+        isSafeBoundedText(decision.reviewer, 160) &&
+        isSafeBoundedText(decision.rationale, 2000) &&
+        typeof decision.decided_at === "string" &&
+        decision.decided_at.length <= 64 &&
+        Number.isFinite(Date.parse(decision.decided_at))
     );
+  }
+
+  function isTrustedAssistedProjection(projection, receipt) {
+    return Boolean(
+      hasExactKeys(projection, [
+        "authoring_receipt_id",
+        "authoring_result_id",
+        "decision",
+        "normalized_claim",
+        "numeric_facts",
+        "poc_id",
+        "proposal_id",
+        "proposal_key",
+        "redaction_policy_version",
+        "review_state",
+        "schema_version",
+        "source_adapter_name",
+        "source_adapter_version",
+        "source_content_sha256",
+        "source_id",
+        "source_kind",
+        "source_quote",
+        "source_receipt_id",
+        "source_revision",
+      ]) &&
+        projection.poc_id === pocId &&
+        projection.schema_version === "exitspec.current-assisted-proposal.v1" &&
+        PROPOSAL_ID_PATTERN.test(projection.proposal_id) &&
+        receipt.authoring_receipt_id === projection.authoring_receipt_id &&
+        receipt.authoring_result_id === projection.authoring_result_id &&
+        receipt.poc_id === projection.poc_id &&
+        receipt.source_receipt_id === projection.source_receipt_id &&
+        receipt.source_id === projection.source_id &&
+        receipt.source_kind === projection.source_kind &&
+        receipt.source_content_sha256 === projection.source_content_sha256 &&
+        receipt.source_revision === projection.source_revision &&
+        receipt.source_adapter_name === projection.source_adapter_name &&
+        receipt.source_adapter_version === projection.source_adapter_version &&
+        receipt.redaction_policy_version === projection.redaction_policy_version &&
+        receipt.proposal_ids.includes(projection.proposal_id) &&
+        SOURCE_KINDS.includes(projection.source_kind) &&
+        isSafeBoundedText(projection.source_quote, 4000) &&
+        isSafeBoundedText(projection.normalized_claim, 2000) &&
+        isSafeBoundedText(projection.proposal_key, 64) &&
+        ["NEEDS_REVIEW", "KEEP_FOR_CONTRACT", "DISCARD"].includes(
+          projection.review_state
+        ) &&
+        isTrustedDecisionOverlay(projection.decision, projection)
+    );
+  }
+
+  function trustedAssistedProposals(assistedList, currentReview, proposalList) {
+    if (
+      !isTrustedAssistedReceiptCollection(assistedList) ||
+      !hasExactKeys(currentReview, ["poc_id", "proposals"]) ||
+      currentReview.poc_id !== pocId ||
+      !Array.isArray(currentReview.proposals) ||
+      currentReview.proposals.length > 1024 ||
+      !isTrustedProposalList(proposalList)
+    ) {
+      return null;
+    }
+    const receiptsById = new Map();
+    const receiptProposalIds = [];
+    for (const receipt of assistedList.receipts) {
+      if (receiptsById.has(receipt.authoring_receipt_id)) return null;
+      receiptsById.set(receipt.authoring_receipt_id, receipt);
+      receiptProposalIds.push(...receipt.proposal_ids);
+    }
+    const projectionsById = new Map();
+    for (const projection of currentReview.proposals) {
+      const receipt = receiptsById.get(projection.authoring_receipt_id);
+      if (
+        projectionsById.has(projection.proposal_id) ||
+        !receipt ||
+        !isTrustedAssistedProjection(projection, receipt)
+      ) {
+        return null;
+      }
+      projectionsById.set(projection.proposal_id, projection);
+    }
+    const projectionIds = currentReview.proposals.map(
+      (projection) => projection.proposal_id
+    );
+    if (
+      receiptProposalIds.length !== projectionIds.length ||
+      new Set(receiptProposalIds).size !== receiptProposalIds.length ||
+      receiptProposalIds.some(
+        (proposalId, index) => proposalId !== projectionIds[index]
+      )
+    ) {
+      return null;
+    }
+    const pendingIds = new Set(
+      proposalList.proposals.map((proposal) => proposal.proposal_id)
+    );
+    for (const proposal of proposalList.proposals) {
+      const projection = projectionsById.get(proposal.proposal_id);
+      if (!projection) continue; // untouched A2 material remains reviewable.
+      if (
+        projection.review_state !== "NEEDS_REVIEW" ||
+        projection.source_receipt_id !== proposal.source_receipt_id ||
+        projection.source_kind !== proposal.source_kind ||
+        projection.source_quote !== proposal.source_quote ||
+        projection.normalized_claim !== proposal.normalized_claim
+      ) {
+        return null;
+      }
+    }
+    for (const projection of currentReview.proposals) {
+      if (
+        projection.review_state === "NEEDS_REVIEW" &&
+        !pendingIds.has(projection.proposal_id)
+      ) {
+        return null;
+      }
+      if (
+        projection.review_state !== "NEEDS_REVIEW" &&
+        pendingIds.has(projection.proposal_id)
+      ) {
+        return null;
+      }
+    }
+    return projectionsById;
   }
 
   function isTrustedDecisionResponse(payload, attempt) {
@@ -434,7 +582,7 @@
   }
 
   function executableMetricCue(proposal) {
-    if (!proposal || a3Mode) {
+    if (!proposal || a3Proposals.has(proposal.proposal_id)) {
       return null;
     }
     const hasTTFT = TTFT_CUE.test(proposal.normalized_claim);
@@ -495,9 +643,10 @@
     const proposal = currentProposal();
     const hasProposal = proposal !== null;
     const metricCue = executableMetricCue(proposal);
+    const isA3Proposal = hasProposal && a3Proposals.has(proposal.proposal_id);
     const duplicateMetric =
       metricCue !== null && selectedMetricCues.has(metricCue);
-    const executableSlotAvailable = a3Mode || (
+    const executableSlotAvailable = isA3Proposal || (
       metricCue !== null &&
       !duplicateMetric &&
       keptCount < 2
@@ -532,7 +681,7 @@
       ? "Recording this triage decision…"
       : pendingAttempt
         ? "The response was interrupted. Retry will use the same decision key."
-        : a3Mode && fieldsValid
+        : isA3Proposal && fieldsValid
           ? "A3 source-bound proposal only · capability and policy classification remain a later step."
           : fieldsValid && metricCue === null
           ? "The current evaluator cannot execute this claim. Discard keeps it visible as NOT_PROVEN."
@@ -582,7 +731,7 @@
     const metricCue = executableMetricCue(proposal);
     const support = document.querySelector("#proposal-support");
     support.setAttribute("data-supported", String(metricCue !== null));
-    support.textContent = a3Mode
+    support.textContent = a3Proposals.has(proposal.proposal_id)
       ? "Source-bound proposal material · later classification is not assigned here"
       : metricCue === null
       ? "Not executable in this demo · discard to NOT_PROVEN"
@@ -607,7 +756,7 @@
     currentTask.hidden = true;
     completionPanel.hidden = false;
     document.querySelector("#review-complete-summary").textContent =
-      a3Mode
+      hasA3Proposals
         ? initialCount === 0
           ? "There are no source proposals awaiting review. No proposal was retained for acceptance drafting. No contract was created or approved."
           : `${initialCount} proposals reviewed: ${keptCount} retained for acceptance drafting and ${discardedCount} discarded. No contract was created or approved.`
@@ -615,7 +764,7 @@
         ? "There are no source proposals awaiting review. No contract was created or approved."
         : `${initialCount} proposals reviewed: ${keptCount} kept for contract authoring and ${discardedCount} discarded. No contract was created or approved.`;
     if (pocId && keptCount === 2) {
-      if (!a3Mode) {
+      if (!hasA3Proposals) {
         const destination = `/app/pocs/${encodeURIComponent(pocId)}/define`;
         defineCriteriaLink.textContent = "Define acceptance criteria";
         defineCriteriaLink.href = destination;
@@ -631,7 +780,7 @@
         defineCriteriaLink.href = "/app";
         defineCriteriaLink.hidden = false;
       }
-    } else if (a3Mode) {
+    } else if (hasA3Proposals) {
       defineCriteriaLink.textContent = "Return to POC workspace";
       defineCriteriaLink.href = "/app";
       defineCriteriaLink.hidden = false;
@@ -683,6 +832,22 @@
     const proposalList = await requestJson(proposalsApi);
     if (!isTrustedProposalList(proposalList)) {
       throw new SafeRequestError(200, true);
+    }
+    if (a3Capability) {
+      const [assistedList, currentReview] = await Promise.all([
+        requestJson(assistedApi),
+        requestJson(currentReviewApi),
+      ]);
+      const projection = trustedAssistedProposals(
+        assistedList,
+        currentReview,
+        proposalList
+      );
+      if (!projection) {
+        throw new SafeRequestError(200, true);
+      }
+      a3Proposals = projection;
+      hasA3Proposals = assistedList.receipts.length > 0;
     }
     proposals = proposalList.proposals.slice();
     initialCount = proposalList.review_summary.total;
@@ -817,7 +982,7 @@
   });
 
   async function initialise() {
-    if (!pocId || !pocApi || !proposalsApi) {
+    if (!pocId || !pocApi || !proposalsApi || !currentReviewApi) {
       blockReview(
         "This proposal-review address is invalid. Return to the POC workspace."
       );
@@ -842,12 +1007,21 @@
       }
       if (isTrustedA3Capability(capability) && assistedApi) {
         try {
-          const assistedList = await requestJson(assistedApi);
-          if (!isTrustedAssistedReceiptCollection(assistedList, proposalList)) {
+          const [assistedList, currentReview] = await Promise.all([
+            requestJson(assistedApi),
+            requestJson(currentReviewApi),
+          ]);
+          const projection = trustedAssistedProposals(
+            assistedList,
+            currentReview,
+            proposalList
+          );
+          if (!projection) {
             throw new SafeRequestError(200, true);
           }
           a3Capability = true;
-          a3Mode = assistedList.receipts.length > 0;
+          a3Proposals = projection;
+          hasA3Proposals = assistedList.receipts.length > 0;
         } catch {
           throw new SafeRequestError(503, true);
         }

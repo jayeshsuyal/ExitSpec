@@ -507,6 +507,30 @@ def test_strict_provider_json_rejects_overflow_and_over_nesting(
     assert list(exception_graph(raised.value)) == [raised.value]
 
 
+@pytest.mark.parametrize(
+    ("envelope_body", "content", "expected_code"),
+    (
+        (_nested_json_object(2_000), None, ProviderErrorCode.MALFORMED_RESPONSE),
+        (None, _nested_json_object(2_000), ProviderErrorCode.INVALID_OUTPUT),
+    ),
+)
+def test_strict_provider_json_converts_parser_recursion_to_safe_provider_error(
+    envelope_body, content, expected_code
+):
+    response = (
+        ProviderHTTPResponse(status_code=200, body=envelope_body)
+        if envelope_body is not None
+        else success_response(content=content)
+    )
+    provider = FireworksProvider(transport=ScriptedTransport(response))
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == expected_code
+    assert list(exception_graph(raised.value)) == [raised.value]
+
+
 def test_429_and_503_retry_with_capped_retry_after_then_succeed():
     transport = ScriptedTransport(
         ProviderHTTPResponse(

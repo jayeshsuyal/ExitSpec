@@ -44,6 +44,9 @@ _COLLECTION_ROUTE_RE = re.compile(
 _CURRENT_SOURCES_ROUTE_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring/sources$"
 )
+_CURRENT_REVIEW_ROUTE_RE = re.compile(
+    r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring/current-review$"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +68,7 @@ def is_poc_assisted_authoring_web_api_target(target: str) -> bool:
         or _RETAINED_ROUTE_RE.fullmatch(path)
         or _COLLECTION_ROUTE_RE.fullmatch(path)
         or _CURRENT_SOURCES_ROUTE_RE.fullmatch(path)
+        or _CURRENT_REVIEW_ROUTE_RE.fullmatch(path)
     )
 
 
@@ -89,6 +93,7 @@ def handle_poc_assisted_authoring_web_api_request(
         retained_match = _RETAINED_ROUTE_RE.fullmatch(path)
         collection_match = _COLLECTION_ROUTE_RE.fullmatch(path)
         current_sources_match = _CURRENT_SOURCES_ROUTE_RE.fullmatch(path)
+        current_review_match = _CURRENT_REVIEW_ROUTE_RE.fullmatch(path)
         if authoring_match is not None:
             return _authoring_dispatch(
                 method=method,
@@ -118,6 +123,14 @@ def handle_poc_assisted_authoring_web_api_request(
                 poc_id=current_sources_match.group(1),
                 payload=payload,
                 source_runtime=source_runtime,
+            )
+        if current_review_match is not None:
+            return _current_review_dispatch(
+                method=method,
+                poc_id=current_review_match.group(1),
+                payload=payload,
+                runtime=runtime,
+                review_runtime=review_runtime,
             )
         raise POCAssistedAuthoringWebAPIRequestError
     except POCAssistedAuthoringWebAPIRequestError:
@@ -315,6 +328,33 @@ def _current_sources_dispatch(
         {
             "poc_id": poc_id,
             "sources": [receipt.model_dump(mode="json") for receipt in receipts],
+        },
+    )
+
+
+def _current_review_dispatch(
+    *,
+    method: str,
+    poc_id: str,
+    payload: Mapping[str, Any] | None,
+    runtime: ProcessLocalAssistedAuthoringService,
+    review_runtime: Any | None,
+) -> POCAssistedAuthoringWebAPIResponse:
+    if method != "GET":
+        return _error(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            "Current proposal review method is not allowed.",
+        )
+    if payload is not None or review_runtime is None:
+        raise POCAssistedAuthoringWebAPIRequestError
+    projections = runtime.current_review_projection(poc_id, review_runtime)
+    return POCAssistedAuthoringWebAPIResponse(
+        HTTPStatus.OK,
+        {
+            "poc_id": poc_id,
+            "proposals": [
+                proposal.model_dump(mode="json") for proposal in projections
+            ],
         },
     )
 

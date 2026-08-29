@@ -54,11 +54,14 @@ def _strict_json_object(value: object) -> dict[str, Any]:
         raise ValueError("JSON object text is invalid")
     if len(value.encode("utf-8")) > _MAX_JSON_OBJECT_BYTES:
         raise ValueError("JSON object text is too large")
-    parsed = json.loads(
-        value,
-        object_pairs_hook=_reject_duplicate_json_pairs,
-        parse_constant=_reject_non_finite_json_constant,
-    )
+    try:
+        parsed = json.loads(
+            value,
+            object_pairs_hook=_reject_duplicate_json_pairs,
+            parse_constant=_reject_non_finite_json_constant,
+        )
+    except (RecursionError, TypeError, ValueError, UnicodeError) as error:
+        raise ValueError("JSON object text is invalid") from error
     if not isinstance(parsed, dict):
         raise ValueError("JSON value is not an object")
 
@@ -80,7 +83,10 @@ def _strict_json_object(value: object) -> dict[str, Any]:
             for child in node:
                 validate_node(child, depth + 1)
 
-    validate_node(parsed, 0)
+    try:
+        validate_node(parsed, 0)
+    except RecursionError as error:
+        raise ValueError("JSON object is nested too deeply") from error
     return parsed
 
 

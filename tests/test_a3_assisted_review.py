@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timezone
 from http.client import HTTPConnection
 import json
@@ -102,6 +103,18 @@ def _runtime(
             if executor is None
             else executor
         ),
+        provider=getattr(
+            SyntheticSourceNeutralAssistedAuthoringExecutor()
+            if executor is None
+            else executor,
+            "provider_name",
+        ),
+        endpoint=getattr(
+            SyntheticSourceNeutralAssistedAuthoringExecutor()
+            if executor is None
+            else executor,
+            "endpoint",
+        ),
         max_idempotency_records=max_idempotency_records,
         clock=lambda: NOW,
     )
@@ -139,6 +152,10 @@ def _safe_provider_receipt() -> ProviderReceipt:
 
 
 class PayloadExecutor:
+    provider_name = "test-provider"
+    model = ASSISTED_AUTHORING_MODEL
+    endpoint = "local://test-provider/a3"
+
     def __init__(self, payload: object) -> None:
         self.payload = payload
         self.requests = []
@@ -152,6 +169,10 @@ class PayloadExecutor:
 
 
 class FailureExecutor:
+    provider_name = "test-provider"
+    model = ASSISTED_AUTHORING_MODEL
+    endpoint = "local://test-provider/a3"
+
     def __init__(self, error: Exception) -> None:
         self.error = error
         self.requests = []
@@ -159,6 +180,16 @@ class FailureExecutor:
     def execute(self, request):
         self.requests.append(request)
         raise self.error
+
+
+class ForgedReceiptExecutor(PayloadExecutor):
+    def __init__(self, payload: object, **receipt_updates: object) -> None:
+        super().__init__(payload)
+        self.receipt = replace(_safe_provider_receipt(), **receipt_updates)
+
+    def execute(self, request):
+        self.requests.append(request)
+        return StructuredJSONResult(output=self.payload, receipt=self.receipt)
 
 
 class BlockingExecutor(PayloadExecutor):
@@ -605,6 +636,8 @@ def test_a3_blocking_executor_discards_output_after_source_revision():
         source_lookup=lookup,
         draft_lookup=drafts.get,
         executor=executor,
+        provider=getattr(executor, "provider_name", "synthetic"),
+        endpoint=getattr(executor, "endpoint", "local://exitspec/source-neutral-assisted-authoring"),
         clock=lambda: NOW,
     )
     outcome = []
@@ -886,6 +919,197 @@ def test_a3_review_api_reuses_human_decision_and_retained_projection():
     assert retained_response.payload["retained_count"] == 0
 
 
+def test_a3_current_review_projection_preserves_decided_membership_and_binding():
+    _, intake, service = _runtime("poc_a3_current_projection")
+    source_receipt_id = _attach_document(intake, "poc_a3_current_projection")
+    authored = service.create_assisted_draft(
+        poc_id="poc_a3_current_projection",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="current-projection-author",
+    )
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=service.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    before = handle_poc_assisted_authoring_web_api_request(
+        method="GET",
+        target="/api/pocs/poc_a3_current_projection/assisted-authoring/current-review",
+        payload=None,
+        runtime=service,
+        review_runtime=review,
+    )
+    assert before is not None and before.status == 200
+    projection = before.payload["proposals"][0]
+    assert projection["proposal_id"] == authored.proposals[0].proposal_id
+    assert projection["source_receipt_id"] == source_receipt_id
+    assert projection["authoring_receipt_id"] == authored.receipt.authoring_receipt_id
+    assert projection["review_state"] == "NEEDS_REVIEW"
+    assert projection["decision"] is None
+
+    review.decide(
+        "poc_a3_current_projection",
+        authored.proposals[0].proposal_id,
+        ProposalDecision.KEEP_FOR_CONTRACT,
+        "named.employee",
+        "Retain for later acceptance drafting.",
+        "current-projection-decision",
+    )
+    after = handle_poc_assisted_authoring_web_api_request(
+        method="GET",
+        target="/api/pocs/poc_a3_current_projection/assisted-authoring/current-review",
+        payload=None,
+        runtime=service,
+        review_runtime=review,
+    )
+    assert after is not None and after.status == 200
+    assert after.payload["proposals"][0]["review_state"] == "KEEP_FOR_CONTRACT"
+    assert after.payload["proposals"][0]["decision"]["proposal_id"] == authored.proposals[0].proposal_id
+
+
+def test_a3_existing_decision_blocks_new_authoring_without_orphaning_decision():
+    _, intake, service = _runtime("poc_a3_decision_guard")
+    source_receipt_id = _attach_document(intake, "poc_a3_decision_guard")
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    prior = review.list_proposals("poc_a3_decision_guard")[0]
+    review.decide(
+        "poc_a3_decision_guard",
+        prior.proposal_id,
+        ProposalDecision.DISCARD,
+        "named.employee",
+        "Discard the existing A2 candidate.",
+        "decision-guard-prior",
+    )
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_decision_guard",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="decision-guard-new-authoring",
+        )
+    assert caught.value.code == "attempt_conflict"
+    assert service.list_receipts("poc_a3_decision_guard") == ()
+    assert review.list_proposals("poc_a3_decision_guard")[0].review_state is ProposalReviewState.DISCARD
+
+
+def test_a3_inflight_authoring_discards_result_when_decision_lands():
+    executor = BlockingExecutor(_valid_payload())
+    _, intake, service = _runtime("poc_a3_decision_race", executor=executor)
+    source_receipt_id = _attach_document(intake, "poc_a3_decision_race")
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    prior = review.list_proposals("poc_a3_decision_race")[0]
+    outcome = []
+
+    def author():
+        try:
+            service.create_assisted_draft(
+                poc_id="poc_a3_decision_race",
+                source_receipt_id=source_receipt_id,
+                idempotency_key="decision-race-author",
+            )
+        except Exception as error:
+            outcome.append(error)
+
+    worker = threading.Thread(target=author)
+    worker.start()
+    assert executor.started.wait(timeout=2)
+    review.decide(
+        "poc_a3_decision_race",
+        prior.proposal_id,
+        ProposalDecision.DISCARD,
+        "named.employee",
+        "Discard while the assist is still running.",
+        "decision-race-human",
+    )
+    executor.release.set()
+    worker.join(timeout=5)
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], AssistedAuthoringError)
+    assert outcome[0].code == "attempt_conflict"
+    assert service.list_receipts("poc_a3_decision_race") == ()
+    assert review.list_proposals("poc_a3_decision_race")[0].review_state is ProposalReviewState.DISCARD
+
+
+def test_a3_executor_metadata_is_required_and_rechecked_before_write():
+    class ExecuteOnly:
+        def execute(self, request):
+            return StructuredJSONResult(output=_valid_payload(), receipt=_safe_provider_receipt())
+
+    with pytest.raises(ValueError, match="metadata"):
+        ProcessLocalAssistedAuthoringService(
+            source_lookup=lambda _poc, _source: None,
+            draft_lookup=lambda _poc: None,
+            executor=ExecuteOnly(),
+        )
+
+    executor = PayloadExecutor(_valid_payload())
+    _, intake, service = _runtime("poc_a3_metadata_mutation", executor=executor)
+    source_receipt_id = _attach_document(intake, "poc_a3_metadata_mutation")
+    executor.endpoint = "local://forged-endpoint"
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_metadata_mutation",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="metadata-mutated",
+        )
+    assert caught.value.code == "invalid_output"
+    assert service.list_receipts("poc_a3_metadata_mutation") == ()
+
+    for field, value in (
+        ("provider", "forged-provider"),
+        ("model", "wrong-model"),
+        ("endpoint", "local://forged-endpoint"),
+    ):
+        executor = ForgedReceiptExecutor(_valid_payload(), **{field: value})
+        _, intake, service = _runtime(
+            "poc_a3_forged_{0}".format(field), executor=executor
+        )
+        source_receipt_id = _attach_document(
+            intake, "poc_a3_forged_{0}".format(field), key="forged-{0}".format(field)
+        )
+        with pytest.raises(AssistedAuthoringError) as caught:
+            service.create_assisted_draft(
+                poc_id="poc_a3_forged_{0}".format(field),
+                source_receipt_id=source_receipt_id,
+                idempotency_key="forged-receipt-{0}".format(field),
+            )
+        assert caught.value.code == "invalid_output"
+        assert service.list_receipts("poc_a3_forged_{0}".format(field)) == ()
+
+    executor = PayloadExecutor(_valid_payload())
+    drafts, intake, _ = _runtime("poc_a3_metadata_changes_during_attempt")
+
+    def mutate_clock():
+        executor.endpoint = "local://changed-after-provider-check"
+        return NOW
+
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=intake.source_snapshot,
+        draft_lookup=drafts.get,
+        executor=executor,
+        provider=executor.provider_name,
+        endpoint="local://test-provider/a3",
+        clock=mutate_clock,
+    )
+    source_receipt_id = _attach_document(
+        intake, "poc_a3_metadata_changes_during_attempt", key="metadata-clock"
+    )
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_metadata_changes_during_attempt",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="metadata-clock-mutated",
+        )
+    assert caught.value.code == "invalid_output"
+    assert service.list_receipts("poc_a3_metadata_changes_during_attempt") == ()
+
+
 def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
     drafts, intake, service = _runtime("poc_a3_stale")
     source_receipt_id = _attach_document(intake, "poc_a3_stale")
@@ -1149,6 +1373,63 @@ def test_a3_http_api_accepts_all_a2_source_kinds_and_notes_alias():
             assert authored["authoring_receipt"]["status"] == "NEEDS_REVIEW"
             assert authored["proposals"]
             assert all(item["review_state"] == "NEEDS_REVIEW" for item in authored["proposals"])
+            workspace_status, workspace = request("GET", "/api/workspace")
+            assert workspace_status == 200
+            current = next(item for item in workspace["pocs"] if item["poc_id"] == poc_id)
+            assert current["current_proposal_count"] == len(authored["proposals"])
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+
+
+def test_a3_http_json_boundary_rejects_duplicate_nonfinite_depth_and_nodes():
+    server = SourceNeutralPOCDemoServer(("127.0.0.1", 0))
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+
+    def raw(body: str) -> tuple[int, dict]:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        try:
+            connection.request(
+                "POST",
+                "/api/pocs",
+                body=body.encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": "http://127.0.0.1:{0}".format(server.server_port),
+                },
+            )
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+    valid = json.dumps(
+        {
+            "display_name": "Bounded JSON POC",
+            "customer_label": "Customer",
+            "use_case": "Validate bounded JSON request parsing.",
+            "owner": "field_engineer",
+            "first_source_choice": "DOCUMENT",
+            "idempotency_key": "http-json-valid",
+        }
+    )
+    try:
+        status, payload = raw(valid)
+        assert status == 201
+        assert payload["poc_id"].startswith("poc_")
+        bad_bodies = (
+            valid[:-1] + ',"idempotency_key":"duplicate"}',
+            '{"display_name":"x","customer_label":"x","use_case":"x","owner":"x","first_source_choice":"DOCUMENT","idempotency_key":"nan","extra":NaN}',
+            '{"display_name":"x","customer_label":"x","use_case":"x","owner":"x","first_source_choice":"DOCUMENT","idempotency_key":"inf","extra":Infinity}',
+            '{"nested":' + '{"x":' * 40 + '0' + '}' * 40 + '}',
+            '{"nested":[' + ','.join("0" for _ in range(4_100)) + ']}',
+        )
+        for body in bad_bodies:
+            status, payload = raw(body)
+            assert status == 400
+            assert payload == {"error": "Request is invalid."}
     finally:
         server.shutdown()
         worker.join(timeout=5)
