@@ -38,6 +38,7 @@
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const proposalsApi = pocApi ? `${pocApi}/proposals` : null;
   const assistedApi = pocApi ? `${pocApi}/assisted-authoring` : null;
+  const stateApi = "/api/state";
 
   const currentTask = document.querySelector("#proposal-current-task");
   const form = document.querySelector("#proposal-decision-form");
@@ -56,6 +57,7 @@
   let discardedCount = 0;
   const selectedMetricCues = new Set();
   let pocCustomerLabel = null;
+  let a3Capability = false;
   let a3Mode = false;
   let inFlight = false;
   let pendingAttempt = null;
@@ -99,7 +101,12 @@
       ) {
         return false;
       }
-      if (value === pocApi || value === proposalsApi || value === assistedApi) {
+      if (
+        value === stateApi ||
+        value === pocApi ||
+        value === proposalsApi ||
+        value === assistedApi
+      ) {
         return true;
       }
       return proposals.some(
@@ -140,6 +147,45 @@
         isSafeBoundedText(payload.display_name, 160) &&
         isSafeBoundedText(payload.customer_label, 160) &&
         payload.archive_state === "ACTIVE"
+    );
+  }
+
+  function isTrustedA3Capability(payload) {
+    const safetyKeys = [
+      "may_approve",
+      "may_confirm",
+      "may_execute",
+      "may_freeze",
+      "may_issue_evidence",
+      "may_issue_verdict",
+      "source_authority",
+    ];
+    return Boolean(
+      hasExactKeys(payload, ["mode", "safety"]) &&
+        payload.mode === "local_source_neutral" &&
+        hasExactKeys(payload.safety, safetyKeys) &&
+        payload.safety.source_authority === "UNTRUSTED_SOURCE_ONLY" &&
+        safetyKeys
+          .filter((key) => key !== "source_authority")
+          .every((key) => payload.safety[key] === false)
+    );
+  }
+
+  function isTrustedLegacyCapability(payload) {
+    return Boolean(
+      payload &&
+        typeof payload === "object" &&
+        !Array.isArray(payload) &&
+        payload.mode === "local_synthetic_demo" &&
+        hasExactKeys(payload.safety, [
+          "authorization",
+          "provider_calls",
+          "synthetic_only",
+        ]) &&
+        payload.safety.synthetic_only === true &&
+        typeof payload.safety.provider_calls === "boolean" &&
+        payload.safety.authorization ===
+          "ExitSpec proves evidence; humans retain every approval decision."
     );
   }
 
@@ -210,7 +256,73 @@
     return new Set(proposalIds).size === proposalIds.length;
   }
 
-  function isTrustedAssistedReceiptCollection(payload) {
+  function sourceReceiptIdForSourceId(sourceId) {
+    return typeof sourceId === "string" && sourceId.startsWith("src_")
+      ? `srcpt_${sourceId.slice(4)}`
+      : null;
+  }
+
+  function isTrustedAssistedReceipt(receipt) {
+    return Boolean(
+      hasExactKeys(receipt, [
+        "authoring_adapter_name",
+        "authoring_adapter_version",
+        "authoring_receipt_id",
+        "authoring_result_id",
+        "endpoint",
+        "generated_at",
+        "idempotent_replay",
+        "model",
+        "poc_id",
+        "proposal_count",
+        "proposal_ids",
+        "provider",
+        "redaction_policy_version",
+        "schema_version",
+        "source_adapter_name",
+        "source_adapter_version",
+        "source_content_sha256",
+        "source_id",
+        "source_kind",
+        "source_receipt_id",
+        "source_revision",
+        "status",
+      ]) &&
+      receipt.poc_id === pocId &&
+      receipt.schema_version === "exitspec.assisted-authoring-receipt.v1" &&
+      /^arcp_[a-f0-9]{32}$/.test(receipt.authoring_receipt_id) &&
+      /^ares_[a-f0-9]{32}$/.test(receipt.authoring_result_id) &&
+      /^src_[a-z0-9][a-z0-9_-]{2,63}$/.test(receipt.source_id) &&
+      receipt.source_receipt_id === sourceReceiptIdForSourceId(receipt.source_id) &&
+      SOURCE_KINDS.includes(receipt.source_kind) &&
+      /^[a-f0-9]{64}$/.test(receipt.source_content_sha256) &&
+      Number.isSafeInteger(receipt.source_revision) &&
+      receipt.source_revision >= 1 &&
+      isSafeBoundedText(receipt.source_adapter_name, 64) &&
+      isSafeBoundedText(receipt.source_adapter_version, 64) &&
+      isSafeBoundedText(receipt.redaction_policy_version, 64) &&
+      isSafeBoundedText(receipt.authoring_adapter_name, 64) &&
+      isSafeBoundedText(receipt.authoring_adapter_version, 64) &&
+      isSafeBoundedText(receipt.provider, 64) &&
+      isSafeBoundedText(receipt.model, 160) &&
+      isSafeBoundedText(receipt.endpoint, 300) &&
+      typeof receipt.generated_at === "string" &&
+      receipt.generated_at.length <= 64 &&
+      Number.isFinite(Date.parse(receipt.generated_at)) &&
+      receipt.status === "NEEDS_REVIEW" &&
+      Number.isSafeInteger(receipt.proposal_count) &&
+      receipt.proposal_count > 0 &&
+      Array.isArray(receipt.proposal_ids) &&
+      receipt.proposal_ids.length === receipt.proposal_count &&
+      receipt.proposal_ids.every((proposalId) =>
+        PROPOSAL_ID_PATTERN.test(proposalId)
+      ) &&
+      new Set(receipt.proposal_ids).size === receipt.proposal_ids.length &&
+      typeof receipt.idempotent_replay === "boolean"
+    );
+  }
+
+  function isTrustedAssistedReceiptCollection(payload, proposalList) {
     if (
       !hasExactKeys(payload, ["poc_id", "receipts"]) ||
       payload.poc_id !== pocId ||
@@ -220,44 +332,20 @@
       return false;
     }
     const receiptIds = new Set();
-    return payload.receipts.every((receipt) => {
-      const valid =
-        hasExactKeys(receipt, [
-          "authoring_adapter_name",
-          "authoring_adapter_version",
-          "authoring_receipt_id",
-          "authoring_result_id",
-          "endpoint",
-          "idempotent_replay",
-          "model",
-          "poc_id",
-          "proposal_count",
-          "proposal_ids",
-          "provider",
-          "redaction_policy_version",
-          "schema_version",
-          "source_adapter_name",
-          "source_adapter_version",
-          "source_content_sha256",
-          "source_id",
-          "source_kind",
-          "source_receipt_id",
-          "source_revision",
-          "status",
-        ]) &&
-        receipt.poc_id === pocId &&
-        receipt.schema_version === "exitspec.assisted-authoring-receipt.v1" &&
-        /^arcp_[a-f0-9]{32}$/.test(receipt.authoring_receipt_id) &&
-        /^ares_[a-f0-9]{32}$/.test(receipt.authoring_result_id) &&
-        receipt.status === "NEEDS_REVIEW" &&
-        Number.isSafeInteger(receipt.proposal_count) &&
-        receipt.proposal_count > 0 &&
-        Array.isArray(receipt.proposal_ids) &&
-        receipt.proposal_ids.length === receipt.proposal_count &&
-        typeof receipt.idempotent_replay === "boolean";
-      if (valid) receiptIds.add(receipt.authoring_receipt_id);
-      return valid;
-    }) && receiptIds.size === payload.receipts.length;
+    const proposalIds = [];
+    for (const receipt of payload.receipts) {
+      if (!isTrustedAssistedReceipt(receipt)) return false;
+      receiptIds.add(receipt.authoring_receipt_id);
+      proposalIds.push(...receipt.proposal_ids);
+    }
+    if (receiptIds.size !== payload.receipts.length) return false;
+    if (!proposalList || !isTrustedProposalList(proposalList)) return false;
+    if (payload.receipts.length === 0) return true;
+    const queueIds = proposalList.proposals.map((proposal) => proposal.proposal_id);
+    return (
+      proposalIds.length === queueIds.length &&
+      proposalIds.every((proposalId, index) => proposalId === queueIds[index])
+    );
   }
 
   function isTrustedDecisionResponse(payload, attempt) {
@@ -519,7 +607,11 @@
     currentTask.hidden = true;
     completionPanel.hidden = false;
     document.querySelector("#review-complete-summary").textContent =
-      initialCount === 0
+      a3Mode
+        ? initialCount === 0
+          ? "There are no source proposals awaiting review. No proposal was retained for acceptance drafting. No contract was created or approved."
+          : `${initialCount} proposals reviewed: ${keptCount} retained for acceptance drafting and ${discardedCount} discarded. No contract was created or approved.`
+        : initialCount === 0
         ? "There are no source proposals awaiting review. No contract was created or approved."
         : `${initialCount} proposals reviewed: ${keptCount} kept for contract authoring and ${discardedCount} discarded. No contract was created or approved.`;
     if (pocId && keptCount === 2) {
@@ -535,15 +627,13 @@
           // The verified fallback panel remains available if navigation is blocked.
         }
       } else {
-        defineCriteriaLink.textContent = "View retained proposal projection";
-        defineCriteriaLink.href = `/api/pocs/${encodeURIComponent(pocId)}/retained-proposals`;
+        defineCriteriaLink.textContent = "Return to POC workspace";
+        defineCriteriaLink.href = "/app";
         defineCriteriaLink.hidden = false;
       }
     } else if (a3Mode) {
-      defineCriteriaLink.textContent = "View retained proposal projection";
-      defineCriteriaLink.href = pocId
-        ? `/api/pocs/${encodeURIComponent(pocId)}/retained-proposals`
-        : "/app";
+      defineCriteriaLink.textContent = "Return to POC workspace";
+      defineCriteriaLink.href = "/app";
       defineCriteriaLink.hidden = false;
     } else {
       defineCriteriaLink.textContent =
@@ -577,8 +667,13 @@
     pocCustomerLabel = draft.customer_label;
     document.querySelector("#poc-title").textContent = draft.display_name;
     const assistedLink = document.querySelector("#assisted-authoring-link");
-    assistedLink.href = `/app/pocs/${encodeURIComponent(pocId)}/assisted-authoring`;
-    assistedLink.hidden = false;
+    if (a3Capability) {
+      assistedLink.href = `/app/pocs/${encodeURIComponent(pocId)}/assisted-authoring`;
+      assistedLink.hidden = false;
+    } else {
+      assistedLink.href = "/app";
+      assistedLink.hidden = true;
+    }
     renderPOCContext(proposalList.review_summary.needs_review);
     currentTask.setAttribute("aria-busy", "false");
     renderCurrentProposal();
@@ -599,6 +694,9 @@
 
   function blockReview(message) {
     currentTask.setAttribute("aria-busy", "false");
+    const assistedLink = document.querySelector("#assisted-authoring-link");
+    assistedLink.href = "/app";
+    assistedLink.hidden = true;
     setFieldAvailability(false);
     keepButton.disabled = true;
     discardButton.disabled = true;
@@ -736,14 +834,25 @@
       ) {
         throw new SafeRequestError(200, true);
       }
-      if (assistedApi) {
+      let capability = null;
+      try {
+        capability = await requestJson(stateApi);
+      } catch {
+        throw new SafeRequestError(503, true);
+      }
+      if (isTrustedA3Capability(capability) && assistedApi) {
         try {
           const assistedList = await requestJson(assistedApi);
-          a3Mode = isTrustedAssistedReceiptCollection(assistedList) &&
-            assistedList.receipts.length > 0;
+          if (!isTrustedAssistedReceiptCollection(assistedList, proposalList)) {
+            throw new SafeRequestError(200, true);
+          }
+          a3Capability = true;
+          a3Mode = assistedList.receipts.length > 0;
         } catch {
-          // The compatibility demo does not expose A3 metadata.
+          throw new SafeRequestError(503, true);
         }
+      } else if (!isTrustedLegacyCapability(capability)) {
+        throw new SafeRequestError(503, true);
       }
       applyLoadedData(draft, proposalList);
     } catch {

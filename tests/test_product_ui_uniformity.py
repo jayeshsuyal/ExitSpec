@@ -87,12 +87,16 @@ def test_product_exposes_one_canonical_three_step_journey():
     for name in (
         "new_poc.html",
         "source_intake.html",
-        "proposal_review.html",
         "contract_definition.html",
     ):
         html = _read(name)
         assert "Step 1 of 3 · Define" in html, name
         assert " of 5 · " not in html, name
+
+    proposal_review = _read("proposal_review.html")
+    assert "Define · Proposal review" in proposal_review
+    assert "Step 1 of 3 · Define" not in proposal_review
+    assert " of 5 · " not in proposal_review
 
     for name in ("agreement.html", "review.html"):
         html = _read(name)

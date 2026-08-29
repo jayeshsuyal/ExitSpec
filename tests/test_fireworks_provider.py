@@ -407,6 +407,106 @@ def test_malformed_response_drops_provider_content_from_exception_graph():
         assert API_KEY not in rendered
 
 
+@pytest.mark.parametrize(
+    ("envelope_body", "content", "expected_code"),
+    (
+        (
+            '{"id":"duplicate-envelope","id":"overwritten",'
+            '"choices":[{"message":{"content":"{\\"draft\\":\\"ok\\",'
+            '\\"confidence\\":0.9}"}}]}',
+            None,
+            ProviderErrorCode.MALFORMED_RESPONSE,
+        ),
+        (
+            '{"choices":[{"message":{"content":"{\\"draft\\":\\"ok\\",'
+            '\\"confidence\\":0.9}"}}],"usage":{"prompt_tokens":Infinity}}',
+            None,
+            ProviderErrorCode.MALFORMED_RESPONSE,
+        ),
+        (
+            None,
+            '{"draft":"ok","draft":"authority overwrite",'
+            '"confidence":0.9}',
+            ProviderErrorCode.INVALID_OUTPUT,
+        ),
+        (
+            None,
+            '{"draft":"ok","confidence":NaN}',
+            ProviderErrorCode.INVALID_OUTPUT,
+        ),
+    ),
+)
+def test_strict_provider_json_rejects_duplicate_and_nonfinite_values(
+    envelope_body, content, expected_code
+):
+    response = (
+        ProviderHTTPResponse(status_code=200, body=envelope_body)
+        if envelope_body is not None
+        else success_response(content=content)
+    )
+    transport = ScriptedTransport(response)
+    provider = FireworksProvider(transport=transport)
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == expected_code
+    assert raised.value.attempts == 1
+    assert len(transport.requests) == 1
+
+
+def _nested_json_object(depth):
+    value = "{}"
+    for _ in range(depth):
+        value = '{"nested":' + value + "}"
+    return value
+
+
+@pytest.mark.parametrize(
+    ("envelope_body", "content", "expected_code"),
+    (
+        (
+            '{"choices":[{"message":{"content":"{\\"draft\\":\\"ok\\",'
+            '\\"confidence\\":1e999}"}}]}',
+            None,
+            ProviderErrorCode.INVALID_OUTPUT,
+        ),
+        (
+            '{"choices":[{"message":{"content":"{\\"draft\\":\\"ok\\",'
+            '\\"confidence\\":0.9}"}}],"usage":{"prompt_tokens":1e999}}',
+            None,
+            ProviderErrorCode.MALFORMED_RESPONSE,
+        ),
+        (
+            _nested_json_object(65),
+            None,
+            ProviderErrorCode.MALFORMED_RESPONSE,
+        ),
+        (
+            None,
+            _nested_json_object(65),
+            ProviderErrorCode.INVALID_OUTPUT,
+        ),
+    ),
+)
+def test_strict_provider_json_rejects_overflow_and_over_nesting(
+    envelope_body, content, expected_code
+):
+    response = (
+        ProviderHTTPResponse(status_code=200, body=envelope_body)
+        if envelope_body is not None
+        else success_response(content=content)
+    )
+    transport = ScriptedTransport(response)
+    provider = FireworksProvider(transport=transport)
+
+    with pytest.raises(ProviderError) as raised:
+        provider.execute(request())
+
+    assert raised.value.code == expected_code
+    assert list(exception_graph(raised.value)) == [raised.value]
+
+
 def test_429_and_503_retry_with_capped_retry_after_then_succeed():
     transport = ScriptedTransport(
         ProviderHTTPResponse(

@@ -13,6 +13,20 @@ from .assisted_authoring import (
     ProcessLocalAssistedAuthoringService,
 )
 from .poc_creation import POC_ID_PATTERN
+from .poc_source_intake import (
+    POCSourceIntakeError,
+    POCSourceIntakeInvalid,
+    ProcessLocalPOCSourceIntake,
+)
+from .poc_proposal_review import (
+    ProposalReviewCapacityExceeded,
+    ProposalReviewDecisionConflict,
+    ProposalReviewError,
+    ProposalReviewIdempotencyConflict,
+    ProposalReviewLookupUnavailable,
+    ProposalReviewProposalUnavailable,
+    ProposalReviewStaleProposal,
+)
 
 
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
@@ -26,6 +40,9 @@ _RETAINED_ROUTE_RE = re.compile(
 )
 _COLLECTION_ROUTE_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring$"
+)
+_CURRENT_SOURCES_ROUTE_RE = re.compile(
+    r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring/sources$"
 )
 
 
@@ -47,6 +64,7 @@ def is_poc_assisted_authoring_web_api_target(target: str) -> bool:
         _AUTHORING_ROUTE_RE.fullmatch(path)
         or _RETAINED_ROUTE_RE.fullmatch(path)
         or _COLLECTION_ROUTE_RE.fullmatch(path)
+        or _CURRENT_SOURCES_ROUTE_RE.fullmatch(path)
     )
 
 
@@ -57,6 +75,7 @@ def handle_poc_assisted_authoring_web_api_request(
     payload: Mapping[str, Any] | None,
     runtime: ProcessLocalAssistedAuthoringService,
     review_runtime: Any | None = None,
+    source_runtime: ProcessLocalPOCSourceIntake | None = None,
 ) -> POCAssistedAuthoringWebAPIResponse | None:
     """Handle one exact A3 authoring or A4-handoff projection."""
 
@@ -69,6 +88,7 @@ def handle_poc_assisted_authoring_web_api_request(
         authoring_match = _AUTHORING_ROUTE_RE.fullmatch(path)
         retained_match = _RETAINED_ROUTE_RE.fullmatch(path)
         collection_match = _COLLECTION_ROUTE_RE.fullmatch(path)
+        current_sources_match = _CURRENT_SOURCES_ROUTE_RE.fullmatch(path)
         if authoring_match is not None:
             return _authoring_dispatch(
                 method=method,
@@ -92,6 +112,13 @@ def handle_poc_assisted_authoring_web_api_request(
                 payload=payload,
                 runtime=runtime,
             )
+        if current_sources_match is not None:
+            return _current_sources_dispatch(
+                method=method,
+                poc_id=current_sources_match.group(1),
+                payload=payload,
+                source_runtime=source_runtime,
+            )
         raise POCAssistedAuthoringWebAPIRequestError
     except POCAssistedAuthoringWebAPIRequestError:
         return _error(HTTPStatus.BAD_REQUEST, "Assisted authoring request is invalid.")
@@ -108,7 +135,27 @@ def handle_poc_assisted_authoring_web_api_request(
                 HTTPStatus.CONFLICT,
                 "Assisted authoring conflicts with the current source state.",
             )
-        if error.code in {"service_unavailable", "capacity_exceeded"}:
+        if error.code == "rate_limited":
+            return _error(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                "Assisted authoring is temporarily rate limited.",
+            )
+        if error.code == "timeout":
+            return _error(
+                HTTPStatus.GATEWAY_TIMEOUT,
+                "Assisted authoring timed out safely.",
+            )
+        if error.code in {
+            "service_unavailable",
+            "source_lookup_unavailable",
+            "capacity_exceeded",
+            "transport_error",
+            "retries_exhausted",
+            "account_unavailable",
+            "service_error",
+            "configuration_error",
+            "authentication_error",
+        }:
             return _error(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assisted authoring is temporarily unavailable.",
@@ -117,8 +164,41 @@ def handle_poc_assisted_authoring_web_api_request(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "Assisted authoring output was not accepted.",
         )
+    except ProposalReviewProposalUnavailable:
+        return _error(HTTPStatus.NOT_FOUND, "The retained proposal projection was not found.")
+    except (
+        ProposalReviewDecisionConflict,
+        ProposalReviewIdempotencyConflict,
+        ProposalReviewStaleProposal,
+    ):
+        return _error(
+            HTTPStatus.CONFLICT,
+            "The retained proposal projection conflicts with current POC state.",
+        )
+    except (ProposalReviewCapacityExceeded, ProposalReviewLookupUnavailable):
+        return _error(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "The retained proposal projection is temporarily unavailable.",
+        )
+    except ProposalReviewError:
+        return _error(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "The retained proposal projection is temporarily unavailable.",
+        )
+    except POCSourceIntakeInvalid:
+        return _error(HTTPStatus.NOT_FOUND, "The source was not found.")
+    except POCSourceIntakeError:
+        return _error(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assisted authoring source metadata is temporarily unavailable.",
+        )
     except (TypeError, ValueError):
         return _error(HTTPStatus.BAD_REQUEST, "Assisted authoring request is invalid.")
+    except Exception:
+        return _error(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assisted authoring is temporarily unavailable.",
+        )
 
 
 def _authoring_dispatch(
@@ -205,6 +285,36 @@ def _collection_dispatch(
                 receipt.model_dump(mode="json")
                 for receipt in runtime.list_receipts(poc_id)
             ],
+        },
+    )
+
+
+def _current_sources_dispatch(
+    *,
+    method: str,
+    poc_id: str,
+    payload: Mapping[str, Any] | None,
+    source_runtime: ProcessLocalPOCSourceIntake | None,
+) -> POCAssistedAuthoringWebAPIResponse:
+    if method != "GET":
+        return _error(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            "Assisted authoring method is not allowed.",
+        )
+    if (
+        payload is not None
+        or type(source_runtime) is not ProcessLocalPOCSourceIntake
+    ):
+        return _error(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assisted authoring source metadata is temporarily unavailable.",
+        )
+    receipts = source_runtime.list_current_receipts(poc_id)
+    return POCAssistedAuthoringWebAPIResponse(
+        HTTPStatus.OK,
+        {
+            "poc_id": poc_id,
+            "sources": [receipt.model_dump(mode="json") for receipt in receipts],
         },
     )
 

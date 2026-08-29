@@ -136,6 +136,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         )
         self.assisted_authoring_service = ProcessLocalAssistedAuthoringService(
             source_lookup=self.poc_source_intake.source_snapshot,
+            draft_lookup=self.draft_poc_service.get,
             executor=(
                 SyntheticSourceNeutralAssistedAuthoringExecutor()
                 if assisted_authoring_executor is None
@@ -152,7 +153,28 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 
     def _proposal_inputs_for_review(self, poc_id: str):
         assisted = self.assisted_authoring_service.proposal_inputs(poc_id)
-        return assisted or self.poc_source_intake.proposal_inputs(poc_id)
+        a2 = self.poc_source_intake.proposal_inputs(poc_id)
+        assisted_by_source: dict[str, tuple[Any, ...]] = {}
+        for proposal in assisted:
+            assisted_by_source.setdefault(proposal.source_receipt_id, tuple())
+            assisted_by_source[proposal.source_receipt_id] = (
+                *assisted_by_source[proposal.source_receipt_id],
+                proposal,
+            )
+        merged = []
+        replaced_sources: set[str] = set()
+        for proposal in a2:
+            replacement = assisted_by_source.get(proposal.source_receipt_id)
+            if replacement is None:
+                merged.append(proposal)
+                continue
+            if proposal.source_receipt_id not in replaced_sources:
+                merged.extend(replacement)
+                replaced_sources.add(proposal.source_receipt_id)
+        for source_receipt_id, replacement in assisted_by_source.items():
+            if source_receipt_id not in replaced_sources:
+                merged.extend(replacement)
+        return tuple(merged)
 
     def workspace_payload(self, selected_filter: str = "Active") -> dict[str, Any]:
         receipts: dict[str, tuple[Any, ...]] = {}
@@ -228,6 +250,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 payload=None,
                 runtime=self.server.assisted_authoring_service,
                 review_runtime=self.server.proposal_review_service,
+                source_runtime=self.server.poc_source_intake,
             )
             if response is not None:
                 self._json(response.status, response.payload)
@@ -306,6 +329,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 payload=payload,
                 runtime=self.server.assisted_authoring_service,
                 review_runtime=self.server.proposal_review_service,
+                source_runtime=self.server.poc_source_intake,
             )
             if response is not None:
                 self._json(response.status, response.payload)

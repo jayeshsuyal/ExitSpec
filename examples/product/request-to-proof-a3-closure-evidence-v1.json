@@ -15,7 +15,7 @@
       ]
     },
     "GL-05": {
-      "statement": "Only a named human may KEEP_FOR_CONTRACT or DISCARD the current source-bound proposal through the existing review service; retained output is a bounded A4 projection with no criterion, approval, confirmation, freeze, evidence, execution, verdict, or deployment authority.",
+      "statement": "An explicit bounded reviewer name and KEEP_FOR_CONTRACT or DISCARD decision are required through the existing review service; this local demo does not authenticate identity or human presence. Retained output is a bounded A4 projection with no criterion, approval, confirmation, freeze, evidence, execution, verdict, or deployment authority.",
       "proof": [
         "tests/test_a3_assisted_review.py::test_a3_source_neutral_action_binds_exact_source_and_requires_named_human_triage",
         "tests/test_a3_assisted_review.py::test_a3_review_api_reuses_human_decision_and_retained_projection"
@@ -37,6 +37,7 @@
   },
   "limitations": [
     "Storage is process-local, in-memory, non-durable, and not shared across workers.",
+    "Authoring and retained projections use process-local reservations plus pre/post source and draft generation checks; a crash or multi-worker deployment remains outside this slice.",
     "The deterministic local seam is provider-neutral; no live provider credentials or network call are required.",
     "This closure does not claim A4 criterion authoring, contract confirmation or freeze, evidence selection or execution, verdict, deployment, persistence, Train B, Docker, or release readiness."
   ],

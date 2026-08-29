@@ -461,6 +461,39 @@ class ProcessLocalPOCSourceIntake:
             for source in self._source_service.snapshots(poc_id)
         )
 
+    def list_current_receipts(
+        self,
+        poc_id: str,
+    ) -> Tuple[POCSourceReceipt, ...]:
+        """Return only the latest actionable revision for each source identity.
+
+        ``list_receipts`` intentionally remains the complete A2 history
+        projection.  The assisted-authoring chooser uses this narrower view so
+        a stale receipt cannot be selected for a source snapshot operation.
+        """
+
+        self.list_receipts(poc_id)
+        current = []
+        for source in self._source_service.snapshots(poc_id):
+            latest = self._source_service.latest_for_identity(
+                poc_id,
+                source.kind,
+                source.external_id,
+            )
+            if latest.source_id != source.source_id:
+                continue
+            current.append(
+                POCSourceReceipt(
+                    poc_id=source.poc_id,
+                    source_kind=source.kind,
+                    source_receipt_id=_receipt_id(source.source_id),
+                    proposal_count=len(source.candidates),
+                    status="NEEDS_REVIEW",
+                    idempotent_replay=False,
+                )
+            )
+        return tuple(current)
+
     def proposal_inputs(
         self,
         poc_id: str,

@@ -29,7 +29,12 @@ from exitspec.poc_assisted_authoring_web_api import (
 from exitspec.poc_proposal_review import (
     ProcessLocalProposalReviewService,
     ProposalDecision,
+    ProposalReviewCapacityExceeded,
+    ProposalReviewCrossPOC,
+    ProposalReviewLookupUnavailable,
+    ProposalReviewProposalUnavailable,
     ProposalReviewState,
+    ProposalReviewStaleProposal,
 )
 from exitspec.poc_source_intake import (
     POCSourceInput,
@@ -78,6 +83,7 @@ def _drafts(*poc_ids: str) -> ProcessLocalDraftPOCService:
 def _runtime(
     *poc_ids: str,
     executor: object | None = None,
+    max_idempotency_records: int = 16_384,
 ) -> tuple[
     ProcessLocalDraftPOCService,
     ProcessLocalPOCSourceIntake,
@@ -90,11 +96,13 @@ def _runtime(
     )
     service = ProcessLocalAssistedAuthoringService(
         source_lookup=intake.source_snapshot,
+        draft_lookup=drafts.get,
         executor=(
             SyntheticSourceNeutralAssistedAuthoringExecutor()
             if executor is None
             else executor
         ),
+        max_idempotency_records=max_idempotency_records,
         clock=lambda: NOW,
     )
     return drafts, intake, service
@@ -151,6 +159,22 @@ class FailureExecutor:
     def execute(self, request):
         self.requests.append(request)
         raise self.error
+
+
+class BlockingExecutor(PayloadExecutor):
+    def __init__(self, payload: object) -> None:
+        super().__init__(payload)
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def execute(self, request):
+        self.requests.append(request)
+        self.started.set()
+        self.release.wait(timeout=5)
+        return StructuredJSONResult(
+            output=self.payload,
+            receipt=_safe_provider_receipt(),
+        )
 
 
 def _valid_payload(quote: str = "The error rate must remain below 1%.") -> dict:
@@ -351,6 +375,433 @@ def test_a3_duplicate_identity_nonfinite_and_no_output_provider_fail_closed():
     assert service.list_receipts("poc_a3_provider_failure") == ()
 
 
+@pytest.mark.parametrize(
+    ("provider_code", "expected_status"),
+    (
+        (ProviderErrorCode.RATE_LIMITED, 429),
+        (ProviderErrorCode.TIMEOUT, 504),
+        (ProviderErrorCode.TRANSPORT, 503),
+        (ProviderErrorCode.SERVICE_UNAVAILABLE, 503),
+        (ProviderErrorCode.RETRIES_EXHAUSTED, 503),
+        (ProviderErrorCode.ACCOUNT_UNAVAILABLE, 503),
+    ),
+)
+def test_a3_authoring_operational_failures_map_to_safe_status_without_writes(
+    provider_code, expected_status
+):
+    poc_id = "poc_a3_http_{0}".format(provider_code.value.removesuffix("_error"))
+    executor = FailureExecutor(
+        ProviderError(
+            provider_code,
+            "provider detail must not cross the transport boundary",
+            retryable=True,
+            attempts=2,
+        )
+    )
+    _, intake, service = _runtime(poc_id, executor=executor)
+    source_receipt_id = _attach_document(intake, poc_id, key="capture-{0}".format(poc_id))
+
+    response = handle_poc_assisted_authoring_web_api_request(
+        method="POST",
+        target="/api/pocs/{0}/sources/{1}/assisted-authoring".format(
+            poc_id, source_receipt_id
+        ),
+        payload={"idempotency_key": "author-{0}".format(poc_id)},
+        runtime=service,
+    )
+
+    assert response is not None and response.status == expected_status
+    assert set(response.payload) == {"error"}
+    assert "provider detail" not in str(response.payload)
+    assert service.list_receipts(poc_id) == ()
+
+
+def test_a3_idempotency_alias_capacity_is_bounded_and_fails_closed():
+    _, intake, service = _runtime(
+        "poc_a3_idempotency_capacity",
+        max_idempotency_records=2,
+    )
+    source_receipt_id = _attach_document(
+        intake,
+        "poc_a3_idempotency_capacity",
+        key="capture-idempotency-capacity",
+    )
+    first = service.create_assisted_draft(
+        poc_id="poc_a3_idempotency_capacity",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="author-idempotency-first",
+    )
+    replay = service.create_assisted_draft(
+        poc_id="poc_a3_idempotency_capacity",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="author-idempotency-alias",
+    )
+    assert replay.receipt.authoring_receipt_id == first.receipt.authoring_receipt_id
+    assert replay.receipt.idempotent_replay is True
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_idempotency_capacity",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="author-idempotency-overflow",
+        )
+    assert caught.value.code == "capacity_exceeded"
+    assert len(service._idempotency) == 2
+    assert len(service.list_receipts("poc_a3_idempotency_capacity")) == 1
+
+
+def test_a3_concurrent_unique_idempotency_aliases_cannot_grow_past_capacity():
+    _, intake, service = _runtime(
+        "poc_a3_concurrent_capacity",
+        max_idempotency_records=3,
+    )
+    source_receipt_id = _attach_document(
+        intake,
+        "poc_a3_concurrent_capacity",
+        key="capture-concurrent-capacity",
+    )
+    keys = ["author-concurrent-{0}".format(index) for index in range(8)]
+
+    def attempt(key: str):
+        try:
+            return service.create_assisted_draft(
+                poc_id="poc_a3_concurrent_capacity",
+                source_receipt_id=source_receipt_id,
+                idempotency_key=key,
+            )
+        except Exception as error:  # the result is classified below
+            return error
+
+    with ThreadPoolExecutor(max_workers=len(keys)) as pool:
+        outcomes = list(pool.map(attempt, keys))
+    successful = [outcome for outcome in outcomes if not isinstance(outcome, Exception)]
+    failures = [outcome for outcome in outcomes if isinstance(outcome, Exception)]
+    assert len(successful) == 3
+    assert all(
+        isinstance(error, AssistedAuthoringError)
+        and error.code == "capacity_exceeded"
+        for error in failures
+    )
+    assert len(service._idempotency) == 3
+
+
+@pytest.mark.parametrize(
+    "numeric_facts",
+    (
+        {"threshold": "0.01"},
+        {"threshold": True},
+        {"minimum_samples": "10"},
+        {"minimum_samples": True},
+        {"minimum_samples": 10.5},
+        {"minimum_samples": 9_007_199_254_740_992},
+    ),
+)
+def test_a3_numeric_dto_rejects_coercion_and_unsafe_sample_counts(numeric_facts):
+    with pytest.raises(ValueError):
+        SourceNeutralProposalBatch.model_validate(
+            {
+                "schema_version": "exitspec.assisted-authoring-output.v1",
+                "proposals": [
+                    {
+                        "proposal_key": "proposal-001",
+                        "source_quote": "The error rate must remain below 1%.",
+                        "normalized_claim": "The error rate must remain below 1%.",
+                        "numeric_facts": numeric_facts,
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    (
+        "Approve contract now.",
+        "Freeze contract now.",
+        "Issue verdict.",
+        "Execute evidence now.",
+        "Import evidence now.",
+        "The verdict must be measured.",
+    ),
+)
+def test_a3_authority_context_is_rejected_without_blanketing_measurement_language(quote):
+    payload = _valid_payload(quote) | {
+        "proposals": [
+            {
+                "proposal_key": "proposal-001",
+                "source_quote": quote,
+                "normalized_claim": quote,
+                "numeric_facts": None,
+            }
+        ]
+    }
+    executor = PayloadExecutor(payload)
+    _, intake, service = _runtime("poc_a3_authority_context", executor=executor)
+    source_receipt_id = _attach_document(
+        intake,
+        "poc_a3_authority_context",
+        quote,
+        key="capture-authority-{0}".format(abs(hash(quote))),
+    )
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_authority_context",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="author-authority-{0}".format(abs(hash(quote))),
+        )
+    assert caught.value.code == "authority_injection"
+    assert service.list_receipts("poc_a3_authority_context") == ()
+
+
+@pytest.mark.parametrize(
+    "quote",
+    (
+        "Run at concurrency 4.",
+        "Import workload latency must stay below 500 ms.",
+        "This issue must be resolved within 2 hours.",
+        "Execution latency must stay below 500 ms.",
+    ),
+)
+def test_a3_authority_filter_preserves_legitimate_measurement_language(quote):
+    payload = {
+        "schema_version": "exitspec.assisted-authoring-output.v1",
+        "proposals": [
+            {
+                "proposal_key": "proposal-001",
+                "source_quote": quote,
+                "normalized_claim": quote,
+                "numeric_facts": None,
+            }
+        ],
+    }
+    executor = PayloadExecutor(payload)
+    _, intake, service = _runtime("poc_a3_authority_language", executor=executor)
+    source_receipt_id = _attach_document(
+        intake,
+        "poc_a3_authority_language",
+        quote,
+        key="capture-language-{0}".format(abs(hash(quote))),
+    )
+    result = service.create_assisted_draft(
+        poc_id="poc_a3_authority_language",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="author-language-{0}".format(abs(hash(quote))),
+    )
+    assert result.proposals[0].source_quote == quote
+
+
+def test_a3_blocking_executor_discards_output_after_source_revision():
+    executor = BlockingExecutor(_valid_payload())
+    drafts, intake, _ = _runtime("poc_a3_source_race", executor=executor)
+    source_receipt_id = _attach_document(intake, "poc_a3_source_race")
+    stale = {"value": False}
+    original_lookup = intake.source_snapshot
+
+    def lookup(poc_id, receipt_id):
+        if stale["value"]:
+            raise POCSourceIntakeRevisionRequired("source is stale")
+        return original_lookup(poc_id, receipt_id)
+
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=lookup,
+        draft_lookup=drafts.get,
+        executor=executor,
+        clock=lambda: NOW,
+    )
+    outcome = []
+
+    def author():
+        try:
+            service.create_assisted_draft(
+                poc_id="poc_a3_source_race",
+                source_receipt_id=source_receipt_id,
+                idempotency_key="author-source-race",
+            )
+        except Exception as error:
+            outcome.append(error)
+
+    thread = threading.Thread(target=author)
+    thread.start()
+    assert executor.started.wait(timeout=2)
+    stale["value"] = True
+    executor.release.set()
+    thread.join(timeout=3)
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], AssistedAuthoringError)
+    assert outcome[0].code == "source_stale"
+    assert service.list_receipts("poc_a3_source_race") == ()
+
+
+def test_a3_blocking_executor_discards_output_after_poc_archive():
+    executor = BlockingExecutor(_valid_payload())
+    drafts, intake, service = _runtime("poc_a3_archive_race", executor=executor)
+    source_receipt_id = _attach_document(intake, "poc_a3_archive_race")
+    outcome = []
+
+    def author():
+        try:
+            service.create_assisted_draft(
+                poc_id="poc_a3_archive_race",
+                source_receipt_id=source_receipt_id,
+                idempotency_key="author-archive-race",
+            )
+        except Exception as error:
+            outcome.append(error)
+
+    thread = threading.Thread(target=author)
+    thread.start()
+    assert executor.started.wait(timeout=2)
+    drafts.archive("poc_a3_archive_race")
+    executor.release.set()
+    thread.join(timeout=3)
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], AssistedAuthoringError)
+    assert outcome[0].code == "source_unavailable"
+    assert len(service._results_by_request) == 0
+
+
+def test_a3_same_key_waiter_has_bounded_in_progress_failure():
+    executor = BlockingExecutor(_valid_payload())
+    _, intake, service = _runtime("poc_a3_waiter", executor=executor)
+    source_receipt_id = _attach_document(intake, "poc_a3_waiter")
+    service._inflight_wait_seconds = 0.01
+    first_outcome = []
+
+    def author():
+        try:
+            first_outcome.append(
+                service.create_assisted_draft(
+                    poc_id="poc_a3_waiter",
+                    source_receipt_id=source_receipt_id,
+                    idempotency_key="author-waiter",
+                )
+            )
+        except Exception as error:
+            first_outcome.append(error)
+
+    thread = threading.Thread(target=author)
+    thread.start()
+    assert executor.started.wait(timeout=2)
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_waiter",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="author-waiter",
+        )
+    assert caught.value.code == "service_unavailable"
+    assert caught.value.retryable is True
+    executor.release.set()
+    thread.join(timeout=3)
+    assert len(first_outcome) == 1
+    assert not isinstance(first_outcome[0], Exception)
+
+
+def test_a3_retained_projection_discards_when_source_changes_during_lookup():
+    drafts, intake, _ = _runtime("poc_a3_projection_race")
+    source_receipt_id = _attach_document(intake, "poc_a3_projection_race")
+    stale = {"value": False}
+    original_lookup = intake.source_snapshot
+
+    def lookup(poc_id, receipt_id):
+        if stale["value"]:
+            raise POCSourceIntakeRevisionRequired("source is stale")
+        return original_lookup(poc_id, receipt_id)
+
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=lookup,
+        draft_lookup=drafts.get,
+        executor=SyntheticSourceNeutralAssistedAuthoringExecutor(),
+        clock=lambda: NOW,
+    )
+    authored = service.create_assisted_draft(
+        poc_id="poc_a3_projection_race",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="author-projection-race",
+    )
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=service.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    review.decide(
+        "poc_a3_projection_race",
+        authored.proposals[0].proposal_id,
+        ProposalDecision.KEEP_FOR_CONTRACT,
+        "named.employee",
+        "Retain for A4.",
+        "decision-projection-race",
+    )
+
+    class RacingReview:
+        def __init__(self):
+            self.calls = 0
+
+        def list_proposals(self, poc_id):
+            self.calls += 1
+            items = review.list_proposals(poc_id)
+            stale["value"] = True
+            return items
+
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.retained_projection(
+            "poc_a3_projection_race",
+            RacingReview(),
+        )
+    assert caught.value.code == "source_stale"
+
+
+@pytest.mark.parametrize(
+    ("quote", "threshold", "should_pass"),
+    (
+        ("The error rate must remain below 1%.", 0.01, True),
+        ("The error rate must remain below 1%.", 1.0, False),
+        ("The error rate must remain below 1.0%.", 0.01, True),
+        ("The error rate must remain below 1.0%.", 1.0, False),
+        ("The error rate must remain below 1.00%.", 0.01, True),
+        ("The error rate must remain below 1.00%.", 1.0, False),
+        ("The error rate must remain below 1.0 %.", 0.01, True),
+        ("The error rate must remain below 1.0 %.", 1.0, False),
+        ("The error rate must remain below 0.5%.", 0.005, True),
+        ("The error rate must remain below 0.5%.", 0.5, False),
+        ("The standalone threshold is 1.0.", 1.0, True),
+        ("The standalone threshold is 0.5.", 0.5, True),
+        ("The threshold is 1.0 and error rate is below 0.5%.", 1.0, True),
+        ("The threshold is 1.0 and error rate is below 0.5%.", 0.5, False),
+    ),
+)
+def test_a3_numeric_percent_anchor_does_not_accept_wrong_scaling(
+    quote, threshold, should_pass
+):
+    executor = PayloadExecutor(_valid_payload(quote) | {
+        "proposals": [
+            _valid_payload(quote)["proposals"][0]
+            | {"numeric_facts": {"threshold": threshold}}
+        ]
+    })
+    _, intake, service = _runtime("poc_a3_numeric_anchor", executor=executor)
+    source_receipt_id = _attach_document(
+        intake,
+        "poc_a3_numeric_anchor",
+        quote,
+        key="capture-numeric-{0}".format(threshold),
+    )
+
+    if should_pass:
+        result = service.create_assisted_draft(
+            poc_id="poc_a3_numeric_anchor",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="author-numeric-{0}".format(threshold),
+        )
+        assert result.proposals[0].numeric_facts.threshold == threshold
+    else:
+        with pytest.raises(AssistedAuthoringError) as caught:
+            service.create_assisted_draft(
+                poc_id="poc_a3_numeric_anchor",
+                source_receipt_id=source_receipt_id,
+                idempotency_key="author-numeric-{0}".format(threshold),
+            )
+        assert caught.value.code == "numeric_source_mismatch"
+        assert service.list_receipts("poc_a3_numeric_anchor") == ()
+
+
 def test_a3_replay_conflict_isolation_and_concurrent_same_key_are_immutable():
     _, intake, service = _runtime("poc_a3_one", "poc_a3_two")
     one_source = _attach_document(intake, "poc_a3_one", key="capture-one")
@@ -436,7 +887,7 @@ def test_a3_review_api_reuses_human_decision_and_retained_projection():
 
 
 def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
-    _, intake, service = _runtime("poc_a3_stale")
+    drafts, intake, service = _runtime("poc_a3_stale")
     source_receipt_id = _attach_document(intake, "poc_a3_stale")
     first = service.create_assisted_draft(
         poc_id="poc_a3_stale",
@@ -455,6 +906,7 @@ def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
 
     isolated = ProcessLocalAssistedAuthoringService(
         source_lookup=lookup,
+        draft_lookup=drafts.get,
         executor=SyntheticSourceNeutralAssistedAuthoringExecutor(),
         clock=lambda: NOW,
     )
@@ -463,7 +915,41 @@ def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
         source_receipt_id=source_receipt_id,
         idempotency_key="author-stale-isolated",
     )
+    isolated.create_assisted_draft(
+        poc_id="poc_a3_stale",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="author-stale-replay",
+    )
+    assert len(isolated.list_receipts("poc_a3_stale")) == 1
     stale["value"] = True
+    assert isolated.list_receipts("poc_a3_stale") == ()
+    collection = handle_poc_assisted_authoring_web_api_request(
+        method="GET",
+        target="/api/pocs/poc_a3_stale/assisted-authoring",
+        payload=None,
+        runtime=isolated,
+    )
+    assert collection is not None and collection.status == 200
+    assert collection.payload["receipts"] == []
+    with pytest.raises(AssistedAuthoringError) as replay_caught:
+        isolated.create_assisted_draft(
+            poc_id="poc_a3_stale",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="author-stale-replay",
+        )
+    assert replay_caught.value.code == "source_stale"
+    replay_response = handle_poc_assisted_authoring_web_api_request(
+        method="POST",
+        target="/api/pocs/poc_a3_stale/sources/{0}/assisted-authoring".format(
+            source_receipt_id
+        ),
+        payload={"idempotency_key": "author-stale-replay"},
+        runtime=isolated,
+    )
+    assert replay_response is not None and replay_response.status == 409
+    assert replay_response.payload == {
+        "error": "Assisted authoring conflicts with the current source state."
+    }
     with pytest.raises(AssistedAuthoringError) as caught:
         isolated.create_assisted_draft(
             poc_id="poc_a3_stale",
@@ -473,6 +959,129 @@ def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
     assert caught.value.code == "source_stale"
     assert isolated.proposal_inputs("poc_a3_stale") == ()
     assert first.proposals[0].review_state == "NEEDS_REVIEW"
+
+
+def test_a3_collection_endpoints_require_active_draft_and_map_safe_failures():
+    drafts, _, service = _runtime("poc_a3_transport")
+
+    def response(target: str, review_runtime=None):
+        return handle_poc_assisted_authoring_web_api_request(
+            method="GET",
+            target=target,
+            payload=None,
+            runtime=service,
+            review_runtime=review_runtime,
+        )
+
+    missing_collection = response(
+        "/api/pocs/poc_a3_missing/assisted-authoring"
+    )
+    missing_retained = response(
+        "/api/pocs/poc_a3_missing/retained-proposals",
+        ProcessLocalProposalReviewService(proposal_lookup=lambda _poc_id: ()),
+    )
+    assert missing_collection is not None
+    assert missing_collection.status == 404
+    assert missing_collection.payload == {"error": "The source was not found."}
+    assert missing_retained is not None
+    assert missing_retained.status == 404
+    assert missing_retained.payload == {"error": "The source was not found."}
+
+    drafts.archive("poc_a3_transport")
+    archived_collection = response(
+        "/api/pocs/poc_a3_transport/assisted-authoring"
+    )
+    archived_retained = response(
+        "/api/pocs/poc_a3_transport/retained-proposals",
+        ProcessLocalProposalReviewService(proposal_lookup=lambda _poc_id: ()),
+    )
+    assert archived_collection is not None and archived_collection.status == 404
+    assert archived_retained is not None and archived_retained.status == 404
+
+    class RaisingReview:
+        def __init__(self, error_type):
+            self.error_type = error_type
+
+        def list_proposals(self, _poc_id):
+            raise self.error_type("safe review failure")
+
+    failure_cases = (
+        (ProposalReviewProposalUnavailable, 404),
+        (ProposalReviewCrossPOC, 404),
+        (ProposalReviewStaleProposal, 409),
+        (ProposalReviewLookupUnavailable, 503),
+        (ProposalReviewCapacityExceeded, 503),
+    )
+    _, intake, service = _runtime("poc_a3_failure_mapping")
+    source_receipt_id = _attach_document(intake, "poc_a3_failure_mapping")
+    service.create_assisted_draft(
+        poc_id="poc_a3_failure_mapping",
+        source_receipt_id=source_receipt_id,
+        idempotency_key="failure-mapping-author",
+    )
+    before = service.list_receipts("poc_a3_failure_mapping")
+    for error_type, expected_status in failure_cases:
+        mapped = handle_poc_assisted_authoring_web_api_request(
+            method="GET",
+            target="/api/pocs/poc_a3_failure_mapping/retained-proposals",
+            payload=None,
+            runtime=service,
+            review_runtime=RaisingReview(error_type),
+        )
+        assert mapped is not None
+        assert mapped.status == expected_status
+        assert set(mapped.payload) == {"error"}
+        assert "safe review failure" not in str(mapped.payload)
+    assert service.list_receipts("poc_a3_failure_mapping") == before
+
+
+def test_a3_http_collections_reject_missing_and_archived_pocs_without_writes():
+    server = SourceNeutralPOCDemoServer(("127.0.0.1", 0))
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+
+    def get(target: str) -> tuple[int, dict]:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        try:
+            connection.request("GET", target)
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode())
+        finally:
+            connection.close()
+
+    try:
+        for suffix in ("assisted-authoring", "retained-proposals"):
+            status, payload = get(
+                "/api/pocs/poc_a3_transport_missing/" + suffix
+            )
+            assert status == 404
+            assert payload == {"error": "The source was not found."}
+
+        created = server.draft_poc_service.create(
+            DraftPOCCreateRequest(
+                poc_id="poc_a3_transport_archived",
+                display_name="A3 transport test",
+                customer_label="A3 customer",
+                use_case="Validate safe collection lookup.",
+                owner="field_engineer",
+                first_source_choice=FirstSourceChoice.DOCUMENT,
+            ),
+            idempotency_key="transport-archived-create",
+        )
+        assert created.draft.archive_state.value == "ACTIVE"
+        server.draft_poc_service.archive("poc_a3_transport_archived")
+        for suffix in ("assisted-authoring", "retained-proposals"):
+            status, payload = get(
+                "/api/pocs/poc_a3_transport_archived/" + suffix
+            )
+            assert status == 404
+            assert payload == {"error": "The source was not found."}
+        assert len(server.assisted_authoring_service._source_attempts) == 0
+        assert len(server.proposal_review_service) == 0
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
 
 
 def test_a3_http_api_accepts_all_a2_source_kinds_and_notes_alias():

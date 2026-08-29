@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 import re
 import threading
 
@@ -32,6 +33,17 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
     with _running_server() as base_url, sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 720})
+        browser_errors: list[str] = []
+        failed_responses: list[str] = []
+        page.on("console", lambda message: browser_errors.append(message.text) if message.type == "error" else None)
+        page.on(
+            "response",
+            lambda response: failed_responses.append(
+                f"{response.status} {response.url}"
+            )
+            if response.status >= 400
+            else None,
+        )
         try:
             page.goto(f"{base_url}/app/pocs/new")
             page.locator('input[name="first_source_choice"][value="DOCUMENT"]').check()
@@ -56,6 +68,12 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
                 )
             )
             page.wait_for_load_state("networkidle")
+            assert page.locator(".object-heading .eyebrow").inner_text().casefold() == (
+                "define · proposal review"
+            )
+            state = page.request.get(f"{base_url}/api/state")
+            assert state.ok
+            assert state.json()["mode"] == "local_source_neutral"
             assisted_link = page.locator("#assisted-authoring-link")
             assert assisted_link.is_visible()
             assisted_link.click()
@@ -65,6 +83,9 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
                 )
             )
             page.wait_for_load_state("networkidle")
+            assert page.locator(".object-heading .eyebrow").inner_text().casefold() == (
+                "define · assisted draft"
+            )
             assert "poc_support_agent_demo" not in page.content()
             assert page.locator("#source-receipt-list").locator("label").count() == 1
             assert page.locator("#authoring-submit").is_disabled()
@@ -75,6 +96,12 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             page.locator("#authoring-result").wait_for(state="visible")
             assert "NEEDS_REVIEW" in page.locator("#authoring-result").inner_text()
             assert "source-bound proposal" in page.locator("#authoring-result").inner_text()
+            poc_id = re.search(r"/pocs/(poc_[a-z0-9_-]+)/", page.url).group(1)
+            retained_before_review = page.request.get(
+                f"{base_url}/api/pocs/{poc_id}/retained-proposals"
+            )
+            assert retained_before_review.ok
+            assert retained_before_review.json()["retained_count"] == 0
             page.locator("#open-proposal-review").click()
             page.wait_for_url(
                 re.compile(
@@ -82,6 +109,9 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
                 )
             )
             page.wait_for_load_state("networkidle")
+            assert page.locator(".object-heading .eyebrow").inner_text().casefold() == (
+                "define · proposal review"
+            )
             assert page.locator("#proposal-support").inner_text().startswith(
                 "Source-bound proposal material"
             )
@@ -94,12 +124,15 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             assert page.locator("#keep-proposal").is_enabled()
             page.locator("#keep-proposal").click()
             page.locator("#review-complete").wait_for(state="visible")
-            assert "kept for contract authoring" in page.locator(
-                "#review-complete-summary"
-            ).inner_text()
-            retained_href = page.locator("#define-criteria").get_attribute("href")
-            assert retained_href is not None
-            retained = page.request.get(f"{base_url}{retained_href}")
+            assert page.locator("#review-complete-summary").inner_text().startswith(
+                "1 proposals reviewed: 1 retained for acceptance drafting"
+            )
+            visible_destination = page.locator("#define-criteria").get_attribute("href")
+            assert visible_destination == "/app"
+            assert "/retained-proposals" not in visible_destination
+            retained = page.request.get(
+                f"{base_url}/api/pocs/{poc_id}/retained-proposals"
+            )
             assert retained.ok
             retained_payload = retained.json()
             assert retained_payload["retained_count"] == 1
@@ -107,5 +140,79 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             assert "criterion" not in retained_json
             assert "approved" not in retained_json
             assert "verdict" not in retained_json
+            assert failed_responses == []
+            assert browser_errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize(
+    "capability_response",
+    (
+        {"mode": "local_source_neutral", "safety": {}},
+        {"status": 503, "body": {"error": "capability unavailable"}},
+    ),
+)
+def test_malformed_or_unavailable_capability_state_hides_a3_without_dead_ui(
+    capability_response,
+):
+    sync_playwright = playwright_sync.sync_playwright
+    with _running_server() as base_url, sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        assisted_api_requests: list[str] = []
+        page.on(
+            "request",
+            lambda request: assisted_api_requests.append(request.url)
+            if "/assisted-authoring" in request.url
+            else None,
+        )
+        try:
+            def fulfill_capability(route):
+                if "status" in capability_response:
+                    route.fulfill(
+                        status=capability_response["status"],
+                        content_type="application/json",
+                        body=json.dumps(capability_response["body"]),
+                    )
+                else:
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(capability_response),
+                    )
+
+            page.route("**/api/state", fulfill_capability)
+            page.goto(f"{base_url}/app/pocs/new")
+            page.locator('input[name="first_source_choice"][value="DOCUMENT"]').check()
+            page.locator("#display-name").fill("Capability fallback POC")
+            page.locator("#customer-label").fill("A3 customer")
+            page.locator("#use-case").fill("Validate capability fail closed.")
+            page.locator("#owner").fill("field_engineer")
+            page.locator("#create-poc").click()
+            page.wait_for_url(
+                re.compile(
+                    rf"^{re.escape(base_url)}/app/pocs/poc_[a-z0-9_-]+/sources/new$"
+                )
+            )
+            page.locator("#document-text").fill(
+                "The error rate must remain below 1%."
+            )
+            page.locator("#capture-source").click()
+            page.wait_for_url(
+                re.compile(
+                    rf"^{re.escape(base_url)}/app/pocs/poc_[a-z0-9_-]+/review$"
+                )
+            )
+            page.wait_for_load_state("networkidle")
+            assert page.locator("#proposal-current-task").get_attribute(
+                "aria-busy"
+            ) == "false"
+            assert page.locator("#proposal-review-error").is_visible()
+            assert page.locator("#proposal-support").inner_text() == (
+                "Checking current evaluator support…"
+            )
+            assert page.locator("#assisted-authoring-link").is_hidden()
+            assert assisted_api_requests == []
         finally:
             browser.close()

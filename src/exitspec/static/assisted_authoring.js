@@ -24,10 +24,10 @@
   const pocId =
     routeMatch && POC_ID_PATTERN.test(routeMatch[1]) ? routeMatch[1] : null;
   const pocApi = pocId ? `/api/pocs/${encodeURIComponent(pocId)}` : null;
-  const sourcesApi = pocApi ? `${pocApi}/sources` : null;
+  const sourcesApi = pocApi ? `${pocApi}/assisted-authoring/sources` : null;
   const authoringApi = (receiptId) =>
-    sourcesApi && RECEIPT_ID_PATTERN.test(receiptId)
-      ? `${sourcesApi}/${receiptId}/assisted-authoring`
+    pocApi && RECEIPT_ID_PATTERN.test(receiptId)
+      ? `${pocApi}/sources/${receiptId}/assisted-authoring`
       : null;
   const reviewPage = pocId
     ? `/app/pocs/${encodeURIComponent(pocId)}/review`
@@ -112,6 +112,12 @@
     );
   }
 
+  function sourceReceiptIdForSourceId(sourceId) {
+    return typeof sourceId === "string" && sourceId.startsWith("src_")
+      ? `srcpt_${sourceId.slice(4)}`
+      : null;
+  }
+
   function isTrustedReceipt(payload) {
     return Boolean(
       hasExactKeys(payload, [
@@ -120,6 +126,7 @@
         "authoring_receipt_id",
         "authoring_result_id",
         "endpoint",
+        "generated_at",
         "idempotent_replay",
         "model",
         "poc_id",
@@ -141,6 +148,7 @@
       RECEIPT_ID_PATTERN.test(payload.source_receipt_id) &&
       payload.poc_id === pocId &&
       /^src_[a-z0-9][a-z0-9_-]{2,63}$/.test(payload.source_id) &&
+      payload.source_receipt_id === sourceReceiptIdForSourceId(payload.source_id) &&
       /^arcp_[a-f0-9]{32}$/.test(payload.authoring_receipt_id) &&
       /^ares_[a-f0-9]{32}$/.test(payload.authoring_result_id) &&
       SOURCE_KINDS.includes(payload.source_kind) &&
@@ -154,6 +162,9 @@
       isSafeText(payload.provider, 64) &&
       isSafeText(payload.model, 160) &&
       isSafeText(payload.endpoint, 300) &&
+      typeof payload.generated_at === "string" &&
+      payload.generated_at.length <= 64 &&
+      Number.isFinite(Date.parse(payload.generated_at)) &&
       Number.isSafeInteger(payload.proposal_count) && payload.proposal_count > 0 &&
       Array.isArray(payload.proposal_ids) &&
       payload.proposal_ids.length === payload.proposal_count &&
@@ -204,6 +215,11 @@
       payload.authoring_receipt_id === receipt.authoring_receipt_id &&
       payload.authoring_result_id === receipt.authoring_result_id &&
       payload.source_receipt_id === receipt.source_receipt_id &&
+      payload.source_id === receipt.source_id &&
+      payload.source_kind === receipt.source_kind &&
+      payload.source_adapter_name === receipt.source_adapter_name &&
+      payload.source_adapter_version === receipt.source_adapter_version &&
+      payload.redaction_policy_version === receipt.redaction_policy_version &&
       /^src_[a-z0-9][a-z0-9_-]{2,63}$/.test(payload.source_id) &&
       SOURCE_KINDS.includes(payload.source_kind) &&
       /^[a-f0-9]{64}$/.test(payload.source_content_sha256) &&
@@ -221,9 +237,11 @@
     );
   }
 
-  function isTrustedAuthoringResponse(payload) {
+  function isTrustedAuthoringResponse(payload, attempt) {
     if (!hasExactKeys(payload, ["authoring_receipt", "proposals"]) ||
         !isTrustedReceipt(payload.authoring_receipt) ||
+        !attempt ||
+        payload.authoring_receipt.source_receipt_id !== attempt.sourceReceiptId ||
         !Array.isArray(payload.proposals) ||
         payload.proposals.length !== payload.authoring_receipt.proposal_count ||
         !payload.proposals.every((proposal) =>
@@ -232,7 +250,14 @@
       return false;
     }
     const ids = payload.proposals.map((proposal) => proposal.proposal_id);
-    return new Set(ids).size === ids.length;
+    return (
+      ids.length === payload.authoring_receipt.proposal_ids.length &&
+      ids.every(
+        (proposalId, index) =>
+          proposalId === payload.authoring_receipt.proposal_ids[index]
+      ) &&
+      new Set(ids).size === ids.length
+    );
   }
 
   function isTrustedApiPath(value) {
@@ -318,8 +343,13 @@
       radio.type = "radio";
       radio.name = "source_receipt";
       radio.value = source.source_receipt_id;
+      radio.disabled = inFlight || Boolean(pendingAttempt);
       radio.addEventListener("change", () => {
-        if (!radio.checked || inFlight || pendingAttempt) return;
+        if (!radio.checked || inFlight) return;
+        if (pendingAttempt) {
+          radio.checked = radio.value === pendingAttempt.sourceReceiptId;
+          return;
+        }
         selectedReceipt = radio.value;
         selection.textContent = `${SOURCE_LABELS[source.source_kind]} · ${selectedReceipt}`;
         submit.disabled = false;
@@ -334,6 +364,16 @@
       label.append(radio, copy);
       list.appendChild(label);
     });
+  }
+
+  function updateSourceControls() {
+    list.querySelectorAll('input[name="source_receipt"]').forEach((radio) => {
+      radio.disabled = inFlight || Boolean(pendingAttempt);
+      if (pendingAttempt) {
+        radio.checked = radio.value === pendingAttempt.sourceReceiptId;
+      }
+    });
+    submit.disabled = !selectedReceipt || inFlight;
   }
 
   function safeFailureCopy(error) {
@@ -362,6 +402,8 @@
     if (!pocId || !pocApi || !sourcesApi) {
       errorPanel.textContent = "This assisted-authoring address is invalid. Return to the POC workspace.";
       errorPanel.hidden = false;
+      task.setAttribute("aria-busy", "false");
+      submit.disabled = true;
       return;
     }
     try {
@@ -400,11 +442,12 @@
       }
       pendingAttempt = {
         endpoint,
+        sourceReceiptId: selectedReceipt,
         payload: { idempotency_key: newIdempotencyKey() },
       };
     }
     inFlight = true;
-    submit.disabled = true;
+    updateSourceControls();
     clearError();
     status.textContent = "Running the explicit redacted authoring action…";
     try {
@@ -413,7 +456,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pendingAttempt.payload),
       });
-      if (!isTrustedAuthoringResponse(response)) throw new SafeRequestError(200, true);
+      if (!isTrustedAuthoringResponse(response, pendingAttempt)) throw new SafeRequestError(200, true);
       renderResult(response);
       pendingAttempt = null;
     } catch (error) {
@@ -427,7 +470,7 @@
         : "Start a new explicit action after reviewing the source.";
     } finally {
       inFlight = false;
-      if (!form.hidden) submit.disabled = !selectedReceipt || Boolean(pendingAttempt);
+      if (!form.hidden) updateSourceControls();
     }
   });
 

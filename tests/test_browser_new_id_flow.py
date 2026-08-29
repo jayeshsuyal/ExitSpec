@@ -348,6 +348,13 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
             customer_page = customer_context.new_page()
             employee_errors = _capture_browser_errors(employee_page)
             customer_errors = _capture_browser_errors(customer_page)
+            assisted_api_requests: list[str] = []
+            employee_page.on(
+                "request",
+                lambda request: assisted_api_requests.append(request.url)
+                if "/assisted-authoring" in request.url
+                else None,
+            )
             evidence_errors: list[str] = []
             employee_page.set_default_timeout(10_000)
             employee_page.set_default_navigation_timeout(10_000)
@@ -406,6 +413,9 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 expect(
                     employee_page.locator("#proposal-current-task")
                 ).to_have_attribute("aria-busy", "false")
+                assert employee_page.locator(
+                    "#assisted-authoring-link"
+                ).is_hidden()
                 _assert_bounded_employee_shell(employee_page)
 
                 kept_claims: list[str] = []
@@ -679,6 +689,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 _assert_bounded_employee_shell(employee_page)
                 _assert_narrow_keyboard_contract(expect, employee_page)
                 assert employee_errors == []
+                assert assisted_api_requests == []
                 assert customer_errors == []
                 assert evidence_errors == []
             finally:

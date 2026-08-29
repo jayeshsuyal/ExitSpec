@@ -12,10 +12,11 @@ import hashlib
 import json
 import math
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from threading import RLock
+from threading import Condition, RLock
 from typing import Callable, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple
 import unicodedata
 
@@ -39,6 +40,7 @@ from .models import (
     ProportionRule,
     TranscriptSpan,
 )
+from .poc_creation import DraftPOCArchiveState, DraftPOCNotFound, DraftPOCSnapshot
 
 from .providers import (
     ProviderError,
@@ -49,12 +51,18 @@ from .providers import (
 )
 from .poc_proposal_review import (
     ProposalDecision,
+    ProposalReviewError,
     ProposalReviewItem,
     SourceBoundProposal,
     derive_proposal_id,
 )
-from .poc_source_intake import POCSourceIntakeRevisionRequired
+from .poc_source_intake import (
+    POCSourceIntakeError,
+    POCSourceIntakeInvalid,
+    POCSourceIntakeRevisionRequired,
+)
 from .poc_sources import POCSourceSnapshot, SourceKind
+from .poc_sources import POCSourceDraftArchived, POCSourceDraftUnavailable
 from .redaction import (
     RedactionBoundaryError,
     RedactionResult,
@@ -552,18 +560,30 @@ _MAX_ASSISTED_QUOTE = 4_000
 _MAX_ASSISTED_CLAIM = 2_000
 _MAX_ASSISTED_IDEMPOTENCY_KEY = 200
 _MAX_ASSISTED_ATTEMPTS = 1_024
+_MAX_ASSISTED_IDEMPOTENCY_RECORDS = 16_384
+_MAX_ASSISTED_MINIMUM_SAMPLES = 9_007_199_254_740_991
+_MAX_ASSISTED_INFLIGHT_WAIT_SECONDS = 5.0
 
 _ASSISTED_AUTHORITY_INJECTION = re.compile(
     r"(?i)(?:"
     r"\bignore\s+(?:all|any|the|previous|prior)\b|"
     r"\b(?:system|developer)\s+(?:prompt|message|instruction)\b|"
-    r"\b(?:approve|approval|freeze|frozen|verdict|deploy|deployment)\b"
-    r"\s+(?:this|the|a|it|now)|"
-    r"\b(?:execute|run|import)\s+(?:the|this|a|it)\b"
+    r"\bverdict\b|"
+    r"\b(?:approve|approval|approved|confirm|confirmation|confirmed|"
+    r"freeze|frozen|deploy|deployment)\b\s+(?:"
+    r"this|the|a|an|it|now|current|contract|agreement|criterion|criteria|"
+    r"rule|requirement|poc)(?:\s+\w+){0,3}\b|"
+    r"\b(?:issue|issued|issuing)\b\s+(?:the|a|an|this|current)?\s*"
+    r"(?:verdict|decision|evidence)\b|"
+    r"\b(?:execute|executed|executing|import|imported|importing)\b\s+"
+    r"(?:the|a|an|this|current)?\s*evidence\b|"
+    r"\b(?:producer|provider|customer)\s+(?:verdict|approval|confirmation)\b"
     r")"
 )
 _ASSISTED_PERCENT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*%")
-_ASSISTED_DECIMAL = re.compile(r"(?<![\w.])(?:0?\.\d+|1(?:\.0+)?)\b")
+_ASSISTED_DECIMAL = re.compile(
+    r"(?<![\w.])(?!\d+(?:\.\d+)?\s*%)(?:0?\.\d+|1(?:\.0+)?)(?!\s*%)\b"
+)
 _ASSISTED_SAMPLES = re.compile(
     r"(?<!\w)(\d[\d,]*)\s+"
     r"(?:fixed\s+|approved\s+|valid\s+|total\s+|evaluation\s+|test\s+)*"
@@ -583,7 +603,31 @@ class NumericProposalMaterial(ExitSpecModel):
         le=1.0,
         allow_inf_nan=False,
     )
-    minimum_samples: Optional[int] = Field(default=None, gt=0)
+    minimum_samples: Optional[int] = Field(
+        default=None,
+        gt=0,
+        le=_MAX_ASSISTED_MINIMUM_SAMPLES,
+    )
+
+    @field_validator("threshold", mode="before")
+    @classmethod
+    def reject_threshold_coercion(cls, value: object) -> object:
+        if value is not None and (
+            isinstance(value, bool) or type(value) not in {int, float}
+        ):
+            raise ValueError("Numeric thresholds must be finite JSON numbers.")
+        return value
+
+    @field_validator("minimum_samples", mode="before")
+    @classmethod
+    def reject_sample_count_coercion(cls, value: object) -> object:
+        if value is not None and (
+            isinstance(value, bool)
+            or type(value) is not int
+            or value > _MAX_ASSISTED_MINIMUM_SAMPLES
+        ):
+            raise ValueError("Minimum sample counts must be bounded integers.")
+        return value
 
     @model_validator(mode="after")
     def require_finite_numbers(self) -> "NumericProposalMaterial":
@@ -689,6 +733,7 @@ class AssistedAuthoringReceipt(FrozenExitSpecModel):
     redaction_policy_version: str = Field(min_length=1, max_length=64)
     authoring_adapter_name: str = Field(min_length=1, max_length=64)
     authoring_adapter_version: str = Field(min_length=1, max_length=64)
+    generated_at: datetime
     provider: str = Field(min_length=1, max_length=64)
     model: str = Field(min_length=1, max_length=160)
     endpoint: str = Field(min_length=1, max_length=300)
@@ -699,6 +744,13 @@ class AssistedAuthoringReceipt(FrozenExitSpecModel):
     proposal_count: int = Field(ge=1, le=_MAX_ASSISTED_PROPOSALS)
     status: Literal["NEEDS_REVIEW"] = "NEEDS_REVIEW"
     idempotent_replay: bool
+
+    @field_validator("generated_at")
+    @classmethod
+    def require_timezone_aware_generated_at(cls, value: datetime) -> datetime:
+        if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Authoring receipt timestamp must be timezone-aware.")
+        return value
 
     @model_validator(mode="after")
     def require_count_identity(self) -> "AssistedAuthoringReceipt":
@@ -752,6 +804,10 @@ class AssistedAuthoringSemantics(FrozenExitSpecModel):
     can_authorize_deployment: Literal[False] = False
     max_proposals_per_attempt: int = Field(ge=1, le=_MAX_ASSISTED_PROPOSALS)
     max_attempts: int = Field(ge=1, le=_MAX_ASSISTED_ATTEMPTS)
+    max_idempotency_records: int = Field(
+        ge=1,
+        le=_MAX_ASSISTED_IDEMPOTENCY_RECORDS,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -765,6 +821,22 @@ class _StoredAssistedAttempt:
     request_sha256: str
     receipt: AssistedAuthoringReceipt
     proposals: Tuple[AssistedDraftProposal, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _InFlightAssistedAttempt:
+    key_digest: str
+    poc_id: str
+    source_receipt_id: str
+    source_id: str
+    request_sha256: str
+
+
+class ProposalReviewService(Protocol):
+    """Small A3 port for the existing human triage service."""
+
+    def list_proposals(self, poc_id: str) -> Tuple[ProposalReviewItem, ...]:
+        ...
 
 
 def _validate_source_neutral_provider_output(
@@ -878,7 +950,12 @@ def _safe_authoring_output_text(value: str) -> str:
     return value
 
 
-def _safe_provider_receipt(receipt: ProviderReceipt) -> ProviderReceipt:
+def _safe_provider_receipt(
+    receipt: ProviderReceipt,
+    *,
+    executor: object | None = None,
+    requested_model: str | None = None,
+) -> ProviderReceipt:
     """Accept only bounded, redaction-safe provider facts before projection."""
 
     if type(receipt) is not ProviderReceipt:
@@ -886,6 +963,22 @@ def _safe_provider_receipt(receipt: ProviderReceipt) -> ProviderReceipt:
             "The provider receipt could not be trusted.",
             code="invalid_output",
         )
+    if requested_model is not None and receipt.model != requested_model:
+        raise AssistedAuthoringError(
+            "The provider receipt could not be trusted.",
+            code="invalid_output",
+        )
+    for receipt_field, executor_field in (
+        ("provider", "provider_name"),
+        ("model", "model"),
+        ("endpoint", "endpoint"),
+    ):
+        expected = getattr(executor, executor_field, None)
+        if expected is not None and getattr(receipt, receipt_field) != expected:
+            raise AssistedAuthoringError(
+                "The provider receipt could not be trusted.",
+                code="invalid_output",
+            )
     for value, maximum in (
         (receipt.provider, 64),
         (receipt.model, 160),
@@ -1095,10 +1188,16 @@ class ProcessLocalAssistedAuthoringService:
         "_adapter_name",
         "_adapter_version",
         "_clock",
+        "_draft_lookup",
         "_executor",
         "_idempotency",
+        "_inflight",
+        "_inflight_sources",
         "_lock",
+        "_condition",
         "_max_attempts",
+        "_max_idempotency_records",
+        "_inflight_wait_seconds",
         "_model",
         "_results_by_request",
         "_source_attempts",
@@ -1109,15 +1208,20 @@ class ProcessLocalAssistedAuthoringService:
         self,
         *,
         source_lookup: Callable[[str, str], POCSourceSnapshot],
+        draft_lookup: Callable[[str], DraftPOCSnapshot],
         executor: SourceNeutralStructuredJSONExecutor,
         model: str = ASSISTED_AUTHORING_MODEL,
         adapter_name: str = ASSISTED_AUTHORING_ADAPTER_NAME,
         adapter_version: str = ASSISTED_AUTHORING_ADAPTER_VERSION,
         max_attempts: int = _MAX_ASSISTED_ATTEMPTS,
+        max_idempotency_records: int = _MAX_ASSISTED_IDEMPOTENCY_RECORDS,
+        inflight_wait_seconds: float = _MAX_ASSISTED_INFLIGHT_WAIT_SECONDS,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         if not callable(source_lookup):
             raise TypeError("source_lookup must be callable.")
+        if not callable(draft_lookup):
+            raise TypeError("draft_lookup must be callable.")
         if not callable(getattr(executor, "execute", None)):
             raise TypeError("executor must provide execute.")
         for value, name, maximum in (
@@ -1139,23 +1243,44 @@ class ProcessLocalAssistedAuthoringService:
             or not 1 <= max_attempts <= _MAX_ASSISTED_ATTEMPTS
         ):
             raise ValueError("max_attempts is outside its supported bounds.")
+        if (
+            type(max_idempotency_records) is not int
+            or not 1 <= max_idempotency_records <= _MAX_ASSISTED_IDEMPOTENCY_RECORDS
+        ):
+            raise ValueError(
+                "max_idempotency_records is outside its supported bounds."
+            )
+        if (
+            isinstance(inflight_wait_seconds, bool)
+            or not isinstance(inflight_wait_seconds, (int, float))
+            or not math.isfinite(float(inflight_wait_seconds))
+            or not 0.001 <= float(inflight_wait_seconds) <= _MAX_ASSISTED_INFLIGHT_WAIT_SECONDS
+        ):
+            raise ValueError("inflight_wait_seconds is outside its supported bounds.")
         self._source_lookup = source_lookup
+        self._draft_lookup = draft_lookup
         self._executor = executor
         self._model = model.strip()
         self._adapter_name = adapter_name.strip()
         self._adapter_version = adapter_version.strip()
         self._max_attempts = max_attempts
+        self._max_idempotency_records = max_idempotency_records
+        self._inflight_wait_seconds = float(inflight_wait_seconds)
         self._clock = clock
         self._idempotency: dict[str, str] = {}
+        self._inflight: dict[str, _InFlightAssistedAttempt] = {}
+        self._inflight_sources: dict[tuple[str, str], _InFlightAssistedAttempt] = {}
         self._results_by_request: dict[str, _StoredAssistedAttempt] = {}
         self._source_attempts: dict[tuple[str, str], _StoredAssistedAttempt] = {}
         self._lock = RLock()
+        self._condition = Condition(self._lock)
 
     @property
     def semantics(self) -> AssistedAuthoringSemantics:
         return AssistedAuthoringSemantics(
             max_proposals_per_attempt=_MAX_ASSISTED_PROPOSALS,
             max_attempts=self._max_attempts,
+            max_idempotency_records=self._max_idempotency_records,
         )
 
     def _lookup_source(self, poc_id: str, source_receipt_id: str) -> POCSourceSnapshot:
@@ -1176,12 +1301,37 @@ class ProcessLocalAssistedAuthoringService:
                 "The assisted-authoring source is stale; use its latest receipt.",
                 code="source_stale",
             ) from None
+        except POCSourceIntakeInvalid:
+            raise AssistedAuthoringError(
+                "The assisted-authoring source is unavailable.",
+                code="source_unavailable",
+            ) from None
+        except POCSourceDraftArchived:
+            raise AssistedAuthoringError(
+                "The assisted-authoring source is unavailable.",
+                code="source_unavailable",
+            ) from None
+        except POCSourceDraftUnavailable as error:
+            if isinstance(error.__cause__, DraftPOCNotFound):
+                raise AssistedAuthoringError(
+                    "The assisted-authoring source is unavailable.",
+                    code="source_unavailable",
+                ) from None
+            raise AssistedAuthoringError(
+                "The assisted-authoring source is temporarily unavailable.",
+                code="service_unavailable",
+            ) from None
+        except POCSourceIntakeError:
+            raise AssistedAuthoringError(
+                "The assisted-authoring source is temporarily unavailable.",
+                code="service_unavailable",
+            ) from None
         except AssistedAuthoringError:
             raise
         except Exception:
             raise AssistedAuthoringError(
-                "The assisted-authoring source is unavailable.",
-                code="source_unavailable",
+                "The assisted-authoring source is temporarily unavailable.",
+                code="service_unavailable",
             ) from None
         if (
             type(source) is not POCSourceSnapshot
@@ -1194,6 +1344,68 @@ class ProcessLocalAssistedAuthoringService:
             )
         return source
 
+    def _require_active_draft(self, poc_id: str) -> DraftPOCSnapshot:
+        if (
+            type(poc_id) is not str
+            or re.fullmatch(r"^poc_[a-z0-9][a-z0-9_-]{2,63}$", poc_id) is None
+        ):
+            raise AssistedAuthoringError(
+                "The POC identifier is invalid.",
+                code="invalid_request",
+            )
+        try:
+            draft = self._draft_lookup(poc_id)
+        except DraftPOCNotFound:
+            raise AssistedAuthoringError(
+                "The draft POC is unavailable in this process.",
+                code="source_unavailable",
+            ) from None
+        except Exception:
+            raise AssistedAuthoringError(
+                "The draft POC is temporarily unavailable in this process.",
+                code="service_unavailable",
+            ) from None
+        if (
+            type(draft) is not DraftPOCSnapshot
+            or draft.poc_id != poc_id
+            or draft.archive_state != DraftPOCArchiveState.ACTIVE
+        ):
+            raise AssistedAuthoringError(
+                "The draft POC is unavailable in this process.",
+                code="source_unavailable",
+            )
+        return draft
+
+    def _require_current_generation(
+        self,
+        *,
+        poc_id: str,
+        source_receipt_id: str,
+        draft: DraftPOCSnapshot,
+        source: POCSourceSnapshot,
+    ) -> None:
+        """Reject a result if the process-local source or draft changed."""
+
+        current_draft = self._require_active_draft(poc_id)
+        if (
+            current_draft.updated_at != draft.updated_at
+            or current_draft.archive_state != draft.archive_state
+        ):
+            raise AssistedAuthoringError(
+                "The draft POC changed during assisted authoring.",
+                code="source_stale",
+            )
+        current_source = self._lookup_source(poc_id, source_receipt_id)
+        if (
+            current_source.source_id != source.source_id
+            or current_source.content_sha256 != source.content_sha256
+            or current_source.source_revision != source.source_revision
+        ):
+            raise AssistedAuthoringError(
+                "The assisted-authoring source changed during authoring.",
+                code="source_stale",
+            )
+
     def create_assisted_draft(
         self,
         *,
@@ -1201,21 +1413,13 @@ class ProcessLocalAssistedAuthoringService:
         source_receipt_id: str,
         idempotency_key: str,
     ) -> AssistedDraftResult:
-        """Run one explicit authoring attempt and retain only NEEDS_REVIEW proposals."""
+        """Run one explicit action with reservation and compare-before-commit."""
 
         key_digest = _authoring_key_digest(idempotency_key)
-        with self._lock:
-            prior_key = self._idempotency.get(key_digest)
-            if prior_key is not None:
-                prior = self._results_by_request[prior_key]
-                if prior.receipt.poc_id != poc_id or prior.receipt.source_receipt_id != source_receipt_id:
-                    raise AssistedAuthoringError(
-                        "The authoring idempotency key conflicts with an earlier request.",
-                        code="idempotency_conflict",
-                    )
-                replay_receipt = prior.receipt.model_copy(update={"idempotent_replay": True})
-                return AssistedDraftResult(replay_receipt, prior.proposals)
-
+        reservation: _InFlightAssistedAttempt | None = None
+        wait_deadline = time.monotonic() + self._inflight_wait_seconds
+        while reservation is None:
+            draft = self._require_active_draft(poc_id)
             source = self._lookup_source(poc_id, source_receipt_id)
             request_sha256 = _authoring_request_digest(
                 poc_id=poc_id,
@@ -1225,23 +1429,125 @@ class ProcessLocalAssistedAuthoringService:
                 adapter_name=self._adapter_name,
                 adapter_version=self._adapter_version,
             )
-            prior_source = self._source_attempts.get((poc_id, source.source_id))
-            if prior_source is not None:
-                if prior_source.request_sha256 != request_sha256:
-                    raise AssistedAuthoringError(
-                        "A different authoring attempt cannot replace prior source truth.",
-                        code="attempt_conflict",
-                    )
-                self._idempotency[key_digest] = prior_source.receipt.authoring_receipt_id
-                replay_receipt = prior_source.receipt.model_copy(update={"idempotent_replay": True})
-                return AssistedDraftResult(replay_receipt, prior_source.proposals)
-
-            if len(self._source_attempts) >= self._max_attempts:
-                raise AssistedAuthoringError(
-                    "The process-local assisted-authoring store is at capacity.",
-                    code="capacity_exceeded",
+            replay: _StoredAssistedAttempt | None = None
+            replay_needs_alias = False
+            with self._condition:
+                prior_key = self._idempotency.get(key_digest)
+                if prior_key is not None:
+                    replay = self._results_by_request.get(prior_key)
+                    if replay is None:
+                        raise AssistedAuthoringError(
+                            "The assisted-authoring state is unavailable.",
+                            code="service_unavailable",
+                        )
+                    if (
+                        replay.receipt.poc_id != poc_id
+                        or replay.receipt.source_receipt_id != source_receipt_id
+                    ):
+                        raise AssistedAuthoringError(
+                            "The authoring idempotency key conflicts with an earlier request.",
+                            code="idempotency_conflict",
+                        )
+                else:
+                    existing_key = self._inflight.get(key_digest)
+                    if existing_key is not None:
+                        if (
+                            existing_key.poc_id != poc_id
+                            or existing_key.source_receipt_id != source_receipt_id
+                        ):
+                            raise AssistedAuthoringError(
+                                "The authoring idempotency key conflicts with an earlier request.",
+                                code="idempotency_conflict",
+                            )
+                        remaining = wait_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise AssistedAuthoringError(
+                                "The assisted-authoring attempt is still in progress.",
+                                code="service_unavailable",
+                                retryable=True,
+                                next_action="retry_later",
+                            )
+                        self._condition.wait(timeout=remaining)
+                        continue
+                    source_key = (poc_id, source.source_id)
+                    source_inflight = self._inflight_sources.get(source_key)
+                    if source_inflight is not None:
+                        if source_inflight.request_sha256 != request_sha256:
+                            raise AssistedAuthoringError(
+                                "A different authoring attempt cannot replace prior source truth.",
+                                code="attempt_conflict",
+                            )
+                        remaining = wait_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise AssistedAuthoringError(
+                                "The assisted-authoring attempt is still in progress.",
+                                code="service_unavailable",
+                                retryable=True,
+                                next_action="retry_later",
+                            )
+                        self._condition.wait(timeout=remaining)
+                        continue
+                    prior_source = self._source_attempts.get(source_key)
+                    if prior_source is not None:
+                        if prior_source.request_sha256 != request_sha256:
+                            raise AssistedAuthoringError(
+                                "A different authoring attempt cannot replace prior source truth.",
+                                code="attempt_conflict",
+                            )
+                        replay = prior_source
+                        replay_needs_alias = True
+                    else:
+                        if len(self._source_attempts) + len(self._inflight_sources) >= self._max_attempts:
+                            raise AssistedAuthoringError(
+                                "The process-local assisted-authoring store is at capacity.",
+                                code="capacity_exceeded",
+                            )
+                        if len(self._idempotency) + len(self._inflight) >= self._max_idempotency_records:
+                            raise AssistedAuthoringError(
+                                "The process-local assisted-authoring idempotency store is at capacity.",
+                                code="capacity_exceeded",
+                            )
+                        reservation = _InFlightAssistedAttempt(
+                            key_digest=key_digest,
+                            poc_id=poc_id,
+                            source_receipt_id=source_receipt_id,
+                            source_id=source.source_id,
+                            request_sha256=request_sha256,
+                        )
+                        self._inflight[key_digest] = reservation
+                        self._inflight_sources[source_key] = reservation
+            if replay is not None:
+                self._require_current_generation(
+                    poc_id=poc_id,
+                    source_receipt_id=source_receipt_id,
+                    draft=draft,
+                    source=source,
+                )
+                if replay_needs_alias:
+                    with self._condition:
+                        already_bound = self._idempotency.get(key_digest)
+                        if already_bound is not None:
+                            if already_bound != replay.receipt.authoring_receipt_id:
+                                raise AssistedAuthoringError(
+                                    "The authoring idempotency key conflicts with an earlier request.",
+                                    code="idempotency_conflict",
+                                )
+                            return AssistedDraftResult(
+                                replay.receipt.model_copy(update={"idempotent_replay": True}),
+                                replay.proposals,
+                            )
+                        if len(self._idempotency) >= self._max_idempotency_records:
+                            raise AssistedAuthoringError(
+                                "The process-local assisted-authoring idempotency store is at capacity.",
+                                code="capacity_exceeded",
+                            )
+                        self._idempotency[key_digest] = replay.receipt.authoring_receipt_id
+                return AssistedDraftResult(
+                    replay.receipt.model_copy(update={"idempotent_replay": True}),
+                    replay.proposals,
                 )
 
+        try:
             request = _source_neutral_provider_request(source, model=self._model)
             try:
                 provider_result = self._executor.execute(request)
@@ -1259,7 +1565,11 @@ class ProcessLocalAssistedAuthoringService:
                 request.validate_response_instance(output_payload)
                 batch = _validate_source_neutral_provider_output(output_payload)
                 _validate_source_neutral_batch(batch, source=source)
-                receipt = _safe_provider_receipt(provider_result.receipt)
+                receipt = _safe_provider_receipt(
+                    provider_result.receipt,
+                    executor=self._executor,
+                    requested_model=self._model,
+                )
             except ProviderError as error:
                 raise AssistedAuthoringError(
                     "Assisted authoring could not be completed safely.",
@@ -1276,13 +1586,44 @@ class ProcessLocalAssistedAuthoringService:
                     code="invalid_output",
                     next_action="review_provider_output",
                 ) from None
+            except Exception:
+                raise AssistedAuthoringError(
+                    "Assisted authoring is temporarily unavailable.",
+                    code="service_unavailable",
+                ) from None
 
             result_digest = _authoring_result_digest(batch)
             authoring_result_id = "ares_{0}".format(result_digest[:32])
+            generated_at = self._clock()
+            if (
+                type(generated_at) is not datetime
+                or generated_at.tzinfo is None
+                or generated_at.utcoffset() is None
+            ):
+                raise AssistedAuthoringError(
+                    "The assisted-authoring clock is unavailable.",
+                    code="service_unavailable",
+                )
+            provenance = json.dumps(
+                {
+                    "endpoint": receipt.endpoint,
+                    "model": receipt.model,
+                    "provider": receipt.provider,
+                },
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            provenance_digest = hashlib.sha256(
+                b"exitspec-assisted-authoring-provider-v1\x00" + provenance
+            ).hexdigest()
             receipt_digest = hashlib.sha256(
                 b"exitspec-assisted-authoring-receipt-v1\x00"
                 + request_sha256.encode("ascii")
                 + result_digest.encode("ascii")
+                + provenance_digest.encode("ascii")
+                + generated_at.isoformat().encode("ascii")
             ).hexdigest()
             authoring_receipt_id = "arcp_{0}".format(receipt_digest[:32])
             proposal_values: list[AssistedDraftProposal] = []
@@ -1313,12 +1654,6 @@ class ProcessLocalAssistedAuthoringService:
                         numeric_facts=proposal.numeric_facts,
                     )
                 )
-            generated_at = self._clock()
-            if type(generated_at) is not datetime or generated_at.tzinfo is None or generated_at.utcoffset() is None:
-                raise AssistedAuthoringError(
-                    "The assisted-authoring clock is unavailable.",
-                    code="service_unavailable",
-                )
             result_receipt = AssistedAuthoringReceipt(
                 schema_version=ASSISTED_AUTHORING_RECEIPT_SCHEMA_VERSION,
                 authoring_receipt_id=authoring_receipt_id,
@@ -1334,6 +1669,7 @@ class ProcessLocalAssistedAuthoringService:
                 redaction_policy_version=source.redaction_policy_version,
                 authoring_adapter_name=self._adapter_name,
                 authoring_adapter_version=self._adapter_version,
+                generated_at=generated_at,
                 provider=receipt.provider,
                 model=receipt.model,
                 endpoint=receipt.endpoint,
@@ -1346,19 +1682,52 @@ class ProcessLocalAssistedAuthoringService:
                 receipt=result_receipt,
                 proposals=tuple(proposal_values),
             )
-            self._results_by_request[authoring_receipt_id] = stored
-            self._source_attempts[(poc_id, source.source_id)] = stored
-            self._idempotency[key_digest] = authoring_receipt_id
+            self._require_current_generation(
+                poc_id=poc_id,
+                source_receipt_id=source_receipt_id,
+                draft=draft,
+                source=source,
+            )
+            with self._condition:
+                if self._inflight.get(key_digest) != reservation:
+                    raise AssistedAuthoringError(
+                        "The assisted-authoring reservation is unavailable.",
+                        code="service_unavailable",
+                    )
+                self._results_by_request[authoring_receipt_id] = stored
+                self._source_attempts[(poc_id, source.source_id)] = stored
+                self._idempotency[key_digest] = authoring_receipt_id
+                self._inflight.pop(key_digest, None)
+                self._inflight_sources.pop((poc_id, source.source_id), None)
+                self._condition.notify_all()
             return AssistedDraftResult(result_receipt, stored.proposals)
+        except AssistedAuthoringError:
+            with self._condition:
+                if self._inflight.get(key_digest) == reservation:
+                    self._inflight.pop(key_digest, None)
+                    self._inflight_sources.pop((poc_id, source.source_id), None)
+                    self._condition.notify_all()
+            raise
+        except Exception:
+            with self._condition:
+                if self._inflight.get(key_digest) == reservation:
+                    self._inflight.pop(key_digest, None)
+                    self._inflight_sources.pop((poc_id, source.source_id), None)
+                    self._condition.notify_all()
+            raise AssistedAuthoringError(
+                "Assisted authoring is temporarily unavailable.",
+                code="service_unavailable",
+            ) from None
 
     def assist(self, **kwargs: str) -> AssistedDraftResult:
         """Short alias for callers describing the explicit assisted action."""
 
         return self.create_assisted_draft(**kwargs)
 
-    def proposal_inputs(self, poc_id: str) -> Tuple[SourceBoundProposal, ...]:
-        """Return only current A3 source-bound proposals for the shared review service."""
-
+    def _attempts_for_current_source(
+        self,
+        poc_id: str,
+    ) -> Tuple[_StoredAssistedAttempt, ...]:
         if (
             type(poc_id) is not str
             or re.fullmatch(r"^poc_[a-z0-9][a-z0-9_-]{2,63}$", poc_id) is None
@@ -1373,7 +1742,7 @@ class ProcessLocalAssistedAuthoringService:
                 for (attempt_poc_id, _), attempt in self._source_attempts.items()
                 if attempt_poc_id == poc_id
             )
-        values = []
+        current_attempts = []
         for attempt in attempts:
             try:
                 current = self._lookup_source(
@@ -1384,9 +1753,30 @@ class ProcessLocalAssistedAuthoringService:
                 if error.code == "source_stale":
                     continue
                 raise
-            if current.source_id == attempt.receipt.source_id:
-                values.extend(attempt.proposals)
-        return tuple(
+            if (
+                current.source_id == attempt.receipt.source_id
+                and current.content_sha256 == attempt.receipt.source_content_sha256
+                and current.source_revision == attempt.receipt.source_revision
+            ):
+                current_attempts.append(attempt)
+        return tuple(current_attempts)
+
+    def proposal_inputs(self, poc_id: str) -> Tuple[SourceBoundProposal, ...]:
+        """Return only current A3 source-bound proposals for the shared review service."""
+
+        draft = self._require_active_draft(poc_id)
+        attempts = self._attempts_for_current_source(poc_id)
+        attempt_sources = tuple(
+            (
+                attempt,
+                self._lookup_source(poc_id, attempt.receipt.source_receipt_id),
+            )
+            for attempt in attempts
+        )
+        values = []
+        for attempt in attempts:
+            values.extend(attempt.proposals)
+        projected = tuple(
             SourceBoundProposal(
                 poc_id=proposal.poc_id,
                 proposal_id=proposal.proposal_id,
@@ -1397,44 +1787,67 @@ class ProcessLocalAssistedAuthoringService:
             )
             for proposal in values
         )
+        for attempt, source in attempt_sources:
+            self._require_current_generation(
+                poc_id=poc_id,
+                source_receipt_id=attempt.receipt.source_receipt_id,
+                draft=draft,
+                source=source,
+            )
+        return projected
 
     def list_receipts(self, poc_id: str) -> Tuple[AssistedAuthoringReceipt, ...]:
-        if (
-            type(poc_id) is not str
-            or re.fullmatch(r"^poc_[a-z0-9][a-z0-9_-]{2,63}$", poc_id) is None
-        ):
-            raise AssistedAuthoringError(
-                "The POC identifier is invalid.",
-                code="invalid_request",
+        draft = self._require_active_draft(poc_id)
+        attempts = self._attempts_for_current_source(poc_id)
+        sources = tuple(
+            self._lookup_source(poc_id, attempt.receipt.source_receipt_id)
+            for attempt in attempts
+        )
+        self._require_active_draft(poc_id)
+        for attempt, source in zip(attempts, sources):
+            self._require_current_generation(
+                poc_id=poc_id,
+                source_receipt_id=attempt.receipt.source_receipt_id,
+                draft=draft,
+                source=source,
             )
-        with self._lock:
-            return tuple(
-                attempt.receipt
-                for (attempt_poc_id, _), attempt in self._source_attempts.items()
-                if attempt_poc_id == poc_id
-            )
+        return tuple(
+            attempt.receipt
+            for attempt in attempts
+        )
 
     def retained_projection(
         self,
         poc_id: str,
-        review_service: Any,
+        review_service: ProposalReviewService,
     ) -> Tuple[RetainedProposalProjection, ...]:
         """Project only named-human KEEP decisions for a later A4 boundary."""
 
         if not callable(getattr(review_service, "list_proposals", None)):
             raise TypeError("review_service must provide list_proposals.")
-        with self._lock:
-            attempts = tuple(
-                attempt
-                for attempt in self._source_attempts.values()
-                if attempt.receipt.poc_id == poc_id
+        draft = self._require_active_draft(poc_id)
+        attempts = self._attempts_for_current_source(poc_id)
+        attempt_sources = tuple(
+            (
+                attempt,
+                self._lookup_source(poc_id, attempt.receipt.source_receipt_id),
             )
+            for attempt in attempts
+        )
         by_id = {
             proposal.proposal_id: proposal
             for attempt in attempts
             for proposal in attempt.proposals
         }
-        items = review_service.list_proposals(poc_id)
+        try:
+            items = review_service.list_proposals(poc_id)
+        except ProposalReviewError:
+            raise
+        except Exception:
+            raise AssistedAuthoringError(
+                "The retained proposal projection is unavailable.",
+                code="service_unavailable",
+            ) from None
         retained = []
         for item in items:
             if not isinstance(item, ProposalReviewItem) or item.review_state.value != ProposalDecision.KEEP_FOR_CONTRACT.value:
@@ -1477,5 +1890,26 @@ class ProcessLocalAssistedAuthoringService:
                     rationale=item.decision.rationale,
                     decided_at=item.decision.decided_at,
                 )
+            )
+        for attempt, source in attempt_sources:
+            self._require_current_generation(
+                poc_id=poc_id,
+                source_receipt_id=attempt.receipt.source_receipt_id,
+                draft=draft,
+                source=source,
+            )
+        try:
+            current_items = review_service.list_proposals(poc_id)
+        except ProposalReviewError:
+            raise
+        except Exception:
+            raise AssistedAuthoringError(
+                "The retained proposal projection is unavailable.",
+                code="service_unavailable",
+            ) from None
+        if tuple(current_items) != tuple(items):
+            raise AssistedAuthoringError(
+                "The retained proposal projection changed during emission.",
+                code="stale_proposal",
             )
         return tuple(retained)
