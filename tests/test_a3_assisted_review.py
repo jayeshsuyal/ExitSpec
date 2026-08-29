@@ -974,6 +974,7 @@ def test_a3_existing_decision_blocks_new_authoring_without_orphaning_decision():
         clock=lambda: NOW,
     )
     service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review.authoring_commit_guard)
     prior = review.list_proposals("poc_a3_decision_guard")[0]
     review.decide(
         "poc_a3_decision_guard",
@@ -1003,6 +1004,7 @@ def test_a3_inflight_authoring_discards_result_when_decision_lands():
         clock=lambda: NOW,
     )
     service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review.authoring_commit_guard)
     prior = review.list_proposals("poc_a3_decision_race")[0]
     outcome = []
 
@@ -1034,6 +1036,79 @@ def test_a3_inflight_authoring_discards_result_when_decision_lands():
     assert outcome[0].code == "attempt_conflict"
     assert service.list_receipts("poc_a3_decision_race") == ()
     assert review.list_proposals("poc_a3_decision_race")[0].review_state is ProposalReviewState.DISCARD
+
+
+@pytest.mark.parametrize(
+    "decision",
+    (ProposalDecision.DISCARD, ProposalDecision.KEEP_FOR_CONTRACT),
+)
+def test_a3_atomic_final_review_guard_prevents_decision_orphan_race(decision):
+    poc_id = "poc_a3_atomic_decision_race_{0}".format(decision.value.lower())
+    drafts = _drafts(poc_id)
+    intake = ProcessLocalPOCSourceIntake(
+        draft_lookup=drafts.get,
+        clock=lambda: NOW,
+    )
+    source_receipt_id = _attach_document(intake, poc_id)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    prior = review.list_proposals(poc_id)[0]
+
+    class FinalCheckDecisionExecutor(PayloadExecutor):
+        def __init__(self, payload):
+            super().__init__(payload)
+            self.trigger = False
+            self.triggered = False
+
+        @property
+        def endpoint(self):
+            if self.trigger and not self.triggered:
+                self.triggered = True
+                review.decide(
+                    poc_id,
+                    prior.proposal_id,
+                    decision,
+                    "named.employee",
+                    "Record the existing human triage decision.",
+                    "atomic-final-check-{0}".format(decision.value.lower()),
+                )
+            return "local://test-provider/a3"
+
+    executor = FinalCheckDecisionExecutor(_valid_payload())
+
+    def clock():
+        executor.trigger = True
+        return NOW
+
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=intake.source_snapshot,
+        draft_lookup=drafts.get,
+        executor=executor,
+        provider=executor.provider_name,
+        endpoint="local://test-provider/a3",
+        clock=clock,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review.authoring_commit_guard)
+
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="atomic-final-check-authoring",
+        )
+
+    assert caught.value.code == "attempt_conflict"
+    visible = review.list_proposals(poc_id)
+    assert visible[0].review_state is ProposalReviewState(decision.value)
+    assert visible[0].decision is not None
+    assert service.list_receipts(poc_id) == ()
+    assert service.proposal_inputs(poc_id) == ()
+    assert service._source_attempts == {}
+    assert service._idempotency == {}
+    assert service._inflight == {}
 
 
 def test_a3_executor_metadata_is_required_and_rechecked_before_write():

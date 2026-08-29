@@ -13,11 +13,12 @@ import json
 import math
 import re
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from threading import Condition, RLock
-from typing import Callable, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Callable, ContextManager, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Tuple
 import unicodedata
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -52,6 +53,7 @@ from .providers import (
 from .poc_proposal_review import (
     ProposalDecision,
     ProposalDecisionReceipt,
+    ProposalReviewDecisionConflict,
     ProposalReviewError,
     ProposalReviewItem,
     SourceBoundProposal,
@@ -863,6 +865,22 @@ class _InFlightAssistedAttempt:
     request_sha256: str
 
 
+class _LocalProposalReviewCommitGuard:
+    """No-op guard used only when no review service is bound to the service."""
+
+    __slots__ = ()
+
+    def prepare(self, proposal_ids: Sequence[str]) -> None:
+        if type(proposal_ids) not in {tuple, list} or not proposal_ids:
+            raise AssistedAuthoringError(
+                "The assisted-authoring proposal set is invalid.",
+                code="invalid_output",
+            )
+
+    def commit(self) -> None:
+        return None
+
+
 class ProposalReviewService(Protocol):
     """Small A3 port for the existing human triage service."""
 
@@ -870,6 +888,23 @@ class ProposalReviewService(Protocol):
         ...
 
     def source_has_decision(self, poc_id: str, source_receipt_id: str) -> bool:
+        ...
+
+    def authoring_commit_guard(
+        self,
+        poc_id: str,
+        source_receipt_id: str,
+    ) -> ContextManager["ProposalReviewCommitGuard"]:
+        ...
+
+
+class ProposalReviewCommitGuard(Protocol):
+    """Atomic review lock held while an A3 source replacement is committed."""
+
+    def prepare(self, proposal_ids: Sequence[str]) -> None:
+        ...
+
+    def commit(self) -> None:
         ...
 
 
@@ -1258,6 +1293,7 @@ class ProcessLocalAssistedAuthoringService:
         "_provider",
         "_endpoint",
         "_decision_lookup",
+        "_review_commit_guard",
         "_results_by_request",
         "_source_attempts",
         "_source_lookup",
@@ -1344,6 +1380,9 @@ class ProcessLocalAssistedAuthoringService:
         self._inflight_wait_seconds = float(inflight_wait_seconds)
         self._clock = clock
         self._decision_lookup: Callable[[str, str], bool] | None = None
+        self._review_commit_guard: Callable[
+            [str, str], ContextManager[ProposalReviewCommitGuard]
+        ] | None = None
         self._idempotency: dict[str, str] = {}
         self._inflight: dict[str, _InFlightAssistedAttempt] = {}
         self._inflight_sources: dict[tuple[str, str], _InFlightAssistedAttempt] = {}
@@ -1361,6 +1400,21 @@ class ProcessLocalAssistedAuthoringService:
             if self._decision_lookup is not None:
                 raise ValueError("decision_lookup is already bound.")
             self._decision_lookup = decision_lookup
+
+    def bind_review_commit_guard(
+        self,
+        commit_guard: Callable[
+            [str, str], ContextManager[ProposalReviewCommitGuard]
+        ],
+    ) -> None:
+        """Bind the existing review lock used for the final A3 commit."""
+
+        if not callable(commit_guard):
+            raise TypeError("commit_guard must be callable.")
+        with self._lock:
+            if self._review_commit_guard is not None:
+                raise ValueError("commit_guard is already bound.")
+            self._review_commit_guard = commit_guard
 
     def _require_no_source_decision(self, poc_id: str, source_receipt_id: str) -> None:
         lookup = self._decision_lookup
@@ -1661,8 +1715,13 @@ class ProcessLocalAssistedAuthoringService:
                     replay.proposals,
                 )
 
-        self._require_no_source_decision(poc_id, source_receipt_id)
         try:
+            self._require_no_source_decision(poc_id, source_receipt_id)
+            if self._decision_lookup is not None and self._review_commit_guard is None:
+                raise AssistedAuthoringError(
+                    "The current proposal decision state is unavailable.",
+                    code="service_unavailable",
+                )
             request = _source_neutral_provider_request(source, model=self._model)
             try:
                 provider_result = self._executor.execute(request)
@@ -1806,27 +1865,54 @@ class ProcessLocalAssistedAuthoringService:
                 source=source,
             )
             self._require_no_source_decision(poc_id, source_receipt_id)
-            with self._condition:
-                if self._inflight.get(key_digest) != reservation:
-                    raise AssistedAuthoringError(
-                        "The assisted-authoring reservation is unavailable.",
-                        code="service_unavailable",
+            # Executor metadata is an independently mutable boundary. This check is
+            # deliberately outside the review guard: a decision injected by a
+            # metadata accessor must be observed by the atomic guard below.
+            _safe_provider_receipt(
+                receipt,
+                executor=self._executor,
+                requested_model=self._model,
+                expected_provider=self._provider,
+                expected_endpoint=self._endpoint,
+            )
+            review_guard_context = (
+                self._review_commit_guard(poc_id, source_receipt_id)
+                if self._review_commit_guard is not None
+                else nullcontext(_LocalProposalReviewCommitGuard())
+            )
+            try:
+                with review_guard_context as review_guard:
+                    # The review guard performs the final decision check while its
+                    # lock is held. It also records the exact replacement IDs before
+                    # releasing the lock, so a waiter with an old A2 lookup cannot
+                    # commit a stale decision afterward.
+                    review_guard.prepare(
+                        tuple(item.proposal_id for item in proposal_values)
                     )
-                # Executor metadata is an independently mutable boundary. Recheck it
-                # while the reservation is still held, immediately before any write.
-                _safe_provider_receipt(
-                    receipt,
-                    executor=self._executor,
-                    requested_model=self._model,
-                    expected_provider=self._provider,
-                    expected_endpoint=self._endpoint,
-                )
-                self._results_by_request[authoring_receipt_id] = stored
-                self._source_attempts[(poc_id, source.source_id)] = stored
-                self._idempotency[key_digest] = authoring_receipt_id
-                self._inflight.pop(key_digest, None)
-                self._inflight_sources.pop((poc_id, source.source_id), None)
-                self._condition.notify_all()
+                    self._require_current_generation(
+                        poc_id=poc_id,
+                        source_receipt_id=source_receipt_id,
+                        draft=draft,
+                        source=source,
+                    )
+                    with self._condition:
+                        if self._inflight.get(key_digest) != reservation:
+                            raise AssistedAuthoringError(
+                                "The assisted-authoring reservation is unavailable.",
+                                code="service_unavailable",
+                            )
+                        self._results_by_request[authoring_receipt_id] = stored
+                        self._source_attempts[(poc_id, source.source_id)] = stored
+                        self._idempotency[key_digest] = authoring_receipt_id
+                        review_guard.commit()
+                        self._inflight.pop(key_digest, None)
+                        self._inflight_sources.pop((poc_id, source.source_id), None)
+                        self._condition.notify_all()
+            except ProposalReviewDecisionConflict:
+                raise AssistedAuthoringError(
+                    "The source already has a human triage decision.",
+                    code="attempt_conflict",
+                ) from None
             return AssistedDraftResult(result_receipt, stored.proposals)
         except AssistedAuthoringError:
             with self._condition:
@@ -2172,6 +2258,7 @@ __all__ = [
     "AssistedDraftResult",
     "CurrentAssistedProposalProjection",
     "NumericProposalMaterial",
+    "ProposalReviewCommitGuard",
     "ProcessLocalAssistedAuthoringService",
     "RetainedProposalProjection",
     "SourceNeutralProposalBatch",

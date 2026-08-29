@@ -15,6 +15,7 @@ from enum import Enum
 import hashlib
 import json
 import re
+from contextlib import contextmanager
 from threading import RLock
 from typing import Any, Callable, ClassVar, Literal, Mapping, Sequence, Self, Tuple
 import unicodedata
@@ -403,6 +404,40 @@ class _IdempotencyRecord:
     proposal_id: str
 
 
+class _AuthoringCommitGuard:
+    """Review-lock-held commit token for the shared A2/A3 source boundary."""
+
+    __slots__ = ("_proposal_ids", "_service", "_source_key")
+
+    def __init__(
+        self,
+        service: "ProcessLocalProposalReviewService",
+        source_key: tuple[str, str],
+    ) -> None:
+        self._service = service
+        self._source_key = source_key
+        self._proposal_ids: frozenset[str] | None = None
+
+    def prepare(self, proposal_ids: Sequence[str]) -> None:
+        if self._proposal_ids is not None:
+            raise ProposalReviewInvalid("The authoring guard was already prepared.")
+        if type(proposal_ids) not in {tuple, list} or not proposal_ids:
+            raise ProposalReviewInvalid("The authoring proposal set is invalid.")
+        if len(proposal_ids) > _DEFAULT_MAX_PROPOSALS_PER_POC:
+            raise ProposalReviewCapacityExceeded(
+                "The authoring proposal set exceeds process capacity."
+            )
+        validated = tuple(_validate_proposal_id(value) for value in proposal_ids)
+        if len(set(validated)) != len(validated):
+            raise ProposalReviewInvalid("The authoring proposal set is ambiguous.")
+        self._proposal_ids = frozenset(validated)
+
+    def commit(self) -> None:
+        if self._proposal_ids is None:
+            raise ProposalReviewInvalid("The authoring guard was not prepared.")
+        self._service._authoring_current_proposals[self._source_key] = self._proposal_ids
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -516,6 +551,8 @@ class ProcessLocalProposalReviewService:
     """Thread-safe, bounded human triage over current source proposals."""
 
     __slots__ = (
+        "_authoring_current_proposals",
+        "_authoring_guards",
         "_clock",
         "_decisions",
         "_fingerprints",
@@ -573,6 +610,8 @@ class ProcessLocalProposalReviewService:
             ProposalDecisionReceipt,
         ] = {}
         self._idempotency: dict[str, _IdempotencyRecord] = {}
+        self._authoring_current_proposals: dict[tuple[str, str], frozenset[str]] = {}
+        self._authoring_guards: set[tuple[str, str]] = set()
         self._lock = RLock()
 
     @property
@@ -666,6 +705,13 @@ class ProcessLocalProposalReviewService:
     ) -> SourceBoundProposal:
         for proposal in proposals:
             if proposal.proposal_id == proposal_id:
+                current_ids = self._authoring_current_proposals.get(
+                    (poc_id, proposal.source_receipt_id)
+                )
+                if current_ids is not None and proposal_id not in current_ids:
+                    raise ProposalReviewStaleProposal(
+                        "The proposal is no longer current beneath this POC."
+                    )
                 return proposal
         owner = self._proposal_owners.get(proposal_id)
         if owner is not None and owner != poc_id:
@@ -719,6 +765,50 @@ class ProcessLocalProposalReviewService:
             for item in self.list_proposals(poc_id)
         )
 
+    @contextmanager
+    def authoring_commit_guard(
+        self,
+        poc_id: str,
+        source_receipt_id: str,
+    ):
+        """Hold review state while A3 validates and commits a source replacement.
+
+        Proposal lookup occurs before taking the review lock, matching ``decide``
+        and avoiding a callback-under-lock cycle.  Once held, this guard blocks
+        decisions for the source and records the committed A3 proposal IDs so a
+        decision that looked up the old A2 queue cannot commit stale truth after
+        the guard releases.
+        """
+
+        validated_poc_id = _validate_poc_id(poc_id)
+        if (
+            type(source_receipt_id) is not str
+            or not re.fullmatch(SOURCE_RECEIPT_ID_PATTERN, source_receipt_id)
+        ):
+            raise ProposalReviewInvalid("The source receipt identifier is invalid.")
+        proposals = self._lookup(validated_poc_id)
+        source_key = (validated_poc_id, source_receipt_id)
+        with self._lock:
+            self._reconcile_locked(validated_poc_id, proposals)
+            if source_key in self._authoring_guards:
+                raise ProposalReviewDecisionConflict(
+                    "Authoring is already committing this source."
+                )
+            if any(
+                proposal.source_receipt_id == source_receipt_id
+                and (validated_poc_id, proposal.proposal_id) in self._decisions
+                for proposal in proposals
+            ):
+                raise ProposalReviewDecisionConflict(
+                    "The source already has an immutable human decision."
+                )
+            self._authoring_guards.add(source_key)
+            guard = _AuthoringCommitGuard(self, source_key)
+            try:
+                yield guard
+            finally:
+                self._authoring_guards.discard(source_key)
+
     def decide(
         self,
         poc_id: str,
@@ -757,6 +847,15 @@ class ProcessLocalProposalReviewService:
 
         with self._lock:
             self._reconcile_locked(validated_poc_id, proposals)
+            if any(
+                proposal.proposal_id == validated_proposal_id
+                and (validated_poc_id, proposal.source_receipt_id)
+                in self._authoring_guards
+                for proposal in proposals
+            ):
+                raise ProposalReviewDecisionConflict(
+                    "Authoring is committing this source."
+                )
             proposal = self._current_locked(
                 validated_poc_id,
                 proposals,

@@ -156,6 +156,9 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         self.assisted_authoring_service.bind_decision_lookup(
             self.proposal_review_service.source_has_decision
         )
+        self.assisted_authoring_service.bind_review_commit_guard(
+            self.proposal_review_service.authoring_commit_guard
+        )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
