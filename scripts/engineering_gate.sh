@@ -140,6 +140,10 @@ run_gate \
   node --check src/exitspec/static/agreement_dynamic.js
 
 run_gate \
+  "Generic evidence JavaScript syntax" \
+  node --check src/exitspec/static/generic_evidence.js
+
+run_gate \
   "Dynamic customer review JavaScript syntax" \
   node --check src/exitspec/static/customer_review_dynamic.js
 

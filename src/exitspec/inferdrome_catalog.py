@@ -2,14 +2,16 @@
 
 Browser callers never provide filesystem paths.  The catalog scans only the
 configured root or its direct children, verifies every published candidate,
-and resolves an import through the verified ``run_id`` plus bundle digest.
+and resolves an import through a server-issued opaque evidence reference.
 The importer verifies the same bytes again before issuing any receipt.
 """
 
 from __future__ import annotations
 
 import os
+import hashlib
 import re
+import secrets
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +27,7 @@ from .inferdrome_bundle import (
 _RUN_ID: Final = re.compile(r"^run-[0-9a-f]{32}$")
 _SAFE_ENTRY: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _TAGGED_SHA256: Final = re.compile(r"^sha256:[0-9a-f]{64}$")
+_EVIDENCE_REF: Final = re.compile(r"^evref_[a-f0-9]{64}$")
 MAX_DISCOVERED_ENTRIES: Final = 1_000
 
 
@@ -83,6 +86,8 @@ class InferdromeBundleCatalog:
             raise ValueError("Inferdrome runs root must be an absolute path.")
         self._runs_root = runs_root
         self._paths_by_identity: dict[tuple[str, str], Path] = {}
+        self._identities_by_reference: dict[str, tuple[str, str]] = {}
+        self._reference_secret = secrets.token_bytes(32)
         self._lock = RLock()
 
     @property
@@ -93,6 +98,7 @@ class InferdromeBundleCatalog:
         with self._lock:
             if self._runs_root is None:
                 self._paths_by_identity = {}
+                self._identities_by_reference = {}
                 return InferdromeCatalogSnapshot(False, (), ())
             candidates, discovery_rejections = self._candidates(self._runs_root)
             accepted: dict[str, tuple[InferdromeCatalogEntry, _Candidate]] = {}
@@ -157,6 +163,13 @@ class InferdromeBundleCatalog:
                 (entry.run_id, entry.bundle_digest): accepted[entry.run_id][1].path
                 for entry in ordered
             }
+            self._identities_by_reference = {
+                self._reference_for_identity(entry.run_id, entry.bundle_digest): (
+                    entry.run_id,
+                    entry.bundle_digest,
+                )
+                for entry in ordered
+            }
             return InferdromeCatalogSnapshot(
                 True,
                 ordered,
@@ -189,6 +202,37 @@ class InferdromeBundleCatalog:
         if path is None or entry is None:
             raise InferdromeCatalogNotFound("Inferdrome bundle was not found.")
         return ResolvedInferdromeBundle(path, entry)
+
+    def evidence_reference(self, run_id: object, bundle_digest: object) -> str:
+        """Return an opaque server-catalog reference for one verified entry."""
+
+        resolved = self.resolve(run_id, bundle_digest)
+        return self._reference_for_identity(
+            resolved.entry.run_id,
+            resolved.entry.bundle_digest,
+        )
+
+    def resolve_reference(self, reference: object) -> ResolvedInferdromeBundle:
+        """Resolve only a server-issued opaque reference; never a caller path."""
+
+        if type(reference) is not str or _EVIDENCE_REF.fullmatch(reference) is None:
+            raise InferdromeCatalogNotFound("Inferdrome evidence reference was not found.")
+        snapshot = self.refresh()
+        with self._lock:
+            identity = self._identities_by_reference.get(reference)
+        if identity is None or not snapshot.configured:
+            raise InferdromeCatalogNotFound("Inferdrome evidence reference was not found.")
+        return self.resolve(*identity)
+
+    def _reference_for_identity(self, run_id: str, bundle_digest: str) -> str:
+        token = hashlib.sha256(
+            b"exitspec-catalog-evidence-reference-v1\x00"
+            + self._reference_secret
+            + run_id.encode("ascii")
+            + b"\x00"
+            + bundle_digest.encode("ascii")
+        ).hexdigest()
+        return "evref_" + token
 
     @staticmethod
     def _candidates(

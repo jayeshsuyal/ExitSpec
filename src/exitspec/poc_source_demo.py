@@ -1,9 +1,9 @@
 """Source-neutral, process-local browser runtime for Train A A2/A3/A4/A5.
 
-This runtime deliberately owns only draft identity, source attachment, and
-human proposal projection, capability planning, or customer agreement review.
-It does not construct the seeded session, load seeded fixtures, or expose
-proof, provider, evidence, verdict, or execution routes.
+This runtime deliberately owns only draft identity, source attachment, human
+proposal projection, capability planning, customer agreement review, and the
+generic A6 evidence façade. It does not construct the seeded session, load
+seeded fixtures, or expose provider execution routes.
 The existing compatibility demo remains in :mod:`exitspec.web`.
 """
 
@@ -15,7 +15,9 @@ import mimetypes
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import hashlib
 import re
+import tempfile
 import threading
 from typing import Any, Mapping
 from urllib.parse import parse_qsl, unquote, urlparse
@@ -52,6 +54,11 @@ from .poc_agreement_web_api import (
     handle_poc_agreement_web_api_request,
     is_customer_review_web_api_target,
     is_poc_agreement_web_api_target,
+)
+from .poc_evidence_orchestration import ProcessLocalEvidenceOrchestrationService
+from .poc_evidence_web_api import (
+    handle_poc_evidence_web_api_request,
+    is_poc_evidence_web_api_target,
 )
 from .poc_source_intake import (
     POCSourceInput,
@@ -112,6 +119,9 @@ _SOURCE_API_RE = re.compile(
 _PROPOSAL_API_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/proposals(?:/([^/]+)/decision)?$"
 )
+_EVIDENCE_ARTIFACT_RE = re.compile(
+    r"^/artifacts/(eatm_[a-f0-9]{32})/decision-packet\.html$"
+)
 _SOURCE_ROUTES = {
     "email-text": (SourceKind.EMAIL, "email_text"),
     "meeting": (SourceKind.MEETING, "transcript_text"),
@@ -146,6 +156,9 @@ _ASSET_NAMES = frozenset(
         "customer_review_dynamic.html",
         "customer_review_dynamic.css",
         "customer_review_dynamic.js",
+        "generic_evidence.html",
+        "generic_evidence.css",
+        "generic_evidence.js",
         "workbench.css",
     }
 )
@@ -164,6 +177,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         *,
         static_root: Path = STATIC_ROOT,
         assisted_authoring_executor: Any | None = None,
+        evidence_artifact_root: Path | None = None,
     ) -> None:
         self.draft_poc_service = ProcessLocalDraftPOCService()
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
@@ -192,6 +206,27 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
             retained_lookup=self._retained_proposals_for_planning,
             planner=self.capability_planner_service,
         )
+        if evidence_artifact_root is not None and (
+            not isinstance(evidence_artifact_root, Path)
+            or not evidence_artifact_root.is_absolute()
+            or evidence_artifact_root.is_symlink()
+        ):
+            raise ValueError("evidence_artifact_root must be an absolute path.")
+        self._owned_evidence_artifact_root = (
+            tempfile.TemporaryDirectory(prefix="exitspec-source-a6-")
+            if evidence_artifact_root is None
+            else None
+        )
+        self.evidence_artifact_root = (
+            Path(self._owned_evidence_artifact_root.name).resolve()
+            if self._owned_evidence_artifact_root is not None
+            else evidence_artifact_root
+        )
+        self.generic_evidence_service = ProcessLocalEvidenceOrchestrationService(
+            contract_lookup=self._frozen_contract_for_evidence,
+            confirmation_lookup=self._frozen_confirmation_for_evidence,
+            output_root=self.evidence_artifact_root,
+        )
         self.assisted_authoring_service.bind_decision_lookup(
             self.proposal_review_service.source_has_decision
         )
@@ -208,6 +243,26 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
         super().__init__(address, SourceNeutralPOCDemoRequestHandler)
+
+    def server_close(self) -> None:
+        try:
+            super().server_close()
+        finally:
+            if self._owned_evidence_artifact_root is not None:
+                self._owned_evidence_artifact_root.cleanup()
+                self._owned_evidence_artifact_root = None
+
+    def _frozen_contract_for_evidence(self, poc_id: str):
+        snapshot = self.agreement_service.snapshot(poc_id)
+        if snapshot.frozen_contract is None:
+            raise KeyError("The POC does not have an exact frozen contract.")
+        return snapshot.frozen_contract
+
+    def _frozen_confirmation_for_evidence(self, poc_id: str):
+        snapshot = self.agreement_service.snapshot(poc_id)
+        if snapshot.frozen_contract is None or snapshot.confirmation is None:
+            raise KeyError("The POC does not have an exact frozen confirmation.")
+        return snapshot.confirmation
 
     def _proposal_inputs_for_review(self, poc_id: str):
         assisted = self.assisted_authoring_service.proposal_inputs(poc_id)
@@ -310,6 +365,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if draft_id is not None:
             self._send_draft(draft_id)
             return
+        if is_poc_evidence_web_api_target(parsed.path):
+            response = handle_poc_evidence_web_api_request(
+                method="GET",
+                target=parsed.path,
+                payload=None,
+                runtime=self.server.generic_evidence_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         if is_poc_assisted_authoring_web_api_target(parsed.path):
             response = handle_poc_assisted_authoring_web_api_request(
                 method="GET",
@@ -372,11 +437,24 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             if response is not None:
                 self._json(response.status, response.payload)
                 return
+        if parsed.path.startswith("/artifacts/"):
+            self._serve_artifact(parsed.path)
+            return
         if parsed.path in {"", "/", "/app", "/app/"}:
             self._file("dashboard.html")
             return
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
+            return
+        evidence_page_poc_id = _generic_evidence_page_poc_id(parsed.path)
+        if evidence_page_poc_id is not None:
+            if self._active_draft(evidence_page_poc_id):
+                self._file("generic_evidence.html")
+            else:
+                self._json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Draft POC was not found in this local process."},
+                )
             return
         if (
             _SOURCE_PAGE_RE.fullmatch(parsed.path)
@@ -425,6 +503,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Request is invalid."})
             return
+        if is_poc_evidence_web_api_target(parsed.path):
+            response = handle_poc_evidence_web_api_request(
+                method="POST",
+                target=parsed.path,
+                payload=payload,
+                runtime=self.server.generic_evidence_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         if parsed.path == "/api/pocs":
             self._create(payload)
             return
@@ -583,6 +671,49 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
             return
         self._json(HTTPStatus.OK, draft.model_dump(mode="json"))
+
+    def _serve_artifact(self, request_path: str) -> None:
+        match = _EVIDENCE_ARTIFACT_RE.fullmatch(request_path)
+        if match is None:
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
+            return
+        attempt_id = match.group(1)
+        root = self.server.evidence_artifact_root
+        if root.is_symlink() or not root.is_dir():
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
+            return
+        target = root / attempt_id / "decision-packet.html"
+        if target.is_symlink() or not target.is_file():
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
+            return
+        try:
+            publication = self.server.generic_evidence_service.verify_evidence_pack_publication(
+                attempt_id
+            )
+            stat = target.lstat()
+            if stat.st_size > 4 * 1024 * 1024:
+                raise OSError("artifact is too large")
+            with target.open("rb") as handle:
+                data = handle.read(4 * 1024 * 1024 + 1)
+            if (
+                len(data) != stat.st_size
+                or len(data) > 4 * 1024 * 1024
+                or hashlib.sha256(data).hexdigest()
+                != publication.decision_packet_sha256
+            ):
+                raise OSError("artifact changed while it was read")
+        except (OSError, ValueError, KeyError):
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header(
+            "Content-Type",
+            mimetypes.guess_type(str(target))[0] or "application/octet-stream",
+        )
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _active_draft(self, poc_id: str) -> bool:
         try:
@@ -800,17 +931,31 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         return
 
 
+def _generic_evidence_page_poc_id(request_path: str) -> str | None:
+    """Return the POC identity only for the exact A6 evidence page route."""
+
+    parts = request_path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["app", "pocs"] or parts[3] != "evidence":
+        return None
+    poc_id = unquote(parts[2])
+    return poc_id if _POC_ID_RE.fullmatch(poc_id) is not None else None
+
+
 def serve_source_neutral_demo(
     host: str = "127.0.0.1",
     port: int = 8765,
     *,
     open_browser: bool = False,
+    evidence_artifact_root: Path | None = None,
 ) -> SourceNeutralPOCDemoServer:
     """Construct the local A2/A3 browser runtime; caller owns its serve loop."""
 
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("ExitSpec demo only binds to a loopback address.")
-    server = SourceNeutralPOCDemoServer((host, port))
+    server = SourceNeutralPOCDemoServer(
+        (host, port),
+        evidence_artifact_root=evidence_artifact_root,
+    )
     if open_browser:
         threading.Timer(
             0.15,

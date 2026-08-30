@@ -12,6 +12,7 @@
   const status = document.querySelector("#agreement-status");
   const errorPanel = document.querySelector("#agreement-error");
   const freezeButton = document.querySelector("#freeze-agreement");
+  const evidenceLink = document.querySelector("#open-evidence");
   const reviewLink = document.querySelector("#open-customer-review");
   const revisePlan = document.querySelector("#revise-plan");
   const revisionForm = document.querySelector("#revision-form");
@@ -114,7 +115,7 @@
       criteria: (agreement.criteria || []).map((criterion) => ({id: criterion.id, proposal_id: criterion.proposal_id, planning_item_id: criterion.planning_item_id, a4_plan_id: criterion.a4_plan_id, a4_plan_version: criterion.a4_plan_version, a4_plan_sha256: criterion.a4_plan_sha256, source_id: criterion.source_id, source_content_sha256: criterion.source_content_sha256, adapter: criterion.adapter, adapter_version: criterion.adapter_version, evidence_profile: criterion.evidence_profile, evidence_binding: criterion.evidence_binding}))
     };
     document.querySelector("#agreement-technical").textContent = JSON.stringify(technical, null, 2);
-    reviewLink.hidden = true; freezeButton.hidden = true; revisePlan.hidden = true; revisionForm.hidden = true;
+    reviewLink.hidden = true; freezeButton.hidden = true; evidenceLink.hidden = true; revisePlan.hidden = true; revisionForm.hidden = true;
     if (state === "PENDING" && data.customer_review?.review_url && !data.current_inputs_stale) { reviewLink.href = data.customer_review.review_url; reviewLink.hidden = false; }
     if (state === "CONFIRMED") freezeButton.hidden = false;
     if (state === "CHANGES_REQUESTED" || state === "STALE") {
@@ -122,7 +123,11 @@
       revisePlan.hidden = false;
       revisionForm.hidden = false;
     }
-    if (state === "FROZEN") { freezeButton.textContent = "Version frozen"; freezeButton.disabled = true; freezeButton.hidden = false; }
+    if (state === "FROZEN") {
+      freezeButton.hidden = true;
+      evidenceLink.href = `/app/pocs/${encodeURIComponent(pocId)}/evidence`;
+      evidenceLink.hidden = false;
+    }
   }
   async function initialise() {
     if (!pocId) { setError("This agreement address is invalid."); task.setAttribute("aria-busy", "false"); return; }

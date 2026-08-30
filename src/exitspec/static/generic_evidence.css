@@ -1,0 +1,49 @@
+.generic-evidence-main {
+  width: min(1080px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 28px 0 60px;
+}
+
+.generic-evidence-main .object-header {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.generic-evidence-main .object-phase {
+  color: #ff8b43;
+  font-size: .75rem;
+  letter-spacing: .12em;
+}
+
+.generic-evidence-panel,
+.generic-history-panel {
+  background: #18222d;
+  border: 1px solid #303a40;
+  border-radius: 14px;
+  margin-top: 18px;
+  padding: 22px;
+}
+
+.generic-evidence-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.generic-evidence-actions strong {
+  color: #ff8b43;
+  font-size: 1.55rem;
+}
+
+.generic-evidence-actions a { color: #ffb17b; }
+
+#evidence-history { margin: 0; padding-left: 20px; }
+#evidence-history li { color: #c7ced0; margin: 8px 0; }
+
+@media (max-width: 700px) {
+  .generic-evidence-main { width: min(100% - 28px, 1080px); }
+  .generic-evidence-main .object-header { align-items: start; flex-direction: column; gap: 8px; }
+}
