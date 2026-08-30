@@ -332,6 +332,7 @@ def _evidence_binding(
             configured_concurrency=4,
             warmup_requests=10,
             attempts=100,
+            minimum_successful_samples=100,
             sampling_seed=42,
             sampling_temperature=0,
             requested_output_tokens=32,

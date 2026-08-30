@@ -425,6 +425,7 @@ def test_a5_managed_ttft_binding_is_complete_and_run_independent():
         10,
         100,
     )
+    assert policy.minimum_successful_samples == 100
     assert (policy.sampling_seed, policy.sampling_temperature, policy.requested_output_tokens) == (
         42,
         0,
@@ -550,6 +551,14 @@ def test_a5_rejects_forged_or_incomplete_evidence_bindings_before_publication():
         validate_ttft_with_policy(ttft_binding.policy.model_copy(update={"workload_id": "forged-workload"}))
     with pytest.raises(ValueError):
         validate_ttft_with_policy(
+            ttft_binding.policy.model_copy(update={"minimum_successful_samples": 99})
+        )
+    omitted_samples = ttft_binding.policy.model_dump(mode="python")
+    omitted_samples.pop("minimum_successful_samples")
+    with pytest.raises(ValueError):
+        validate_ttft_with_policy(omitted_samples)
+    with pytest.raises(ValueError):
+        validate_ttft_with_policy(
             ttft_binding.policy.model_copy(
                 update={
                     "identity": ttft_binding.policy.identity.model_copy(
@@ -629,6 +638,61 @@ def test_binding_material_mutations_change_confirmation_fingerprint_and_contract
             update={"criteria": (criterion.model_copy(update={"evidence_binding": changed_binding}),)}
         )
         assert contract_confirmation_fingerprint(changed_contract) != baseline_fingerprint
+
+
+def test_managed_minimum_successful_samples_changes_policy_and_contract_authority():
+    poc_id = "poc_a5_ttft_mutation"
+    proposal = _proposal(poc_id, "prop_a5_ttft_mutation")
+    planner = ProcessLocalCapabilityPlannerService(
+        proposal_lookup=lambda _: (proposal,), clock=lambda: NOW
+    )
+    planner.plan(
+        poc_id,
+        (_ttft_plan_item(proposal.proposal_id),),
+        idempotency_key="ttft-mutation-a4",
+    )
+    service = ProcessLocalAgreementLifecycleService(
+        poc_lookup=lambda _: _poc(poc_id),
+        retained_lookup=lambda _: (proposal,),
+        planner=planner,
+        clock=lambda: NOW,
+    )
+    contract = service.prepare(
+        poc_id,
+        reviewer="a5",
+        rationale="Bind managed minimum successful samples.",
+        idempotency_key="ttft-mutation-a5",
+    ).value.contract
+    criterion = contract.criteria[0]
+    binding = criterion.evidence_binding
+    assert binding is not None
+    assert binding.policy.minimum_successful_samples == 100
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        changed_policy = binding.policy.model_copy(
+            update={"minimum_successful_samples": 101}
+        )
+        changed_contract = contract.model_copy(
+            update={
+                "criteria": (
+                    criterion.model_copy(
+                        update={
+                            "evidence_binding": binding.model_copy(
+                                update={"policy": changed_policy}
+                            )
+                        }
+                    ),
+                )
+            }
+        )
+        assert capability_evidence_policy_digest(changed_policy) != binding.policy_sha256
+        assert (
+            contract_confirmation_fingerprint(changed_contract)
+            != contract_confirmation_fingerprint(contract)
+        )
+        from exitspec.contracts import contract_digest
+
+        assert contract_digest(changed_contract) != contract_digest(contract)
 
 
 def test_every_customer_visible_material_category_changes_confirmation_fingerprint():

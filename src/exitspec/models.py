@@ -806,6 +806,7 @@ class ManagedTTFTEvidencePolicy(FrozenExitSpecModel):
     configured_concurrency: Literal[4]
     warmup_requests: Literal[10]
     attempts: Literal[100]
+    minimum_successful_samples: Literal[100]
     sampling_seed: Literal[42]
     sampling_temperature: Literal[0]
     requested_output_tokens: Literal[32]
@@ -844,6 +845,9 @@ class ManagedTTFTEvidencePolicy(FrozenExitSpecModel):
             or identity.traffic.configured_concurrency != self.configured_concurrency
             or identity.traffic.warmup_requests != self.warmup_requests
             or identity.traffic.measured_requests != self.attempts
+            or identity.max_measured_requests != self.minimum_successful_samples
+            or identity.reliability_population.exact_attempts
+            != self.minimum_successful_samples
             or identity.sampling.seed != self.sampling_seed
             or identity.sampling.temperature != self.sampling_temperature
             or identity.sampling.requested_output_tokens != self.requested_output_tokens

@@ -49,7 +49,7 @@
       return "Run the server-owned exact-tool selection policy over " + binding.minimum_samples + " approved support-tool cases; require " + criterion.rule + " " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " using " + binding.confidence_method + ".";
     }
     if (criterion.planning_disposition === "EVIDENCE_IMPORT" && binding) {
-      return "Import one managed TTFT evidence result for " + binding.native_metric + "; require p95 " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " over " + binding.attempts + " attempts at configured concurrency " + binding.configured_concurrency + ", reduced with " + binding.reducer_id + ".";
+      return "Import one managed TTFT evidence result for " + binding.native_metric + "; require p95 " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " over " + binding.attempts + " attempts, with " + binding.minimum_successful_samples + " required successful TTFT samples, at configured concurrency " + binding.configured_concurrency + ", reduced with " + binding.reducer_id + ".";
     }
     return "No executable proof is scheduled in A5. This " + criterion.planning_disposition.toLowerCase() + " item remains customer-bound: " + (criterion.planning_reason || "the A4 limitation is preserved.");
   }
