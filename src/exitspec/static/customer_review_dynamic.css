@@ -14,6 +14,12 @@
 .review-criterion p { margin: 6px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
 .review-criterion small { display: block; margin-top: 7px; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .review-limitations { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 13px; }
+.review-proof { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 13px; }
+.review-proof h3 { margin: 0 0 7px; font-size: 12px; }
+.review-proof p { margin: 4px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+.review-technical { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 11px; color: var(--muted); font-size: 11px; }
+.review-technical summary { cursor: pointer; color: var(--text-secondary); }
+.review-technical pre { max-height: 180px; overflow: auto; margin: 9px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .review-limitations h3 { margin: 0 0 7px; font-size: 12px; }
 .review-limitations p { margin: 4px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
 .customer-decision-form { display: grid; gap: 11px; margin-top: 17px; border-top: 1px solid var(--border); padding-top: 15px; }

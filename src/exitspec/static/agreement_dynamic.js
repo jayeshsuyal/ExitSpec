@@ -43,6 +43,24 @@
   function setError(message) { errorPanel.textContent = message; errorPanel.hidden = !message; }
   function setStatus(value) { status.textContent = value; status.dataset.state = value; }
   function text(value) { return value == null ? "" : String(value); }
+  function proofText(criterion) {
+    const binding = criterion.evidence_binding?.policy;
+    if (criterion.planning_disposition === "EXECUTABLE" && binding) {
+      return "Run the server-owned exact-tool selection policy over " + binding.minimum_samples + " approved support-tool cases; require " + criterion.rule + " " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " using " + binding.confidence_method + ".";
+    }
+    if (criterion.planning_disposition === "EVIDENCE_IMPORT" && binding) {
+      return "Import one managed TTFT evidence result for " + binding.native_metric + "; require p95 " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " over " + binding.attempts + " attempts at configured concurrency " + binding.configured_concurrency + ", reduced with " + binding.reducer_id + ".";
+    }
+    return "No executable proof is scheduled in A5. This " + criterion.planning_disposition.toLowerCase() + " item remains customer-bound: " + (criterion.planning_reason || "the A4 limitation is preserved.");
+  }
+  function renderProof(agreement) {
+    const target = document.querySelector("#agreement-proof"); target.textContent = "";
+    (agreement.criteria || []).forEach((criterion) => {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = proofText(criterion);
+      target.appendChild(paragraph);
+    });
+  }
 
   function currentState(data) {
     if (data.frozen_contract) return "FROZEN";
@@ -84,6 +102,7 @@
     document.querySelector("#agreement-version").textContent = `Version ${data.draft.contract_version}`;
     const criteria = document.querySelector("#agreement-criteria"); criteria.textContent = "";
     (agreement.criteria || []).forEach((criterion) => criteria.appendChild(renderCriterion(criterion)));
+    renderProof(agreement);
     const limitations = document.querySelector("#agreement-limitations"); limitations.textContent = "";
     (agreement.non_goals || []).forEach((value) => { const paragraph = document.createElement("p"); paragraph.textContent = value; limitations.appendChild(paragraph); });
     const technical = {
@@ -92,7 +111,7 @@
       contract_fingerprint: data.draft.contract_fingerprint,
       draft_sha256: data.draft.draft_sha256,
       plan: data.plan,
-      criteria: (agreement.criteria || []).map((criterion) => ({id: criterion.id, proposal_id: criterion.proposal_id, planning_item_id: criterion.planning_item_id, a4_plan_id: criterion.a4_plan_id, a4_plan_version: criterion.a4_plan_version, a4_plan_sha256: criterion.a4_plan_sha256, source_id: criterion.source_id, source_content_sha256: criterion.source_content_sha256, adapter: criterion.adapter, adapter_version: criterion.adapter_version, evidence_profile: criterion.evidence_profile, workload_policy_id: criterion.workload_policy_id, workload_policy_sha256: criterion.workload_policy_sha256}))
+      criteria: (agreement.criteria || []).map((criterion) => ({id: criterion.id, proposal_id: criterion.proposal_id, planning_item_id: criterion.planning_item_id, a4_plan_id: criterion.a4_plan_id, a4_plan_version: criterion.a4_plan_version, a4_plan_sha256: criterion.a4_plan_sha256, source_id: criterion.source_id, source_content_sha256: criterion.source_content_sha256, adapter: criterion.adapter, adapter_version: criterion.adapter_version, evidence_profile: criterion.evidence_profile, evidence_binding: criterion.evidence_binding}))
     };
     document.querySelector("#agreement-technical").textContent = JSON.stringify(technical, null, 2);
     reviewLink.hidden = true; freezeButton.hidden = true; revisePlan.hidden = true; revisionForm.hidden = true;

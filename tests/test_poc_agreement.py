@@ -5,19 +5,24 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import threading
+import warnings
 
 import pytest
 
 from exitspec.assisted_authoring import RetainedProposalProjection
-from exitspec.models import CapabilityCriterion, POCContract
+from exitspec.models import (
+    CapabilityCriterion,
+    POCContract,
+    capability_evidence_policy_digest,
+)
 from exitspec.confirmations import contract_confirmation_fingerprint
 from exitspec.poc_agreement import (
-    A5_EXECUTION_POLICY_ID,
     AgreementConflict,
     AgreementStale,
     ProcessLocalAgreementLifecycleService,
 )
 from exitspec.poc_capability_planner import (
+    CapabilityPlanningInvalid,
     PlannerCriterionInput,
     PlannerItemInput,
     PlanningProvenance,
@@ -98,6 +103,28 @@ def _plan_item(proposal_id: str, *, threshold: float = 0.95) -> PlannerItemInput
     )
 
 
+def _ttft_plan_item(proposal_id: str, *, threshold: float = 250.0) -> PlannerItemInput:
+    return PlannerItemInput(
+        proposal_id=proposal_id,
+        scope=PlanningScope.MUST_HAVE,
+        capability_key="inference_performance_external",
+        criterion=PlannerCriterionInput(
+            rule="ttft_p95",
+            operator="LT",
+            threshold=threshold,
+            unit="MILLISECONDS",
+            measurement_population="successful_measured_requests_with_observed_ttft",
+            evidence_method="EXTERNAL_EVIDENCE_BUNDLE",
+            adapter="vllm_bench_serve",
+            adapter_version="1.0.0",
+            evidence_profile="inferdrome.managed-vllm-0.26-evidence-profile.v1",
+            provenance=PlanningProvenance.SOURCE_EXTRACTED,
+        ),
+        reviewer="named.a4.reviewer",
+        rationale="The managed TTFT evidence profile is ready.",
+    )
+
+
 def _fixture(poc_id: str = "poc_a5_test"):
     proposal = _proposal(poc_id, "prop_a5_test_001")
     state = {"retained": (proposal,)}
@@ -142,7 +169,31 @@ def test_a5_uses_generic_criterion_and_preserves_exact_a4_without_sample_default
     assert criterion.planner_reviewer == "named.a4.reviewer"
     assert criterion.assembly_reviewer == "named.a5.reviewer"
     assert criterion.assembly_rationale == "Assemble the exact current A4 plan."
-    assert criterion.workload_policy_id == A5_EXECUTION_POLICY_ID
+    assert criterion.evidence_binding is not None
+    assert criterion.evidence_binding.binding_type == "EXECUTABLE"
+    assert criterion.evidence_binding.policy.workload_path == (
+        "examples/support-agent/fixtures/tool-selection-200.json"
+    )
+    assert criterion.evidence_binding.policy.workload_sha256 == (
+        "75ef6f83450de100a920e9489a0b5966464f1dba2e3d339c4b57e64fb95d8271"
+    )
+    assert criterion.evidence_binding.policy.minimum_samples == 200
+    assert criterion.evidence_binding.policy.confidence_level == 0.95
+    assert criterion.evidence_binding.policy.evidence_method == "EXIT_SPEC_STREAMING_PROBE"
+    assert criterion.evidence_binding.policy.calculator_id == (
+        "exitspec.statistics.wilson_lower_bound"
+    )
+    assert criterion.evidence_binding.policy.calculator_version == "wilson-two-sided-v1"
+    assert criterion.evidence_binding.policy.adapter == "deterministic_tool_selection"
+    assert criterion.evidence_binding.policy.verifier_id == (
+        "exitspec.verdicts.evaluate_proportion_criterion"
+    )
+    assert criterion.evidence_binding.policy.reducer_id == (
+        "exitspec.verdicts.aggregate_overall_verdict"
+    )
+    assert criterion.evidence_binding.policy_sha256 == capability_evidence_policy_digest(
+        criterion.evidence_binding.policy
+    )
     assert preparation.contract.workload.fixture_path.startswith("policy://")
     assert "generated/" not in preparation.contract.workload.fixture_path
 
@@ -301,6 +352,283 @@ def test_frozen_handoff_structurally_preserves_non_executable_a4_records():
     assert excluded_criterion.planning_reason
     assert excluded_criterion.planning_next_action
     assert excluded_criterion.planner_reviewer == "named.a4.reviewer"
+    assert excluded_criterion.evidence_binding is None
+    assert next(
+        record for record in criteria if record.proposal_id == supported.proposal_id
+    ).evidence_binding is not None
+
+
+def test_a5_managed_ttft_binding_is_complete_and_run_independent():
+    poc_id = "poc_a5_ttft"
+    proposal = _proposal(poc_id, "prop_a5_ttft_001")
+    retained = (proposal,)
+    planner = ProcessLocalCapabilityPlannerService(
+        proposal_lookup=lambda _: retained, clock=lambda: NOW
+    )
+    planner.plan(
+        poc_id,
+        (_ttft_plan_item(proposal.proposal_id, threshold=375.0),),
+        idempotency_key="ttft-a4",
+    )
+    service = ProcessLocalAgreementLifecycleService(
+        poc_lookup=lambda _: _poc(poc_id),
+        retained_lookup=lambda _: retained,
+        planner=planner,
+        clock=lambda: NOW,
+    )
+    contract = service.prepare(
+        poc_id,
+        reviewer="named.a5.reviewer",
+        rationale="Bind the managed evidence policy.",
+        idempotency_key="ttft-a5",
+    ).value.contract
+    criterion = contract.criteria[0]
+    assert isinstance(criterion, CapabilityCriterion)
+    assert criterion.planning_disposition == "EVIDENCE_IMPORT"
+    binding = criterion.evidence_binding
+    assert binding is not None
+    assert binding.binding_type == "EVIDENCE_IMPORT"
+    policy = binding.policy
+    assert policy.workload_id == "inferdrome.qwen2.5-real-gpu-workload.v1"
+    assert policy.workload_digest == (
+        "sha256:22bf3389cc29ee946ae567870d7f8d7b458594224542a796e8990c15b1cfcd63"
+    )
+    assert policy.profile_id == "inferdrome.managed-vllm-0.26-evidence-profile.v1"
+    assert policy.profile_digest == (
+        "sha256:9d03b5d0822ed829ddbfa4c87c75530885b9ad51ee2c0cb7c5e31a075996fe34"
+    )
+    assert policy.native_metric == "vllm_first_choices_event_v0_26"
+    assert policy.identity.target_engine == "vllm"
+    assert policy.identity.target_engine_version == "0.26.0"
+    assert policy.identity.target_api == "openai_chat_completions"
+    assert policy.identity.target_model == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert policy.identity.target_model_revision == (
+        "7ae557604adf67be50417f59c2c2f167def9a775"
+    )
+    assert policy.identity.target_tokenizer_revision == (
+        "7ae557604adf67be50417f59c2c2f167def9a775"
+    )
+    assert policy.identity.include_request_plan is True
+    assert policy.identity.expected_execution_fingerprint == (
+        "sha256:76d984ea57a0e7cb00520255a6e362f22885d713a875195a7397771937060edd"
+    )
+    assert policy.identity.target_endpoint == "http://127.0.0.1:18080/"
+    assert policy.identity.native_schema_fingerprint == (
+        "sha256:3a4fdee6fe9b45ce5b42c41fd3bfc6614245a36ecfe6f94de92b59717a136abb"
+    )
+    assert policy.identity.local_gpu_proof_schema_id == "urn:inferdrome:local-gpu-proof:v1"
+    assert policy.identity.measurement_streaming is True
+    assert policy.identity.max_runtime_seconds == 900
+    assert policy.identity.reliability_population.exact_attempts == 100
+    assert (policy.configured_concurrency, policy.warmup_requests, policy.attempts) == (
+        4,
+        10,
+        100,
+    )
+    assert (policy.sampling_seed, policy.sampling_temperature, policy.requested_output_tokens) == (
+        42,
+        0,
+        32,
+    )
+    assert policy.reducer_id == "nearest_rank_v1"
+    assert policy.evidence_method == "EXTERNAL_EVIDENCE_BUNDLE"
+    assert policy.measurement_population == (
+        "successful_measured_requests_with_observed_ttft"
+    )
+    assert policy.aggregation_policy == "independent_single_run_no_pooling"
+    assert policy.adapter == "vllm_bench_serve"
+    assert policy.bundle_verifier_id == (
+        "exitspec.inferdrome_bundle.verify_inferdrome_bundle"
+    )
+    assert policy.bundle_verifier_version == "1.0.0"
+    assert policy.invocation_profile_validator_id == (
+        "exitspec.inferdrome_managed_profile.validate_managed_invocation_profile"
+    )
+    assert policy.local_gpu_proof_validator_id == (
+        "exitspec.inferdrome_managed_profile.validate_managed_local_gpu_proof"
+    )
+    assert policy.recalculation_id == "exitspec.inferdrome-recalculation.v1"
+    assert policy.importer_calculation_id == (
+        "exitspec.inferdrome-managed-importer.v1"
+    )
+    assert binding.policy_sha256 == capability_evidence_policy_digest(policy)
+    serialized = policy.model_dump(mode="json")
+    assert not any(
+        forbidden in serialized
+        for forbidden in (
+            "request_plan",
+            "bundle",
+            "run_id",
+            "observed",
+            "receipt",
+        )
+    )
+
+
+def test_a5_rejects_forged_or_incomplete_evidence_bindings_before_publication():
+    service, _, _, _ = _fixture()
+    contract = service.prepare(
+        "poc_a5_test",
+        reviewer="a5",
+        rationale="Assemble.",
+        idempotency_key="binding-validation",
+    ).value.contract
+    criterion = contract.criteria[0]
+
+    def validate_with_criterion(updated):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            payload = contract.model_dump(mode="python")
+            payload["criteria"] = (updated.model_dump(mode="python"),)
+            return POCContract.model_validate(payload)
+
+    forged_digest = criterion.evidence_binding.model_copy(
+        update={"policy_sha256": "0" * 64}
+    )
+    with pytest.raises(ValueError, match="policy digest"):
+        validate_with_criterion(criterion.model_copy(update={"evidence_binding": forged_digest}))
+
+    forged_workload = criterion.evidence_binding.policy.model_copy(
+        update={"workload_sha256": "0" * 64}
+    )
+    with pytest.raises(ValueError):
+        validate_with_criterion(
+            criterion.model_copy(
+                update={
+                    "evidence_binding": criterion.evidence_binding.model_copy(
+                        update={"policy": forged_workload}
+                    )
+                }
+            )
+        )
+
+    ttft_poc_id = "poc_a5_ttft_forged"
+    ttft_proposal = _proposal(ttft_poc_id, "prop_a5_ttft_002")
+    ttft_retained = (ttft_proposal,)
+    ttft_planner = ProcessLocalCapabilityPlannerService(
+        proposal_lookup=lambda _: ttft_retained, clock=lambda: NOW
+    )
+    ttft_planner.plan(
+        ttft_poc_id,
+        (_ttft_plan_item(ttft_proposal.proposal_id),),
+        idempotency_key="ttft-forged-a4",
+    )
+    ttft_service = ProcessLocalAgreementLifecycleService(
+        poc_lookup=lambda _: _poc(ttft_poc_id),
+        retained_lookup=lambda _: ttft_retained,
+        planner=ttft_planner,
+        clock=lambda: NOW,
+    )
+    ttft_contract = ttft_service.prepare(
+        ttft_poc_id,
+        reviewer="a5",
+        rationale="Assemble TTFT.",
+        idempotency_key="ttft-forged-a5",
+    ).value.contract
+    ttft_criterion = ttft_contract.criteria[0]
+    ttft_binding = ttft_criterion.evidence_binding
+    assert ttft_binding is not None
+
+    def validate_ttft_with_policy(policy):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            payload = ttft_contract.model_dump(mode="python")
+            payload["criteria"] = (
+                ttft_criterion.model_copy(
+                    update={
+                        "evidence_binding": ttft_binding.model_copy(
+                            update={"policy": policy}
+                        )
+                    }
+                ).model_dump(mode="python"),
+            )
+            return POCContract.model_validate(payload)
+
+    with pytest.raises(ValueError):
+        validate_ttft_with_policy(ttft_binding.policy.model_copy(update={"profile_id": "forged-profile"}))
+    with pytest.raises(ValueError):
+        validate_ttft_with_policy(ttft_binding.policy.model_copy(update={"workload_id": "forged-workload"}))
+    with pytest.raises(ValueError):
+        validate_ttft_with_policy(
+            ttft_binding.policy.model_copy(
+                update={
+                    "identity": ttft_binding.policy.identity.model_copy(
+                        update={"target_model": "forged-model"}
+                    )
+                }
+            )
+        )
+    with pytest.raises(ValueError):
+        validate_ttft_with_policy(
+            ttft_binding.policy.model_copy(
+                update={
+                    "identity": ttft_binding.policy.identity.model_copy(
+                        update={"target_endpoint": "http://evil.test/"}
+                    )
+                }
+            )
+        )
+
+    incomplete = criterion.model_dump(mode="python")
+    incomplete.pop("evidence_binding")
+    with pytest.raises(ValueError, match="incomplete or excluded"):
+        CapabilityCriterion.model_validate(incomplete)
+
+    invalid_operator = _plan_item("prop_a5_test_001")
+    invalid_operator = invalid_operator.model_copy(
+        update={
+            "criterion": invalid_operator.criterion.model_copy(update={"operator": "GT"})
+        }
+    )
+    with pytest.raises(CapabilityPlanningInvalid, match="server-owned capability policy"):
+        ProcessLocalCapabilityPlannerService(
+            proposal_lookup=lambda _: (_proposal("poc_a5_test", "prop_a5_test_001"),),
+            clock=lambda: NOW,
+        ).plan(
+            "poc_a5_test",
+            (invalid_operator,),
+            idempotency_key="invalid-operator",
+        )
+
+
+def test_binding_material_mutations_change_confirmation_fingerprint_and_contract_hash():
+    service, _, _, _ = _fixture()
+    contract = service.prepare(
+        "poc_a5_test",
+        reviewer="a5",
+        rationale="Assemble.",
+        idempotency_key="binding-mutation",
+    ).value.contract
+    criterion = contract.criteria[0]
+    binding = criterion.evidence_binding
+    assert binding is not None
+    baseline_fingerprint = contract_confirmation_fingerprint(contract)
+    from exitspec.contracts import contract_digest
+
+    baseline_hash = contract_digest(contract)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for field_name in type(binding.policy).model_fields:
+            value = getattr(binding.policy, field_name)
+            if isinstance(value, str):
+                changed = value + "-changed"
+            elif isinstance(value, int):
+                changed = value + 1
+            elif isinstance(value, float):
+                changed = value + 0.01
+            else:
+                continue
+            changed_policy = binding.policy.model_copy(update={field_name: changed})
+            changed_binding = binding.model_copy(update={"policy": changed_policy})
+            changed_criterion = criterion.model_copy(update={"evidence_binding": changed_binding})
+            changed_contract = contract.model_copy(update={"criteria": (changed_criterion,)})
+            assert contract_confirmation_fingerprint(changed_contract) != baseline_fingerprint
+            assert contract_digest(changed_contract) != baseline_hash
+        changed_binding = binding.model_copy(update={"policy_sha256": "0" * 64})
+        changed_contract = contract.model_copy(
+            update={"criteria": (criterion.model_copy(update={"evidence_binding": changed_binding}),)}
+        )
+        assert contract_confirmation_fingerprint(changed_contract) != baseline_fingerprint
 
 
 def test_every_customer_visible_material_category_changes_confirmation_fingerprint():

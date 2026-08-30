@@ -30,12 +30,17 @@ from .confirmations import (
 )
 from .contracts import contract_digest, freeze_confirmed_contract, transition_contract
 from .models import (
+    CapabilityEvidenceBinding,
     CapabilityCriterion,
+    ExactToolSelectionEvidencePolicy,
+    ManagedTTFTEvidenceIdentityV1,
+    ManagedTTFTEvidencePolicy,
     ContractStatus,
     POCContract,
     SourceReference,
     TargetSystem,
     WorkloadReference,
+    capability_evidence_policy_digest,
 )
 from .assisted_authoring import RetainedProposalProjection
 from .poc_capability_planner import (
@@ -274,6 +279,180 @@ def _safe_contract_text(value: str) -> str:
     return value[:2_000]
 
 
+def _evidence_binding(
+    record: PlanningRecord,
+    criterion: Any,
+) -> CapabilityEvidenceBinding | None:
+    """Build the linear, server-owned handoff for one supported A4 record."""
+
+    if record.disposition is PlanningDisposition.EXECUTABLE:
+        policy = ExactToolSelectionEvidencePolicy(
+            policy_id="support-tool-selection-v1",
+            capability_key="exact_tool_selection",
+            rule=criterion.rule,
+            operator=criterion.operator,
+            threshold=criterion.threshold,
+            unit=criterion.unit,
+            measurement_population=criterion.measurement_population,
+            evidence_method=criterion.evidence_method,
+            workload_path="examples/support-agent/fixtures/tool-selection-200.json",
+            workload_sha256=(
+                "75ef6f83450de100a920e9489a0b5966464f1dba2e3d339c4b57e64fb95d8271"
+            ),
+            workload_slice="support-tool-selection-v1",
+            minimum_samples=200,
+            confidence_level=0.95,
+            confidence_method="wilson_two_sided_lower_bound",
+            calculator_id="exitspec.statistics.wilson_lower_bound",
+            calculator_version="wilson-two-sided-v1",
+            adapter=criterion.adapter,
+            adapter_version=criterion.adapter_version,
+            verifier_id="exitspec.verdicts.evaluate_proportion_criterion",
+            reducer_id="exitspec.verdicts.aggregate_overall_verdict",
+        )
+    elif record.disposition is PlanningDisposition.EVIDENCE_IMPORT:
+        policy = ManagedTTFTEvidencePolicy(
+            policy_id="inferdrome.managed-vllm-0.26-evidence-profile.v1",
+            capability_key="inference_performance_external",
+            rule=criterion.rule,
+            operator=criterion.operator,
+            threshold=criterion.threshold,
+            unit=criterion.unit,
+            measurement_population=criterion.measurement_population,
+            evidence_method=criterion.evidence_method,
+            workload_id="inferdrome.qwen2.5-real-gpu-workload.v1",
+            workload_digest=(
+                "sha256:22bf3389cc29ee946ae567870d7f8d7b458594224542a796e8990c15b1cfcd63"
+            ),
+            profile_id="inferdrome.managed-vllm-0.26-evidence-profile.v1",
+            profile_digest=(
+                "sha256:9d03b5d0822ed829ddbfa4c87c75530885b9ad51ee2c0cb7c5e31a075996fe34"
+            ),
+            native_metric="vllm_first_choices_event_v0_26",
+            configured_concurrency=4,
+            warmup_requests=10,
+            attempts=100,
+            sampling_seed=42,
+            sampling_temperature=0,
+            requested_output_tokens=32,
+            reducer_id="nearest_rank_v1",
+            reducer_version="1.0.0",
+            aggregation_policy="independent_single_run_no_pooling",
+            adapter=criterion.adapter,
+            adapter_version=criterion.adapter_version,
+            bundle_verifier_id="exitspec.inferdrome_bundle.verify_inferdrome_bundle",
+            bundle_verifier_version="1.0.0",
+            invocation_profile_validator_id=(
+                "exitspec.inferdrome_managed_profile.validate_managed_invocation_profile"
+            ),
+            local_gpu_proof_validator_id=(
+                "exitspec.inferdrome_managed_profile.validate_managed_local_gpu_proof"
+            ),
+            recalculation_id="exitspec.inferdrome-recalculation.v1",
+            importer_calculation_id="exitspec.inferdrome-managed-importer.v1",
+            identity=ManagedTTFTEvidenceIdentityV1(
+                evidence_schema_version="inferdrome.evidence.v1",
+                sequence_requirement="OPERATOR_MUST_FREEZE_BEFORE_MEASUREMENT",
+                chronology_assurance="UNAVAILABLE",
+                producer_name="vllm",
+                producer_version="0.26.0",
+                adapter_id=criterion.adapter,
+                adapter_version=criterion.adapter_version,
+                native_schema_fingerprint=(
+                    "sha256:3a4fdee6fe9b45ce5b42c41fd3bfc6614245a36ecfe6f94de92b59717a136abb"
+                ),
+                managed_profile_id="inferdrome.managed-vllm-0.26-evidence-profile.v1",
+                managed_profile_sha256=(
+                    "sha256:9d03b5d0822ed829ddbfa4c87c75530885b9ad51ee2c0cb7c5e31a075996fe34"
+                ),
+                local_gpu_proof_schema_id="urn:inferdrome:local-gpu-proof:v1",
+                local_gpu_proof_schema_sha256=(
+                    "sha256:cf83bbdea2bba4c30b8f0e2c5f34f34a4077501207881fdbdab021571d665547"
+                ),
+                target_engine="vllm",
+                target_engine_version="0.26.0",
+                target_api="openai_chat_completions",
+                target_model="Qwen/Qwen2.5-0.5B-Instruct",
+                target_model_revision=(
+                    "7ae557604adf67be50417f59c2c2f167def9a775"
+                ),
+                target_tokenizer_revision=(
+                    "7ae557604adf67be50417f59c2c2f167def9a775"
+                ),
+                target_endpoint="http://127.0.0.1:18080/",
+                workload_id="inferdrome.qwen2.5-real-gpu-workload.v1",
+                workload_digest=(
+                    "sha256:22bf3389cc29ee946ae567870d7f8d7b458594224542a796e8990c15b1cfcd63"
+                ),
+                source_schema_version="inferdrome.source-experiment.v1",
+                traffic={
+                    "schema_version": "exitspec.inferdrome-traffic.v1",
+                    "policy_id": "inferdrome.concurrent.vllm.v1",
+                    "kind": "concurrent",
+                    "configured_concurrency": 4,
+                    "warmup_requests": 10,
+                    "measured_requests": 100,
+                },
+                sampling={
+                    "schema_version": "exitspec.inferdrome-sampling.v1",
+                    "policy_id": "inferdrome.qwen2.5-deterministic.v1",
+                    "prompt_content_policy": "include",
+                    "requested_output_tokens": 32,
+                    "temperature": 0,
+                    "seed": 42,
+                },
+                execution_mode="attached_endpoint",
+                max_runtime_seconds=900,
+                max_measured_requests=100,
+                measurement_streaming=True,
+                produced_evidence_metric_definition_id="vllm_first_choices_event_v0_26",
+                choices_span_definition_id="last_choices_event_span_v1",
+                metric_definitions_version="1.0.0",
+                reducer_version="1.0.0",
+                native_output_sensitivity="RESPONSE_CONTENT",
+                canonical_response_content="omit",
+                include_request_plan=True,
+                expected_execution_fingerprint=(
+                    "sha256:76d984ea57a0e7cb00520255a6e362f22885d713a875195a7397771937060edd"
+                ),
+                requested_criterion_metric_definition_id="vllm_first_choices_event_v0_26",
+                run_aggregation_policy="independent_single_run_no_pooling",
+                reducer_id="nearest_rank_v1",
+                latency_population=(
+                    "successful_measured_requests_with_observed_ttft"
+                ),
+                reliability_population={
+                    "schema_version": "exitspec.inferdrome-reliability-population.v1",
+                    "population_id": "exitspec.inferdrome-reliability.v1",
+                    "operator": "lt",
+                    "threshold_basis_points": 100,
+                    "numerator": "failed_or_anomalous_native_measured_requests",
+                    "denominator": "all_measured_requests",
+                    "exact_attempts": 100,
+                },
+                claims_assurance="INTERNAL_CONSISTENCY_ONLY",
+                canonicalization={
+                    "canonicalization_scheme_id": "rfc8785_jcs_v1",
+                    "canonical_bytes_encoding": "utf-8_rfc8785_jcs",
+                    "hash_algorithm_id": "sha256_v1",
+                    "hash_encoding_id": "lowercase_hex_without_prefix",
+                    "link_derivation_policy_id": (
+                        "exitspec.producer_link.sha256_canonical_hash.v1"
+                    ),
+                    "link_derivation_input": "bare_canonical_hash",
+                    "link_derivation_operation": "prefix_sha256_no_second_hash",
+                },
+            ),
+        )
+    else:
+        return None
+    return CapabilityEvidenceBinding(
+        binding_type=record.disposition.value,
+        policy=policy,
+        policy_sha256=capability_evidence_policy_digest(policy),
+    )
+
+
 def _build_criterion(
     record: PlanningRecord,
     poc: DraftPOCSnapshot,
@@ -336,8 +515,7 @@ def _build_criterion(
         "adapter": None if criterion is None else criterion.adapter,
         "adapter_version": None if criterion is None else criterion.adapter_version,
         "evidence_profile": None if criterion is None else criterion.evidence_profile,
-        "workload_policy_id": A5_EXECUTION_POLICY_ID if supported else None,
-        "workload_policy_sha256": A5_EXECUTION_POLICY_SHA256 if supported else None,
+        "evidence_binding": _evidence_binding(record, criterion) if supported else None,
         "execution_available": False,
         "owner": poc.owner,
         "evidence_policy": (None if criterion is None else

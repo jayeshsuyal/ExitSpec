@@ -114,10 +114,14 @@ def test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey():
             page.locator("#prepare-agreement").click()
             page.locator("#agreement-summary").wait_for(state="visible")
             assert page.locator("#agreement-version").inner_text().casefold() == "version 1"
+            assert page.locator(".proof-summary h3").inner_text() == "How this will be proven"
+            assert "200 approved support-tool cases" in page.locator("#agreement-proof").inner_text()
             old_review_url = page.locator("#open-customer-review").get_attribute("href")
             page.locator("#open-customer-review").click()
             page.wait_for_url(re.compile(r"/review/[A-Za-z0-9_-]+$"))
             old_token_url = page.url
+            assert page.locator(".review-proof h3").inner_text() == "How this will be proven"
+            assert "200 approved support-tool cases" in page.locator("#review-proof").inner_text()
             page.locator("#agreement-checkbox").check()
             page.locator("#review-rationale").fill("Please change the measurable threshold.")
             page.locator("#request-changes").click()
@@ -132,7 +136,19 @@ def test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey():
             page.locator("#revision-reviewer").fill("named.a5.successor")
             page.locator("#revision-rationale").fill("Approve the changed successor agreement.")
             page.locator("#start-revision").click()
-            page.locator("#agreement-version").wait_for(state="visible")
+            revision_state = page.wait_for_function(
+                """() => {
+                    const error = document.querySelector('#agreement-error');
+                    if (error && !error.hidden) {
+                        return `error: ${error.textContent || 'unknown agreement error'}`;
+                    }
+                    const version = document.querySelector('#agreement-version');
+                    return version?.textContent?.trim() === 'Version 2'
+                        ? 'version-2'
+                        : false;
+                }"""
+            )
+            assert revision_state.json_value() == "version-2", revision_state
             assert page.locator("#agreement-version").inner_text().casefold() == "version 2"
             assert page.locator("#agreement-status").inner_text() == "PENDING"
             new_review_url = page.locator("#open-customer-review").get_attribute("href")

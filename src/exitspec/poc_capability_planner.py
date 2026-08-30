@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from enum import StrEnum
 import hashlib
 import hmac
-import json
 import math
 import re
 from threading import RLock
@@ -265,7 +264,7 @@ def default_capability_registry() -> tuple[CapabilityRegistryEntry, ...]:
             label="Exact tool selection",
             supported_disposition=PlanningDisposition.EXECUTABLE,
             rule="exact_tool_selection_rate",
-            allowed_operators=("GTE", "GT"),
+            allowed_operators=("GTE",),
             unit="PROPORTION",
             measurement_population="approved_synthetic_cases",
             evidence_method="EXIT_SPEC_STREAMING_PROBE",
@@ -277,9 +276,9 @@ def default_capability_registry() -> tuple[CapabilityRegistryEntry, ...]:
             label="External inference performance profile",
             supported_disposition=PlanningDisposition.EVIDENCE_IMPORT,
             rule="ttft_p95",
-            allowed_operators=("LT", "LTE"),
+            allowed_operators=("LT",),
             unit="MILLISECONDS",
-            measurement_population="successful_measured_attempts_with_valid_ttft",
+            measurement_population="successful_measured_requests_with_observed_ttft",
             evidence_method="EXTERNAL_EVIDENCE_BUNDLE",
             adapter="vllm_bench_serve",
             adapter_version="1.0.0",

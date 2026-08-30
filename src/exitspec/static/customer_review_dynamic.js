@@ -39,6 +39,16 @@
     addText(item, "small", "", `${criterion.planning_scope} · ${criterion.planning_disposition} · ${criterion.proposal_id}`);
     return item;
   }
+  function proofText(criterion) {
+    const binding = criterion.evidence_binding?.policy;
+    if (criterion.planning_disposition === "EXECUTABLE" && binding) {
+      return "Run the server-owned exact-tool selection policy over " + binding.minimum_samples + " approved support-tool cases; require " + criterion.rule + " " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " using " + binding.confidence_method + ".";
+    }
+    if (criterion.planning_disposition === "EVIDENCE_IMPORT" && binding) {
+      return "Import one managed TTFT evidence result for " + binding.native_metric + "; require p95 " + criterion.operator + " " + criterion.threshold + " " + criterion.unit + " over " + binding.attempts + " attempts at configured concurrency " + binding.configured_concurrency + ", reduced with " + binding.reducer_id + ".";
+    }
+    return "No executable proof is scheduled in A5. This " + criterion.planning_disposition.toLowerCase() + " item remains customer-bound: " + (criterion.planning_reason || "the A4 limitation is preserved.");
+  }
   function render(data) {
     review = data.review;
     const agreement = review.agreement;
@@ -47,8 +57,17 @@
     document.querySelector("#review-fingerprint").textContent = `Fingerprint ${review.confirmation_fingerprint}`;
     const criteria = document.querySelector("#review-criteria"); criteria.textContent = "";
     (agreement.criteria || []).forEach((criterion) => criteria.appendChild(renderCriterion(criterion)));
+    const proof = document.querySelector("#review-proof"); proof.textContent = "";
+    (agreement.criteria || []).forEach((criterion) => addText(proof, "p", "", proofText(criterion)));
     const limitations = document.querySelector("#review-limitations"); limitations.textContent = "";
     (review.non_goals || []).forEach((value) => addText(limitations, "p", "", value));
+    const technical = {
+      contract_id: review.contract_id,
+      contract_version: review.contract_version,
+      confirmation_fingerprint: review.confirmation_fingerprint,
+      criteria: (agreement.criteria || []).map((criterion) => ({id: criterion.id, proposal_id: criterion.proposal_id, planning_item_id: criterion.planning_item_id, a4_plan_id: criterion.a4_plan_id, a4_plan_version: criterion.a4_plan_version, a4_plan_sha256: criterion.a4_plan_sha256, source_id: criterion.source_id, source_content_sha256: criterion.source_content_sha256, adapter: criterion.adapter, adapter_version: criterion.adapter_version, evidence_profile: criterion.evidence_profile, evidence_binding: criterion.evidence_binding}))
+    };
+    document.querySelector("#review-technical").textContent = JSON.stringify(technical, null, 2);
     const done = review.status !== "PENDING";
     form.hidden = done;
     result.hidden = !done;
