@@ -12,6 +12,10 @@ privacy requirements; B10 freezes per-assignment SLO and subject-specific
 confidence semantics. Neither adds router execution, evidence ingestion, or
 verdict behavior.
 
+B10 cancellation semantics are fixed before measurement: a cancelled
+assignment is `NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR`, with assignment
+disposition `NOT_PROVEN`, aligned to `InvalidEvidencePolicyV1`.
+
 ## Adapter interface
 
 Each adapter exposes a name, version, validation phase, execution phase, structured result, and artifact list.

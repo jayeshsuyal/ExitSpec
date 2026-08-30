@@ -1,6 +1,6 @@
 {
   "approved_at": "2026-07-22T16:10:00Z",
-  "canonical_hash": "0c2158f64312d95a205a6f9c4409cabef12b86ee2a47357164a2f5982c04ad71",
+  "canonical_hash": "097a49c40646e8a58c31a375160cc0e453ed88dfa5e30cd78120f9d89a460f07",
   "confirmation_id": null,
   "created_at": "2026-07-22T16:00:00Z",
   "criteria": [
@@ -177,7 +177,7 @@
       "candidate_policy_id": "candidate-policy-v1",
       "candidate_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "criterion_type": "routing_slo_attainment_v1",
-      "evidence_policy": "Future evidence must derive each assignment outcome from the required monotonic terminal-latency predicate. External errors and timeouts count as not attained; missing, invalid, or internal evidence is NOT_PROVEN. Candidate is the QUALIFICATION_GATE; baseline is the REFERENCE_CONTROL with contextual results. Each policy uses its own B9 subject population. B10 emits no verdict.",
+      "evidence_policy": "Future evidence must derive each assignment outcome from the required monotonic terminal-latency predicate. External errors and timeouts count as not attained; missing, invalid, or internal evidence is NOT_PROVEN. Cancellation is NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR. Candidate is the QUALIFICATION_GATE; baseline is the REFERENCE_CONTROL with contextual results. Each policy uses its own B9 subject population. B10 emits no verdict.",
       "human_added": true,
       "id": "routing_slo_attainment_v1",
       "must_have": true,
@@ -220,6 +220,8 @@
           "missing_evidence_disposition": "NOT_PROVEN",
           "invalid_evidence_disposition": "NOT_PROVEN",
           "internal_evidence_disposition": "NOT_PROVEN",
+          "cancellation_treatment": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+          "cancellation_disposition": "NOT_PROVEN",
           "producer_outcome_authority": "FORBIDDEN_EXIT_SPEC_ONLY"
         },
         {
@@ -258,6 +260,8 @@
           "missing_evidence_disposition": "NOT_PROVEN",
           "invalid_evidence_disposition": "NOT_PROVEN",
           "internal_evidence_disposition": "NOT_PROVEN",
+          "cancellation_treatment": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+          "cancellation_disposition": "NOT_PROVEN",
           "producer_outcome_authority": "FORBIDDEN_EXIT_SPEC_ONLY"
         }
       ],

@@ -27,7 +27,7 @@ The B10 golden contract is the portable synthetic fixture at
 Its exact outer canonical hash is:
 
 ```text
-0c2158f64312d95a205a6f9c4409cabef12b86ee2a47357164a2f5982c04ad71
+097a49c40646e8a58c31a375160cc0e453ed88dfa5e30cd78120f9d89a460f07
 ```
 
 The standalone B9 fixture and its hash remain unchanged. The B10 fixture uses
@@ -59,6 +59,13 @@ compared to the inclusive threshold. External errors and timeouts are
 `NOT_ATTAINED` and remain in the denominator. Missing, invalid, or internal
 measurement facts are `NOT_PROVEN` later and remain part of the required
 population; they are never silently excluded.
+
+Cancellation is an invalid terminal outcome, aligned with the existing
+`InvalidEvidencePolicyV1` `CANCELLED` terminal outcome. The frozen assignment
+treatment is exactly `NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR`, with the
+corresponding assignment disposition `NOT_PROVEN`. B11 must not reinterpret
+cancellation as a successful request, remove it from the denominator, or invent
+a different disposition.
 
 The envelope says explicitly that ExitSpec derives attainment only when all
 required underlying observations satisfy. B10 does not implement that future

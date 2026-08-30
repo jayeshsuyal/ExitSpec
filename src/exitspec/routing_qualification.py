@@ -659,6 +659,7 @@ def _load_object(
     value: bytes | Mapping[str, Any],
     *,
     label: str,
+    max_json_integer: int = _MAX_JSON_INTEGER,
 ) -> dict[str, Any]:
     if isinstance(value, Mapping):
         if type(value) is not dict:
@@ -680,8 +681,13 @@ def _load_object(
                 RoutingQualificationValidationCode.OVERSIZED,
                 f"{label} exceeds the bounded JSON size.",
             )
-        _walk_bounded(value, depth=0)
-        return _decode_json(content, label=label, require_canonical=False)
+        _walk_bounded(value, depth=0, max_json_integer=max_json_integer)
+        return _decode_json(
+            content,
+            label=label,
+            require_canonical=False,
+            max_json_integer=max_json_integer,
+        )
     if type(value) is not bytes:
         _reject(
             RoutingQualificationValidationCode.WRONG_TYPE,
@@ -693,7 +699,12 @@ def _load_object(
             RoutingQualificationValidationCode.OVERSIZED,
             f"{label} exceeds the bounded JSON size.",
         )
-    return _decode_json(value, label=label, require_canonical=True)
+    return _decode_json(
+        value,
+        label=label,
+        require_canonical=True,
+        max_json_integer=max_json_integer,
+    )
 
 
 def _size_limit(label: str) -> int:
@@ -705,6 +716,7 @@ def _decode_json(
     *,
     label: str,
     require_canonical: bool,
+    max_json_integer: int = _MAX_JSON_INTEGER,
 ) -> dict[str, Any]:
     if len(content) > _size_limit(label):
         _reject(
@@ -716,7 +728,9 @@ def _decode_json(
         payload = json.loads(
             text,
             object_pairs_hook=_unique_object,
-            parse_int=_bounded_integer,
+            parse_int=lambda raw: _bounded_integer(
+                raw, max_json_integer=max_json_integer
+            ),
             parse_float=_reject_float,
             parse_constant=_reject_constant,
         )
@@ -738,7 +752,7 @@ def _decode_json(
             RoutingQualificationValidationCode.WRONG_TYPE,
             f"{label} must be one JSON object.",
         )
-    _walk_bounded(payload, depth=0)
+    _walk_bounded(payload, depth=0, max_json_integer=max_json_integer)
     try:
         canonical = canonical_json_bytes(payload)
     except (CanonicalizationError, TypeError, ValueError):
@@ -802,8 +816,26 @@ def _validate_model(
 def _classify_validation_error(
     error: ValidationError,
 ) -> tuple[RoutingQualificationValidationCode, str | None]:
+    details = error.errors()
+    locations = [tuple(detail.get("loc", ())) for detail in details]
+
+    def has_descendant(location: tuple[object, ...]) -> bool:
+        return any(
+            len(location) < len(other) and other[: len(location)] == location
+            for other in locations
+        )
+
+    details = [
+        detail
+        for detail in details
+        if not (
+            detail.get("type") in {"too_short", "too_long"}
+            and has_descendant(tuple(detail.get("loc", ())))
+        )
+    ] or details
+
     candidates = []
-    for detail in error.errors():
+    for detail in details:
         location = tuple(detail.get("loc", ()))
         path = _location_path(location)
         error_type = str(detail.get("type", ""))
@@ -925,9 +957,9 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _bounded_integer(value: str) -> int:
+def _bounded_integer(value: str, *, max_json_integer: int = _MAX_JSON_INTEGER) -> int:
     parsed = int(value)
-    if abs(parsed) > _MAX_JSON_INTEGER:
+    if abs(parsed) > max_json_integer:
         raise _JsonBoundaryError(
             RoutingQualificationValidationCode.OVERSIZED,
             "JSON integer is outside the bounded domain",
@@ -949,7 +981,12 @@ def _reject_constant(value: str) -> None:
     )
 
 
-def _walk_bounded(value: object, *, depth: int) -> None:
+def _walk_bounded(
+    value: object,
+    *,
+    depth: int,
+    max_json_integer: int = _MAX_JSON_INTEGER,
+) -> None:
     if depth > _MAX_JSON_DEPTH:
         _reject(
             RoutingQualificationValidationCode.OVERSIZED,
@@ -972,7 +1009,11 @@ def _walk_bounded(value: object, *, depth: int) -> None:
                     RoutingQualificationValidationCode.WRONG_TYPE,
                     "JSON object keys must be strings.",
                 )
-            _walk_bounded(child, depth=depth + 1)
+            _walk_bounded(
+                child,
+                depth=depth + 1,
+                max_json_integer=max_json_integer,
+            )
     elif type(value) is list:
         if len(value) > _MAX_JSON_ARRAY_ITEMS:
             _reject(
@@ -980,8 +1021,12 @@ def _walk_bounded(value: object, *, depth: int) -> None:
                 "JSON array exceeds the B9 item bound.",
             )
         for child in value:
-            _walk_bounded(child, depth=depth + 1)
-    elif type(value) is int and abs(value) > _MAX_JSON_INTEGER:
+            _walk_bounded(
+                child,
+                depth=depth + 1,
+                max_json_integer=max_json_integer,
+            )
+    elif type(value) is int and abs(value) > max_json_integer:
         _reject(
             RoutingQualificationValidationCode.OVERSIZED,
             "JSON integer exceeds the B9 bound.",

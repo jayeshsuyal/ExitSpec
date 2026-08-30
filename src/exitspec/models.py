@@ -1482,6 +1482,8 @@ class RoutingSLOAssignmentRuleV1(FrozenExitSpecModel):
     missing_evidence_disposition: Literal["NOT_PROVEN"]
     invalid_evidence_disposition: Literal["NOT_PROVEN"]
     internal_evidence_disposition: Literal["NOT_PROVEN"]
+    cancellation_treatment: Literal["NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"]
+    cancellation_disposition: Literal["NOT_PROVEN"]
     producer_outcome_authority: Literal["FORBIDDEN_EXIT_SPEC_ONLY"]
 
 
@@ -1930,6 +1932,15 @@ class POCContract(FrozenExitSpecModel):
         )
         if not slo_criteria:
             return self
+        if len(self.criteria) != 2:
+            raise ValueError("A B10 SLO contract must contain exactly two criteria.")
+        if (
+            type(self.criteria[0]) is not RoutingQualificationCriterionV1
+            or type(self.criteria[1]) is not RoutingSLOAttainmentCriterionV1
+        ):
+            raise ValueError(
+                "A B10 SLO contract must order B9 routing qualification before B10 SLO attainment."
+            )
         if len(slo_criteria) != 1:
             raise ValueError("A contract may contain exactly one B10 SLO criterion.")
         campaign_criteria = tuple(
@@ -1955,6 +1966,40 @@ class POCContract(FrozenExitSpecModel):
             raise ValueError(
                 "B10 SLO bindings must match the B9 campaign criterion in this contract."
             )
+        expected_policy_bindings = (
+            (
+                campaign.candidate_policy.policy_id,
+                campaign.candidate_policy.policy_sha256,
+            ),
+            (
+                campaign.baseline_policy.policy_id,
+                campaign.baseline_policy.policy_sha256,
+            ),
+        )
+        envelope_bindings = tuple(
+            (envelope.subject_policy_id, envelope.subject_policy_sha256)
+            for envelope in slo.assignment_slo_envelopes
+        )
+        confidence_bindings = tuple(
+            (rule.subject_policy_id, rule.subject_policy_sha256)
+            for rule in slo.policy_confidence_rules
+        )
+        if envelope_bindings != expected_policy_bindings:
+            raise ValueError(
+                "B10 assignment SLO bindings must match the B9 policy identities."
+            )
+        if confidence_bindings != expected_policy_bindings:
+            raise ValueError(
+                "B10 confidence bindings must match the B9 policy identities."
+            )
+        per_subject_assignments = (
+            campaign.trial_order.trial_count * campaign.trial_order.request_count
+        )
+        for rule in slo.policy_confidence_rules:
+            if rule.confidence.minimum_sample_count > per_subject_assignments:
+                raise ValueError(
+                    "B10 minimum_sample_count exceeds this policy subject's frozen B9 assignment population."
+                )
         return self
 
 

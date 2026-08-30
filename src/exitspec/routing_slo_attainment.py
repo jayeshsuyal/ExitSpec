@@ -31,6 +31,7 @@ ROUTING_SLO_ATTAINMENT_PROTOCOL_ID = "routing_slo_attainment_v1"
 ROUTING_SLO_ATTAINMENT_SCHEMA_VERSION = "exitspec.routing-slo-attainment.v1"
 ROUTING_SLO_ATTAINMENT_CANONICALIZATION_VERSION = "rfc8785_jcs_v1"
 ROUTING_SLO_ATTAINMENT_HASH_VERSION = "sha256_v1"
+_ROUTING_SLO_MAX_JSON_INTEGER = 60_000_000_001
 
 # B10 uses the same hardened error vocabulary and boundary as B9.  Keeping
 # these aliases public makes it clear that parsing failures are protocol
@@ -55,7 +56,11 @@ def parse_routing_slo_attainment_contract(
 ) -> POCContract:
     """Strictly parse a frozen full contract containing B9 and B10."""
 
-    payload = _load_object(value, label="routing SLO attainment contract")
+    payload = _load_object(
+        value,
+        label="routing SLO attainment contract",
+        max_json_integer=_ROUTING_SLO_MAX_JSON_INTEGER,
+    )
     _reject_producer_verdict_aliases(payload)
     criteria = payload.get("criteria")
     if type(criteria) is list:

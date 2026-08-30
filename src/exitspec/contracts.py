@@ -8,7 +8,11 @@ from typing import Dict, Optional
 
 from .canonical import canonical_json_bytes
 from .confirmations import ContractConfirmation, require_affirmative_confirmation
-from .models import ContractStatus, POCContract
+from .models import (
+    ContractStatus,
+    POCContract,
+    RoutingSLOAttainmentCriterionV1,
+)
 
 
 _ALLOWED_TRANSITIONS = {
@@ -27,7 +31,48 @@ def utc_now() -> datetime:
 def canonical_contract_payload(contract: POCContract) -> Dict[str, object]:
     """Return the typed contract payload that participates in its digest."""
 
-    return contract.model_dump(mode="json", exclude={"canonical_hash"})
+    validated = _validated_contract_for_full_contract_path(contract)
+    return validated.model_dump(mode="json", exclude={"canonical_hash"})
+
+
+def _validated_contract_for_full_contract_path(contract: POCContract) -> POCContract:
+    """Revalidate B10 raw state before a full-contract projection can dump it."""
+
+    raw_state = object.__getattribute__(contract, "__dict__")
+    if type(raw_state) is not dict:
+        raise ValueError("POCContract raw state must be one object.")
+    criteria = raw_state.get("criteria")
+    if type(criteria) not in (tuple, list):
+        return contract
+    has_b10_criterion = False
+    for criterion in criteria:
+        if type(criterion) is RoutingSLOAttainmentCriterionV1:
+            has_b10_criterion = True
+            break
+        if type(criterion) is dict:
+            if criterion.get("criterion_type") == "routing_slo_attainment_v1":
+                has_b10_criterion = True
+                break
+            continue
+        try:
+            criterion_state = object.__getattribute__(criterion, "__dict__")
+        except (AttributeError, TypeError):
+            continue
+        if (
+            type(criterion_state) is dict
+            and criterion_state.get("criterion_type") == "routing_slo_attainment_v1"
+        ):
+            has_b10_criterion = True
+            break
+    if not has_b10_criterion:
+        return contract
+    from .routing_qualification import _revalidate_typed_model
+
+    return _revalidate_typed_model(
+        contract,
+        POCContract,
+        label="full POC contract",
+    )
 
 
 def canonical_contract_bytes(contract: POCContract) -> bytes:
@@ -47,7 +92,8 @@ def verify_contract_digest(contract: POCContract) -> bool:
 
 
 def _validated_copy(contract: POCContract, updates: Dict[str, object]) -> POCContract:
-    payload = contract.model_dump(mode="python")
+    validated = _validated_contract_for_full_contract_path(contract)
+    payload = validated.model_dump(mode="python")
     payload.update(updates)
     return POCContract.model_validate(payload)
 
