@@ -86,11 +86,16 @@ def _expect_contract_code(
 
 
 def _expect_rejection(
-    callable_obj: Any, code: RoutingQualificationValidationCode
+    callable_obj: Any,
+    code: RoutingQualificationValidationCode,
+    *,
+    path: str | None = None,
 ) -> None:
     with pytest.raises(RoutingQualificationRejected) as caught:
         callable_obj()
     assert caught.value.code is code
+    if path is not None:
+        assert caught.value.path == path
 
 
 def test_golden_fixture_is_a_frozen_poc_and_outer_hash_is_the_only_contract_digest():
@@ -340,13 +345,24 @@ def test_generic_multi_error_precedence_and_path_are_insertion_order_independent
     assert outcomes == [
         (
             RoutingQualificationValidationCode.INVALID_BOUND,
-            "telemetry.max_age_seconds",
+            "criteria[0].telemetry.max_age_seconds",
         ),
         (
             RoutingQualificationValidationCode.INVALID_BOUND,
-            "telemetry.max_age_seconds",
+            "criteria[0].telemetry.max_age_seconds",
         ),
     ]
+
+
+def test_public_criterion_validation_reports_the_complete_nested_path():
+    payload = _contract_payload()
+    payload["criteria"][0]["telemetry"]["max_age_seconds"] = -1
+
+    with pytest.raises(RoutingQualificationRejected) as caught:
+        parse_routing_qualification_contract(payload)
+
+    assert caught.value.code is RoutingQualificationValidationCode.INVALID_BOUND
+    assert caught.value.path == "criteria[0].telemetry.max_age_seconds"
 
 
 def test_all_material_routing_fields_change_the_existing_outer_contract_hash():
@@ -456,6 +472,164 @@ def test_typed_evidence_bypasses_and_nested_invalid_copies_fail_closed():
     )
 
 
+@pytest.mark.parametrize("attribute", ["__pydantic_extra__", "__pydantic_private__"])
+def test_falsey_malformed_typed_state_fails_closed_at_evidence_entry_points(
+    attribute: str,
+):
+    contract = _frozen_poc_contract()
+    evidence = parse_routing_qualification_evidence_fixture(_evidence_payload())
+    malformed = evidence.model_copy()
+    object.__setattr__(malformed, attribute, [])
+
+    for call in (
+        lambda: serialize_routing_qualification_evidence_fixture(malformed),
+        lambda: validate_routing_qualification_evidence_fixture(contract, malformed),
+    ):
+        _expect_rejection(
+            call,
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            path=attribute,
+        )
+
+
+@pytest.mark.parametrize("attribute", ["__pydantic_extra__", "__pydantic_private__"])
+def test_falsey_malformed_typed_state_fails_closed_at_contract_entry_points(
+    attribute: str,
+):
+    contract = _frozen_poc_contract()
+    evidence = parse_routing_qualification_evidence_fixture(_evidence_payload())
+    malformed = contract.model_copy()
+    object.__setattr__(malformed, attribute, [])
+
+    for call in (
+        lambda: routing_qualification_contract_digest(malformed),
+        lambda: serialize_routing_qualification_contract(malformed),
+        lambda: validate_routing_qualification_evidence_fixture(malformed, evidence),
+    ):
+        _expect_rejection(
+            call,
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            path=attribute,
+        )
+
+
+@pytest.mark.parametrize(
+    "attribute", ["__dict__", "__pydantic_extra__", "__pydantic_private__"]
+)
+def test_non_string_evidence_internal_keys_are_stable_across_entry_points(
+    attribute: str,
+):
+    contract = _frozen_poc_contract()
+    evidence = parse_routing_qualification_evidence_fixture(_evidence_payload())
+    outcomes = []
+    for items in (((7, "bad"), ("ordinary", "bad")), (("ordinary", "bad"), (7, "bad"))):
+        malformed = evidence.model_copy()
+        if attribute == "__dict__":
+            state = object.__getattribute__(malformed, attribute)
+            for key, value in items:
+                state[key] = value
+        else:
+            object.__setattr__(malformed, attribute, dict(items))
+        with pytest.raises(RoutingQualificationRejected) as caught:
+            serialize_routing_qualification_evidence_fixture(malformed)
+        outcomes.append((caught.value.code, caught.value.path))
+        _expect_rejection(
+            lambda malformed=malformed: validate_routing_qualification_evidence_fixture(
+                contract, malformed
+            ),
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            path=attribute,
+        )
+    assert outcomes == [
+        (RoutingQualificationValidationCode.WRONG_TYPE, attribute),
+        (RoutingQualificationValidationCode.WRONG_TYPE, attribute),
+    ]
+
+
+@pytest.mark.parametrize(
+    "attribute", ["__dict__", "__pydantic_extra__", "__pydantic_private__"]
+)
+def test_non_string_contract_internal_keys_are_stable_across_entry_points(
+    attribute: str,
+):
+    contract = _frozen_poc_contract()
+    evidence = parse_routing_qualification_evidence_fixture(_evidence_payload())
+    outcomes = []
+    for items in (((7, "bad"), ("ordinary", "bad")), (("ordinary", "bad"), (7, "bad"))):
+        malformed = contract.model_copy()
+        if attribute == "__dict__":
+            state = object.__getattribute__(malformed, attribute)
+            for key, value in items:
+                state[key] = value
+        else:
+            object.__setattr__(malformed, attribute, dict(items))
+        with pytest.raises(RoutingQualificationRejected) as caught:
+            routing_qualification_contract_digest(malformed)
+        outcomes.append((caught.value.code, caught.value.path))
+        _expect_rejection(
+            lambda malformed=malformed: serialize_routing_qualification_contract(
+                malformed
+            ),
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            path=attribute,
+        )
+        _expect_rejection(
+            lambda malformed=malformed: validate_routing_qualification_evidence_fixture(
+                malformed, evidence
+            ),
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            path=attribute,
+        )
+    assert outcomes == [
+        (RoutingQualificationValidationCode.WRONG_TYPE, attribute),
+        (RoutingQualificationValidationCode.WRONG_TYPE, attribute),
+    ]
+
+
+def test_non_string_nested_typed_keys_fail_with_the_complete_parent_path():
+    contract = _frozen_poc_contract()
+    criterion = contract.criteria[0].model_copy()
+    raw_state = object.__getattribute__(criterion, "__dict__")
+    raw_state[7] = "bad"
+    raw_state["ordinary"] = "bad"
+    malformed = contract.model_copy(update={"criteria": (criterion,)})
+
+    with pytest.raises(RoutingQualificationRejected) as caught:
+        routing_qualification_contract_digest(malformed)
+
+    assert caught.value.code is RoutingQualificationValidationCode.WRONG_TYPE
+    assert caught.value.path == "criteria[0].__dict__"
+
+
+@pytest.mark.parametrize("attribute", ["__pydantic_extra__", "__pydantic_private__"])
+def test_nonempty_internal_dicts_reject_unknown_fields_and_prioritize_verdict_aliases(
+    attribute: str,
+):
+    contract = _frozen_poc_contract()
+    evidence = parse_routing_qualification_evidence_fixture(_evidence_payload())
+    for state in (
+        {"ordinary": "bad", "later": "bad"},
+        {"later": "bad", "ordinary": "bad"},
+    ):
+        malformed = evidence.model_copy()
+        object.__setattr__(malformed, attribute, state)
+        _expect_rejection(
+            lambda malformed=malformed: serialize_routing_qualification_evidence_fixture(
+                malformed
+            ),
+            RoutingQualificationValidationCode.EXTRA_FIELD,
+            path=f"{attribute}.later",
+        )
+
+    malformed = evidence.model_copy()
+    object.__setattr__(malformed, attribute, {"ordinary": "bad", "decision": "PASS"})
+    _expect_rejection(
+        lambda: validate_routing_qualification_evidence_fixture(contract, malformed),
+        RoutingQualificationValidationCode.PRODUCER_VERDICT_FORBIDDEN,
+        path=f"{attribute}.decision",
+    )
+
+
 def test_model_construct_missing_extra_and_invalid_fields_are_not_sanitized():
     contract = _frozen_poc_contract()
     evidence = parse_routing_qualification_evidence_fixture(_evidence_payload())
@@ -498,6 +672,29 @@ def test_model_construct_missing_extra_and_invalid_fields_are_not_sanitized():
         lambda: routing_qualification_contract_digest(bad_contract),
         RoutingQualificationValidationCode.INVALID_BOUND,
     )
+
+
+def test_nested_typed_revalidation_reports_the_complete_parent_path():
+    contract = _frozen_poc_contract()
+    invalid_nested = contract.model_copy(
+        update={
+            "criteria": (
+                contract.criteria[0].model_copy(
+                    update={
+                        "telemetry": contract.criteria[0].telemetry.model_copy(
+                            update={"max_age_seconds": -1}
+                        )
+                    }
+                ),
+            )
+        }
+    )
+
+    with pytest.raises(RoutingQualificationRejected) as caught:
+        routing_qualification_contract_digest(invalid_nested)
+
+    assert caught.value.code is RoutingQualificationValidationCode.INVALID_BOUND
+    assert caught.value.path == "criteria[0].telemetry.max_age_seconds"
 
 
 def test_recomputed_outer_hash_is_valid_only_when_revalidated_and_rebound():

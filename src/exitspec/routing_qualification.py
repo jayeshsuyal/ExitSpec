@@ -135,6 +135,7 @@ def parse_routing_qualification_contract(
                 RoutingQualificationCriterionV1,
                 criterion_payload,
                 label="routing qualification contract.criteria[0]",
+                path_prefix="criteria[0]",
             )
     parsed = _validate_model(
         POCContract, payload, label="routing qualification contract"
@@ -422,6 +423,7 @@ def _raw_model_state(value: BaseModel, *, path: str | None) -> dict[str, Any]:
             "Typed model raw state must be one object.",
             path,
         )
+    _require_string_keys(raw_state, _join_path(path, "__dict__"))
     unexpected = sorted(set(raw_state) - field_names)
     if unexpected:
         _reject_producer_aliases_in_names(unexpected, path)
@@ -434,20 +436,23 @@ def _raw_model_state(value: BaseModel, *, path: str | None) -> dict[str, Any]:
         extra_state = object.__getattribute__(value, "__pydantic_extra__")
     except AttributeError:
         extra_state = None
-    if extra_state:
+    extra_path = _join_path(path, "__pydantic_extra__")
+    if extra_state is not None:
         if type(extra_state) is not dict:
             _reject(
                 RoutingQualificationValidationCode.WRONG_TYPE,
                 "Typed model extra state must be one object.",
-                _join_path(path, "__pydantic_extra__"),
+                extra_path,
             )
+        _require_string_keys(extra_state, extra_path)
         extra_names = sorted(extra_state)
-        _reject_producer_aliases_in_names(extra_names, path)
-        _reject(
-            RoutingQualificationValidationCode.EXTRA_FIELD,
-            "Typed model contains undocumented extra state.",
-            _join_path(path, extra_names[0]),
-        )
+        if extra_names:
+            _reject_producer_aliases_in_names(extra_names, extra_path)
+            _reject(
+                RoutingQualificationValidationCode.EXTRA_FIELD,
+                "Typed model contains undocumented extra state.",
+                _join_path(extra_path, extra_names[0]),
+            )
     missing = sorted(field_names - set(raw_state))
     if missing:
         _reject(
@@ -459,12 +464,23 @@ def _raw_model_state(value: BaseModel, *, path: str | None) -> dict[str, Any]:
         private_state = object.__getattribute__(value, "__pydantic_private__")
     except AttributeError:
         private_state = None
-    if private_state:
-        _reject(
-            RoutingQualificationValidationCode.EXTRA_FIELD,
-            "Typed model contains undocumented private state.",
-            _join_path(path, "__pydantic_private__"),
-        )
+    private_path = _join_path(path, "__pydantic_private__")
+    if private_state is not None:
+        if type(private_state) is not dict:
+            _reject(
+                RoutingQualificationValidationCode.WRONG_TYPE,
+                "Typed model private state must be one object.",
+                private_path,
+            )
+        _require_string_keys(private_state, private_path)
+        private_names = sorted(private_state)
+        if private_names:
+            _reject_producer_aliases_in_names(private_names, private_path)
+            _reject(
+                RoutingQualificationValidationCode.EXTRA_FIELD,
+                "Typed model contains undocumented private state.",
+                _join_path(private_path, private_names[0]),
+            )
 
     state: dict[str, Any] = {}
     for field_name in sorted(field_names):
@@ -491,7 +507,11 @@ def _raw_value(value: object, annotation: object, *, path: str | None) -> object
             type(value).model_validate(raw_state, strict=True)
         except ValidationError as error:
             code, error_path = _classify_validation_error(error)
-            _reject(code, "Nested typed model failed strict revalidation.", error_path)
+            _reject(
+                code,
+                "Nested typed model failed strict revalidation.",
+                _prefix_path(path, error_path),
+            )
         except (TypeError, ValueError):
             _reject(
                 RoutingQualificationValidationCode.WRONG_TYPE,
@@ -557,6 +577,25 @@ def _model_types(annotation: object) -> tuple[type[BaseModel], ...]:
 
 def _join_path(path: str | None, name: str) -> str:
     return f"{path}.{name}" if path else name
+
+
+def _prefix_path(prefix: str | None, path: str | None) -> str | None:
+    if prefix is None:
+        return path
+    if path is None:
+        return prefix
+    if path.startswith("["):
+        return f"{prefix}{path}"
+    return f"{prefix}.{path}"
+
+
+def _require_string_keys(value: dict[object, Any], path: str) -> None:
+    if any(type(key) is not str for key in value):
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "Typed model internal-state keys must be strings.",
+            path,
+        )
 
 
 def _index_path(path: str | None, index: int) -> str:
@@ -716,7 +755,11 @@ def _decode_json(
 
 
 def _validate_model(
-    model_type: type[Any], payload: dict[str, Any], *, label: str
+    model_type: type[Any],
+    payload: dict[str, Any],
+    *,
+    label: str,
+    path_prefix: str | None = None,
 ) -> Any:
     _reject_producer_verdict_aliases(payload)
     try:
@@ -729,7 +772,11 @@ def _validate_model(
         )
     except ValidationError as error:
         code, path = _classify_validation_error(error)
-        _reject(code, f"{label} failed strict validation.", path)
+        _reject(
+            code,
+            f"{label} failed strict validation.",
+            _prefix_path(path_prefix, path),
+        )
     except (TypeError, ValueError):
         _reject(
             RoutingQualificationValidationCode.WRONG_TYPE,
