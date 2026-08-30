@@ -107,6 +107,7 @@ class POCWorkflowFacts(FrozenExitSpecModel):
     state_available: bool = True
     source_count: int = Field(default=0, ge=0)
     source_types: Tuple[WorkspaceSourceType, ...] = Field(default_factory=tuple)
+    current_proposal_count: int = Field(default=0, ge=0)
     pending_draft_count: int = Field(default=0, ge=0)
     kept_proposal_count: int = Field(default=0, ge=0)
     defined_criterion_count: int = Field(default=0, ge=0)
@@ -194,6 +195,7 @@ class POCWorkspaceProjection(FrozenExitSpecModel):
     active_contract_id: Optional[str]
     active_contract_version: Optional[str]
     source_summary: SourceSummary
+    current_proposal_count: int = Field(ge=0)
     derived_phase: WorkspacePhase
     next_action_code: WorkspaceAction
     next_human_action: str
@@ -366,6 +368,7 @@ def project_poc(
         active_contract_id=facts.active_contract_id,
         active_contract_version=facts.active_contract_version,
         source_summary=source_summary,
+        current_proposal_count=facts.current_proposal_count,
         derived_phase=phase,
         next_action_code=action,
         next_human_action=action_text,

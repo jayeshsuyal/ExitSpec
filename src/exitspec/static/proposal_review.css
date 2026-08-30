@@ -84,6 +84,15 @@
   font-size: 11px;
 }
 
+.authority-boundary a {
+  display: block;
+  margin-top: 8px;
+  color: var(--orange);
+  font-size: 11px;
+  font-weight: 760;
+  text-decoration: none;
+}
+
 .review-current-task {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

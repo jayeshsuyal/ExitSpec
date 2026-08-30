@@ -9,6 +9,7 @@ source-anchored ``NEEDS_REVIEW`` input for a later human-review boundary.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -38,7 +39,12 @@ from .poc_proposal_review import (
 from .poc_sources import (
     EXTERNAL_ID_PATTERN,
     POCSourceAttachmentResult,
+    POCSourceDraftArchived,
+    POCSourceDraftUnavailable,
     POCSourceRevisionRequired,
+    POCSourceNotFound,
+    POCSourceSnapshot,
+    POCSourceStaleRevision,
     PreparedPOCSource,
     PreparedRequirementCandidate,
     ProcessLocalPOCSourceService,
@@ -459,6 +465,39 @@ class ProcessLocalPOCSourceIntake:
             for source in self._source_service.snapshots(poc_id)
         )
 
+    def list_current_receipts(
+        self,
+        poc_id: str,
+    ) -> Tuple[POCSourceReceipt, ...]:
+        """Return only the latest actionable revision for each source identity.
+
+        ``list_receipts`` intentionally remains the complete A2 history
+        projection.  The assisted-authoring chooser uses this narrower view so
+        a stale receipt cannot be selected for a source snapshot operation.
+        """
+
+        self.list_receipts(poc_id)
+        current = []
+        for source in self._source_service.snapshots(poc_id):
+            latest = self._source_service.latest_for_identity(
+                poc_id,
+                source.kind,
+                source.external_id,
+            )
+            if latest.source_id != source.source_id:
+                continue
+            current.append(
+                POCSourceReceipt(
+                    poc_id=source.poc_id,
+                    source_kind=source.kind,
+                    source_receipt_id=_receipt_id(source.source_id),
+                    proposal_count=len(source.candidates),
+                    status="NEEDS_REVIEW",
+                    idempotent_replay=False,
+                )
+            )
+        return tuple(current)
+
     def proposal_inputs(
         self,
         poc_id: str,
@@ -491,6 +530,90 @@ class ProcessLocalPOCSourceIntake:
                     )
                 )
         return tuple(proposals)
+
+    def source_snapshot(
+        self,
+        poc_id: str,
+        source_receipt_id: str,
+    ) -> POCSourceSnapshot:
+        """Return one current redacted source for an explicit A3 action.
+
+        The source receipt is the only lookup handle accepted here.  A prior
+        revision is rejected so assisted authoring cannot operate on stale
+        source content while presenting it as current.
+        """
+
+        if (
+            type(source_receipt_id) is not str
+            or not source_receipt_id.startswith("srcpt_")
+        ):
+            raise POCSourceIntakeInvalid(
+                "The source receipt is outside its supported bounds."
+            )
+        source_id = "src_" + source_receipt_id.removeprefix("srcpt_")
+        try:
+            self._source_service._require_active_draft(poc_id)
+            snapshot = self._source_service.get(poc_id, source_id)
+            latest = self._source_service.latest_for_identity(
+                poc_id,
+                snapshot.kind,
+                snapshot.external_id,
+            )
+        except POCSourceIntakeError:
+            raise
+        except POCSourceNotFound:
+            raise POCSourceIntakeInvalid(
+                "The source receipt is unavailable in this process."
+            ) from None
+        if latest.source_id != snapshot.source_id:
+            raise POCSourceIntakeRevisionRequired(
+                "The source receipt is stale; use the latest source revision."
+            )
+        return snapshot
+
+    @contextmanager
+    def authoring_commit_guard(
+        self,
+        poc_id: str,
+        source_receipt_id: str,
+        expected_source: POCSourceSnapshot,
+    ):
+        """Hold the source owner lock for an atomic A3 publication.
+
+        The source service owns the lock and validates the exact immutable
+        snapshot. This adapter exposes that transaction without leaking a
+        private service lock to the demo runtime.
+        """
+
+        if (
+            type(source_receipt_id) is not str
+            or re.fullmatch(_RECEIPT_ID_PATTERN, source_receipt_id) is None
+        ):
+            raise POCSourceIntakeInvalid(
+                "The source receipt is outside its supported bounds."
+            )
+        if type(expected_source) is not POCSourceSnapshot:
+            raise POCSourceIntakeInvalid("The source snapshot is unavailable.")
+        source_id = "src_" + source_receipt_id.removeprefix("srcpt_")
+        try:
+            with self._source_service.authoring_commit_guard(
+                poc_id,
+                source_id,
+                expected_source,
+            ) as guard:
+                yield guard
+        except POCSourceStaleRevision:
+            raise POCSourceIntakeRevisionRequired(
+                "The source changed during assisted authoring."
+            ) from None
+        except (
+            POCSourceDraftArchived,
+            POCSourceDraftUnavailable,
+            POCSourceNotFound,
+        ):
+            raise POCSourceIntakeInvalid(
+                "The source is unavailable for assisted authoring."
+            ) from None
 
     def capture_source(
         self,

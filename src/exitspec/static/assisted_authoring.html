@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Run one explicit source-scoped assisted-authoring action for a local ExitSpec POC."
+    />
+    <title>ExitSpec — Assisted draft</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/assisted_authoring.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#assisted-authoring-main">Skip to assisted authoring</a>
+
+    <div class="dashboard-shell assisted-authoring-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app" aria-current="page">POCs</a>
+          <a href="/app/evidence">Evidence Packs</a>
+          <a href="/app/pocs/new">New POC</a>
+        </nav>
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="assisted-authoring-main workbench-main" id="assisted-authoring-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Define · Assisted draft</p>
+            <h1 id="poc-title">Loading draft…</h1>
+            <p id="poc-context">Validating the local draft before assisted authoring.</p>
+          </div>
+          <div class="authority-boundary" aria-label="Assisted authoring boundary">
+            <span>Authoring boundary</span>
+            <strong>Proposal material · human decision required</strong>
+          </div>
+        </header>
+
+        <section
+          class="assisted-current-task workbench-current-task"
+          id="assisted-current-task"
+          aria-labelledby="current-task-heading"
+          aria-busy="true"
+        >
+          <header class="task-heading">
+            <div>
+              <p class="eyebrow">Current task</p>
+              <h2 id="current-task-heading">Choose one accepted A2 source</h2>
+              <p>
+                The local assistant sees only the already-redacted source. It returns
+                bounded proposals that remain NEEDS_REVIEW.
+              </p>
+            </div>
+            <p class="assisted-limit">One explicit action</p>
+          </header>
+
+          <div class="assisted-layout">
+            <section class="source-receipts" aria-labelledby="source-receipts-heading">
+              <header>
+                <p class="eyebrow">Accepted source receipts</p>
+                <h3 id="source-receipts-heading">Select the source to author</h3>
+              </header>
+              <div id="source-receipt-list" class="source-receipt-list">
+                <p class="assisted-placeholder">Loading source receipts…</p>
+              </div>
+            </section>
+
+            <form id="assisted-authoring-form" class="assisted-action" novalidate>
+              <p class="eyebrow">Explicit assisted action</p>
+              <h3>Draft source-bound proposals</h3>
+              <p>
+                This action does not create a criterion, contract, evidence method,
+                verdict, or deployment decision.
+              </p>
+              <p id="assisted-selection" class="assisted-selection" role="status" aria-live="polite">
+                Select one source receipt to continue.
+              </p>
+              <button id="authoring-submit" class="primary-action" type="submit" disabled>
+                Draft with local assistant
+              </button>
+              <p id="authoring-status" class="assisted-status" role="status" aria-live="polite">
+                Waiting for trusted source data.
+              </p>
+            </form>
+          </div>
+
+          <section id="authoring-result" class="authoring-result" tabindex="-1" hidden>
+            <p class="eyebrow">Authoring receipt</p>
+            <h3 id="authoring-result-heading">Review-only proposals are ready</h3>
+            <p id="authoring-result-summary"></p>
+            <p class="boundary-copy">
+              Every result is NEEDS_REVIEW. A named employee must keep or discard each
+              proposal before any later contract-authoring step.
+            </p>
+            <a id="open-proposal-review" class="primary-action" href="" hidden>
+              Review source-linked proposals
+            </a>
+          </section>
+        </section>
+
+        <p id="assisted-authoring-error" class="assisted-error" role="alert" hidden></p>
+      </main>
+    </div>
+
+    <script src="/assisted_authoring.js"></script>
+  </body>
+</html>

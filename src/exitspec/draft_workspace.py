@@ -34,6 +34,7 @@ def draft_workspace_record_and_facts(
     draft: DraftPOCSnapshot,
     receipts: Sequence[POCSourceReceipt],
     *,
+    current_proposal_count: int | None = None,
     pending_proposal_count: int | None = None,
     kept_proposal_count: int | None = None,
     defined_criterion_count: int | None = None,
@@ -47,9 +48,16 @@ def draft_workspace_record_and_facts(
         raise TypeError("receipts must contain POCSourceReceipt values.")
     if any(receipt.poc_id != draft.poc_id for receipt in validated_receipts):
         raise ValueError("Source receipts must belong to the projected draft POC.")
-    total_proposals = sum(
+    historical_proposal_count = sum(
         receipt.proposal_count for receipt in validated_receipts
     )
+    total_proposals = (
+        historical_proposal_count
+        if current_proposal_count is None
+        else current_proposal_count
+    )
+    if type(total_proposals) is not int or not 0 <= total_proposals <= 32_768:
+        raise ValueError("Current proposal count is outside its supported bounds.")
     resolved_pending_count = (
         total_proposals
         if pending_proposal_count is None
@@ -111,6 +119,7 @@ def draft_workspace_record_and_facts(
     facts = POCWorkflowFacts(
         source_count=len(validated_receipts),
         source_types=source_types,
+        current_proposal_count=total_proposals,
         pending_draft_count=resolved_pending_count,
         kept_proposal_count=resolved_kept_count,
         defined_criterion_count=resolved_definition_count,
@@ -123,6 +132,7 @@ def project_draft_dashboard(
     drafts: Sequence[DraftPOCSnapshot],
     receipts_by_poc_id: Mapping[str, Sequence[POCSourceReceipt]],
     *,
+    current_proposal_counts_by_poc_id: Mapping[str, int] | None = None,
     pending_proposal_counts_by_poc_id: Mapping[str, int] | None = None,
     kept_proposal_counts_by_poc_id: Mapping[str, int] | None = None,
     defined_criterion_counts_by_poc_id: Mapping[str, int] | None = None,
@@ -148,6 +158,18 @@ def project_draft_dashboard(
         if pending_proposal_counts_by_poc_id is None
         else dict(pending_proposal_counts_by_poc_id)
     )
+    resolved_current_counts = (
+        {}
+        if current_proposal_counts_by_poc_id is None
+        else dict(current_proposal_counts_by_poc_id)
+    )
+    unknown_current_ids = sorted(set(resolved_current_counts).difference(draft_ids))
+    if unknown_current_ids:
+        raise ValueError(
+            "Current proposal counts reference unknown draft POCs: {0}".format(
+                ", ".join(unknown_current_ids)
+            )
+        )
     unknown_pending_ids = sorted(
         set(resolved_pending_counts).difference(draft_ids)
     )
@@ -190,6 +212,7 @@ def project_draft_dashboard(
         record, facts = draft_workspace_record_and_facts(
             draft,
             receipts_by_poc_id.get(draft.poc_id, ()),
+            current_proposal_count=resolved_current_counts.get(draft.poc_id),
             pending_proposal_count=resolved_pending_counts.get(draft.poc_id),
             kept_proposal_count=resolved_kept_counts.get(draft.poc_id),
             defined_criterion_count=resolved_definition_counts.get(

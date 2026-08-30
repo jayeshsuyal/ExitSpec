@@ -12,6 +12,7 @@ keeping the immutable request and snapshot boundary models.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -200,6 +201,10 @@ class DraftPOCNotFound(DraftPOCCreationError, KeyError):
     """The requested draft is not present in this process."""
 
 
+class DraftPOCCommitConflict(DraftPOCCreationError):
+    """The draft changed while an owner-bound operation was being prepared."""
+
+
 class DraftPOCCapacityExceeded(DraftPOCCreationError):
     """The bounded process-local store has reached its configured capacity."""
 
@@ -208,6 +213,18 @@ class DraftPOCCapacityExceeded(DraftPOCCreationError):
 class _IdempotencyRecord:
     request_sha256: str
     poc_id: str
+
+
+class _AuthoringCommitGuard:
+    """A draft-owner lock token for an atomic source-bound publication."""
+
+    __slots__ = ()
+
+    def prepare(self) -> None:
+        return None
+
+    def commit(self) -> None:
+        return None
 
 
 def _default_clock() -> datetime:
@@ -389,6 +406,45 @@ class ProcessLocalDraftPOCService:
         with self._lock:
             return tuple(self._records[poc_id] for poc_id in sorted(self._records))
 
+    @contextmanager
+    def authoring_commit_guard(
+        self,
+        poc_id: str,
+        expected_draft: DraftPOCSnapshot,
+    ):
+        """Hold the draft owner lock while an A3 publication is prepared.
+
+        This guard is deliberately lock-only: A3 does not mutate draft state.
+        The exact immutable snapshot is checked while the lock is held, so an
+        archive or other draft update cannot pass a final unlocked read and
+        then race the publication.
+        """
+
+        validated_id = _validate_poc_id(poc_id)
+        if (
+            type(expected_draft) is not DraftPOCSnapshot
+            or expected_draft.poc_id != validated_id
+        ):
+            raise DraftPOCCommitConflict(
+                "The draft owner snapshot does not match the requested POC."
+            )
+        with self._lock:
+            try:
+                current = self._records[validated_id]
+            except KeyError as error:
+                raise DraftPOCNotFound(
+                    "Draft POC is not present in this process."
+                ) from error
+            if current.archive_state != DraftPOCArchiveState.ACTIVE:
+                raise DraftPOCNotFound(
+                    "Archived draft POCs cannot accept assisted authoring."
+                )
+            if current != expected_draft:
+                raise DraftPOCCommitConflict(
+                    "The draft changed during assisted authoring."
+                )
+            yield _AuthoringCommitGuard()
+
     def archive(self, poc_id: str) -> DraftPOCSnapshot:
         """Archive a draft without deleting it or granting completion status."""
 
@@ -420,6 +476,7 @@ class ProcessLocalDraftPOCService:
 __all__ = [
     "DraftPOCArchiveState",
     "DraftPOCCapacityExceeded",
+    "DraftPOCCommitConflict",
     "DraftPOCCreateRequest",
     "DraftPOCCreationError",
     "DraftPOCCreationResult",

@@ -240,7 +240,36 @@ def test_multiple_sources_are_counted_but_types_are_deduplicated():
     assert projected.source_summary.types == (
         WorkspaceSourceType.MEETING_TRANSCRIPT,
     )
+    assert projected.current_proposal_count == 4
     assert projected.next_human_action == "Review 4 requirement proposals."
+
+
+@pytest.mark.parametrize(
+    ("current_count", "pending_count", "kept_count"),
+    ((1, 1, 0), (3, 2, 1), (5, 3, 2)),
+)
+def test_current_proposal_count_is_independent_from_historical_a2_receipt_total(
+    current_count, pending_count, kept_count
+):
+    service = _drafts("poc_workspace_alpha")
+    receipt = _receipt("poc_workspace_alpha", proposal_count=3)
+    record, facts = draft_workspace_record_and_facts(
+        service.get("poc_workspace_alpha"),
+        (receipt,),
+        current_proposal_count=current_count,
+        pending_proposal_count=pending_count,
+        kept_proposal_count=kept_count,
+    )
+    assert record.poc_id == "poc_workspace_alpha"
+    assert facts.current_proposal_count == current_count
+    projected = project_draft_dashboard(
+        service.snapshots(),
+        {"poc_workspace_alpha": (receipt,)},
+        current_proposal_counts_by_poc_id={"poc_workspace_alpha": current_count},
+        pending_proposal_counts_by_poc_id={"poc_workspace_alpha": pending_count},
+        kept_proposal_counts_by_poc_id={"poc_workspace_alpha": kept_count},
+    ).pocs[0]
+    assert projected.current_proposal_count == current_count
 
 
 def test_cross_poc_receipts_and_unknown_receipt_maps_fail_closed():

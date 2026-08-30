@@ -216,6 +216,56 @@ def test_draft_and_proposals_load_read_only_before_review_unlocks():
     assert 'cache: "no-store"' in javascript
 
 
+def test_a3_capability_gates_metadata_and_hides_legacy_control():
+    javascript = _asset(JS_PATH)
+    capability = _function(
+        javascript,
+        "isTrustedA3Capability",
+        "isTrustedProposal",
+    )
+    loaded = _function(javascript, "applyLoadedData", "reconcileQueueAfterDecision")
+    initialise = javascript.split("async function initialise()", 1)[1]
+
+    assert 'hasExactKeys(payload, ["mode", "safety"])' in capability
+    assert 'payload.mode === "local_source_neutral"' in capability
+    assert 'payload.safety.source_authority === "UNTRUSTED_SOURCE_ONLY"' in capability
+    assert 'requestJson(stateApi)' in initialise
+    assert 'isTrustedA3Capability(capability)' in initialise
+    assert 'isTrustedLegacyCapability(capability)' in initialise
+    assert 'trustedAssistedProposals(' in initialise
+    assert 'currentReview,' in initialise
+    assert 'proposalList' in initialise
+    assert 'requestJson(currentReviewApi)' in initialise
+    assert "receiptProposalIds.some" in javascript
+    assert "new Set(receiptProposalIds).size !== receiptProposalIds.length" in javascript
+    assert 'assistedLink.hidden = true;' in loaded
+    assert 'assistedLink.hidden = false;' in loaded
+
+
+def test_a3_receipts_bind_the_displayed_queue_and_fail_closed_on_ambiguous_state():
+    javascript = _asset(JS_PATH)
+    receipt = _function(
+        javascript,
+        "isTrustedAssistedReceipt",
+        "isTrustedAssistedReceiptCollection",
+    )
+    collection = _function(
+        javascript,
+        "isTrustedAssistedReceiptCollection",
+        "isTrustedDecisionResponse",
+    )
+    assert "sourceReceiptIdForSourceId(receipt.source_id)" in receipt
+    assert "receipt.source_receipt_id ===" in receipt
+    assert "receipt.source_adapter_name" in receipt
+    assert "receipt.source_adapter_version" in receipt
+    assert "receipt.redaction_policy_version" in receipt
+    assert "receipt.proposal_ids.every" in receipt
+    assert "receiptProposalIds.some" in javascript
+    assert "projection.source_receipt_id !== proposal.source_receipt_id" in javascript
+    assert "projection.review_state !== \"NEEDS_REVIEW\"" in javascript
+    assert "throw new SafeRequestError(503, true);" in javascript
+
+
 def test_reviewer_and_rationale_are_required_before_either_decision():
     html = _asset(HTML_PATH)
     javascript = _asset(JS_PATH)
@@ -433,6 +483,26 @@ def test_completion_is_concise_honest_and_links_to_real_definition_step():
     assert "keptCount" in completion_js
     assert "discardedCount" in completion_js
     assert "completionPanel.focus();" in completion_js
+
+
+def test_a3_completion_keeps_retained_projection_internal_and_returns_to_workspace():
+    html = _asset(HTML_PATH)
+    javascript = _asset(JS_PATH)
+    completion_html = html.split('id="review-complete"', 1)[1].split(
+        'id="proposal-review-error"', 1
+    )[0]
+    completion_js = _function(
+        javascript,
+        "renderCompletion",
+        "applyLoadedData",
+    )
+
+    assert "retained for acceptance drafting" in completion_js
+    assert "No contract was created or approved." in completion_js
+    assert 'defineCriteriaLink.textContent = "Return to POC workspace";' in completion_js
+    assert 'defineCriteriaLink.href = "/app";' in completion_js
+    assert "/retained-proposals" not in completion_js
+    assert 'href="/app"' in completion_html
 
 
 def test_graphite_orange_layout_is_finite_and_accessibly_reflows():

@@ -31,6 +31,63 @@ OutputT = TypeVar("OutputT")
 FIREWORKS_CHAT_COMPLETIONS_ENDPOINT = (
     "https://api.fireworks.ai/inference/v1/chat/completions"
 )
+_MAX_JSON_OBJECT_BYTES = 1024 * 1024
+_MAX_JSON_NODES = 20_000
+_MAX_JSON_DEPTH = 64
+
+
+def _reject_duplicate_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_non_finite_json_constant(value: str) -> None:
+    raise ValueError("non-finite JSON number")
+
+
+def _strict_json_object(value: object) -> dict[str, Any]:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("JSON object text is invalid")
+    if len(value.encode("utf-8")) > _MAX_JSON_OBJECT_BYTES:
+        raise ValueError("JSON object text is too large")
+    try:
+        parsed = json.loads(
+            value,
+            object_pairs_hook=_reject_duplicate_json_pairs,
+            parse_constant=_reject_non_finite_json_constant,
+        )
+    except (RecursionError, TypeError, ValueError, UnicodeError) as error:
+        raise ValueError("JSON object text is invalid") from error
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON value is not an object")
+
+    node_count = 0
+
+    def validate_node(node: object, depth: int) -> None:
+        nonlocal node_count
+        node_count += 1
+        if node_count > _MAX_JSON_NODES:
+            raise ValueError("JSON object contains too many values")
+        if depth > _MAX_JSON_DEPTH:
+            raise ValueError("JSON object is nested too deeply")
+        if isinstance(node, float) and not math.isfinite(node):
+            raise ValueError("JSON number is not finite")
+        if isinstance(node, dict):
+            for child in node.values():
+                validate_node(child, depth + 1)
+        elif isinstance(node, list):
+            for child in node:
+                validate_node(child, depth + 1)
+
+    try:
+        validate_node(parsed, 0)
+    except RecursionError as error:
+        raise ValueError("JSON object is nested too deeply") from error
+    return parsed
 
 
 class FireworksProvider:
@@ -285,8 +342,8 @@ class FireworksProvider:
     ]:
         envelope_invalid = False
         try:
-            envelope = json.loads(response.body)
-        except (TypeError, json.JSONDecodeError):
+            envelope = _strict_json_object(response.body)
+        except (RecursionError, TypeError, ValueError, UnicodeError):
             envelope_invalid = True
         if envelope_invalid:
             raise ProviderError(
@@ -295,14 +352,6 @@ class FireworksProvider:
                 attempts=attempt,
                 provider_request_id=_provider_request_id(response),
             ) from None
-        if not isinstance(envelope, dict):
-            raise ProviderError(
-                ProviderErrorCode.MALFORMED_RESPONSE,
-                "Provider response envelope was not a JSON object.",
-                attempts=attempt,
-                provider_request_id=_provider_request_id(response),
-            )
-
         request_id = _provider_request_id(response, envelope)
         content_missing = False
         try:
@@ -326,8 +375,8 @@ class FireworksProvider:
             )
         output_json_invalid = False
         try:
-            parsed_output = json.loads(content)
-        except json.JSONDecodeError:
+            parsed_output = _strict_json_object(content)
+        except (RecursionError, TypeError, ValueError, UnicodeError):
             output_json_invalid = True
         if output_json_invalid:
             raise ProviderError(
@@ -336,13 +385,6 @@ class FireworksProvider:
                 attempts=attempt,
                 provider_request_id=request_id,
             ) from None
-        if not isinstance(parsed_output, dict):
-            raise ProviderError(
-                ProviderErrorCode.INVALID_OUTPUT,
-                "Provider message content was not a JSON object.",
-                attempts=attempt,
-                provider_request_id=request_id,
-            )
         schema_invalid = False
         try:
             request.validate_response_instance(parsed_output)

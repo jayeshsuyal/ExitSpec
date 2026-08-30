@@ -1,4 +1,4 @@
-"""Source-neutral, process-local browser runtime for Train A A2.
+"""Source-neutral, process-local browser runtime for Train A A2/A3.
 
 This runtime deliberately owns only draft identity, source attachment, and
 human proposal projection. It does not construct the seeded session, load
@@ -9,6 +9,7 @@ The existing compatibility demo remains in :mod:`exitspec.web`.
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +22,7 @@ import webbrowser
 
 from pydantic import ValidationError
 
+from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
 from .poc_creation import (
     DraftPOCCapacityExceeded,
@@ -32,6 +34,10 @@ from .poc_creation import (
 )
 from .poc_proposal_review import (
     ProcessLocalProposalReviewService,
+)
+from .poc_assisted_authoring_web_api import (
+    handle_poc_assisted_authoring_web_api_request,
+    is_poc_assisted_authoring_web_api_target,
 )
 from .poc_proposal_web_api import handle_poc_proposal_web_api_request
 from .poc_source_intake import (
@@ -56,10 +62,16 @@ from .poc_sources import (
     POCSourceStaleRevision,
     SourceKind,
 )
+from .synthetic_assisted_authoring import (
+    SyntheticSourceNeutralAssistedAuthoringExecutor,
+)
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
+# The byte cap is retained; these parser caps bound decoded-object work too.
+MAX_REQUEST_JSON_DEPTH = 32
+MAX_REQUEST_JSON_NODES = 4_096
 POC_ID_PATTERN = r"^poc_[a-z0-9][a-z0-9_-]{2,63}$"
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
 _SOURCE_PAGE_RE = re.compile(
@@ -67,6 +79,9 @@ _SOURCE_PAGE_RE = re.compile(
 )
 _REVIEW_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/review$"
+)
+_ASSISTED_PAGE_RE = re.compile(
+    r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring$"
 )
 _DRAFT_API_RE = re.compile(r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})$")
 _SOURCE_API_RE = re.compile(
@@ -97,6 +112,9 @@ _ASSET_NAMES = frozenset(
         "proposal_review.html",
         "proposal_review.css",
         "proposal_review.js",
+        "assisted_authoring.html",
+        "assisted_authoring.css",
+        "assisted_authoring.js",
         "workbench.css",
     }
 )
@@ -114,21 +132,72 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         address: tuple[str, int],
         *,
         static_root: Path = STATIC_ROOT,
+        assisted_authoring_executor: Any | None = None,
     ) -> None:
         self.draft_poc_service = ProcessLocalDraftPOCService()
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
             draft_lookup=self.draft_poc_service.get,
         )
+        authoring_executor = (
+            SyntheticSourceNeutralAssistedAuthoringExecutor()
+            if assisted_authoring_executor is None
+            else assisted_authoring_executor
+        )
+        self.assisted_authoring_service = ProcessLocalAssistedAuthoringService(
+            source_lookup=self.poc_source_intake.source_snapshot,
+            draft_lookup=self.draft_poc_service.get,
+            executor=authoring_executor,
+            provider=getattr(authoring_executor, "provider_name", ""),
+            endpoint=getattr(authoring_executor, "endpoint", ""),
+        )
         self.proposal_review_service = ProcessLocalProposalReviewService(
-            proposal_lookup=self.poc_source_intake.proposal_inputs,
+            proposal_lookup=self._proposal_inputs_for_review,
+        )
+        self.assisted_authoring_service.bind_decision_lookup(
+            self.proposal_review_service.source_has_decision
+        )
+        self.assisted_authoring_service.bind_review_commit_guard(
+            self.proposal_review_service.authoring_commit_guard
+        )
+        self.assisted_authoring_service.bind_source_commit_guard(
+            self.poc_source_intake.authoring_commit_guard
+        )
+        self.assisted_authoring_service.bind_draft_commit_guard(
+            self.draft_poc_service.authoring_commit_guard
         )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
         super().__init__(address, SourceNeutralPOCDemoRequestHandler)
 
+    def _proposal_inputs_for_review(self, poc_id: str):
+        assisted = self.assisted_authoring_service.proposal_inputs(poc_id)
+        a2 = self.poc_source_intake.proposal_inputs(poc_id)
+        assisted_by_source: dict[str, tuple[Any, ...]] = {}
+        for proposal in assisted:
+            assisted_by_source.setdefault(proposal.source_receipt_id, tuple())
+            assisted_by_source[proposal.source_receipt_id] = (
+                *assisted_by_source[proposal.source_receipt_id],
+                proposal,
+            )
+        merged = []
+        replaced_sources: set[str] = set()
+        for proposal in a2:
+            replacement = assisted_by_source.get(proposal.source_receipt_id)
+            if replacement is None:
+                merged.append(proposal)
+                continue
+            if proposal.source_receipt_id not in replaced_sources:
+                merged.extend(replacement)
+                replaced_sources.add(proposal.source_receipt_id)
+        for source_receipt_id, replacement in assisted_by_source.items():
+            if source_receipt_id not in replaced_sources:
+                merged.extend(replacement)
+        return tuple(merged)
+
     def workspace_payload(self, selected_filter: str = "Active") -> dict[str, Any]:
         receipts: dict[str, tuple[Any, ...]] = {}
+        current_counts: dict[str, int] = {}
         pending: dict[str, int] = {}
         kept: dict[str, int] = {}
         for draft in self.draft_poc_service.snapshots():
@@ -143,6 +212,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
                 kept[draft.poc_id] = sum(
                     item.review_state.value == "KEEP_FOR_CONTRACT" for item in items
                 )
+                current_counts[draft.poc_id] = len(items)
             else:
                 receipts[draft.poc_id] = ()
                 pending[draft.poc_id] = 0
@@ -150,6 +220,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         return project_draft_dashboard(
             self.draft_poc_service.snapshots(),
             receipts,
+            current_proposal_counts_by_poc_id=current_counts,
             pending_proposal_counts_by_poc_id=pending,
             kept_proposal_counts_by_poc_id=kept,
             selected_filter=selected_filter,
@@ -194,6 +265,18 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if draft_id is not None:
             self._send_draft(draft_id)
             return
+        if is_poc_assisted_authoring_web_api_target(parsed.path):
+            response = handle_poc_assisted_authoring_web_api_request(
+                method="GET",
+                target=parsed.path,
+                payload=None,
+                runtime=self.server.assisted_authoring_service,
+                review_runtime=self.server.proposal_review_service,
+                source_runtime=self.server.poc_source_intake,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         if is_poc_source_web_api_target(parsed.path):
             response = handle_poc_source_web_api_request(
                 method="GET",
@@ -220,14 +303,20 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
             return
-        if _SOURCE_PAGE_RE.fullmatch(parsed.path) or _REVIEW_PAGE_RE.fullmatch(parsed.path):
+        if (
+            _SOURCE_PAGE_RE.fullmatch(parsed.path)
+            or _REVIEW_PAGE_RE.fullmatch(parsed.path)
+            or _ASSISTED_PAGE_RE.fullmatch(parsed.path)
+        ):
             poc_id = parsed.path.split("/")[3]
             if self._active_draft(poc_id):
-                self._file(
-                    "source_intake.html"
-                    if _SOURCE_PAGE_RE.fullmatch(parsed.path)
-                    else "proposal_review.html"
-                )
+                if _SOURCE_PAGE_RE.fullmatch(parsed.path):
+                    asset = "source_intake.html"
+                elif _REVIEW_PAGE_RE.fullmatch(parsed.path):
+                    asset = "proposal_review.html"
+                else:
+                    asset = "assisted_authoring.html"
+                self._file(asset)
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
             return
@@ -255,6 +344,18 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/pocs":
             self._create(payload)
             return
+        if is_poc_assisted_authoring_web_api_target(parsed.path):
+            response = handle_poc_assisted_authoring_web_api_request(
+                method="POST",
+                target=parsed.path,
+                payload=payload,
+                runtime=self.server.assisted_authoring_service,
+                review_runtime=self.server.proposal_review_service,
+                source_runtime=self.server.poc_source_intake,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         source_match = _SOURCE_API_RE.fullmatch(parsed.path)
         if source_match is not None and source_match.group(2) is not None:
             self._capture(source_match.group(1), unquote(source_match.group(2)), payload)
@@ -479,8 +580,30 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 object_pairs_hook=reject_duplicate_pairs,
                 parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
             )
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
             raise ValueError("Request body must be valid JSON.") from error
+        nodes = 0
+
+        def validate_value(value: Any, depth: int) -> None:
+            nonlocal nodes
+            nodes += 1
+            if nodes > MAX_REQUEST_JSON_NODES or depth > MAX_REQUEST_JSON_DEPTH:
+                raise ValueError("Request JSON exceeds its supported bounds.")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError("Request JSON contains a non-finite number.")
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if type(key) is not str:
+                        raise ValueError("Request JSON object keys must be text.")
+                    validate_value(child, depth + 1)
+            elif isinstance(value, list):
+                for child in value:
+                    validate_value(child, depth + 1)
+
+        try:
+            validate_value(payload, 0)
+        except (RecursionError, ValueError) as error:
+            raise ValueError("Request JSON exceeds its supported bounds.") from error
         if type(payload) is not dict:
             raise ValueError("Request body must be an object.")
         return payload
@@ -556,7 +679,7 @@ def serve_source_neutral_demo(
     *,
     open_browser: bool = False,
 ) -> SourceNeutralPOCDemoServer:
-    """Construct the A2 browser runtime; the caller owns its serve loop."""
+    """Construct the local A2/A3 browser runtime; caller owns its serve loop."""
 
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("ExitSpec demo only binds to a loopback address.")
@@ -573,6 +696,8 @@ def serve_source_neutral_demo(
 
 __all__ = [
     "MAX_REQUEST_BYTES",
+    "MAX_REQUEST_JSON_DEPTH",
+    "MAX_REQUEST_JSON_NODES",
     "SourceNeutralPOCDemoServer",
     "serve_source_neutral_demo",
 ]

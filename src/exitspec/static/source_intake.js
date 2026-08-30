@@ -2529,7 +2529,11 @@
         zoomGuidedUnavailable = true;
         zoomGuidedDisclosureCopy.textContent =
           "Guided Zoom handoffs require Meeting as the POC starting source. Paste a transcript instead.";
-        await loadSttDisclosure();
+        // Non-meeting source-neutral intake has no recording action. Do not
+        // probe optional STT routes that this runtime does not own.
+        sttUnavailable = true;
+        document.querySelector("#stt-disclosure").textContent =
+          "Recording is available only when Meeting is the starting source. Paste a transcript instead.";
         renderSelectedSource();
       }
     } catch {
