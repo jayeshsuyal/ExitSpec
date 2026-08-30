@@ -121,7 +121,7 @@ deterministic generators for complete PASS, genuine FAIL, Wilson-inconclusive
 `NOT_PROVEN`, and ingestion-rejection paths without duplicating hundreds of
 synthetic receipts.
 
-B12 may later wrap the immutable in-memory reduction facts in a purpose-bound
-qualification receipt. B13 may later define an Evidence Pack, UI, browser
-route, release gate, and tag. Those authorities are explicitly out of scope
-for B11.
+B12 now wraps these immutable facts through the separate, context-bound
+[Routing policy qualification receipt protocol](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
+B13 may later define an Evidence Pack, UI, browser route, release gate, and
+tag. Those authorities remain explicitly out of scope for B11 and B12.

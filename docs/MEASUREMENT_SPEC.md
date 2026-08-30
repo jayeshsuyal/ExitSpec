@@ -8,11 +8,16 @@ The pre-measurement routing qualification vocabulary is defined separately in
 the [Routing qualification protocol](ROUTING_QUALIFICATION_PROTOCOL.md), with
 the additive B10 [Routing SLO attainment protocol](ROUTING_SLO_ATTAINMENT_PROTOCOL.md)
 and B11 [Routing campaign verification protocol](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
+B12's separate [Routing policy qualification receipt protocol](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md)
+binds the recomputed B11 result and original evidence identities for routing
+qualification use only.
 B9 freezes campaign identities, allocation, reset, telemetry, receipt, and
 privacy requirements; B10 freezes per-assignment SLO and subject-specific
 confidence semantics. B11 freezes only independent run verification and
 reduction. None adds router execution or provider integration; B9/B10 do not
-add evidence ingestion or verdict behavior.
+add evidence ingestion or verdict behavior. B12 changes no measurement or
+reduction rule and grants no deployment, production-traffic, or release
+authority.
 
 B10 cancellation semantics are fixed before measurement: a cancelled
 assignment is `NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR`, with assignment
