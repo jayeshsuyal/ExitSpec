@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 import hashlib
+import re
 from typing import List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -852,7 +854,9 @@ class ManagedTTFTEvidencePolicy(FrozenExitSpecModel):
             or identity.sampling.temperature != self.sampling_temperature
             or identity.sampling.requested_output_tokens != self.requested_output_tokens
         ):
-            raise ValueError("Managed TTFT evidence identity does not match its policy.")
+            raise ValueError(
+                "Managed TTFT evidence identity does not match its policy."
+            )
         return self
 
 
@@ -890,7 +894,9 @@ class CapabilityEvidenceBinding(FrozenExitSpecModel):
         if self.binding_type != expected_type:
             raise ValueError("Evidence binding type does not match its policy.")
         if self.policy_sha256 != capability_evidence_policy_digest(self.policy):
-            raise ValueError("Evidence binding policy digest does not match its content.")
+            raise ValueError(
+                "Evidence binding policy digest does not match its content."
+            )
         return self
 
 
@@ -920,9 +926,9 @@ class CapabilityCriterion(FrozenExitSpecModel):
     planning_disposition: Literal[
         "EXECUTABLE", "EVIDENCE_IMPORT", "CLARIFICATION_REQUIRED", "UNSUPPORTED"
     ]
-    provenance: Optional[Literal[
-        "SOURCE_EXTRACTED", "HUMAN_DECLARED", "ADAPTER_PROFILE_DECLARED"
-    ]] = None
+    provenance: Optional[
+        Literal["SOURCE_EXTRACTED", "HUMAN_DECLARED", "ADAPTER_PROFILE_DECLARED"]
+    ] = None
     planning_item_id: str = Field(pattern=r"^cpitem_[a-f0-9]{32}$")
     proposal_id: str = Field(pattern=r"^prop_[a-z0-9][a-z0-9_-]{7,95}$")
     proposal_key: str = Field(min_length=1, max_length=160)
@@ -982,10 +988,17 @@ class CapabilityCriterion(FrozenExitSpecModel):
                 self.evidence_binding,
             )
             if self.explicit_exclusion or any(value is None for value in required):
-                raise ValueError("A supported capability criterion is incomplete or excluded.")
+                raise ValueError(
+                    "A supported capability criterion is incomplete or excluded."
+                )
             expected_binding_type = self.planning_disposition
-            if self.evidence_binding is None or self.evidence_binding.binding_type != expected_binding_type:
-                raise ValueError("A supported capability criterion requires its matching evidence binding.")
+            if (
+                self.evidence_binding is None
+                or self.evidence_binding.binding_type != expected_binding_type
+            ):
+                raise ValueError(
+                    "A supported capability criterion requires its matching evidence binding."
+                )
             policy = self.evidence_binding.policy
             if (
                 policy.capability_key != self.capability_key
@@ -998,14 +1011,31 @@ class CapabilityCriterion(FrozenExitSpecModel):
                 or policy.adapter != self.adapter
                 or policy.adapter_version != self.adapter_version
             ):
-                raise ValueError("Evidence binding does not match the capability criterion.")
-            if self.planning_disposition == "EVIDENCE_IMPORT" and self.evidence_profile is None:
-                raise ValueError("An evidence-import capability criterion requires its profile.")
+                raise ValueError(
+                    "Evidence binding does not match the capability criterion."
+                )
+            if (
+                self.planning_disposition == "EVIDENCE_IMPORT"
+                and self.evidence_profile is None
+            ):
+                raise ValueError(
+                    "An evidence-import capability criterion requires its profile."
+                )
             if self.planning_disposition == "EVIDENCE_IMPORT":
-                if not isinstance(policy, ManagedTTFTEvidencePolicy) or self.evidence_profile != policy.profile_id:
-                    raise ValueError("An evidence-import capability criterion requires its matching profile.")
-            if self.planning_disposition == "EXECUTABLE" and self.evidence_profile is not None:
-                raise ValueError("An executable capability criterion cannot carry an evidence profile.")
+                if (
+                    not isinstance(policy, ManagedTTFTEvidencePolicy)
+                    or self.evidence_profile != policy.profile_id
+                ):
+                    raise ValueError(
+                        "An evidence-import capability criterion requires its matching profile."
+                    )
+            if (
+                self.planning_disposition == "EXECUTABLE"
+                and self.evidence_profile is not None
+            ):
+                raise ValueError(
+                    "An executable capability criterion cannot carry an evidence profile."
+                )
         else:
             if self.provenance is not None or any(
                 value is not None
@@ -1022,9 +1052,13 @@ class CapabilityCriterion(FrozenExitSpecModel):
                     self.evidence_binding,
                 )
             ):
-                raise ValueError("A non-executable capability record carries executable fields.")
+                raise ValueError(
+                    "A non-executable capability record carries executable fields."
+                )
             if self.explicit_exclusion and self.planning_disposition != "UNSUPPORTED":
-                raise ValueError("Only an unsupported capability record may be explicitly excluded.")
+                raise ValueError(
+                    "Only an unsupported capability record may be explicitly excluded."
+                )
         return self
 
 
@@ -1379,6 +1413,236 @@ class RoutingQualificationCriterionV1(FrozenExitSpecModel):
         return self
 
 
+_CANONICAL_PROPORTION_PATTERN = r"^(?:0|1|0\.[0-9]*[1-9])$"
+
+
+def _require_canonical_proportion(value: str) -> str:
+    """Require a bounded, non-exponential decimal string in [0, 1]."""
+
+    if re.fullmatch(_CANONICAL_PROPORTION_PATTERN, value) is None:
+        raise ValueError(
+            "Proportion values must be canonical decimal strings without exponent notation."
+        )
+    try:
+        decimal = Decimal(value)
+    except InvalidOperation as error:
+        raise ValueError("Proportion value is not a valid decimal.") from error
+    if not 0 <= decimal <= 1:
+        raise ValueError("Proportion value must be between zero and one.")
+    if -decimal.as_tuple().exponent > 6:
+        raise ValueError("Proportion values may contain at most six decimal places.")
+    if format(decimal, "f") != value:
+        raise ValueError("Proportion value is not in canonical decimal form.")
+    return value
+
+
+class RoutingSLOObservationMetricV1(FrozenExitSpecModel):
+    """One concrete provider-neutral observation for a B9 assignment."""
+
+    schema_version: Literal["exitspec.routing-slo-observation-metric.v1"]
+    metric_definition_id: Literal["routing_terminal_end_to_end_latency_ns"]
+    metric_definition_version: Literal["1.0.0"]
+    metric_name: Literal["terminal_end_to_end_latency"]
+    unit: Literal["nanoseconds"]
+    value_type: Literal["NON_NEGATIVE_INTEGER"]
+    comparison_operator: Literal["lte"]
+    threshold_ns: int = Field(gt=0, le=60_000_000_000)
+    threshold_representation: Literal["CANONICAL_JSON_INTEGER_NANOSECONDS"]
+    boundary_semantics: Literal["ATTAINED_WHEN_OBSERVED_LATENCY_NS_LE_THRESHOLD_NS"]
+    measurement_scope: Literal["ONE_B9_REQUEST_TRIAL_POLICY_ASSIGNMENT"]
+    clock_domain: Literal["MONOTONIC_PER_ASSIGNMENT_CLOCK"]
+    start_event: Literal["ASSIGNMENT_DISPATCH_MONOTONIC_START"]
+    terminal_event: Literal[
+        "FINAL_RESPONSE_OR_EXTERNAL_TERMINAL_OUTCOME_MONOTONIC_STOP"
+    ]
+    per_assignment_aggregation: Literal["NONE_ONE_OBSERVATION_REQUIRED"]
+    successful_case: Literal["VALID_NON_NEGATIVE_LATENCY_IS_COMPARED_TO_THRESHOLD"]
+    external_error_case: Literal["NOT_ATTAINED_AND_REMAINS_IN_DENOMINATOR"]
+    timeout_case: Literal["NOT_ATTAINED_AND_REMAINS_IN_DENOMINATOR"]
+    missing_case: Literal["NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"]
+    invalid_case: Literal["NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"]
+    internal_case: Literal["NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"]
+
+
+class RoutingSLOAssignmentRuleV1(FrozenExitSpecModel):
+    """One exact per-assignment SLO envelope for one B9 policy subject."""
+
+    schema_version: Literal["exitspec.routing-slo-assignment-rule.v1"]
+    subject_policy_role: Literal["candidate", "baseline"]
+    subject_policy_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    subject_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+    required_observations: Tuple[RoutingSLOObservationMetricV1, ...] = Field(
+        min_length=1, max_length=1
+    )
+    outcome_derivation: Literal[
+        "EXIT_SPEC_DERIVES_ATTAINED_IF_ALL_REQUIRED_OBSERVATIONS_SATISFY"
+    ]
+    external_error_treatment: Literal["COUNT_AS_NOT_ATTAINED"]
+    timeout_treatment: Literal["COUNT_AS_NOT_ATTAINED"]
+    missing_evidence_disposition: Literal["NOT_PROVEN"]
+    invalid_evidence_disposition: Literal["NOT_PROVEN"]
+    internal_evidence_disposition: Literal["NOT_PROVEN"]
+    cancellation_treatment: Literal["NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"]
+    cancellation_disposition: Literal["NOT_PROVEN"]
+    producer_outcome_authority: Literal["FORBIDDEN_EXIT_SPEC_ONLY"]
+
+
+class RoutingSLOAttainmentConfidenceV1(FrozenExitSpecModel):
+    """Confidence requirements over one subject policy's binary population."""
+
+    schema_version: Literal["exitspec.routing-slo-attainment-confidence.v1"]
+    binary_observation: Literal["ATTAINED_OR_NOT_ATTAINED"]
+    attained_count_field: Literal["attained_count"]
+    not_attained_count_field: Literal["not_attained_count"]
+    sample_count_field: Literal["eligible_assignment_count"]
+    minimum_sample_count: int = Field(gt=0, le=200_000_000)
+    required_attainment_rate: str = Field(
+        pattern=_CANONICAL_PROPORTION_PATTERN, max_length=18
+    )
+    confidence_level: Literal["0.95"]
+    confidence_method: Literal["wilson_two_sided_lower_bound"]
+    calculator_id: Literal["exitspec.statistics.wilson_lower_bound"]
+    calculator_version: Literal["wilson-two-sided-v1"]
+    comparison_operator: Literal["gte"]
+    comparison_semantics: Literal[
+        "WILSON_TWO_SIDED_LOWER_BOUND_GTE_REQUIRED_ATTAINMENT_RATE"
+    ]
+    point_estimate_sufficiency: Literal["NEVER_SUFFICIENT_ALONE"]
+    decimal_representation: Literal[
+        "CANONICAL_DECIMAL_STRING_NO_EXPONENT_MAX_6_FRACTION_DIGITS"
+    ]
+
+    @field_validator("required_attainment_rate")
+    @classmethod
+    def require_canonical_decimal(cls, value: str) -> str:
+        return _require_canonical_proportion(value)
+
+
+class RoutingSLOPolicyConfidenceRuleV1(FrozenExitSpecModel):
+    """A subject-specific aggregate confidence rule, still pre-measurement."""
+
+    schema_version: Literal["exitspec.routing-slo-policy-confidence-rule.v1"]
+    subject_policy_role: Literal["candidate", "baseline"]
+    subject_policy_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    subject_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+    evaluation_role: Literal["QUALIFICATION_GATE", "REFERENCE_CONTROL"]
+    eligible_population: Literal[
+        "ALL_B9_REQUEST_TRIAL_ASSIGNMENTS_FOR_THIS_SUBJECT_POLICY"
+    ]
+    denominator: Literal[
+        "ALL_ELIGIBLE_ASSIGNMENTS_FOR_THIS_SUBJECT_POLICY_INCLUDING_EXTERNAL_ERRORS_AND_TIMEOUTS"
+    ]
+    population_subject_binding: Literal["THIS_RULE_SUBJECT_POLICY_ID_AND_SHA256"]
+    run_pooling: Literal["INDEPENDENT_B9_RUNS_NOT_POOLED_IN_B10"]
+    confidence: RoutingSLOAttainmentConfidenceV1
+
+
+class RoutingSLOAttainmentCriterionV1(FrozenExitSpecModel):
+    """Additive B10 confidence-bearing routing SLO requirements.
+
+    This is a pre-measurement companion criterion. It binds to exactly one
+    B9 routing campaign criterion and its policy identities, but contains no
+    observed run, measurement, producer verdict, or reduction result.
+    """
+
+    criterion_type: Literal["routing_slo_attainment_v1"]
+    protocol_id: Literal["routing_slo_attainment_v1"]
+    schema_version: Literal["exitspec.routing-slo-attainment.v1"]
+    protocol_version: Literal["1.0.0"]
+    id: Literal["routing_slo_attainment_v1"]
+    title: str = Field(min_length=1, max_length=256)
+    must_have: Literal[True]
+    source: Optional[SourceReference]
+    human_added: bool
+    normalized_claim: str = Field(min_length=1, max_length=2_000)
+    owner: str = Field(min_length=1, max_length=160)
+    evidence_policy: str = Field(min_length=1, max_length=2_000)
+    campaign_criterion_id: Literal["routing_qualification_v1"]
+    campaign_protocol_id: Literal["routing_qualification_v1"]
+    campaign_schema_version: Literal["exitspec.routing-qualification.v1"]
+    candidate_policy_id: str = Field(
+        pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
+    )
+    candidate_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+    baseline_policy_id: str = Field(
+        pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
+    )
+    baseline_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+    assignment_slo_envelopes: Tuple[RoutingSLOAssignmentRuleV1, ...] = Field(
+        min_length=2, max_length=2
+    )
+    policy_confidence_rules: Tuple[RoutingSLOPolicyConfidenceRuleV1, ...] = Field(
+        min_length=2, max_length=2
+    )
+    policy_evaluation_roles: Tuple[
+        Literal["QUALIFICATION_GATE"], Literal["REFERENCE_CONTROL"]
+    ]
+    policy_requirement_combination: Literal[
+        "QUALIFICATION_GATE_REQUIRED_REFERENCE_CONTROL_CONTEXTUAL"
+    ]
+    policy_requirement_rationale: Literal[
+        "CANDIDATE_IS_CUSTOMER_QUALIFICATION_TARGET_BASELINE_IS_REFERENCE_CONTROL"
+    ]
+    verdict_boundary: Literal["NO_VERDICT_IN_B10"]
+    approved: bool
+
+    @model_validator(mode="after")
+    def require_traceability_and_bindings(self) -> "RoutingSLOAttainmentCriterionV1":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A routing SLO criterion needs a source reference or must be explicitly human-added."
+            )
+        if self.source is not None:
+            raise ValueError("Routing SLO contracts cannot carry raw source content.")
+        if self.candidate_policy_id == self.baseline_policy_id:
+            raise ValueError("Candidate and baseline policy IDs must be distinct.")
+        if self.candidate_policy_sha256 == self.baseline_policy_sha256:
+            raise ValueError("Candidate and baseline policy digests must be distinct.")
+        envelope_roles = tuple(
+            envelope.subject_policy_role for envelope in self.assignment_slo_envelopes
+        )
+        confidence_roles = tuple(
+            rule.subject_policy_role for rule in self.policy_confidence_rules
+        )
+        evaluation_roles = tuple(
+            rule.evaluation_role for rule in self.policy_confidence_rules
+        )
+        if envelope_roles != ("candidate", "baseline"):
+            raise ValueError(
+                "Assignment SLO envelopes must use canonical candidate-then-baseline order."
+            )
+        if confidence_roles != ("candidate", "baseline"):
+            raise ValueError(
+                "Policy confidence rules must use canonical candidate-then-baseline order."
+            )
+        if self.policy_evaluation_roles != (
+            "QUALIFICATION_GATE",
+            "REFERENCE_CONTROL",
+        ):
+            raise ValueError(
+                "Policy evaluation roles must use candidate gate then baseline control order."
+            )
+        if evaluation_roles != self.policy_evaluation_roles:
+            raise ValueError(
+                "Policy confidence rules must carry their explicit evaluation roles."
+            )
+        expected = (
+            (self.candidate_policy_id, self.candidate_policy_sha256),
+            (self.baseline_policy_id, self.baseline_policy_sha256),
+        )
+        envelope_bindings = tuple(
+            (envelope.subject_policy_id, envelope.subject_policy_sha256)
+            for envelope in self.assignment_slo_envelopes
+        )
+        confidence_bindings = tuple(
+            (rule.subject_policy_id, rule.subject_policy_sha256)
+            for rule in self.policy_confidence_rules
+        )
+        if envelope_bindings != expected or confidence_bindings != expected:
+            raise ValueError("SLO policy identities must match the criterion bindings.")
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
@@ -1387,6 +1651,7 @@ ContractCriterion = Union[
     InferencePerformanceCriterionV4,
     CapabilityCriterion,
     RoutingQualificationCriterionV1,
+    RoutingSLOAttainmentCriterionV1,
 ]
 
 
@@ -1654,6 +1919,87 @@ class POCContract(FrozenExitSpecModel):
             raise ValueError(
                 "Capability agreement criteria must share one POC binding."
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_routing_slo_attainment_bindings(self) -> "POCContract":
+        """Keep the additive B10 rule attached to one complete B9 campaign."""
+
+        slo_criteria = tuple(
+            criterion
+            for criterion in self.criteria
+            if type(criterion) is RoutingSLOAttainmentCriterionV1
+        )
+        if not slo_criteria:
+            return self
+        if len(self.criteria) != 2:
+            raise ValueError("A B10 SLO contract must contain exactly two criteria.")
+        if (
+            type(self.criteria[0]) is not RoutingQualificationCriterionV1
+            or type(self.criteria[1]) is not RoutingSLOAttainmentCriterionV1
+        ):
+            raise ValueError(
+                "A B10 SLO contract must order B9 routing qualification before B10 SLO attainment."
+            )
+        if len(slo_criteria) != 1:
+            raise ValueError("A contract may contain exactly one B10 SLO criterion.")
+        campaign_criteria = tuple(
+            criterion
+            for criterion in self.criteria
+            if type(criterion) is RoutingQualificationCriterionV1
+        )
+        if len(campaign_criteria) != 1:
+            raise ValueError(
+                "A B10 SLO criterion requires exactly one B9 routing campaign criterion."
+            )
+        slo = slo_criteria[0]
+        campaign = campaign_criteria[0]
+        if (
+            slo.campaign_criterion_id != campaign.id
+            or slo.campaign_protocol_id != campaign.protocol_id
+            or slo.campaign_schema_version != campaign.schema_version
+            or slo.candidate_policy_id != campaign.candidate_policy.policy_id
+            or slo.candidate_policy_sha256 != campaign.candidate_policy.policy_sha256
+            or slo.baseline_policy_id != campaign.baseline_policy.policy_id
+            or slo.baseline_policy_sha256 != campaign.baseline_policy.policy_sha256
+        ):
+            raise ValueError(
+                "B10 SLO bindings must match the B9 campaign criterion in this contract."
+            )
+        expected_policy_bindings = (
+            (
+                campaign.candidate_policy.policy_id,
+                campaign.candidate_policy.policy_sha256,
+            ),
+            (
+                campaign.baseline_policy.policy_id,
+                campaign.baseline_policy.policy_sha256,
+            ),
+        )
+        envelope_bindings = tuple(
+            (envelope.subject_policy_id, envelope.subject_policy_sha256)
+            for envelope in slo.assignment_slo_envelopes
+        )
+        confidence_bindings = tuple(
+            (rule.subject_policy_id, rule.subject_policy_sha256)
+            for rule in slo.policy_confidence_rules
+        )
+        if envelope_bindings != expected_policy_bindings:
+            raise ValueError(
+                "B10 assignment SLO bindings must match the B9 policy identities."
+            )
+        if confidence_bindings != expected_policy_bindings:
+            raise ValueError(
+                "B10 confidence bindings must match the B9 policy identities."
+            )
+        per_subject_assignments = (
+            campaign.trial_order.trial_count * campaign.trial_order.request_count
+        )
+        for rule in slo.policy_confidence_rules:
+            if rule.confidence.minimum_sample_count > per_subject_assignments:
+                raise ValueError(
+                    "B10 minimum_sample_count exceeds this policy subject's frozen B9 assignment population."
+                )
         return self
 
 

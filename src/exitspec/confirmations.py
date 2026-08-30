@@ -68,7 +68,10 @@ def canonical_confirmation_payload(contract: POCContract) -> Dict[str, object]:
     and raw discovery transcripts are deliberately excluded.
     """
 
-    contract_payload = contract.model_dump(mode="json")
+    from .contracts import _validated_contract_for_full_contract_path
+
+    validated = _validated_contract_for_full_contract_path(contract)
+    contract_payload = validated.model_dump(mode="json")
     return {
         field_name: contract_payload[field_name]
         for field_name in _CONFIRMATION_PAYLOAD_FIELDS
