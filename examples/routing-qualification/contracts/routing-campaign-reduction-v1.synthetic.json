@@ -1,0 +1,413 @@
+{
+  "id": "routing-qualification-campaign",
+  "version": "1.0.0",
+  "status": "FROZEN",
+  "created_at": "2026-07-22T16:00:00Z",
+  "approved_at": "2026-07-22T16:10:00Z",
+  "frozen_at": "2026-08-30T12:00:00Z",
+  "customer": "Synthetic Routing Protocol Test",
+  "use_case": "Freeze routing qualification evidence vocabulary before measurement.",
+  "target_system": {
+    "provider": "provider-neutral",
+    "endpoint_class": "protocol-fixture",
+    "model": "synthetic-routing-model-v1"
+  },
+  "workload": {
+    "fixture_path": "examples/routing-qualification/workloads/request-trace-v1.synthetic.json",
+    "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "criteria": [
+    {
+      "criterion_type": "routing_qualification_v1",
+      "protocol_id": "routing_qualification_v1",
+      "schema_version": "exitspec.routing-qualification.v1",
+      "protocol_version": "1.0.0",
+      "id": "routing_qualification_v1",
+      "title": "Synthetic routing qualification vocabulary",
+      "must_have": true,
+      "source": null,
+      "human_added": true,
+      "normalized_claim": "Freeze the routing campaign evidence requirements before measurement.",
+      "owner": "exitspec",
+      "evidence_policy": "Evidence is independently sealed; ExitSpec owns acceptance.",
+      "canonicalization": {
+        "canonicalization_scheme_id": "rfc8785_jcs_v1",
+        "canonical_bytes_encoding": "utf-8_rfc8785_jcs",
+        "hash_algorithm_id": "sha256_v1",
+        "hash_encoding_id": "lowercase_hex_without_prefix"
+      },
+      "ownership": {
+        "acceptance_owner": "EXIT_SPEC",
+        "route_decision_emitter": "ROUTER_OR_CASCADE",
+        "evidence_sealer": "EVIDENCE_PRODUCER_OR_INFERDROME",
+        "producer_acceptance_authority": "FORBIDDEN"
+      },
+      "candidate_policy": {
+        "schema_version": "exitspec.routing-policy-identity.v1",
+        "policy_id": "candidate-policy-v1",
+        "policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "baseline_policy": {
+        "schema_version": "exitspec.routing-policy-identity.v1",
+        "policy_id": "baseline-policy-v1",
+        "policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "routing_configuration": {
+        "schema_version": "exitspec.routing-configuration-identity.v1",
+        "configuration_id": "routing-config-v1",
+        "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "request_trace": {
+        "schema_version": "exitspec.routing-request-trace-identity.v1",
+        "trace_id": "request-trace-v1",
+        "trace_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "trial_order": {
+        "schema_version": "exitspec.routing-trial-order.v1",
+        "candidate_policy_id": "candidate-policy-v1",
+        "baseline_policy_id": "baseline-policy-v1",
+        "request_trace_binding": "REQUEST_TRACE_INDEX",
+        "assignment_rule": "ONE_CANDIDATE_AND_ONE_BASELINE_PER_REQUEST_PER_TRIAL",
+        "ordering_rule": "TRIAL_INDEX_ASCENDING_REQUEST_INDEX_ASCENDING_POLICY_ORDER",
+        "trial_index_base": 0,
+        "policy_order": [
+          "candidate",
+          "baseline"
+        ],
+        "trial_count": 2,
+        "request_count": 100,
+        "total_assignments": 400
+      },
+      "cache_reset": {
+        "schema_version": "exitspec.routing-cache-reset.v1",
+        "intended_start_state": "COLD",
+        "reset_boundary": "BEFORE_EACH_TRIAL",
+        "reset_scope": "ROUTER_AND_SERVING_ENGINE_STATE",
+        "reset_required": true,
+        "cross_policy_cache_reuse": false
+      },
+      "failure_injection": {
+        "schema_version": "exitspec.routing-failure-injection.v1",
+        "configuration_id": "no-failure-injection-v1",
+        "configuration_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "posture": "NO_INJECTION",
+        "injected_failure_classes": [],
+        "maximum_injected_failures": 0
+      },
+      "serving": {
+        "schema_version": "exitspec.routing-serving-requirement.v1",
+        "engine": "engine-neutral",
+        "engine_version": "1.0.0",
+        "model": "model-neutral",
+        "model_revision": "revision-123456",
+        "tokenizer": "tokenizer-neutral",
+        "tokenizer_revision": "tokenizer-123456",
+        "quantization": "unquantized",
+        "tensor_parallel_size": 1,
+        "execution_environment": {
+          "schema_version": "exitspec.routing-environment-requirement.v1",
+          "environment_id": "environment-v1",
+          "environment_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "required_evidence_fields": [
+            "target.engine_version",
+            "target.model_revision",
+            "target.tokenizer_revision",
+            "gpu.model",
+            "gpu.count",
+            "cuda.version",
+            "driver.version",
+            "execution.environment_id"
+          ]
+        }
+      },
+      "telemetry": {
+        "schema_version": "exitspec.routing-telemetry-policy.v1",
+        "capsule_type": "ROUTING_TELEMETRY_CAPSULE_V1",
+        "capsule_identity_field": "telemetry_capsule_id",
+        "capsule_digest_field": "telemetry_capsule_sha256",
+        "capsule_digest_scope": "CANONICAL_CAPSULE_BYTES",
+        "required_provenance_fields": [
+          "telemetry_capsule_id",
+          "telemetry_capsule_sha256",
+          "run_id",
+          "captured_at",
+          "producer_id",
+          "environment_id"
+        ],
+        "max_age_seconds": 300,
+        "age_comparison": "OBSERVED_AGE_SECONDS_LE_MAX_AGE_SECONDS",
+        "stale_when": "OBSERVED_AGE_SECONDS_GT_MAX_AGE_SECONDS"
+      },
+      "route_decision_receipts": {
+        "schema_version": "exitspec.routing-decision-receipt-protocol.v1",
+        "receipt_type": "ROUTE_DECISION_RECEIPT_V1",
+        "receipt_identity_field": "route_decision_receipt_id",
+        "receipt_digest_field": "route_decision_receipt_sha256",
+        "required_bindings": [
+          "campaign_contract_sha256",
+          "request_id",
+          "trial_index",
+          "policy_id",
+          "routing_configuration_id",
+          "routing_configuration_sha256"
+        ],
+        "required_provenance_fields": [
+          "route_decision_receipt_id",
+          "route_decision_receipt_sha256",
+          "producer_id",
+          "producer_version",
+          "captured_at",
+          "source_digest"
+        ],
+        "completeness_expectation": "EXACTLY_ONE_RECEIPT_PER_REQUEST_TRIAL_POLICY_ASSIGNMENT",
+        "route_decision_source": "ROUTER_OR_CASCADE",
+        "verdict_boundary": "EXIT_SPEC_ONLY"
+      },
+      "run_policy": {
+        "schema_version": "exitspec.routing-run-policy.v1",
+        "run_mode": "INDEPENDENT_RUNS",
+        "default_repetitions": 2,
+        "independence_requirement": "EACH_RUN_HAS_A_SEPARATE_RUN_ID",
+        "pooling_policy": "FORBIDDEN_UNLESS_FUTURE_FROZEN_CONTRACT_DEFINES_IT",
+        "aggregation_policy": "UNDEFINED_IN_B9"
+      },
+      "privacy": {
+        "schema_version": "exitspec.routing-privacy-policy.v1",
+        "credentials": "FORBIDDEN",
+        "secrets": "FORBIDDEN",
+        "raw_sensitive_customer_content": "FORBIDDEN",
+        "allowed_representation": "IDENTITIES_DIGESTS_AND_BOUNDED_METADATA_ONLY"
+      },
+      "approved": true
+    },
+    {
+      "criterion_type": "routing_slo_attainment_v1",
+      "protocol_id": "routing_slo_attainment_v1",
+      "schema_version": "exitspec.routing-slo-attainment.v1",
+      "protocol_version": "1.0.0",
+      "id": "routing_slo_attainment_v1",
+      "title": "Synthetic routing SLO attainment requirements",
+      "must_have": true,
+      "source": null,
+      "human_added": true,
+      "normalized_claim": "Freeze confidence-bearing SLO attainment requirements for the B9 routing campaign before measurement.",
+      "owner": "exitspec",
+      "evidence_policy": "Future evidence must derive each assignment outcome from the required monotonic terminal-latency predicate. External errors and timeouts count as not attained; missing, invalid, or internal evidence is NOT_PROVEN. Cancellation is NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR. Candidate is the QUALIFICATION_GATE; baseline is the REFERENCE_CONTROL with contextual results. Each policy uses its own B9 subject population. B10 emits no verdict.",
+      "campaign_criterion_id": "routing_qualification_v1",
+      "campaign_protocol_id": "routing_qualification_v1",
+      "campaign_schema_version": "exitspec.routing-qualification.v1",
+      "candidate_policy_id": "candidate-policy-v1",
+      "candidate_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseline_policy_id": "baseline-policy-v1",
+      "baseline_policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "assignment_slo_envelopes": [
+        {
+          "schema_version": "exitspec.routing-slo-assignment-rule.v1",
+          "subject_policy_role": "candidate",
+          "subject_policy_id": "candidate-policy-v1",
+          "subject_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_observations": [
+            {
+              "schema_version": "exitspec.routing-slo-observation-metric.v1",
+              "metric_definition_id": "routing_terminal_end_to_end_latency_ns",
+              "metric_definition_version": "1.0.0",
+              "metric_name": "terminal_end_to_end_latency",
+              "unit": "nanoseconds",
+              "value_type": "NON_NEGATIVE_INTEGER",
+              "comparison_operator": "lte",
+              "threshold_ns": 250000000,
+              "threshold_representation": "CANONICAL_JSON_INTEGER_NANOSECONDS",
+              "boundary_semantics": "ATTAINED_WHEN_OBSERVED_LATENCY_NS_LE_THRESHOLD_NS",
+              "measurement_scope": "ONE_B9_REQUEST_TRIAL_POLICY_ASSIGNMENT",
+              "clock_domain": "MONOTONIC_PER_ASSIGNMENT_CLOCK",
+              "start_event": "ASSIGNMENT_DISPATCH_MONOTONIC_START",
+              "terminal_event": "FINAL_RESPONSE_OR_EXTERNAL_TERMINAL_OUTCOME_MONOTONIC_STOP",
+              "per_assignment_aggregation": "NONE_ONE_OBSERVATION_REQUIRED",
+              "successful_case": "VALID_NON_NEGATIVE_LATENCY_IS_COMPARED_TO_THRESHOLD",
+              "external_error_case": "NOT_ATTAINED_AND_REMAINS_IN_DENOMINATOR",
+              "timeout_case": "NOT_ATTAINED_AND_REMAINS_IN_DENOMINATOR",
+              "missing_case": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+              "invalid_case": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+              "internal_case": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"
+            }
+          ],
+          "outcome_derivation": "EXIT_SPEC_DERIVES_ATTAINED_IF_ALL_REQUIRED_OBSERVATIONS_SATISFY",
+          "external_error_treatment": "COUNT_AS_NOT_ATTAINED",
+          "timeout_treatment": "COUNT_AS_NOT_ATTAINED",
+          "missing_evidence_disposition": "NOT_PROVEN",
+          "invalid_evidence_disposition": "NOT_PROVEN",
+          "internal_evidence_disposition": "NOT_PROVEN",
+          "cancellation_treatment": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+          "cancellation_disposition": "NOT_PROVEN",
+          "producer_outcome_authority": "FORBIDDEN_EXIT_SPEC_ONLY"
+        },
+        {
+          "schema_version": "exitspec.routing-slo-assignment-rule.v1",
+          "subject_policy_role": "baseline",
+          "subject_policy_id": "baseline-policy-v1",
+          "subject_policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "required_observations": [
+            {
+              "schema_version": "exitspec.routing-slo-observation-metric.v1",
+              "metric_definition_id": "routing_terminal_end_to_end_latency_ns",
+              "metric_definition_version": "1.0.0",
+              "metric_name": "terminal_end_to_end_latency",
+              "unit": "nanoseconds",
+              "value_type": "NON_NEGATIVE_INTEGER",
+              "comparison_operator": "lte",
+              "threshold_ns": 250000000,
+              "threshold_representation": "CANONICAL_JSON_INTEGER_NANOSECONDS",
+              "boundary_semantics": "ATTAINED_WHEN_OBSERVED_LATENCY_NS_LE_THRESHOLD_NS",
+              "measurement_scope": "ONE_B9_REQUEST_TRIAL_POLICY_ASSIGNMENT",
+              "clock_domain": "MONOTONIC_PER_ASSIGNMENT_CLOCK",
+              "start_event": "ASSIGNMENT_DISPATCH_MONOTONIC_START",
+              "terminal_event": "FINAL_RESPONSE_OR_EXTERNAL_TERMINAL_OUTCOME_MONOTONIC_STOP",
+              "per_assignment_aggregation": "NONE_ONE_OBSERVATION_REQUIRED",
+              "successful_case": "VALID_NON_NEGATIVE_LATENCY_IS_COMPARED_TO_THRESHOLD",
+              "external_error_case": "NOT_ATTAINED_AND_REMAINS_IN_DENOMINATOR",
+              "timeout_case": "NOT_ATTAINED_AND_REMAINS_IN_DENOMINATOR",
+              "missing_case": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+              "invalid_case": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+              "internal_case": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR"
+            }
+          ],
+          "outcome_derivation": "EXIT_SPEC_DERIVES_ATTAINED_IF_ALL_REQUIRED_OBSERVATIONS_SATISFY",
+          "external_error_treatment": "COUNT_AS_NOT_ATTAINED",
+          "timeout_treatment": "COUNT_AS_NOT_ATTAINED",
+          "missing_evidence_disposition": "NOT_PROVEN",
+          "invalid_evidence_disposition": "NOT_PROVEN",
+          "internal_evidence_disposition": "NOT_PROVEN",
+          "cancellation_treatment": "NOT_PROVEN_AND_REMAINS_IN_DENOMINATOR",
+          "cancellation_disposition": "NOT_PROVEN",
+          "producer_outcome_authority": "FORBIDDEN_EXIT_SPEC_ONLY"
+        }
+      ],
+      "policy_confidence_rules": [
+        {
+          "schema_version": "exitspec.routing-slo-policy-confidence-rule.v1",
+          "subject_policy_role": "candidate",
+          "subject_policy_id": "candidate-policy-v1",
+          "subject_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evaluation_role": "QUALIFICATION_GATE",
+          "eligible_population": "ALL_B9_REQUEST_TRIAL_ASSIGNMENTS_FOR_THIS_SUBJECT_POLICY",
+          "denominator": "ALL_ELIGIBLE_ASSIGNMENTS_FOR_THIS_SUBJECT_POLICY_INCLUDING_EXTERNAL_ERRORS_AND_TIMEOUTS",
+          "population_subject_binding": "THIS_RULE_SUBJECT_POLICY_ID_AND_SHA256",
+          "run_pooling": "INDEPENDENT_B9_RUNS_NOT_POOLED_IN_B10",
+          "confidence": {
+            "schema_version": "exitspec.routing-slo-attainment-confidence.v1",
+            "binary_observation": "ATTAINED_OR_NOT_ATTAINED",
+            "attained_count_field": "attained_count",
+            "not_attained_count_field": "not_attained_count",
+            "sample_count_field": "eligible_assignment_count",
+            "minimum_sample_count": 200,
+            "required_attainment_rate": "0.97",
+            "confidence_level": "0.95",
+            "confidence_method": "wilson_two_sided_lower_bound",
+            "calculator_id": "exitspec.statistics.wilson_lower_bound",
+            "calculator_version": "wilson-two-sided-v1",
+            "comparison_operator": "gte",
+            "comparison_semantics": "WILSON_TWO_SIDED_LOWER_BOUND_GTE_REQUIRED_ATTAINMENT_RATE",
+            "point_estimate_sufficiency": "NEVER_SUFFICIENT_ALONE",
+            "decimal_representation": "CANONICAL_DECIMAL_STRING_NO_EXPONENT_MAX_6_FRACTION_DIGITS"
+          }
+        },
+        {
+          "schema_version": "exitspec.routing-slo-policy-confidence-rule.v1",
+          "subject_policy_role": "baseline",
+          "subject_policy_id": "baseline-policy-v1",
+          "subject_policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "evaluation_role": "REFERENCE_CONTROL",
+          "eligible_population": "ALL_B9_REQUEST_TRIAL_ASSIGNMENTS_FOR_THIS_SUBJECT_POLICY",
+          "denominator": "ALL_ELIGIBLE_ASSIGNMENTS_FOR_THIS_SUBJECT_POLICY_INCLUDING_EXTERNAL_ERRORS_AND_TIMEOUTS",
+          "population_subject_binding": "THIS_RULE_SUBJECT_POLICY_ID_AND_SHA256",
+          "run_pooling": "INDEPENDENT_B9_RUNS_NOT_POOLED_IN_B10",
+          "confidence": {
+            "schema_version": "exitspec.routing-slo-attainment-confidence.v1",
+            "binary_observation": "ATTAINED_OR_NOT_ATTAINED",
+            "attained_count_field": "attained_count",
+            "not_attained_count_field": "not_attained_count",
+            "sample_count_field": "eligible_assignment_count",
+            "minimum_sample_count": 200,
+            "required_attainment_rate": "0.97",
+            "confidence_level": "0.95",
+            "confidence_method": "wilson_two_sided_lower_bound",
+            "calculator_id": "exitspec.statistics.wilson_lower_bound",
+            "calculator_version": "wilson-two-sided-v1",
+            "comparison_operator": "gte",
+            "comparison_semantics": "WILSON_TWO_SIDED_LOWER_BOUND_GTE_REQUIRED_ATTAINMENT_RATE",
+            "point_estimate_sufficiency": "NEVER_SUFFICIENT_ALONE",
+            "decimal_representation": "CANONICAL_DECIMAL_STRING_NO_EXPONENT_MAX_6_FRACTION_DIGITS"
+          }
+        }
+      ],
+      "policy_evaluation_roles": [
+        "QUALIFICATION_GATE",
+        "REFERENCE_CONTROL"
+      ],
+      "policy_requirement_combination": "QUALIFICATION_GATE_REQUIRED_REFERENCE_CONTROL_CONTEXTUAL",
+      "policy_requirement_rationale": "CANDIDATE_IS_CUSTOMER_QUALIFICATION_TARGET_BASELINE_IS_REFERENCE_CONTROL",
+      "verdict_boundary": "NO_VERDICT_IN_B10",
+      "approved": true
+    },
+    {
+      "criterion_type": "routing_campaign_reduction_v1",
+      "protocol_id": "routing_campaign_reduction_v1",
+      "schema_version": "exitspec.routing-campaign-reduction.v1",
+      "protocol_version": "1.0.0",
+      "id": "routing_campaign_reduction_v1",
+      "title": "Synthetic routing campaign deterministic reduction",
+      "must_have": true,
+      "source": null,
+      "human_added": true,
+      "normalized_claim": "Freeze deterministic independent-run reduction for the routing campaign before measurement.",
+      "owner": "exitspec",
+      "evidence_policy": "ExitSpec independently admits each run, derives assignment outcomes, calculates per-policy Wilson facts, and never pools runs. B12 and B13 remain deferred.",
+      "campaign_criterion_id": "routing_qualification_v1",
+      "campaign_protocol_id": "routing_qualification_v1",
+      "campaign_schema_version": "exitspec.routing-qualification.v1",
+      "slo_criterion_id": "routing_slo_attainment_v1",
+      "slo_protocol_id": "routing_slo_attainment_v1",
+      "slo_schema_version": "exitspec.routing-slo-attainment.v1",
+      "candidate_policy_id": "candidate-policy-v1",
+      "candidate_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseline_policy_id": "baseline-policy-v1",
+      "baseline_policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "campaign_run_policy_schema_version": "exitspec.routing-run-policy.v1",
+      "campaign_run_mode": "INDEPENDENT_RUNS",
+      "campaign_pooling_policy": "FORBIDDEN_UNLESS_FUTURE_FROZEN_CONTRACT_DEFINES_IT",
+      "campaign_aggregation_policy": "UNDEFINED_IN_B9",
+      "required_repetition_count": 2,
+      "required_repetition_indices": [
+        1,
+        2
+      ],
+      "reduction_policy_id": "routing_campaign_deterministic_reducer_v1",
+      "reduction_policy_version": "1.0.0",
+      "run_evaluation_semantics": "EACH_REQUIRED_RUN_INDEPENDENTLY_EVALUATED",
+      "cross_run_statistics": "NONE_NO_CROSS_RUN_WILSON_OR_RATE",
+      "run_ordering": "REPETITION_INDEX_ASCENDING",
+      "assignment_ordering": "TRIAL_INDEX_ASCENDING_REQUEST_INDEX_ASCENDING_POLICY_ORDER",
+      "request_id_rule": "REQUEST_INDEX_0_BASED_DECIMAL_6_AS_REQUEST_PREFIX",
+      "candidate_evaluation_role": "QUALIFICATION_GATE",
+      "baseline_evaluation_role": "REFERENCE_CONTROL",
+      "campaign_pass_semantics": "ALL_REQUIRED_CANDIDATE_RUNS_PASS_AND_REQUIRED_CONTEXTUAL_EVIDENCE_IS_COMPLETE",
+      "campaign_fail_semantics": "A_COMPLETE_REQUIRED_CANDIDATE_RUN_FAILS_AND_NO_REQUIRED_EVIDENCE_IS_INCOMPLETE",
+      "campaign_not_proven_semantics": "MISSING_INCOMPLETE_STALE_CANCELLED_INTERNAL_OR_INSUFFICIENT_REQUIRED_EVIDENCE",
+      "baseline_result_semantics": "BASELINE_IS_CONTEXTUAL_AND_NEVER_CONTROLS_CAMPAIGN_VERDICT",
+      "combination_precedence": "NOT_PROVEN_OVER_FAIL_OVER_PASS",
+      "reduction_authority": "EXIT_SPEC_ONLY",
+      "receipt_authority": "PRODUCER_EMITS_FACTS_EXIT_SPEC_RECALCULATES",
+      "approved": true
+    }
+  ],
+  "owners": [
+    "exitspec-protocol-owner"
+  ],
+  "non_goals": [
+    "No router execution, campaign measurement, or acceptance verdict is performed by this fixture."
+  ],
+  "evidence_retention_policy": "Synthetic fixture only; identities, digests, and bounded metadata; no secrets or raw customer content.",
+  "parent_version": null,
+  "confirmation_id": "cnf_e01418bbef5e2a81f63ebcabe5145efe33d5f9a0d8bb3ca9bd8ce861e4d9c3ed",
+  "canonical_hash": "66a6642ab761e8430e0a955e4b43de4779dda12fa08207ad25bb708c858bd260"
+}

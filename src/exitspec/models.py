@@ -16,6 +16,11 @@ from .canonical import canonical_json_bytes
 
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
+# B11 evidence uses the existing strict JSON array boundary from the hardened
+# B9 loader.  Keep this applicability ceiling local to B11 so B9 remains
+# unchanged while no B11 contract can authorize an unadmittable population.
+_ROUTING_CAMPAIGN_B11_MAX_ASSIGNMENTS = 1_000
+
 
 class ExitSpecModel(BaseModel):
     """Base model that rejects undocumented fields at the contract boundary."""
@@ -1643,6 +1648,98 @@ class RoutingSLOAttainmentCriterionV1(FrozenExitSpecModel):
         return self
 
 
+class RoutingCampaignReductionCriterionV1(FrozenExitSpecModel):
+    """Additive B11 policy for deterministic, independent campaign reduction.
+
+    B9 and B10 intentionally leave cross-run aggregation undefined.  This
+    criterion freezes that missing pre-measurement policy inside the existing
+    full ``POCContract`` rather than creating a criterion-only authority.
+    """
+
+    criterion_type: Literal["routing_campaign_reduction_v1"]
+    protocol_id: Literal["routing_campaign_reduction_v1"]
+    schema_version: Literal["exitspec.routing-campaign-reduction.v1"]
+    protocol_version: Literal["1.0.0"]
+    id: Literal["routing_campaign_reduction_v1"]
+    title: str = Field(min_length=1, max_length=256)
+    must_have: Literal[True]
+    source: Optional[SourceReference]
+    human_added: bool
+    normalized_claim: str = Field(min_length=1, max_length=2_000)
+    owner: str = Field(min_length=1, max_length=160)
+    evidence_policy: str = Field(min_length=1, max_length=2_000)
+    campaign_criterion_id: Literal["routing_qualification_v1"]
+    campaign_protocol_id: Literal["routing_qualification_v1"]
+    campaign_schema_version: Literal["exitspec.routing-qualification.v1"]
+    slo_criterion_id: Literal["routing_slo_attainment_v1"]
+    slo_protocol_id: Literal["routing_slo_attainment_v1"]
+    slo_schema_version: Literal["exitspec.routing-slo-attainment.v1"]
+    candidate_policy_id: str = Field(
+        pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
+    )
+    candidate_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+    baseline_policy_id: str = Field(
+        pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
+    )
+    baseline_policy_sha256: str = Field(pattern=SHA256_PATTERN)
+    campaign_run_policy_schema_version: Literal["exitspec.routing-run-policy.v1"]
+    campaign_run_mode: Literal["INDEPENDENT_RUNS"]
+    campaign_pooling_policy: Literal[
+        "FORBIDDEN_UNLESS_FUTURE_FROZEN_CONTRACT_DEFINES_IT"
+    ]
+    campaign_aggregation_policy: Literal["UNDEFINED_IN_B9"]
+    required_repetition_count: int = Field(ge=1, le=100)
+    required_repetition_indices: Tuple[int, ...] = Field(min_length=1, max_length=100)
+    reduction_policy_id: Literal["routing_campaign_deterministic_reducer_v1"]
+    reduction_policy_version: Literal["1.0.0"]
+    run_evaluation_semantics: Literal["EACH_REQUIRED_RUN_INDEPENDENTLY_EVALUATED"]
+    cross_run_statistics: Literal["NONE_NO_CROSS_RUN_WILSON_OR_RATE"]
+    run_ordering: Literal["REPETITION_INDEX_ASCENDING"]
+    assignment_ordering: Literal[
+        "TRIAL_INDEX_ASCENDING_REQUEST_INDEX_ASCENDING_POLICY_ORDER"
+    ]
+    request_id_rule: Literal["REQUEST_INDEX_0_BASED_DECIMAL_6_AS_REQUEST_PREFIX"]
+    candidate_evaluation_role: Literal["QUALIFICATION_GATE"]
+    baseline_evaluation_role: Literal["REFERENCE_CONTROL"]
+    campaign_pass_semantics: Literal[
+        "ALL_REQUIRED_CANDIDATE_RUNS_PASS_AND_REQUIRED_CONTEXTUAL_EVIDENCE_IS_COMPLETE"
+    ]
+    campaign_fail_semantics: Literal[
+        "A_COMPLETE_REQUIRED_CANDIDATE_RUN_FAILS_AND_NO_REQUIRED_EVIDENCE_IS_INCOMPLETE"
+    ]
+    campaign_not_proven_semantics: Literal[
+        "MISSING_INCOMPLETE_STALE_CANCELLED_INTERNAL_OR_INSUFFICIENT_REQUIRED_EVIDENCE"
+    ]
+    baseline_result_semantics: Literal[
+        "BASELINE_IS_CONTEXTUAL_AND_NEVER_CONTROLS_CAMPAIGN_VERDICT"
+    ]
+    combination_precedence: Literal["NOT_PROVEN_OVER_FAIL_OVER_PASS"]
+    reduction_authority: Literal["EXIT_SPEC_ONLY"]
+    receipt_authority: Literal["PRODUCER_EMITS_FACTS_EXIT_SPEC_RECALCULATES"]
+    approved: bool
+
+    @model_validator(mode="after")
+    def require_exact_reduction_shape(self) -> "RoutingCampaignReductionCriterionV1":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A routing campaign reduction criterion needs a source reference or must be explicitly human-added."
+            )
+        if self.source is not None:
+            raise ValueError(
+                "Routing campaign reduction contracts cannot carry raw source content."
+            )
+        if self.candidate_policy_id == self.baseline_policy_id:
+            raise ValueError("Candidate and baseline policy IDs must be distinct.")
+        if self.candidate_policy_sha256 == self.baseline_policy_sha256:
+            raise ValueError("Candidate and baseline policy digests must be distinct.")
+        expected_indices = tuple(range(1, self.required_repetition_count + 1))
+        if self.required_repetition_indices != expected_indices:
+            raise ValueError(
+                "Required repetition indices must be the canonical one-based sequence."
+            )
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
@@ -1652,6 +1749,7 @@ ContractCriterion = Union[
     CapabilityCriterion,
     RoutingQualificationCriterionV1,
     RoutingSLOAttainmentCriterionV1,
+    RoutingCampaignReductionCriterionV1,
 ]
 
 
@@ -1932,7 +2030,17 @@ class POCContract(FrozenExitSpecModel):
         )
         if not slo_criteria:
             return self
-        if len(self.criteria) != 2:
+        reduction_criteria = tuple(
+            criterion
+            for criterion in self.criteria
+            if type(criterion) is RoutingCampaignReductionCriterionV1
+        )
+        if reduction_criteria:
+            if len(self.criteria) != 3:
+                raise ValueError(
+                    "A B11 routing campaign contract must contain exactly three criteria."
+                )
+        elif len(self.criteria) != 2:
             raise ValueError("A B10 SLO contract must contain exactly two criteria.")
         if (
             type(self.criteria[0]) is not RoutingQualificationCriterionV1
@@ -2000,6 +2108,89 @@ class POCContract(FrozenExitSpecModel):
                 raise ValueError(
                     "B10 minimum_sample_count exceeds this policy subject's frozen B9 assignment population."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_routing_campaign_reduction_bindings(self) -> "POCContract":
+        """Keep B11's reduction policy attached to unchanged B9 and B10."""
+
+        reduction_criteria = tuple(
+            criterion
+            for criterion in self.criteria
+            if type(criterion) is RoutingCampaignReductionCriterionV1
+        )
+        if not reduction_criteria:
+            return self
+        if (
+            len(self.criteria) != 3
+            or type(self.criteria[0]) is not RoutingQualificationCriterionV1
+            or type(self.criteria[1]) is not RoutingSLOAttainmentCriterionV1
+            or type(self.criteria[2]) is not RoutingCampaignReductionCriterionV1
+            or len(reduction_criteria) != 1
+        ):
+            raise ValueError(
+                "A B11 routing campaign contract must order B9 qualification, B10 SLO attainment, then B11 reduction."
+            )
+        campaign = self.criteria[0]
+        slo = self.criteria[1]
+        reduction = self.criteria[2]
+        expected = (
+            reduction.campaign_criterion_id,
+            reduction.campaign_protocol_id,
+            reduction.campaign_schema_version,
+            reduction.slo_criterion_id,
+            reduction.slo_protocol_id,
+            reduction.slo_schema_version,
+            reduction.candidate_policy_id,
+            reduction.candidate_policy_sha256,
+            reduction.baseline_policy_id,
+            reduction.baseline_policy_sha256,
+            reduction.required_repetition_count,
+        )
+        actual = (
+            campaign.id,
+            campaign.protocol_id,
+            campaign.schema_version,
+            slo.id,
+            slo.protocol_id,
+            slo.schema_version,
+            campaign.candidate_policy.policy_id,
+            campaign.candidate_policy.policy_sha256,
+            campaign.baseline_policy.policy_id,
+            campaign.baseline_policy.policy_sha256,
+            campaign.run_policy.default_repetitions,
+        )
+        if expected != actual:
+            raise ValueError(
+                "B11 reduction bindings must match the B9 campaign and B10 SLO in this contract."
+            )
+        if reduction.required_repetition_indices != tuple(
+            range(1, reduction.required_repetition_count + 1)
+        ):
+            raise ValueError(
+                "B11 required repetition indices must match the frozen repetition count."
+            )
+        b11_assignments = (
+            campaign.trial_order.trial_count
+            * campaign.trial_order.request_count
+            * len(campaign.trial_order.policy_order)
+        )
+        if b11_assignments > _ROUTING_CAMPAIGN_B11_MAX_ASSIGNMENTS:
+            raise ValueError(
+                "B11 campaign population exceeds the bounded evidence parser capacity."
+            )
+        if (
+            reduction.campaign_run_policy_schema_version
+            != campaign.run_policy.schema_version
+        ):
+            raise ValueError("B11 must bind the B9 run-policy schema version.")
+        if (
+            reduction.campaign_run_mode != campaign.run_policy.run_mode
+            or reduction.campaign_pooling_policy != campaign.run_policy.pooling_policy
+            or reduction.campaign_aggregation_policy
+            != campaign.run_policy.aggregation_policy
+        ):
+            raise ValueError("B11 must preserve the B9 independent no-pooling policy.")
         return self
 
 
