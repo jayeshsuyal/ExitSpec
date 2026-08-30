@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Review one exact ExitSpec agreement." />
+    <title>ExitSpec — Customer review</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+    <link rel="stylesheet" href="/customer_review_dynamic.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#customer-review-main">Skip to customer review</a>
+    <div class="dashboard-shell customer-review-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec"><span class="brand-mark" aria-hidden="true">E</span><span>ExitSpec</span></a>
+        <div class="local-identity"><span class="identity-dot" aria-hidden="true"></span><span>Local review</span></div>
+      </header>
+      <main class="customer-review-main workbench-main" id="customer-review-main">
+        <header class="review-header"><p class="eyebrow">Customer review</p><h1>Confirm the exact agreement</h1><p id="review-context">This decision records review only. It does not authorize execution, evidence, deployment, or a verdict.</p></header>
+        <section id="customer-review-task" class="customer-review-task workbench-current-task" aria-busy="true">
+          <div class="review-summary"><div><span class="eyebrow">Agreement</span><h2 id="review-customer">Loading…</h2></div><div class="review-identity"><span id="review-version"></span><span id="review-fingerprint"></span></div></div>
+          <div id="review-criteria" class="review-criteria"></div>
+          <section class="review-proof"><h3>How this will be proven</h3><div id="review-proof"></div></section>
+          <section class="review-limitations"><h3>Limitations</h3><div id="review-limitations"></div></section>
+          <details class="review-technical"><summary>Technical binding</summary><pre id="review-technical"></pre></details>
+          <form id="customer-decision-form" class="customer-decision-form" novalidate hidden>
+            <label class="acknowledgement"><input id="agreement-checkbox" type="checkbox" name="agreement_acknowledged" /> I acknowledge this exact agreement and its limitations.</label>
+            <label>Review rationale<textarea id="review-rationale" maxlength="2000" required></textarea></label>
+            <div class="decision-actions"><button id="request-changes" class="secondary-action" type="submit" data-decision="REQUEST_CHANGES">Request changes</button><button id="confirm-agreement" class="primary-action" type="submit" data-decision="CONFIRM">Confirm agreement</button></div>
+          </form>
+          <section id="review-result" class="review-result" hidden><strong id="review-result-heading"></strong><p id="review-result-copy"></p><a id="return-to-agreement" class="primary-action" href="#">Return to agreement</a></section>
+        </section>
+        <p id="customer-review-error" class="customer-review-error" role="alert" hidden></p>
+      </main>
+    </div>
+    <script src="/customer_review_dynamic.js"></script>
+  </body>
+</html>

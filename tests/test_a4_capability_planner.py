@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from http.client import HTTPConnection
 import json
 import math
+from typing import Any
 from pathlib import Path
 import threading
 
@@ -109,7 +110,7 @@ def test_a4_every_retained_candidate_gets_one_of_four_outcomes_and_two_scopes():
         operator="LT",
         threshold=500,
         unit="MILLISECONDS",
-        measurement_population="successful_measured_attempts_with_valid_ttft",
+        measurement_population="successful_measured_requests_with_observed_ttft",
         evidence_method="EXTERNAL_EVIDENCE_BUNDLE",
         adapter="vllm_bench_serve",
         adapter_version="1.0.0",
@@ -175,7 +176,7 @@ def test_a4_unknown_fields_and_unknown_adapter_profile_fail_closed():
             proposal.poc_id,
             (_item(proposal.proposal_id, scope=CapabilityPlanScope.MUST_HAVE, capability_key="inference_performance_external", criterion=PlannerCriterionInput(
                 rule="ttft_p95", operator="LT", threshold=500, unit="MILLISECONDS",
-                measurement_population="successful_measured_attempts_with_valid_ttft",
+                measurement_population="successful_measured_requests_with_observed_ttft",
                 evidence_method="EXTERNAL_EVIDENCE_BUNDLE", adapter="vllm_bench_serve",
                 adapter_version="1.0.0", evidence_profile="forged-profile",
                 provenance=PlanningProvenance.ADAPTER_PROFILE_DECLARED,

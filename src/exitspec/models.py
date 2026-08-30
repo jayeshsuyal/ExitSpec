@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+import hashlib
 from typing import List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .canonical import canonical_json_bytes
 
 
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
@@ -686,12 +689,352 @@ class InferencePerformanceCriterionV4(FrozenExitSpecModel):
         return self
 
 
+class ManagedTTFTEvidenceIdentityV1(FrozenExitSpecModel):
+    """Run-independent managed target identity retained for the A6 handoff."""
+
+    schema_version: Literal["exitspec.managed-ttft-evidence-identity.v1"] = (
+        "exitspec.managed-ttft-evidence-identity.v1"
+    )
+    evidence_schema_version: Literal["inferdrome.evidence.v1"]
+    sequence_requirement: Literal["OPERATOR_MUST_FREEZE_BEFORE_MEASUREMENT"]
+    chronology_assurance: Literal["UNAVAILABLE"]
+    producer_name: Literal["vllm"]
+    producer_version: Literal["0.26.0"]
+    adapter_id: Literal["vllm_bench_serve"]
+    adapter_version: Literal["1.0.0"]
+    native_schema_fingerprint: Literal[
+        "sha256:3a4fdee6fe9b45ce5b42c41fd3bfc6614245a36ecfe6f94de92b59717a136abb"
+    ]
+    managed_profile_id: Literal["inferdrome.managed-vllm-0.26-evidence-profile.v1"]
+    managed_profile_sha256: Literal[
+        "sha256:9d03b5d0822ed829ddbfa4c87c75530885b9ad51ee2c0cb7c5e31a075996fe34"
+    ]
+    local_gpu_proof_schema_id: Literal["urn:inferdrome:local-gpu-proof:v1"]
+    local_gpu_proof_schema_sha256: Literal[
+        "sha256:cf83bbdea2bba4c30b8f0e2c5f34f34a4077501207881fdbdab021571d665547"
+    ]
+    target_engine: Literal["vllm"]
+    target_engine_version: Literal["0.26.0"]
+    target_api: Literal["openai_chat_completions"]
+    target_model: Literal["Qwen/Qwen2.5-0.5B-Instruct"]
+    target_model_revision: Literal["7ae557604adf67be50417f59c2c2f167def9a775"]
+    target_tokenizer_revision: Literal["7ae557604adf67be50417f59c2c2f167def9a775"]
+    target_endpoint: Literal["http://127.0.0.1:18080/"]
+    workload_id: Literal["inferdrome.qwen2.5-real-gpu-workload.v1"]
+    workload_digest: Literal[
+        "sha256:22bf3389cc29ee946ae567870d7f8d7b458594224542a796e8990c15b1cfcd63"
+    ]
+    source_schema_version: Literal["inferdrome.source-experiment.v1"]
+    traffic: ProspectiveTrafficPolicyV1
+    sampling: ProspectiveSamplingPolicyV1
+    execution_mode: Literal["attached_endpoint"]
+    max_runtime_seconds: Literal[900]
+    max_measured_requests: Literal[100]
+    measurement_streaming: Literal[True]
+    produced_evidence_metric_definition_id: Literal["vllm_first_choices_event_v0_26"]
+    choices_span_definition_id: Literal["last_choices_event_span_v1"]
+    metric_definitions_version: Literal["1.0.0"]
+    reducer_version: Literal["1.0.0"]
+    native_output_sensitivity: Literal["RESPONSE_CONTENT"]
+    canonical_response_content: Literal["omit"]
+    include_request_plan: Literal[True]
+    expected_execution_fingerprint: Literal[
+        "sha256:76d984ea57a0e7cb00520255a6e362f22885d713a875195a7397771937060edd"
+    ]
+    requested_criterion_metric_definition_id: Literal["vllm_first_choices_event_v0_26"]
+    run_aggregation_policy: Literal["independent_single_run_no_pooling"]
+    reducer_id: Literal["nearest_rank_v1"]
+    latency_population: Literal["successful_measured_requests_with_observed_ttft"]
+    reliability_population: ProspectiveReliabilityPopulationV1
+    claims_assurance: Literal["INTERNAL_CONSISTENCY_ONLY"]
+    canonicalization: ProspectiveCanonicalizationBindingV1
+
+
+class ExactToolSelectionEvidencePolicy(FrozenExitSpecModel):
+    """The immutable A6 handoff policy for the server-owned tool probe."""
+
+    schema_version: Literal["exitspec.capability-evidence-policy.v1"] = (
+        "exitspec.capability-evidence-policy.v1"
+    )
+    policy_id: Literal["support-tool-selection-v1"]
+    capability_key: Literal["exact_tool_selection"]
+    rule: Literal["exact_tool_selection_rate"]
+    operator: Literal["GTE"]
+    threshold: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    unit: Literal["PROPORTION"]
+    measurement_population: Literal["approved_synthetic_cases"]
+    evidence_method: Literal["EXIT_SPEC_STREAMING_PROBE"]
+    workload_path: Literal["examples/support-agent/fixtures/tool-selection-200.json"]
+    workload_sha256: str = Field(
+        pattern="^75ef6f83450de100a920e9489a0b5966464f1dba2e3d339c4b57e64fb95d8271$"
+    )
+    workload_slice: Literal["support-tool-selection-v1"]
+    minimum_samples: Literal[200]
+    confidence_level: Literal[0.95]
+    confidence_method: Literal["wilson_two_sided_lower_bound"]
+    calculator_id: Literal["exitspec.statistics.wilson_lower_bound"]
+    calculator_version: Literal["wilson-two-sided-v1"]
+    adapter: Literal["deterministic_tool_selection"]
+    adapter_version: Literal["1.0.0"]
+    verifier_id: Literal["exitspec.verdicts.evaluate_proportion_criterion"]
+    reducer_id: Literal["exitspec.verdicts.aggregate_overall_verdict"]
+
+
+class ManagedTTFTEvidencePolicy(FrozenExitSpecModel):
+    """The immutable A6 handoff policy for managed TTFT evidence import."""
+
+    schema_version: Literal["exitspec.capability-evidence-policy.v1"] = (
+        "exitspec.capability-evidence-policy.v1"
+    )
+    policy_id: Literal["inferdrome.managed-vllm-0.26-evidence-profile.v1"]
+    capability_key: Literal["inference_performance_external"]
+    rule: Literal["ttft_p95"]
+    operator: Literal["LT"]
+    threshold: float = Field(gt=0.0, allow_inf_nan=False)
+    unit: Literal["MILLISECONDS"]
+    measurement_population: Literal["successful_measured_requests_with_observed_ttft"]
+    evidence_method: Literal["EXTERNAL_EVIDENCE_BUNDLE"]
+    workload_id: Literal["inferdrome.qwen2.5-real-gpu-workload.v1"]
+    workload_digest: Literal[
+        "sha256:22bf3389cc29ee946ae567870d7f8d7b458594224542a796e8990c15b1cfcd63"
+    ]
+    profile_id: Literal["inferdrome.managed-vllm-0.26-evidence-profile.v1"]
+    profile_digest: Literal[
+        "sha256:9d03b5d0822ed829ddbfa4c87c75530885b9ad51ee2c0cb7c5e31a075996fe34"
+    ]
+    native_metric: Literal["vllm_first_choices_event_v0_26"]
+    configured_concurrency: Literal[4]
+    warmup_requests: Literal[10]
+    attempts: Literal[100]
+    minimum_successful_samples: Literal[100]
+    sampling_seed: Literal[42]
+    sampling_temperature: Literal[0]
+    requested_output_tokens: Literal[32]
+    reducer_id: Literal["nearest_rank_v1"]
+    reducer_version: Literal["1.0.0"]
+    aggregation_policy: Literal["independent_single_run_no_pooling"]
+    adapter: Literal["vllm_bench_serve"]
+    adapter_version: Literal["1.0.0"]
+    bundle_verifier_id: Literal["exitspec.inferdrome_bundle.verify_inferdrome_bundle"]
+    bundle_verifier_version: Literal["1.0.0"]
+    invocation_profile_validator_id: Literal[
+        "exitspec.inferdrome_managed_profile.validate_managed_invocation_profile"
+    ]
+    local_gpu_proof_validator_id: Literal[
+        "exitspec.inferdrome_managed_profile.validate_managed_local_gpu_proof"
+    ]
+    recalculation_id: Literal["exitspec.inferdrome-recalculation.v1"]
+    importer_calculation_id: Literal["exitspec.inferdrome-managed-importer.v1"]
+    identity: ManagedTTFTEvidenceIdentityV1
+
+    @model_validator(mode="after")
+    def validate_identity_matches_policy(self) -> "ManagedTTFTEvidencePolicy":
+        identity = self.identity
+        if (
+            identity.adapter_id != self.adapter
+            or identity.adapter_version != self.adapter_version
+            or identity.managed_profile_id != self.profile_id
+            or identity.managed_profile_sha256 != self.profile_digest
+            or identity.workload_id != self.workload_id
+            or identity.workload_digest != self.workload_digest
+            or identity.produced_evidence_metric_definition_id != self.native_metric
+            or identity.requested_criterion_metric_definition_id != self.native_metric
+            or identity.run_aggregation_policy != self.aggregation_policy
+            or identity.reducer_id != self.reducer_id
+            or identity.latency_population != self.measurement_population
+            or identity.traffic.configured_concurrency != self.configured_concurrency
+            or identity.traffic.warmup_requests != self.warmup_requests
+            or identity.traffic.measured_requests != self.attempts
+            or identity.max_measured_requests != self.minimum_successful_samples
+            or identity.reliability_population.exact_attempts
+            != self.minimum_successful_samples
+            or identity.sampling.seed != self.sampling_seed
+            or identity.sampling.temperature != self.sampling_temperature
+            or identity.sampling.requested_output_tokens != self.requested_output_tokens
+        ):
+            raise ValueError("Managed TTFT evidence identity does not match its policy.")
+        return self
+
+
+CapabilityEvidencePolicy = ExactToolSelectionEvidencePolicy | ManagedTTFTEvidencePolicy
+
+
+def capability_evidence_policy_digest(
+    policy: CapabilityEvidencePolicy,
+) -> str:
+    """Digest policy content without including the digest field itself."""
+
+    return hashlib.sha256(
+        b"exitspec-capability-evidence-policy-v1\x00"
+        + canonical_json_bytes(policy.model_dump(mode="json"))
+    ).hexdigest()
+
+
+class CapabilityEvidenceBinding(FrozenExitSpecModel):
+    """Canonical, immutable evidence policy bound to one supported criterion."""
+
+    schema_version: Literal["exitspec.capability-evidence-binding.v1"] = (
+        "exitspec.capability-evidence-binding.v1"
+    )
+    binding_type: Literal["EXECUTABLE", "EVIDENCE_IMPORT"]
+    policy: CapabilityEvidencePolicy
+    policy_sha256: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_policy_digest_and_disposition(self) -> "CapabilityEvidenceBinding":
+        expected_type = (
+            "EXECUTABLE"
+            if isinstance(self.policy, ExactToolSelectionEvidencePolicy)
+            else "EVIDENCE_IMPORT"
+        )
+        if self.binding_type != expected_type:
+            raise ValueError("Evidence binding type does not match its policy.")
+        if self.policy_sha256 != capability_evidence_policy_digest(self.policy):
+            raise ValueError("Evidence binding policy digest does not match its content.")
+        return self
+
+
+class CapabilityCriterion(FrozenExitSpecModel):
+    """Generic A4 capability criterion carried by the A5 agreement boundary.
+
+    A4 deliberately plans capabilities without choosing one of the older
+    vertical-specific contract schemas.  This small criterion keeps the
+    server-owned plan fields exact while allowing the existing POCContract,
+    digest, confirmation, and freeze primitives to remain the lifecycle
+    authority.
+    """
+
+    criterion_type: Literal["capability_v1"] = "capability_v1"
+    schema_version: Literal["exitspec.capability-criterion.v1"] = (
+        "exitspec.capability-criterion.v1"
+    )
+    id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
+    title: str = Field(min_length=1)
+    must_have: bool
+    source: Optional[SourceReference] = None
+    human_added: Literal[False] = False
+    normalized_claim: str = Field(min_length=1)
+    poc_id: str = Field(pattern=r"^poc_[a-z0-9][a-z0-9_-]{2,63}$")
+    capability_key: str = Field(min_length=1, max_length=160)
+    planning_scope: Literal["MUST_HAVE", "ADVISORY"]
+    planning_disposition: Literal[
+        "EXECUTABLE", "EVIDENCE_IMPORT", "CLARIFICATION_REQUIRED", "UNSUPPORTED"
+    ]
+    provenance: Optional[Literal[
+        "SOURCE_EXTRACTED", "HUMAN_DECLARED", "ADAPTER_PROFILE_DECLARED"
+    ]] = None
+    planning_item_id: str = Field(pattern=r"^cpitem_[a-f0-9]{32}$")
+    proposal_id: str = Field(pattern=r"^prop_[a-z0-9][a-z0-9_-]{7,95}$")
+    proposal_key: str = Field(min_length=1, max_length=160)
+    source_receipt_id: str = Field(pattern=r"^srcpt_[a-z0-9][a-z0-9_-]{7,95}$")
+    source_id: str = Field(pattern=r"^src_[a-z0-9][a-z0-9_-]{2,63}$")
+    source_kind: str = Field(min_length=1, max_length=80)
+    source_content_sha256: str = Field(pattern=SHA256_PATTERN)
+    source_revision: int = Field(ge=1)
+    source_adapter_name: str = Field(min_length=1, max_length=64)
+    source_adapter_version: str = Field(min_length=1, max_length=64)
+    redaction_policy_version: str = Field(min_length=1, max_length=64)
+    authoring_receipt_id: str = Field(min_length=1, max_length=160)
+    authoring_result_id: str = Field(min_length=1, max_length=160)
+    a4_plan_id: str = Field(pattern=r"^cplan_[a-f0-9]{32}$")
+    a4_plan_version: int = Field(ge=1)
+    a4_plan_sha256: str = Field(pattern=SHA256_PATTERN)
+    planner_reviewer: str = Field(min_length=1, max_length=160)
+    planner_rationale: str = Field(min_length=1, max_length=2_000)
+    planning_reason: str = Field(min_length=1, max_length=2_000)
+    planning_next_action: str = Field(min_length=1, max_length=2_000)
+    explicit_exclusion: bool = False
+    assembly_reviewer: str = Field(min_length=1, max_length=160)
+    assembly_rationale: str = Field(min_length=1, max_length=2_000)
+    rule: Optional[str] = Field(default=None, min_length=1)
+    operator: Optional[str] = Field(default=None, min_length=1)
+    threshold: Optional[float] = Field(default=None, allow_inf_nan=False)
+    unit: Optional[str] = Field(default=None, min_length=1)
+    measurement_population: Optional[str] = Field(default=None, min_length=1)
+    evidence_method: Optional[str] = Field(default=None, min_length=1)
+    adapter: Optional[str] = Field(default=None, min_length=1)
+    adapter_version: Optional[str] = Field(default=None, min_length=1)
+    evidence_profile: Optional[str] = None
+    evidence_binding: Optional[CapabilityEvidenceBinding] = None
+    execution_available: Literal[False] = False
+    owner: str = Field(min_length=1)
+    evidence_policy: Optional[str] = Field(default=None, min_length=1)
+    approved: bool = False
+
+    @model_validator(mode="after")
+    def require_traceable_origin(self) -> "CapabilityCriterion":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A capability criterion needs a source reference or must be explicitly human-added."
+            )
+        supported = self.planning_disposition in {"EXECUTABLE", "EVIDENCE_IMPORT"}
+        if supported:
+            required = (
+                self.provenance,
+                self.rule,
+                self.operator,
+                self.threshold,
+                self.unit,
+                self.measurement_population,
+                self.evidence_method,
+                self.adapter,
+                self.adapter_version,
+                self.evidence_binding,
+            )
+            if self.explicit_exclusion or any(value is None for value in required):
+                raise ValueError("A supported capability criterion is incomplete or excluded.")
+            expected_binding_type = self.planning_disposition
+            if self.evidence_binding is None or self.evidence_binding.binding_type != expected_binding_type:
+                raise ValueError("A supported capability criterion requires its matching evidence binding.")
+            policy = self.evidence_binding.policy
+            if (
+                policy.capability_key != self.capability_key
+                or policy.rule != self.rule
+                or policy.operator != self.operator
+                or policy.threshold != self.threshold
+                or policy.unit != self.unit
+                or policy.measurement_population != self.measurement_population
+                or policy.evidence_method != self.evidence_method
+                or policy.adapter != self.adapter
+                or policy.adapter_version != self.adapter_version
+            ):
+                raise ValueError("Evidence binding does not match the capability criterion.")
+            if self.planning_disposition == "EVIDENCE_IMPORT" and self.evidence_profile is None:
+                raise ValueError("An evidence-import capability criterion requires its profile.")
+            if self.planning_disposition == "EVIDENCE_IMPORT":
+                if not isinstance(policy, ManagedTTFTEvidencePolicy) or self.evidence_profile != policy.profile_id:
+                    raise ValueError("An evidence-import capability criterion requires its matching profile.")
+            if self.planning_disposition == "EXECUTABLE" and self.evidence_profile is not None:
+                raise ValueError("An executable capability criterion cannot carry an evidence profile.")
+        else:
+            if self.provenance is not None or any(
+                value is not None
+                for value in (
+                    self.rule,
+                    self.operator,
+                    self.threshold,
+                    self.unit,
+                    self.measurement_population,
+                    self.evidence_method,
+                    self.adapter,
+                    self.adapter_version,
+                    self.evidence_profile,
+                    self.evidence_binding,
+                )
+            ):
+                raise ValueError("A non-executable capability record carries executable fields.")
+            if self.explicit_exclusion and self.planning_disposition != "UNSUPPORTED":
+                raise ValueError("Only an unsupported capability record may be explicitly excluded.")
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
     InferencePerformanceCriterionV2,
     InferencePerformanceCriterionV3,
     InferencePerformanceCriterionV4,
+    CapabilityCriterion,
 ]
 
 
@@ -921,6 +1264,36 @@ class POCContract(FrozenExitSpecModel):
             raise ValueError(
                 "Only a frozen contract may carry customer confirmation provenance."
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_capability_criterion_bindings(self) -> "POCContract":
+        """Keep one linear, internally consistent A4 handoff per contract."""
+
+        capability_criteria = tuple(
+            criterion
+            for criterion in self.criteria
+            if isinstance(criterion, CapabilityCriterion)
+        )
+        if not capability_criteria:
+            return self
+        if len(capability_criteria) != len(self.criteria):
+            raise ValueError("A capability agreement cannot mix legacy and generic criteria.")
+        proposal_ids = [criterion.proposal_id for criterion in capability_criteria]
+        planning_item_ids = [criterion.planning_item_id for criterion in capability_criteria]
+        if len(proposal_ids) != len(set(proposal_ids)):
+            raise ValueError("Capability agreement proposal IDs must be unique.")
+        if len(planning_item_ids) != len(set(planning_item_ids)):
+            raise ValueError("Capability agreement planning item IDs must be unique.")
+        common_plan = {
+            (criterion.a4_plan_id, criterion.a4_plan_version, criterion.a4_plan_sha256)
+            for criterion in capability_criteria
+        }
+        if len(common_plan) != 1:
+            raise ValueError("Capability agreement criteria must share one A4 plan binding.")
+        poc_ids = {criterion.poc_id for criterion in capability_criteria}
+        if len(poc_ids) != 1:
+            raise ValueError("Capability agreement criteria must share one POC binding.")
         return self
 
 

@@ -50,7 +50,7 @@ jobs:
       - name: Run the browser E2E flow
         env:
           EXITSPEC_BROWSER_E2E: "1"
-        run: python -m pytest tests/test_browser_new_id_flow.py tests/test_a3_assisted_review_browser.py
+        run: python -m pytest tests/test_browser_new_id_flow.py tests/test_a3_assisted_review_browser.py tests/test_a4_capability_planner_browser.py tests/test_a5_agreement_browser.py
 
   zoom-fixture-operator:
     name: Zoom fixture operator (synthetic only)

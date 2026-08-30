@@ -1,0 +1,39 @@
+.agreement-main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; width: min(100%, 1120px); min-height: 0; margin: 0 auto; padding: 16px 26px 22px; }
+.agreement-task { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; border: 1px solid var(--border); background: var(--panel); }
+.agreement-badge, .version-badge { border: 1px solid var(--border-strong); padding: 5px 8px; color: var(--orange); font: 760 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .05em; text-transform: uppercase; }
+.agreement-badge[data-state="FROZEN"], .agreement-badge[data-state="CONFIRMED"] { color: var(--success, #7bd88f); }
+.agreement-badge[data-state="STALE"], .agreement-badge[data-state="CHANGES_REQUESTED"] { color: var(--warning, #e7b75f); }
+.agreement-form, .agreement-summary { min-height: 0; overflow: auto; padding: 18px; }
+.agreement-form { width: min(100%, 620px); display: grid; align-content: start; gap: 12px; }
+.agreement-form label, .revision-form label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: .04em; text-transform: uppercase; }
+.agreement-form input, .agreement-form textarea, .revision-form input, .revision-form textarea { width: 100%; border: 1px solid var(--border-strong); padding: 9px 10px; color: var(--text); background: var(--navigation); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agreement-form textarea, .revision-form textarea { min-height: 78px; resize: vertical; }
+.agreement-form input:focus, .agreement-form textarea:focus, .revision-form input:focus, .revision-form textarea:focus { border-color: var(--orange); outline: 1px solid var(--orange); }
+.form-intro, .action-row p, .revision-form p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.action-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.summary-line { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.summary-line h3 { margin: 3px 0 0; font: 600 21px "Iowan Old Style", Charter, Georgia, serif; }
+.agreement-criteria { display: grid; gap: 9px; margin-top: 17px; }
+.agreement-criterion { border-left: 2px solid var(--orange); padding: 10px 12px; background: var(--navigation); }
+.agreement-criterion[data-disposition="UNSUPPORTED"], .agreement-criterion[data-disposition="CLARIFICATION_REQUIRED"] { border-left-color: var(--warning, #e7b75f); }
+.criterion-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.criterion-head h3 { margin: 0; font-size: 13px; }
+.criterion-head span { color: var(--muted); font: 760 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .05em; }
+.criterion-rule { margin: 7px 0 0; color: var(--text); font-size: 13px; line-height: 1.4; }
+.criterion-meta { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 7px; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.limitations { margin-top: 17px; border-top: 1px solid var(--border); padding-top: 13px; }
+.proof-summary { margin-top: 17px; border-top: 1px solid var(--border); padding-top: 13px; }
+.proof-summary h3 { margin: 0 0 8px; font-size: 12px; }
+.proof-summary p { margin: 4px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+.limitations h3 { margin: 0 0 8px; font-size: 12px; }
+.limitations p { margin: 4px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+.technical-details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 11px; color: var(--muted); font-size: 11px; }
+.technical-details summary { cursor: pointer; color: var(--text-secondary); }
+.technical-details pre { max-height: 180px; overflow: auto; margin: 9px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agreement-actions { display: flex; align-items: start; flex-wrap: wrap; gap: 9px; margin-top: 17px; border-top: 1px solid var(--border); padding-top: 13px; }
+.secondary-action { display: inline-flex; align-items: center; min-height: 34px; border: 1px solid var(--border-strong); padding: 0 12px; color: var(--text-secondary); font-size: 11px; text-decoration: none; }
+.secondary-action:hover { border-color: var(--orange); color: var(--text); }
+.revision-form { flex: 1 1 100%; display: grid; gap: 9px; max-width: 640px; margin-top: 3px; padding: 13px; background: var(--navigation); }
+.revision-form h3 { margin: 0; font-size: 13px; }
+.agreement-error { border-left: 2px solid var(--orange); padding: 10px 12px; color: var(--text-secondary); font-size: 12px; }
+@media (max-width: 680px) { .agreement-main { padding: 12px; } .workbench-object-header { grid-template-columns: 1fr; gap: 10px; } .action-row { align-items: stretch; flex-direction: column; } .agreement-actions { align-items: stretch; flex-direction: column; } .agreement-actions > * { width: 100%; } }

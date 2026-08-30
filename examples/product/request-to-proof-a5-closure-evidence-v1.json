@@ -1,0 +1,68 @@
+{
+  "schema_version": "exitspec.request-to-proof-a5-closure-evidence.v1",
+  "train_slice": "A5",
+  "status": "IMPLEMENTED_AND_TESTED",
+  "scope": "GL-07 through GL-10 only",
+  "claims": {
+    "GL-07": {
+      "statement": "A fresh non-seeded POC can assemble one customer-visible agreement from the exact current KEEP_FOR_CONTRACT proposals and the exact current validated A4 plan, preserving every retained planning record, declared provenance, and integrity binding without granting downstream authority.",
+      "proof": [
+        "tests/test_poc_agreement.py::test_a5_uses_generic_criterion_and_preserves_exact_a4_without_sample_default",
+        "tests/test_poc_agreement.py::test_frozen_handoff_structurally_preserves_non_executable_a4_records",
+        "tests/test_poc_agreement.py::test_a5_managed_ttft_binding_is_complete_and_run_independent",
+        "tests/test_poc_agreement.py::test_capability_contract_rejects_duplicate_or_inconsistent_handoff_bindings",
+        "tests/test_poc_agreement.py::test_a5_rejects_forged_or_incomplete_evidence_bindings_before_publication",
+        "tests/test_a5_agreement_browser.py::test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey"
+      ]
+    },
+    "GL-08": {
+      "statement": "Customer review binds exactly one contract ID, version, and confirmation fingerprint covering every customer-visible material field; only an acknowledged CONFIRM can continue the freeze path, while REQUEST_CHANGES is terminal for that version.",
+      "proof": [
+        "tests/test_poc_agreement.py::test_every_customer_visible_material_category_changes_confirmation_fingerprint",
+        "tests/test_poc_agreement.py::test_binding_material_mutations_change_confirmation_fingerprint_and_contract_hash",
+        "tests/test_poc_agreement.py::test_idempotency_is_poc_and_operation_scoped_and_confirmation_keeps_only_digest",
+        "tests/test_poc_agreement.py::test_stale_inputs_keep_parent_snapshot_readable_but_block_review_and_freeze",
+        "tests/test_a5_agreement_browser.py::test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey"
+      ]
+    },
+    "GL-09": {
+      "statement": "REQUEST_CHANGES consumes a materially changed newly current A3/A4 snapshot to create a complete immutable successor, preserving predecessor visibility and making the old link and confirmation unusable for the successor.",
+      "proof": [
+        "tests/test_poc_agreement.py::test_request_changes_rejects_unchanged_successor_and_changed_snapshot_makes_complete_v2",
+        "tests/test_poc_agreement.py::test_revision_api_requires_and_forwards_fresh_successor_assembly_approval",
+        "tests/test_poc_agreement.py::test_reentrant_dependency_cannot_publish_nested_agreement",
+        "tests/test_a5_agreement_browser.py::test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey"
+      ]
+    },
+    "GL-10": {
+      "statement": "Freeze produces an immutable canonical contract only for the exact successor with a matching affirmative confirmation; the A5 path stops at freeze and does not execute, import evidence, issue an Evidence Pack, or calculate a verdict.",
+      "proof": [
+        "tests/test_poc_agreement.py::test_a5_uses_generic_criterion_and_preserves_exact_a4_without_sample_default",
+        "tests/test_poc_agreement.py::test_stale_inputs_keep_parent_snapshot_readable_but_block_review_and_freeze",
+        "tests/test_poc_agreement.py::test_concurrent_same_key_publishes_once_then_replays",
+        "tests/test_a5_agreement_browser.py::test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey"
+      ]
+    }
+  },
+  "authority_boundary": {
+    "source_authority": "UNTRUSTED_SOURCE_ONLY",
+    "agreement_assembly": "SERVER_VALIDATED_CURRENT_SNAPSHOT_ONLY",
+    "customer_review": "CONFIRM_OR_REQUEST_CHANGES_ONLY",
+    "freeze": "EXACT_AFFIRMATIVE_CONFIRMATION_ONLY",
+    "may_approve": false,
+    "may_confirm": false,
+    "may_freeze": false,
+    "may_execute": false,
+    "may_import_evidence": false,
+    "may_issue_evidence_pack": false,
+    "may_issue_verdict": false,
+    "may_authorize_deployment": false
+  },
+  "limitations": [
+    "Storage is process-local, in-memory, non-durable, and not shared across workers.",
+    "Each supported A4 record carries one canonical, digest-checked evidence policy for a later A6 handoff; A5 keeps execution_available=false and performs no execution or evidence import.",
+    "Reviewer and confirmer labels establish the recorded process-local decision boundary only; hosted identity assurance is outside Train A.",
+    "The browser proof uses fresh generated IDs and a fresh local POC; it stops after canonical freeze and makes no A6 call."
+  ],
+  "frozen_baseline_edited": false
+}
