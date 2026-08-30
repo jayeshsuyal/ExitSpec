@@ -40,7 +40,7 @@ def _complete_a4_plan(
         "LT" if supported_capability == "inference_performance_external" else "GTE"
     )
     second.locator('[name="threshold"]').fill(threshold)
-    assert second.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+    assert second.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
     assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("named.a4.reviewer")
     second.locator('[name="rationale"]').fill("Complete executable policy.")
@@ -174,6 +174,12 @@ def test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey():
             frozen = page.request.get(f"{base_url}/api/pocs/{poc_id}/agreement").json()
             assert frozen["frozen_contract"]["status"] == "FROZEN"
             assert frozen["frozen_contract"]["version"] == "2"
+            executable = next(
+                criterion
+                for criterion in frozen["frozen_contract"]["criteria"]
+                if criterion["planning_disposition"] == "EXECUTABLE"
+            )
+            assert executable["provenance"] == "HUMAN_DECLARED"
             assert re.fullmatch(r"[a-f0-9]{64}", frozen["frozen_contract"]["canonical_hash"])
             assert old_token_url != page.url
             assert browser_errors in ([], ["Failed to load resource: the server responded with a status of 404 (Not Found)"])

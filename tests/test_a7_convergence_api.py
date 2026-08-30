@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from http.client import HTTPConnection
 import json
 import threading
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from http.client import HTTPConnection
 
 import pytest
 
@@ -15,9 +15,8 @@ from exitspec.poc_capability_planner import ProcessLocalCapabilityPlannerService
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
 from exitspec.poc_sources import SourceKind
 
-
 POC_ID = "poc_a7_convergence"
-NOW = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 
 
 def _proposal(suffix: str, claim: str) -> RetainedProposalProjection:
@@ -162,7 +161,7 @@ def test_convergence_route_expands_supported_authority_and_preserves_boundaries(
         "adapter": "deterministic_tool_selection",
         "adapter_version": "1.0.0",
         "evidence_profile": None,
-        "provenance": "SOURCE_EXTRACTED",
+        "provenance": "HUMAN_DECLARED",
     }
 
 
@@ -181,6 +180,29 @@ def test_convergence_route_expands_supported_authority_and_preserves_boundaries(
 def test_convergence_route_rejects_browser_authority_fields(injected_field):
     payload = _valid_payload()
     payload["items"][1][injected_field] = "caller-controlled"
+    with _running_server() as server:
+        status, body = _post(server, payload)
+
+    assert status == 400
+    assert body == {"error": "Convergence planning request is invalid."}
+
+
+@pytest.mark.parametrize(
+    ("item_index", "field", "value"),
+    (
+        pytest.param(0, "operator", "GTE", id="unsupported-operator"),
+        pytest.param(0, "threshold", 0.95, id="unsupported-threshold"),
+        pytest.param(2, "operator", "GTE", id="excluded-operator"),
+        pytest.param(2, "threshold", 0.95, id="excluded-threshold"),
+    ),
+)
+def test_convergence_route_rejects_criterion_values_without_executable_criterion(
+    item_index,
+    field,
+    value,
+):
+    payload = _valid_payload()
+    payload["items"][item_index][field] = value
     with _running_server() as server:
         status, body = _post(server, payload)
 

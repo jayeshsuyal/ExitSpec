@@ -66,7 +66,7 @@
     const entry = registry.find((candidate) => candidate.capability_key === key); if (!entry) { setCriterionAvailability(row, false); return; }
     ["rule", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) input.value = entry[name] || ""; });
     const operator = row.querySelector('[name="operator"]'); if (operator) { operator.textContent = ""; const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose operator"; operator.appendChild(placeholder); (entry.allowed_operators || []).forEach((value) => { const option = document.createElement("option"); option.value = value; option.textContent = value; operator.appendChild(option); }); operator.value = ""; }
-    const provenance = row.querySelector('[name="provenance"]'); if (provenance) provenance.value = "SOURCE_EXTRACTED";
+    const provenance = row.querySelector('[name="provenance"]'); if (provenance) provenance.value = "HUMAN_DECLARED";
     setCriterionAvailability(row, true);
   }
   function isTrustedNumericFacts(value) {
@@ -92,7 +92,7 @@
       const scope = selectField("Scope", "scope", [{value: "", label: "Choose scope"}, {value: "MUST_HAVE", label: "Must have"}, {value: "ADVISORY", label: "Advisory"}], "");
       const capability = selectField("Proof method", "capability_key", registryOptions(), "");
       capability.querySelector("select").addEventListener("change", (event) => fillFromRegistry(row, event.target.value));
-      const provenance = selectField("Threshold source", "provenance", [{value: "", label: "Server-bound after selection"}, {value: "SOURCE_EXTRACTED", label: "Source-extracted"}], "");
+      const provenance = selectField("Threshold source", "provenance", [{value: "", label: "Server-bound after selection"}, {value: "HUMAN_DECLARED", label: "Human-declared"}], "");
       provenance.querySelector("select").disabled = true;
       inputs.append(scope, capability, selectField("Operator", "operator", [{value: "", label: "Choose operator"}], ""), field("Threshold", "threshold", ""), provenance);
       const serverOwned = document.createElement("div"); serverOwned.hidden = true; serverOwned.setAttribute("aria-hidden", "true");

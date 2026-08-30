@@ -165,16 +165,17 @@
                   disabled
                 >
                   <legend>Meeting input</legend>
-                  <label hidden>
+                  <label>
                     <input
                       id="meeting-mode-session"
                       type="radio"
                       name="meeting_mode"
                       value="SESSION"
+                      checked
                     />
                     <span>Meeting session</span>
                   </label>
-                  <label hidden>
+                  <label>
                     <input
                       id="meeting-mode-zoom"
                       type="radio"
@@ -189,11 +190,10 @@
                       type="radio"
                       name="meeting_mode"
                       value="PASTE"
-                      checked
                     />
-                    <span>Paste transcript or recording-derived text</span>
+                    <span>Paste transcript</span>
                   </label>
-                  <label hidden>
+                  <label>
                     <input
                       id="meeting-mode-record"
                       type="radio"

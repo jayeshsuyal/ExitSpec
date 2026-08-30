@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 import re
 import threading
+from contextlib import contextmanager
 
 import pytest
 
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
-
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
@@ -90,7 +89,7 @@ def _complete_plan(page) -> None:
     second.locator('[name="capability_key"]').select_option("exact_tool_selection")
     second.locator('[name="operator"]').select_option("GTE")
     second.locator('[name="threshold"]').fill("0.95")
-    assert second.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+    assert second.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
     assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("a7.employee.reviewer")
     second.locator('[name="rationale"]').fill("Bind the server-selected executable method.")
@@ -147,6 +146,9 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             assert page.url == f"{base_url}/app"
             assert "Capture → Review → Plan → Confirm → Prove → Decide" in page.locator("body").inner_text()
             assert page.locator("#source-heading").inner_text() == "How are the requirements arriving?"
+            assert page.locator('input[name="first_source_choice"]').evaluate_all(
+                "nodes => nodes.map(node => node.value)"
+            ) == ["EMAIL", "MEETING", "DOCUMENT"]
             _assert_no_page_overflow(page, bounded_height=True)
 
             page.locator(
@@ -157,7 +159,11 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             page.locator("#use-case").fill("Complete the exact request-to-proof spine.")
             page.locator("#owner").fill("a7.employee.owner")
             page.locator("#create-poc").click()
-            page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/(poc_[a-z0-9_-]+)/sources/new$"))
+            page.wait_for_url(
+                re.compile(
+                    rf"^{re.escape(base_url)}/app/pocs/(poc_[a-z0-9_-]+)/capture$"
+                )
+            )
             poc_id = re.search(r"/pocs/(poc_[a-z0-9_-]+)/", page.url).group(1)
             assert poc_id not in {"poc_support_agent_demo", "poc_inference_latency_demo"}
 
@@ -244,10 +250,16 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             assert "/Users/" not in pack_text and "/home/" not in pack_text
             pack_page.close()
 
-            page.locator("#decision-owner").fill("")
-            page.locator("#decision-rationale").fill("")
+            assert page.locator("#handoff-fields").is_visible()
+            assert page.locator("#decision-owner").input_value() == ""
+            assert page.locator("#decision-rationale").input_value() == ""
+            assert page.locator("#stop-evidence").is_disabled()
             assert page.locator("#handoff-evidence").is_disabled()
+            page.locator("#stop-evidence").dispatch_event("click")
+            assert page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()["closure"] is None
             page.locator("#decision-owner").fill("a7.named.human")
+            assert page.locator("#stop-evidence").is_enabled()
+            assert page.locator("#handoff-evidence").is_disabled()
             decision_rationale = "Reviewed the current pack, limitations, and next action."
             page.locator("#decision-rationale").fill(decision_rationale)
             assert page.locator("#handoff-evidence").is_enabled()

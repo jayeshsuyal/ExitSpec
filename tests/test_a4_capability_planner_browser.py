@@ -88,7 +88,7 @@ def test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness():
             assert second.locator('[name="operator"]').input_value() == ""
             second.locator('[name="operator"]').select_option("GTE")
             second.locator('[name="threshold"]').fill("0.95")
-            assert second.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+            assert second.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
             assert second.locator('[name="provenance"]').is_disabled()
             second.locator('[name="reviewer"]').fill("named.a4.reviewer")
             second.locator('[name="rationale"]').fill("Complete executable policy.")
@@ -104,7 +104,7 @@ def test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness():
             assert not third.locator('[name="rule"]').is_disabled()
             third.locator('[name="operator"]').select_option("GTE")
             third.locator('[name="threshold"]').fill("")
-            assert third.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+            assert third.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
             assert third.locator('[name="provenance"]').is_disabled()
             third.locator('[name="reviewer"]').fill("named.a4.reviewer")
             third.locator('[name="rationale"]').fill("Clarify the missing threshold before agreement.")

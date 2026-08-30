@@ -37,7 +37,7 @@ def _complete_mixed_plan(page) -> None:
     second.locator('[name="capability_key"]').select_option("exact_tool_selection")
     second.locator('[name="operator"]').select_option("GTE")
     second.locator('[name="threshold"]').fill("0.95")
-    assert second.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+    assert second.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
     assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("a6.browser.a4")
     second.locator('[name="rationale"]').fill("Bind the executable acceptance rule.")
@@ -162,6 +162,17 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
             assert "ExitSpec Evidence Pack" in page.title()
             assert "does not authorize deployment" in page.locator("body").inner_text()
             page.goto(f"{base_url}/app/pocs/{poc_id}/evidence")
+            assert page.locator("#decision-owner").input_value() == ""
+            assert page.locator("#decision-rationale").input_value() == ""
+            assert page.locator("#stop-evidence").is_disabled()
+            assert page.locator("#handoff-evidence").is_disabled()
+            page.locator("#decision-owner").fill("a6.named.human")
+            assert page.locator("#stop-evidence").is_enabled()
+            assert page.locator("#handoff-evidence").is_disabled()
+            page.locator("#decision-rationale").fill(
+                "Reviewed the current pack, limitations, and next action."
+            )
+            assert page.locator("#handoff-evidence").is_enabled()
             page.locator("#handoff-evidence").click()
             page.wait_for_function("document.querySelector('#handoff-evidence')?.hidden === true")
             assert page.locator("#start-evidence").is_disabled()

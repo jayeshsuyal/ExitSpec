@@ -9,41 +9,37 @@ The existing compatibility demo remains in :mod:`exitspec.web`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import mimetypes
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-import hashlib
 import re
 import tempfile
 import threading
-from typing import Any, Mapping
-from urllib.parse import parse_qsl, unquote, urlparse
 import webbrowser
+from collections.abc import Mapping
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qsl, unquote, urlparse
 
 from pydantic import ValidationError
 
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
 from .generic_evidence_pack import GenericEvidencePackError
-from .poc_creation import (
-    DraftPOCCapacityExceeded,
-    DraftPOCCreateRequest,
-    DraftPOCIdempotencyConflict,
-    DraftPOCNotFound,
-    DuplicateDraftPOCId,
-    ProcessLocalDraftPOCService,
-)
-from .poc_proposal_review import (
-    ProcessLocalProposalReviewService,
+from .poc_agreement import ProcessLocalAgreementLifecycleService
+from .poc_agreement_web_api import (
+    handle_customer_review_web_api_request,
+    handle_poc_agreement_web_api_request,
+    is_customer_review_web_api_target,
+    is_poc_agreement_web_api_target,
 )
 from .poc_assisted_authoring_web_api import (
     handle_poc_assisted_authoring_web_api_request,
     is_poc_assisted_authoring_web_api_target,
 )
-from .poc_proposal_web_api import handle_poc_proposal_web_api_request
 from .poc_capability_planner import (
     PlannerCriterionInput,
     PlannerItemInput,
@@ -54,18 +50,23 @@ from .poc_capability_planner_web_api import (
     handle_poc_capability_planner_web_api_request,
     is_poc_capability_planner_web_api_target,
 )
-from .poc_agreement import ProcessLocalAgreementLifecycleService
-from .poc_agreement_web_api import (
-    handle_customer_review_web_api_request,
-    handle_poc_agreement_web_api_request,
-    is_customer_review_web_api_target,
-    is_poc_agreement_web_api_target,
+from .poc_creation import (
+    DraftPOCCapacityExceeded,
+    DraftPOCCreateRequest,
+    DraftPOCIdempotencyConflict,
+    DraftPOCNotFound,
+    DuplicateDraftPOCId,
+    ProcessLocalDraftPOCService,
 )
 from .poc_evidence_orchestration import ProcessLocalEvidenceOrchestrationService
 from .poc_evidence_web_api import (
     handle_poc_evidence_web_api_request,
     is_poc_evidence_web_api_target,
 )
+from .poc_proposal_review import (
+    ProcessLocalProposalReviewService,
+)
+from .poc_proposal_web_api import handle_poc_proposal_web_api_request
 from .poc_source_intake import (
     POCSourceInput,
     POCSourceIntakeCapacityExceeded,
@@ -92,7 +93,6 @@ from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
 
-
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
 # The byte cap is retained; these parser caps bound decoded-object work too.
@@ -102,6 +102,9 @@ POC_ID_PATTERN = r"^poc_[a-z0-9][a-z0-9_-]{2,63}$"
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
 _SOURCE_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/sources/new$"
+)
+_CANONICAL_SOURCE_PAGE_RE = re.compile(
+    r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/capture$"
 )
 _REVIEW_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/review$"
@@ -278,7 +281,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         a2 = self.poc_source_intake.proposal_inputs(poc_id)
         assisted_by_source: dict[str, tuple[Any, ...]] = {}
         for proposal in assisted:
-            assisted_by_source.setdefault(proposal.source_receipt_id, tuple())
+            assisted_by_source.setdefault(proposal.source_receipt_id, ())
             assisted_by_source[proposal.source_receipt_id] = (
                 *assisted_by_source[proposal.source_receipt_id],
                 proposal,
@@ -339,7 +342,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path != "/api/workspace" and (
             parsed.params or parsed.query or parsed.fragment
@@ -469,6 +472,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         if (
             _SOURCE_PAGE_RE.fullmatch(parsed.path)
+            or _CANONICAL_SOURCE_PAGE_RE.fullmatch(parsed.path)
             or _REVIEW_PAGE_RE.fullmatch(parsed.path)
             or _ASSISTED_PAGE_RE.fullmatch(parsed.path)
             or _PLANNING_PAGE_RE.fullmatch(parsed.path)
@@ -476,7 +480,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         ):
             poc_id = parsed.path.split("/")[3]
             if self._active_draft(poc_id):
-                if _SOURCE_PAGE_RE.fullmatch(parsed.path):
+                if (
+                    _SOURCE_PAGE_RE.fullmatch(parsed.path)
+                    or _CANONICAL_SOURCE_PAGE_RE.fullmatch(parsed.path)
+                ):
                     asset = "source_intake.html"
                 elif _REVIEW_PAGE_RE.fullmatch(parsed.path):
                     asset = "proposal_review.html"
@@ -499,7 +506,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
 
-    def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+    def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.params or parsed.query or parsed.fragment:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Route parameters are not accepted."})
@@ -620,11 +627,12 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 excluded = raw["explicit_exclusion"]
                 if type(excluded) is not bool:
                     raise ValueError
+                operator = raw["operator"]
+                threshold = raw["threshold"]
                 criterion = None
                 if not excluded and capability_key in registry:
                     entry = registry[capability_key]
                     operator = self._required_string(raw, "operator")
-                    threshold = raw["threshold"]
                     if operator not in entry.allowed_operators or isinstance(threshold, bool):
                         raise ValueError
                     criterion = PlannerCriterionInput(
@@ -637,10 +645,13 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                         adapter=entry.adapter,
                         adapter_version=entry.adapter_version,
                         evidence_profile=entry.evidence_profile,
-                        provenance=PlanningProvenance.SOURCE_EXTRACTED,
+                        provenance=PlanningProvenance.HUMAN_DECLARED,
                     )
-                elif not excluded and capability_key != "unsupported_capability":
-                    raise ValueError
+                else:
+                    if operator is not None or threshold is not None:
+                        raise ValueError
+                    if not excluded and capability_key != "unsupported_capability":
+                        raise ValueError
                 items.append(
                     PlannerItemInput(
                         proposal_id=self._required_string(raw, "proposal_id"),
@@ -666,7 +677,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         self._json(response.status, response.payload)
 
-    def do_PUT(self) -> None:  # noqa: N802 - stdlib request handler API
+    def do_PUT(self) -> None:
         if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
             response = handle_poc_capability_planner_web_api_request(
                 method="PUT",
@@ -885,12 +896,12 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         origin_authority = (
             normalized_origin_host
             if origin_port is None
-            else "{0}:{1}".format(normalized_origin_host, origin_port)
+            else f"{normalized_origin_host}:{origin_port}"
         )
         request_authority = (
             normalized_request_host
             if host_port is None
-            else "{0}:{1}".format(normalized_request_host, host_port)
+            else f"{normalized_request_host}:{host_port}"
         )
         return (
             parsed_origin.netloc.lower() == origin_authority.lower()
@@ -1051,7 +1062,7 @@ def serve_source_neutral_demo(
         threading.Timer(
             0.15,
             lambda: webbrowser.open(
-                "http://{0}:{1}/app".format(host, server.server_port)
+                f"http://{host}:{server.server_port}/app"
             ),
         ).start()
     return server

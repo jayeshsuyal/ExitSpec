@@ -17,6 +17,7 @@ def test_package_and_release_notes_report_v0_3_without_claiming_a_release():
     release = (ROOT / "docs" / "RELEASE_V0_3.md").read_text(encoding="utf-8")
 
     assert project["project"]["version"] == "0.3.0"
+    assert "ruff==0.16.5" in project["project"]["optional-dependencies"]["dev"]
     assert exitspec.__version__ == "0.3.0"
     assert "no tag or GitHub release has been created" in release
     assert "Capture → Review → Plan → Confirm → Prove → Decide" in release
@@ -35,6 +36,7 @@ def test_v0_3_gate_is_executable_exact_counted_and_zero_skip_enforced():
     assert "skipped == 0" in gate
     assert "failed == 0" in gate
     assert "--runxfail" in gate
+    assert "export EXITSPEC_BROWSER_E2E=1" in gate
     assert 'exec "${script_directory}/engineering_gate.sh"' in gate
     assert "./scripts/v0_3_release_gate.sh" in workflow
 

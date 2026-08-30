@@ -31,6 +31,13 @@
   const errorPanel = document.querySelector("#creation-error");
   const createdPanel = document.querySelector("#created-panel");
   const addFirstSourceLink = document.querySelector("#add-first-source");
+  const canonicalEntry = window.location.pathname === "/app" || window.location.pathname === "/app/";
+  if (canonicalEntry) {
+    document
+      .querySelector('input[name="first_source_choice"][value="EXISTING_CONTRACT"]')
+      ?.closest(".source-option")
+      ?.remove();
+  }
   const sourceRadios = Array.from(
     document.querySelectorAll('input[name="first_source_choice"]')
   );
@@ -81,9 +88,9 @@
 
   function renderCreated(payload) {
     const source = SOURCE_COPY[payload.first_source_choice];
-    const destination = `/app/pocs/${encodeURIComponent(
-      payload.poc_id
-    )}/sources/new`;
+    const destination = canonicalEntry
+      ? `/app/pocs/${encodeURIComponent(payload.poc_id)}/capture`
+      : `/app/pocs/${encodeURIComponent(payload.poc_id)}/sources/new`;
     form.hidden = true;
     createdPanel.hidden = false;
     document.querySelector("#created-summary").textContent =

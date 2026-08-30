@@ -10,6 +10,10 @@ trap 'rm -f -- "${browser_report}"' EXIT
 
 cd "${repository_root}"
 
+# This release gate owns the browser-test opt-in so clean local and CI runs
+# exercise the same legacy and convergence browser coverage.
+export EXITSPEC_BROWSER_E2E=1
+
 if ! "${python_command}" -c 'import playwright.sync_api' >/dev/null 2>&1; then
   printf 'The v0.3 release gate requires the browser extra.\n' >&2
   printf "Install it with: %s -m pip install -e '.[dev,browser]'\n" "${python_command}" >&2
