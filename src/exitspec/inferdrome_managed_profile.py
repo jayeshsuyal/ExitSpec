@@ -30,9 +30,7 @@ from .inferdrome_profile import (
 
 MANAGED_PROFILE_VALIDATOR_VERSION: Final = "1.0.0"
 _DECIMAL_INTEGER: Final = re.compile(r"(?:0|[1-9][0-9]*)\Z")
-_LOOPBACK_ENDPOINT: Final = re.compile(
-    r"http://127\.0\.0\.1:(?P<port>[0-9]{1,5})\Z"
-)
+_LOOPBACK_ENDPOINT: Final = re.compile(r"http://127\.0\.0\.1:(?P<port>[0-9]{1,5})\Z")
 _INVOCATION_PATH: Final = "native/invocation.json"
 
 
@@ -62,6 +60,8 @@ class ManagedInferdromeProfileFacts:
 
 def validate_managed_local_gpu_proof(
     value: Mapping[str, Any],
+    *,
+    profile_document: Mapping[str, Any] | None = None,
 ) -> ManagedInferdromeProfileFacts:
     """Validate schema plus every self-contained managed-profile relation."""
 
@@ -73,8 +73,11 @@ def validate_managed_local_gpu_proof(
             "Managed local GPU proof does not match its pinned schema."
         ) from error
 
-    documents = load_pinned_inferdrome_profile_documents()
-    profile = documents.managed_profile
+    profile = (
+        profile_document
+        if profile_document is not None
+        else load_pinned_inferdrome_profile_documents().managed_profile
+    )
     selected = tuple(
         _integer(item, "selected GPU index")
         for item in _array(proof.get("selected_gpu_indices"), "selected GPU indices")
@@ -118,9 +121,7 @@ def validate_managed_local_gpu_proof(
         _invalid("Managed GPU inventory cannot be replayed from captured CSV.")
 
     server = _object(proof.get("server"), "managed server proof")
-    process_group_id = _integer(
-        server.get("process_group_id"), "server process group"
-    )
+    process_group_id = _integer(server.get("process_group_id"), "server process group")
     if _integer(server.get("pid"), "server PID") != process_group_id:
         _invalid("Managed server PID and process group must be identical.")
     compute_query = [
@@ -153,8 +154,7 @@ def validate_managed_local_gpu_proof(
     inventory_uuids = {_string(item.get("uuid"), "GPU UUID") for item in gpus}
     process_uuids = {item[1] for item in expected_processes}
     if process_uuids != inventory_uuids or any(
-        _integer(item.get("process_group_id"), "GPU process group")
-        != process_group_id
+        _integer(item.get("process_group_id"), "GPU process group") != process_group_id
         for item in processes
     ):
         _invalid("Managed GPU process coverage disagrees with selected inventory.")
@@ -166,18 +166,14 @@ def validate_managed_local_gpu_proof(
         _invalid("Managed local proof capture chronology is invalid.")
 
     model_snapshot = _object(proof.get("model_snapshot"), "model snapshot")
-    tokenizer_snapshot = _object(
-        proof.get("tokenizer_snapshot"), "tokenizer snapshot"
-    )
+    tokenizer_snapshot = _object(proof.get("tokenizer_snapshot"), "tokenizer snapshot")
     if (
         model_snapshot.get("kind") != "model"
         or tokenizer_snapshot.get("kind") != "tokenizer"
     ):
         _invalid("Managed snapshot kinds are inconsistent.")
 
-    distribution = _object(
-        proof.get("producer_distribution"), "producer distribution"
-    )
+    distribution = _object(proof.get("producer_distribution"), "producer distribution")
     architecture = _string(proof.get("client_arch"), "client architecture")
     policies = _object(
         profile.get("snapshot_and_distribution_policies"),
@@ -199,11 +195,9 @@ def validate_managed_local_gpu_proof(
         _invalid("Managed source wheel does not match its architecture pin.")
 
     boundary = _object(profile.get("server_boundary"), "server boundary")
-    if (
-        server.get("environment_policy") != boundary.get("environment_policy")
-        or server.get("environment_overrides")
-        != boundary.get("environment_overrides")
-    ):
+    if server.get("environment_policy") != boundary.get(
+        "environment_policy"
+    ) or server.get("environment_overrides") != boundary.get("environment_overrides"):
         _invalid("Managed server environment differs from the pinned boundary.")
     _loopback_port(_string(server.get("endpoint"), "managed server endpoint"))
 
@@ -244,23 +238,25 @@ def validate_managed_invocation_profile(
     resolved: Mapping[str, Any] | None = None,
     environment: Mapping[str, Any] | None = None,
     execution: Mapping[str, Any] | None = None,
+    profile_document: Mapping[str, Any] | None = None,
 ) -> ManagedInferdromeProfileFacts:
     """Validate managed invocation internals and optional bundle bindings."""
 
     invocation = _object(value, "producer invocation")
-    documents = load_pinned_inferdrome_profile_documents()
-    profile = documents.managed_profile
+    profile = (
+        profile_document
+        if profile_document is not None
+        else load_pinned_inferdrome_profile_documents().managed_profile
+    )
     invocation_contract = _object(
         profile.get("producer_invocation"), "producer invocation profile"
     )
     required_fields = set(
         _array(invocation_contract.get("required_root_fields"), "invocation fields")
     )
-    if (
-        set(invocation) != required_fields
-        or invocation.get("schema_version")
-        != invocation_contract.get("schema_version")
-    ):
+    if set(invocation) != required_fields or invocation.get(
+        "schema_version"
+    ) != invocation_contract.get("schema_version"):
         _invalid("Managed producer invocation field set is unsupported.")
 
     argv = tuple(
@@ -272,15 +268,15 @@ def validate_managed_invocation_profile(
     max_characters = _integer(
         argv_contract.get("max_argument_characters"), "argument length limit"
     )
-    if not argv or len(argv) > max_arguments or any(
-        len(item) > max_characters for item in argv
+    if (
+        not argv
+        or len(argv) > max_arguments
+        or any(len(item) > max_characters for item in argv)
     ):
         _invalid("Managed producer argument vector is invalid.")
 
     metadata = _object(invocation.get("metadata"), "producer metadata")
-    metadata_contract = _object(
-        invocation_contract.get("metadata"), "metadata profile"
-    )
+    metadata_contract = _object(invocation_contract.get("metadata"), "metadata profile")
     metadata_fields = set(
         _array(metadata_contract.get("required_fields"), "metadata fields")
     )
@@ -288,21 +284,20 @@ def validate_managed_invocation_profile(
         _invalid("Managed producer metadata field set is unsupported.")
 
     proof = _object(invocation.get("local_gpu_proof"), "local GPU proof")
-    facts = validate_managed_local_gpu_proof(proof)
-    distribution = _object(
-        proof.get("producer_distribution"), "producer distribution"
+    facts = validate_managed_local_gpu_proof(
+        proof,
+        profile_document=profile,
     )
+    distribution = _object(proof.get("producer_distribution"), "producer distribution")
     server = _object(proof.get("server"), "managed server proof")
     if (
         argv[0] != facts.executable_path
-        or _array(server.get("argv"), "server arguments")[0]
-        != facts.executable_path
+        or _array(server.get("argv"), "server arguments")[0] != facts.executable_path
     ):
         _invalid("Managed producer executable differs across command lines.")
     if (
         metadata.get("inferdrome_run_id") != proof.get("run_id")
-        or metadata.get("inferdrome_producer_version")
-        != distribution.get("version")
+        or metadata.get("inferdrome_producer_version") != distribution.get("version")
         or metadata.get("inferdrome_adapter_version") != "1.0.0"
     ):
         _invalid("Managed producer metadata disagrees with local proof.")
@@ -313,10 +308,9 @@ def validate_managed_invocation_profile(
         _object(proof.get("tokenizer_snapshot"), "tokenizer snapshot").get("root"),
         "tokenizer snapshot root",
     )
-    if (
-        _option_value(argv, "--tokenizer") != tokenizer_root
-        or benchmark_endpoint != server.get("endpoint")
-    ):
+    if _option_value(
+        argv, "--tokenizer"
+    ) != tokenizer_root or benchmark_endpoint != server.get("endpoint"):
         _invalid("Managed benchmark target differs from local server proof.")
     port = _loopback_port(_string(server.get("endpoint"), "managed server endpoint"))
     expected_server_argv = _expected_server_argv(
@@ -330,9 +324,7 @@ def validate_managed_invocation_profile(
         _invalid("Managed server arguments cannot be replayed from the profile.")
 
     metadata_index = _single_option_index(argv, "--metadata")
-    expected_metadata_argv = tuple(
-        f"{key}={metadata[key]}" for key in sorted(metadata)
-    )
+    expected_metadata_argv = tuple(f"{key}={metadata[key]}" for key in sorted(metadata))
     if argv[metadata_index + 1 :] != expected_metadata_argv:
         _invalid("Managed benchmark metadata arguments are not canonical.")
 
@@ -364,13 +356,9 @@ def _validate_bundle_bindings(
     target = _object(resolved.get("target"), "resolved target")
     workload = _object(resolved.get("workload"), "resolved workload")
     model_snapshot = _object(proof.get("model_snapshot"), "model snapshot")
-    tokenizer_snapshot = _object(
-        proof.get("tokenizer_snapshot"), "tokenizer snapshot"
-    )
+    tokenizer_snapshot = _object(proof.get("tokenizer_snapshot"), "tokenizer snapshot")
     server = _object(proof.get("server"), "managed server proof")
-    distribution = _object(
-        proof.get("producer_distribution"), "producer distribution"
-    )
+    distribution = _object(proof.get("producer_distribution"), "producer distribution")
     expected_producer = {
         "adapter": "vllm_bench_serve",
         "adapter_version": "1.0.0",
@@ -462,18 +450,12 @@ def _expected_server_argv(
     target_model: str,
     seed: str,
 ) -> list[str]:
-    distribution = _object(
-        proof.get("producer_distribution"), "producer distribution"
-    )
+    distribution = _object(proof.get("producer_distribution"), "producer distribution")
     model_snapshot = _object(proof.get("model_snapshot"), "model snapshot")
-    tokenizer_snapshot = _object(
-        proof.get("tokenizer_snapshot"), "tokenizer snapshot"
-    )
+    tokenizer_snapshot = _object(proof.get("tokenizer_snapshot"), "tokenizer snapshot")
     selected = _array(proof.get("selected_gpu_indices"), "selected GPU indices")
     substitutions = {
-        "{producer_distribution.executable_path}": distribution.get(
-            "executable_path"
-        ),
+        "{producer_distribution.executable_path}": distribution.get("executable_path"),
         "{model_snapshot.root}": model_snapshot.get("root"),
         "{resolved_target_port}": str(port),
         "{resolved_target_model}": target_model,
@@ -543,9 +525,7 @@ def _timestamp(value: object, label: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
-        raise ManagedInferdromeProfileError(
-            f"Managed {label} is invalid."
-        ) from error
+        raise ManagedInferdromeProfileError(f"Managed {label} is invalid.") from error
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         _invalid(f"Managed {label} has no timezone.")
     return parsed

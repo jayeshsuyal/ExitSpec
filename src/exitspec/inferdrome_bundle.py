@@ -36,6 +36,10 @@ from .inferdrome_managed_profile import (
     ManagedInferdromeProfileFacts,
     validate_managed_invocation_profile,
 )
+from .inferdrome_profile_registry import (
+    ManagedEvidenceProfile,
+    validate_managed_evidence_profile,
+)
 
 INFERDROME_VERIFIER_VERSION: Final = "1.0.0"
 
@@ -277,6 +281,7 @@ class VerifiedInferdromeBundle:
     records: tuple[Mapping[str, Any], ...]
     recalculated: RecalculatedInferdromeMeasurements
     managed_profile: ManagedInferdromeProfileFacts | None
+    managed_evidence_profile_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -656,6 +661,7 @@ def verify_inferdrome_bundle(
     expected_bundle_digest: str | None = None,
     limits: InferdromeBundleLimits | None = None,
     require_customer_eligible: bool = True,
+    managed_evidence_profile: ManagedEvidenceProfile | None = None,
 ) -> VerifiedInferdromeBundle:
     """Verify a closed bundle without importing Inferdrome or using network I/O."""
 
@@ -750,19 +756,22 @@ def verify_inferdrome_bundle(
         reader.limits.max_jsonl_line_bytes,
         reader.limits.max_request_records,
     )
-    recalculated, managed_profile = _verify_cross_artifact_semantics(
-        descriptor=descriptor,
-        role_paths=role_paths,
-        exact_by_role=exact_by_role,
-        resolved=documents["resolved_spec"],
-        plan=documents["request_plan"],
-        environment=documents["environment"],
-        execution=documents["execution"],
-        invocation=invocation,
-        native_result=native_result,
-        definitions=documents["metric_definitions"],
-        measurements=documents["measurements"],
-        records=records,
+    recalculated, managed_profile, managed_profile_id = (
+        _verify_cross_artifact_semantics(
+            descriptor=descriptor,
+            role_paths=role_paths,
+            exact_by_role=exact_by_role,
+            resolved=documents["resolved_spec"],
+            plan=documents["request_plan"],
+            environment=documents["environment"],
+            execution=documents["execution"],
+            invocation=invocation,
+            native_result=native_result,
+            definitions=documents["metric_definitions"],
+            measurements=documents["measurements"],
+            records=records,
+            managed_evidence_profile=managed_evidence_profile,
+        )
     )
     reader.assert_unchanged()
     return VerifiedInferdromeBundle(
@@ -776,6 +785,7 @@ def verify_inferdrome_bundle(
         records=records,
         recalculated=recalculated,
         managed_profile=managed_profile,
+        managed_evidence_profile_id=managed_profile_id,
     )
 
 
@@ -1032,10 +1042,23 @@ def _verify_cross_artifact_semantics(
     definitions: Mapping[str, Any],
     measurements: Mapping[str, Any],
     records: tuple[dict[str, Any], ...],
+    managed_evidence_profile: ManagedEvidenceProfile | None,
 ) -> tuple[
     RecalculatedInferdromeMeasurements,
     ManagedInferdromeProfileFacts | None,
+    str | None,
 ]:
+    if managed_evidence_profile is not None:
+        validate_managed_evidence_profile(
+            managed_evidence_profile,
+            descriptor=descriptor,
+            resolved=resolved,
+            plan=plan,
+            environment=environment,
+            execution=execution,
+            invocation=invocation,
+            definitions=definitions,
+        )
     run_id = descriptor.get("run_id")
     if any(
         value != run_id
@@ -1130,8 +1153,9 @@ def _verify_cross_artifact_semantics(
         plan,
         environment,
         execution,
+        managed_evidence_profile=managed_evidence_profile,
     )
-    if managed_profile is not None:
+    if managed_profile is not None or managed_evidence_profile is not None:
         _validate_native_record_bindings(
             native_result,
             descriptor,
@@ -1150,6 +1174,11 @@ def _verify_cross_artifact_semantics(
             exact_by_role["request_records"],
         ),
         managed_profile,
+        (
+            managed_evidence_profile.profile_id
+            if managed_evidence_profile is not None
+            else None
+        ),
     )
 
 
@@ -1475,10 +1504,12 @@ def _validate_invocation(
     plan: Mapping[str, Any],
     environment: Mapping[str, Any],
     execution: Mapping[str, Any],
+    *,
+    managed_evidence_profile: ManagedEvidenceProfile | None,
 ) -> ManagedInferdromeProfileFacts | None:
     managed_profile: ManagedInferdromeProfileFacts | None = None
     managed_invocation = "local_gpu_proof" in invocation
-    if managed_invocation:
+    if managed_evidence_profile is None and managed_invocation:
         try:
             managed_profile = validate_managed_invocation_profile(
                 invocation,
@@ -1501,6 +1532,8 @@ def _validate_invocation(
     }
     if managed_invocation:
         expected_fields.add("local_gpu_proof")
+    if managed_evidence_profile is not None:
+        expected_fields.add("campaign_profile")
     if (
         set(invocation) != expected_fields
         or invocation.get("schema_version") != "inferdrome.producer-invocation.v1"
@@ -1533,8 +1566,13 @@ def _validate_invocation(
     tokenizer_path = _absolute_argv_path(argv, "--tokenizer")
     dataset_path = _absolute_argv_path(argv, "--dataset-path")
     result_directory = _absolute_argv_path(argv, "--result-dir")
+    expected_executable = (
+        managed_profile.executable_path
+        if managed_profile is not None
+        else str(argv[0]) if managed_evidence_profile is not None else "vllm"
+    )
     expected_argv = [
-        managed_profile.executable_path if managed_profile is not None else "vllm",
+        expected_executable,
         "bench",
         "serve",
         "--backend",
@@ -1601,6 +1639,11 @@ def _validate_invocation(
             "5",
             "--temperature",
             str(workload.get("temperature")),
+            *(
+                managed_evidence_profile.benchmark_profile_arguments
+                if managed_evidence_profile is not None
+                else ()
+            ),
             "--seed",
             str(workload.get("seed")),
             "--request-id-prefix",
