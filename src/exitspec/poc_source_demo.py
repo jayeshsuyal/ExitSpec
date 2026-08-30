@@ -1,8 +1,9 @@
-"""Source-neutral, process-local browser runtime for Train A A2/A3.
+"""Source-neutral, process-local browser runtime for Train A A2/A3/A4.
 
 This runtime deliberately owns only draft identity, source attachment, and
-human proposal projection. It does not construct the seeded session, load
-seeded fixtures, or expose agreement, proof, provider, or lifecycle routes.
+human proposal projection, or capability planning. It does not construct the
+seeded session, load seeded fixtures, or expose agreement, proof, provider, or
+lifecycle routes.
 The existing compatibility demo remains in :mod:`exitspec.web`.
 """
 
@@ -40,6 +41,11 @@ from .poc_assisted_authoring_web_api import (
     is_poc_assisted_authoring_web_api_target,
 )
 from .poc_proposal_web_api import handle_poc_proposal_web_api_request
+from .poc_capability_planner import ProcessLocalCapabilityPlannerService
+from .poc_capability_planner_web_api import (
+    handle_poc_capability_planner_web_api_request,
+    is_poc_capability_planner_web_api_target,
+)
 from .poc_source_intake import (
     POCSourceInput,
     POCSourceIntakeCapacityExceeded,
@@ -83,6 +89,9 @@ _REVIEW_PAGE_RE = re.compile(
 _ASSISTED_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/assisted-authoring$"
 )
+_PLANNING_PAGE_RE = re.compile(
+    r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/capability-plan$"
+)
 _DRAFT_API_RE = re.compile(r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})$")
 _SOURCE_API_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/sources(?:/([^/]+))?$"
@@ -115,6 +124,9 @@ _ASSET_NAMES = frozenset(
         "assisted_authoring.html",
         "assisted_authoring.css",
         "assisted_authoring.js",
+        "capability_plan.html",
+        "capability_plan.css",
+        "capability_plan.js",
         "workbench.css",
     }
 )
@@ -152,6 +164,9 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         )
         self.proposal_review_service = ProcessLocalProposalReviewService(
             proposal_lookup=self._proposal_inputs_for_review,
+        )
+        self.capability_planner_service = ProcessLocalCapabilityPlannerService(
+            proposal_lookup=self._retained_proposals_for_planning,
         )
         self.assisted_authoring_service.bind_decision_lookup(
             self.proposal_review_service.source_has_decision
@@ -194,6 +209,12 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
             if source_receipt_id not in replaced_sources:
                 merged.extend(replacement)
         return tuple(merged)
+
+    def _retained_proposals_for_planning(self, poc_id: str):
+        return self.assisted_authoring_service.retained_projection(
+            poc_id,
+            self.proposal_review_service,
+        )
 
     def workspace_payload(self, selected_filter: str = "Active") -> dict[str, Any]:
         receipts: dict[str, tuple[Any, ...]] = {}
@@ -277,6 +298,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             if response is not None:
                 self._json(response.status, response.payload)
                 return
+        if is_poc_capability_planner_web_api_target(parsed.path):
+            response = handle_poc_capability_planner_web_api_request(
+                method="GET",
+                target=parsed.path,
+                payload=None,
+                runtime=self.server.capability_planner_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         if is_poc_source_web_api_target(parsed.path):
             response = handle_poc_source_web_api_request(
                 method="GET",
@@ -307,6 +338,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             _SOURCE_PAGE_RE.fullmatch(parsed.path)
             or _REVIEW_PAGE_RE.fullmatch(parsed.path)
             or _ASSISTED_PAGE_RE.fullmatch(parsed.path)
+            or _PLANNING_PAGE_RE.fullmatch(parsed.path)
         ):
             poc_id = parsed.path.split("/")[3]
             if self._active_draft(poc_id):
@@ -314,8 +346,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                     asset = "source_intake.html"
                 elif _REVIEW_PAGE_RE.fullmatch(parsed.path):
                     asset = "proposal_review.html"
-                else:
+                elif _ASSISTED_PAGE_RE.fullmatch(parsed.path):
                     asset = "assisted_authoring.html"
+                else:
+                    asset = "capability_plan.html"
                 self._file(asset)
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
@@ -356,6 +390,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             if response is not None:
                 self._json(response.status, response.payload)
                 return
+        if is_poc_capability_planner_web_api_target(parsed.path):
+            response = handle_poc_capability_planner_web_api_request(
+                method="POST",
+                target=parsed.path,
+                payload=payload,
+                runtime=self.server.capability_planner_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         source_match = _SOURCE_API_RE.fullmatch(parsed.path)
         if source_match is not None and source_match.group(2) is not None:
             self._capture(source_match.group(1), unquote(source_match.group(2)), payload)
@@ -372,6 +416,19 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(response.status, response.payload)
                 return
         self._json(HTTPStatus.NOT_FOUND, {"error": "Route was not found."})
+
+    def do_PUT(self) -> None:  # noqa: N802 - stdlib request handler API
+        if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
+            response = handle_poc_capability_planner_web_api_request(
+                method="PUT",
+                target=self.path,
+                payload=None,
+                runtime=self.server.capability_planner_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
+        self.send_error(HTTPStatus.NOT_IMPLEMENTED)
 
     def _create(self, payload: Any) -> None:
         allowed = {

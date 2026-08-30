@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Make approved requests testable with explicit ExitSpec proof methods." />
+    <title>ExitSpec — Capability plan</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/capability_plan.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#capability-plan-main">Skip to capability planning</a>
+    <div class="dashboard-shell capability-plan-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs"><span class="brand-mark" aria-hidden="true">E</span><span>ExitSpec</span></a>
+        <nav class="global-nav" aria-label="ExitSpec"><a href="/app" aria-current="page">POCs</a><a href="/app/evidence">Evidence Packs</a><a href="/app/pocs/new">New POC</a></nav>
+        <div class="local-identity"><span class="identity-dot" aria-hidden="true"></span><span>Local demo</span></div>
+      </header>
+      <main class="capability-plan-main workbench-main" id="capability-plan-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Define · Plan</p>
+            <h1 id="poc-title">Loading draft…</h1>
+            <p id="poc-context">Reading approved requests.</p>
+          </div>
+          <div class="authority-boundary" aria-label="Definition boundary"><span>Definition boundary</span><strong>Define only · no test has run</strong></div>
+        </header>
+        <section class="capability-current-task workbench-current-task" id="capability-current-task" aria-labelledby="capability-task-heading" aria-busy="true">
+          <header class="task-heading">
+            <div><p class="eyebrow">Current task</p><h2 id="capability-task-heading">Make each request testable</h2><p>Choose how ExitSpec can prove it. Anything incomplete stays visible.</p></div>
+            <p class="planning-limit">Define only</p>
+          </header>
+          <form id="planning-form" class="planning-form" novalidate>
+            <div id="planning-records" class="planning-records"><p class="planning-placeholder">Loading retained claims…</p></div>
+            <div class="planning-footer">
+              <p id="planner-status" role="status" aria-live="polite">Waiting for trusted retained proposals.</p>
+              <button id="planning-submit" class="primary-action" type="submit" disabled>Create capability plan</button>
+            </div>
+          </form>
+          <section id="planning-result" class="planning-result" tabindex="-1" hidden>
+            <div class="result-heading"><div><p class="eyebrow">Plan</p><h3 id="planning-result-heading">Plan created</h3></div><strong id="ready-for-agreement" class="readiness-badge"></strong></div>
+            <p id="planning-result-summary"></p>
+            <div id="planning-result-records" class="result-records"></div>
+            <p class="boundary-copy">Planning does not confirm, freeze, execute, import evidence, issue a verdict, or authorize deployment.</p>
+          </section>
+        </section>
+        <p id="capability-plan-error" class="planning-error" role="alert" hidden></p>
+      </main>
+    </div>
+    <script src="/capability_plan.js"></script>
+  </body>
+</html>

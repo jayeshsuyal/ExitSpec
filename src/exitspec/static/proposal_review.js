@@ -53,6 +53,7 @@
   const errorPanel = document.querySelector("#proposal-review-error");
   const completionPanel = document.querySelector("#review-complete");
   const defineCriteriaLink = document.querySelector("#define-criteria");
+  const planCapabilitiesLink = document.querySelector("#plan-capabilities");
 
   let proposals = [];
   let initialCount = 0;
@@ -753,6 +754,7 @@
     reviewerInput.value = "";
     rationaleInput.value = "";
     pendingAttempt = null;
+    planCapabilitiesLink.hidden = true;
     currentTask.hidden = true;
     completionPanel.hidden = false;
     document.querySelector("#review-complete-summary").textContent =
@@ -779,7 +781,19 @@
         defineCriteriaLink.textContent = "Return to POC workspace";
         defineCriteriaLink.href = "/app";
         defineCriteriaLink.hidden = false;
+        if (keptCount > 0) {
+          planCapabilitiesLink.textContent = "Plan retained capabilities";
+          planCapabilitiesLink.href = `/app/pocs/${encodeURIComponent(pocId)}/capability-plan`;
+          planCapabilitiesLink.hidden = false;
+        }
       }
+    } else if (pocId && hasA3Proposals && keptCount > 0) {
+      defineCriteriaLink.textContent = "Return to POC workspace";
+      defineCriteriaLink.href = "/app";
+      defineCriteriaLink.hidden = false;
+      planCapabilitiesLink.textContent = "Plan retained capabilities";
+      planCapabilitiesLink.href = `/app/pocs/${encodeURIComponent(pocId)}/capability-plan`;
+      planCapabilitiesLink.hidden = false;
     } else if (hasA3Proposals) {
       defineCriteriaLink.textContent = "Return to POC workspace";
       defineCriteriaLink.href = "/app";
