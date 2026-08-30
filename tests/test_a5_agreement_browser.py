@@ -40,7 +40,8 @@ def _complete_a4_plan(
         "LT" if supported_capability == "inference_performance_external" else "GTE"
     )
     second.locator('[name="threshold"]').fill(threshold)
-    second.locator('[name="provenance"]').select_option("SOURCE_EXTRACTED")
+    assert second.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+    assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("named.a4.reviewer")
     second.locator('[name="rationale"]').fill("Complete executable policy.")
     third = page.locator(".planning-row").nth(2)

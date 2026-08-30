@@ -1,7 +1,12 @@
 .generic-evidence-main {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 12px;
   width: min(1080px, calc(100% - 40px));
+  min-height: 0;
   margin: 0 auto;
-  padding: 28px 0 60px;
+  overflow: hidden;
+  padding: 16px 0 20px;
 }
 
 .generic-evidence-main .object-header {
@@ -21,10 +26,19 @@
 .generic-history-panel {
   background: #18222d;
   border: 1px solid #303a40;
-  border-radius: 14px;
-  margin-top: 18px;
-  padding: 22px;
+  margin: 0;
+  padding: 15px;
 }
+
+.generic-evidence-panel { min-height: 0; overflow: auto; }
+.generic-history-panel { max-height: 116px; overflow: auto; }
+.decision-truth { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.decision-truth div { border-left: 2px solid var(--orange); padding-left: 10px; }
+.decision-truth dt { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.decision-truth dd { margin: 3px 0 0; color: var(--text-secondary); font-size: 12px; }
+.handoff-fields { display: grid; grid-template-columns: .7fr 1.3fr; gap: 10px; margin: 12px 0; }
+.handoff-fields label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.handoff-fields input { min-width: 0; border: 1px solid var(--border-strong); padding: 8px 9px; background: var(--navigation); color: var(--text); font: inherit; }
 
 .generic-evidence-actions {
   align-items: center;
@@ -44,6 +58,8 @@
 #evidence-history li { color: #c7ced0; margin: 8px 0; }
 
 @media (max-width: 700px) {
-  .generic-evidence-main { width: min(100% - 28px, 1080px); }
+  .generic-evidence-main { display: block; width: min(100% - 28px, 1080px); overflow: visible; }
   .generic-evidence-main .object-header { align-items: start; flex-direction: column; gap: 8px; }
+  .generic-evidence-main > * { margin-bottom: 12px; }
+  .decision-truth, .handoff-fields { grid-template-columns: 1fr; }
 }

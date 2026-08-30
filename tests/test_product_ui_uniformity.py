@@ -70,13 +70,11 @@ def test_primary_workbenches_share_one_application_hierarchy():
 
 
 def test_product_exposes_one_canonical_three_step_journey():
-    for name in (
-        "dashboard.html",
-        "new_poc.html",
-        "performance.html",
-        "proof.html",
-        "index.html",
-    ):
+    canonical = _read("new_poc.html")
+    for label in ("Capture", "Review", "Plan", "Confirm", "Prove", "Decide"):
+        assert label in canonical
+
+    for name in ("dashboard.html", "performance.html", "proof.html", "index.html"):
         html = _read(name)
         for label in JOURNEY:
             assert label in html, (name, label)
@@ -84,17 +82,12 @@ def test_product_exposes_one_canonical_three_step_journey():
             assert f"<strong>{label}</strong>" not in html, (name, label)
         assert "Capture → Review → Agree → Prove → Decide" not in html, name
 
-    for name in (
-        "new_poc.html",
-        "source_intake.html",
-        "contract_definition.html",
-    ):
-        html = _read(name)
-        assert "Step 1 of 3 · Define" in html, name
-        assert " of 5 · " not in html, name
+    assert "Capture · Source choice" in canonical
+    assert "Capture · Source receipt" in _read("source_intake.html")
+    assert "Step 1 of 3 · Define" in _read("contract_definition.html")
 
     proposal_review = _read("proposal_review.html")
-    assert "Define · Proposal review" in proposal_review
+    assert "Review · Human triage" in proposal_review
     assert "Step 1 of 3 · Define" not in proposal_review
     assert " of 5 · " not in proposal_review
 
@@ -102,6 +95,9 @@ def test_product_exposes_one_canonical_three_step_journey():
         html = _read(name)
         assert "Step 2 of 3 · Confirm" in html, name
         assert " of 5 · " not in html, name
+
+    assert "Confirm · Exact agreement" in _read("agreement_dynamic.html")
+    assert "Prove → Decide · Verified evidence" in _read("generic_evidence.html")
 
     for name in ("performance.html", "proof.html"):
         html = _read(name)

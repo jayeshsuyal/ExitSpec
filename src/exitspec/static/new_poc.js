@@ -68,8 +68,8 @@
     });
     createButton.disabled = !canSubmit;
     createButton.textContent = pendingPayload
-      ? "Retry creating draft"
-      : "Create draft POC";
+      ? "Retry creating POC"
+      : "Create POC and continue";
     status.textContent = editable
       ? "Add the draft identity, then create it."
       : pendingPayload

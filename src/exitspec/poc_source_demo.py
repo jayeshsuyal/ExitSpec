@@ -27,6 +27,7 @@ from pydantic import ValidationError
 
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
+from .generic_evidence_pack import GenericEvidencePackError
 from .poc_creation import (
     DraftPOCCapacityExceeded,
     DraftPOCCreateRequest,
@@ -43,7 +44,12 @@ from .poc_assisted_authoring_web_api import (
     is_poc_assisted_authoring_web_api_target,
 )
 from .poc_proposal_web_api import handle_poc_proposal_web_api_request
-from .poc_capability_planner import ProcessLocalCapabilityPlannerService
+from .poc_capability_planner import (
+    PlannerCriterionInput,
+    PlannerItemInput,
+    PlanningProvenance,
+    ProcessLocalCapabilityPlannerService,
+)
 from .poc_capability_planner_web_api import (
     handle_poc_capability_planner_web_api_request,
     is_poc_capability_planner_web_api_target,
@@ -118,6 +124,9 @@ _SOURCE_API_RE = re.compile(
 )
 _PROPOSAL_API_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/proposals(?:/([^/]+)/decision)?$"
+)
+_CONVERGENCE_PLAN_API_RE = re.compile(
+    r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/capability-plan/converge$"
 )
 _EVIDENCE_ARTIFACT_RE = re.compile(
     r"^/artifacts/(eatm_[a-f0-9]{32})/decision-packet\.html$"
@@ -441,7 +450,9 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             self._serve_artifact(parsed.path)
             return
         if parsed.path in {"", "/", "/app", "/app/"}:
-            self._file("dashboard.html")
+            # A7 canonical entry: source choice is the first fresh-flow task.
+            # The seeded runtime retains its own compatibility dashboard.
+            self._file("new_poc.html")
             return
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
@@ -502,6 +513,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         except ValueError:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Request is invalid."})
+            return
+        convergence_match = _CONVERGENCE_PLAN_API_RE.fullmatch(parsed.path)
+        if convergence_match is not None:
+            self._converge_plan(convergence_match.group(1), payload)
             return
         if is_poc_evidence_web_api_target(parsed.path):
             response = handle_poc_evidence_web_api_request(
@@ -574,6 +589,82 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(response.status, response.payload)
                 return
         self._json(HTTPStatus.NOT_FOUND, {"error": "Route was not found."})
+
+    def _converge_plan(self, poc_id: str, payload: Any) -> None:
+        """Expand bounded human planning input from the server-owned A4 registry."""
+
+        try:
+            self._exact_fields(payload, {"items", "idempotency_key"})
+            idempotency_key = self._required_string(payload, "idempotency_key")
+            raw_items = payload["items"]
+            if type(raw_items) is not list or not raw_items:
+                raise ValueError
+            registry = {
+                entry.capability_key: entry
+                for entry in self.server.capability_planner_service.registry
+            }
+            items = []
+            allowed = {
+                "proposal_id",
+                "scope",
+                "capability_key",
+                "operator",
+                "threshold",
+                "reviewer",
+                "rationale",
+                "explicit_exclusion",
+            }
+            for raw in raw_items:
+                self._exact_fields(raw, allowed)
+                capability_key = self._required_string(raw, "capability_key")
+                excluded = raw["explicit_exclusion"]
+                if type(excluded) is not bool:
+                    raise ValueError
+                criterion = None
+                if not excluded and capability_key in registry:
+                    entry = registry[capability_key]
+                    operator = self._required_string(raw, "operator")
+                    threshold = raw["threshold"]
+                    if operator not in entry.allowed_operators or isinstance(threshold, bool):
+                        raise ValueError
+                    criterion = PlannerCriterionInput(
+                        rule=entry.rule,
+                        operator=operator,
+                        threshold=threshold,
+                        unit=entry.unit,
+                        measurement_population=entry.measurement_population,
+                        evidence_method=entry.evidence_method,
+                        adapter=entry.adapter,
+                        adapter_version=entry.adapter_version,
+                        evidence_profile=entry.evidence_profile,
+                        provenance=PlanningProvenance.SOURCE_EXTRACTED,
+                    )
+                elif not excluded and capability_key != "unsupported_capability":
+                    raise ValueError
+                items.append(
+                    PlannerItemInput(
+                        proposal_id=self._required_string(raw, "proposal_id"),
+                        scope=self._required_string(raw, "scope"),
+                        capability_key=capability_key,
+                        criterion=criterion,
+                        reviewer=self._required_string(raw, "reviewer"),
+                        rationale=self._required_string(raw, "rationale"),
+                        explicit_exclusion=excluded,
+                    ).model_dump(mode="json")
+                )
+        except (KeyError, TypeError, ValueError, ValidationError):
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "Convergence planning request is invalid."})
+            return
+        response = handle_poc_capability_planner_web_api_request(
+            method="POST",
+            target=f"/api/pocs/{poc_id}/capability-plan",
+            payload={"items": items, "idempotency_key": idempotency_key},
+            runtime=self.server.capability_planner_service,
+        )
+        if response is None:  # pragma: no cover - exact internal route
+            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Capability planning is unavailable."})
+            return
+        self._json(response.status, response.payload)
 
     def do_PUT(self) -> None:  # noqa: N802 - stdlib request handler API
         if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
@@ -702,7 +793,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 != publication.decision_packet_sha256
             ):
                 raise OSError("artifact changed while it was read")
-        except (OSError, ValueError, KeyError):
+        except (GenericEvidencePackError, OSError, ValueError, KeyError):
             self._json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
             return
         self.send_response(HTTPStatus.OK)
@@ -960,7 +1051,7 @@ def serve_source_neutral_demo(
         threading.Timer(
             0.15,
             lambda: webbrowser.open(
-                "http://{0}:{1}/app/pocs/new".format(host, server.server_port)
+                "http://{0}:{1}/app".format(host, server.server_port)
             ),
         ).start()
     return server

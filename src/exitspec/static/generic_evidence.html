@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/generic_evidence.css" />
   </head>
   <body>
+    <a class="skip-link" href="#generic-main">Skip to evidence decision</a>
     <div class="dashboard-shell">
       <header class="global-header">
         <a class="brand" href="/app" aria-label="ExitSpec POCs">
@@ -29,7 +30,7 @@
         <header class="object-header">
           <div class="object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
-            <p class="eyebrow">Step 3 of 3 · Evidence</p>
+            <p class="eyebrow">Prove → Decide · Verified evidence</p>
             <h1 id="evidence-title">Current evidence</h1>
             <p id="evidence-subtitle">Loading the frozen customer agreement…</p>
           </div>
@@ -38,7 +39,7 @@
 
         <section class="current-task-card" aria-labelledby="evidence-task-heading">
           <div class="task-copy">
-            <p class="task-kicker">Current task · Verify</p>
+            <p class="task-kicker" id="evidence-task-kicker">Current task · Prove</p>
             <h2 id="evidence-task-heading">Run the approved evidence method</h2>
             <p id="evidence-guidance">ExitSpec selects the method from the frozen agreement.</p>
             <label class="run-acknowledgement" for="evidence-acknowledged">
@@ -47,7 +48,7 @@
             </label>
           </div>
           <dl class="state-boundary" aria-label="Evidence state">
-            <div><dt>Current</dt><dd id="evidence-current-status">Loading</dd></div>
+            <div><dt>Current</dt><dd id="evidence-current-status" role="status" aria-live="polite">Loading</dd></div>
             <div><dt>Verdict</dt><dd id="evidence-current-verdict">—</dd></div>
           </dl>
           <div class="task-actions">
@@ -65,10 +66,18 @@
             <div><p class="panel-index">01 · Customer Evidence Pack</p><h2 id="evidence-result-heading">Verified result</h2></div>
           </div>
           <p id="evidence-result-reason">No admitted terminal evidence yet.</p>
+          <dl class="decision-truth">
+            <div><dt>Limitation</dt><dd id="evidence-limitation">Evidence has not run.</dd></div>
+            <div><dt>Next action</dt><dd id="evidence-next-action">Acknowledge the frozen request.</dd></div>
+          </dl>
+          <div class="handoff-fields" id="handoff-fields" hidden>
+            <label for="decision-owner">Decision owner<input id="decision-owner" value="Local POC owner" maxlength="160" autocomplete="name" /></label>
+            <label for="decision-rationale">Decision rationale<input id="decision-rationale" value="Reviewed the current Evidence Pack and visible limitations." maxlength="2000" /></label>
+          </div>
           <div class="generic-evidence-actions">
             <strong id="evidence-result-verdict">NOT RUN</strong>
             <a id="evidence-pack-link" href="#" hidden>Open Evidence Pack</a>
-            <button class="secondary-action" id="handoff-evidence" type="button" hidden>Complete human handoff</button>
+            <button class="primary-action" id="handoff-evidence" type="button" hidden>Complete human handoff</button>
           </div>
         </section>
 
@@ -81,7 +90,7 @@
 
         <details class="technical-details">
           <summary>Technical details and limitations</summary>
-          <div class="technical-content"><p id="evidence-authorization">Evidence is proof, not shipping authorization.</p></div>
+          <div class="technical-content"><p id="evidence-authorization">Evidence is proof, not shipping authorization.</p><p id="evidence-technical-binding"></p></div>
         </details>
         <p class="workspace-error" id="evidence-error" role="alert" hidden></p>
       </main>

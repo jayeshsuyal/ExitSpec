@@ -37,7 +37,8 @@ def _complete_mixed_plan(page) -> None:
     second.locator('[name="capability_key"]').select_option("exact_tool_selection")
     second.locator('[name="operator"]').select_option("GTE")
     second.locator('[name="threshold"]').fill("0.95")
-    second.locator('[name="provenance"]').select_option("SOURCE_EXTRACTED")
+    assert second.locator('[name="provenance"]').input_value() == "SOURCE_EXTRACTED"
+    assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("a6.browser.a4")
     second.locator('[name="rationale"]').fill("Bind the executable acceptance rule.")
 

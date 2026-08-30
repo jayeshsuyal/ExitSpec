@@ -15,13 +15,14 @@ DEMO_PATH = PROJECT_ROOT / "docs" / "DEMO_RUNBOOK.md"
 GATE_PATH = PROJECT_ROOT / "scripts" / "v0_2_release_gate.sh"
 
 
-def test_package_version_matches_the_v0_2_checkpoint():
+def test_v0_2_checkpoint_remains_historical_after_current_version_advances():
     project = tomllib.loads(
         (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert project["project"]["version"] == "0.2.0"
-    assert exitspec.__version__ == "0.2.0"
+    assert project["project"]["version"] == exitspec.__version__
+    assert project["project"]["version"] != "0.2.0"
+    assert RELEASE_PATH.is_file()
 
 
 def test_v0_2_release_gate_composes_the_existing_engineering_gate():

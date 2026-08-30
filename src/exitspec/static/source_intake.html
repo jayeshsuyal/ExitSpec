@@ -38,14 +38,14 @@
         <header class="object-header workbench-object-header">
           <div class="object-heading workbench-object-identity">
             <a class="back-link" href="/app">← POC workspace</a>
-            <p class="eyebrow">Step 1 of 3 · Define</p>
+            <p class="eyebrow">Capture · Source receipt</p>
             <h1 id="poc-title">Loading draft…</h1>
             <p id="poc-context">Validating the local draft before intake.</p>
           </div>
 
           <div class="authority-boundary" aria-label="Source authority boundary">
             <span>Source boundary</span>
-            <strong>Untrusted source · human review required</strong>
+              <strong>Untrusted input · receipt only · review required</strong>
           </div>
         </header>
 
@@ -165,17 +165,16 @@
                   disabled
                 >
                   <legend>Meeting input</legend>
-                  <label>
+                  <label hidden>
                     <input
                       id="meeting-mode-session"
                       type="radio"
                       name="meeting_mode"
                       value="SESSION"
-                      checked
                     />
                     <span>Meeting session</span>
                   </label>
-                  <label>
+                  <label hidden>
                     <input
                       id="meeting-mode-zoom"
                       type="radio"
@@ -190,10 +189,11 @@
                       type="radio"
                       name="meeting_mode"
                       value="PASTE"
+                      checked
                     />
-                    <span>Paste transcript</span>
+                    <span>Paste transcript or recording-derived text</span>
                   </label>
-                  <label>
+                  <label hidden>
                     <input
                       id="meeting-mode-record"
                       type="radio"

@@ -10,6 +10,15 @@
   let snapshot = null;
   let busy = false;
 
+  function visibleLimitations(current) {
+    const values = [];
+    for (const result of current?.results || []) {
+      for (const limitation of result.limitations || []) values.push(limitation);
+    }
+    for (const limitation of current?.reduction?.limitations || []) values.push(limitation);
+    return [...new Set(values)];
+  }
+
   function setError(message) {
     const error = $("#evidence-error");
     error.textContent = message;
@@ -23,18 +32,24 @@
       ? `${current.contract_id} · v${current.contract_version}`
       : "Current evidence";
     $("#evidence-subtitle").textContent = current
-      ? `Customer-confirmed contract ${current.contract_hash}`
+      ? "The exact customer-confirmed contract is frozen."
       : "Evidence begins only after the server confirms a frozen agreement.";
     $("#evidence-current-status").textContent = current ? current.status : "NOT STARTED";
     $("#evidence-current-verdict").textContent = current?.reduction?.verdict || "—";
     $("#evidence-result-verdict").textContent = current?.reduction?.verdict || "NOT RUN";
     $("#evidence-result-reason").textContent = current
-      ? `${current.reason} Next: ${current.next_action}`
+      ? current.reason
       : "No admitted terminal evidence yet.";
     $("#evidence-guidance").textContent = current
       ? current.next_action
       : "ExitSpec selects the method from the frozen agreement.";
     $("#evidence-authorization").textContent = snapshot?.authorization || "Evidence is proof, not shipping authorization.";
+    $("#evidence-technical-binding").textContent = current
+      ? `Contract hash ${current.contract_hash} · attempt ${current.attempt_id}`
+      : "No current contract or attempt binding.";
+    const limitations = visibleLimitations(current);
+    $("#evidence-limitation").textContent = limitations[0] || "No admitted evidence limitation is available yet.";
+    $("#evidence-next-action").textContent = current?.next_action || "Acknowledge the exact frozen evidence request.";
 
     const pack = current?.evidence_pack_url;
     const packLink = $("#evidence-pack-link");
@@ -45,18 +60,25 @@
     const start = $("#start-evidence");
     const stop = $("#stop-evidence");
     const handoff = $("#handoff-evidence");
+    const handoffFields = $("#handoff-fields");
     stop.hidden = !canStop || closed;
     handoff.hidden = !(pack && current?.is_current && !closed);
+    handoffFields.hidden = handoff.hidden;
     start.disabled = busy || closed || !$("#evidence-acknowledged").checked || Boolean(current && ["RESERVED", "RUNNING"].includes(current.status));
     stop.disabled = busy;
-    handoff.disabled = busy;
+    handoff.disabled = busy || !$("#decision-owner").value.trim() || !$("#decision-rationale").value.trim();
+    const deciding = !handoff.hidden;
+    $("#evidence-task-kicker").textContent = deciding ? "Current task · Decide" : "Current task · Prove";
+    $("#evidence-task-heading").textContent = deciding
+      ? "Review the current pack and record the human decision"
+      : "Run the approved evidence method";
 
     const history = $("#evidence-history");
     history.replaceChildren();
-    for (const attempt of snapshot?.history || []) {
+    for (const [index, attempt] of (snapshot?.history || []).entries()) {
       const item = document.createElement("li");
       const verdict = attempt.reduction?.verdict || "NO VERDICT";
-      item.textContent = `${attempt.attempt_id} · ${attempt.status} · ${verdict} · ${attempt.is_current ? "CURRENT" : "HISTORICAL"}`;
+      item.textContent = `Attempt ${index + 1} · ${attempt.status} · ${verdict} · ${attempt.is_current ? "CURRENT" : "HISTORICAL"}`;
       history.append(item);
     }
     if (!history.children.length) {
@@ -118,8 +140,8 @@
       await request(`${api}/${current.attempt_id}/${decision}`, {
         method: "POST",
         body: JSON.stringify({
-          decided_by: "a6.browser.customer",
-          rationale: decision === "handoff" ? "Reviewed the current Evidence Pack." : "Stopped the current POC.",
+          decided_by: $("#decision-owner").value.trim(),
+          rationale: decision === "handoff" ? $("#decision-rationale").value.trim() : "Stopped after reviewing the current evidence state.",
           idempotency_key: `a6-browser-${decision}-${crypto.randomUUID()}`,
         }),
       });
@@ -132,6 +154,8 @@
   }
 
   $("#evidence-acknowledged").addEventListener("change", render);
+  $("#decision-owner").addEventListener("input", render);
+  $("#decision-rationale").addEventListener("input", render);
   $("#start-evidence").addEventListener("click", start);
   $("#handoff-evidence").addEventListener("click", () => close("handoff"));
   $("#stop-evidence").addEventListener("click", () => close("stop"));
