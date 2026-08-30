@@ -36,6 +36,9 @@ documented in the
 The additive B11 independent routing campaign verification and reduction
 protocol is documented in the
 [Routing campaign verification protocol](docs/ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
+The B12 immutable, purpose-bound wrapper over context-recomputed B11 results
+is documented in the
+[Routing policy qualification receipt protocol](docs/ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
 
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded

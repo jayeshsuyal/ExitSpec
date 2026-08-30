@@ -101,8 +101,9 @@ B10 adds the companion confidence-bearing SLO criterion described in
 B11 implements independent multi-run verification and reduction through the
 additive, versioned full-contract policy in
 [ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
-B12 may emit purpose-bound qualification receipts. B13 may add the Routing
-Evidence Pack, UI, and release gate. In particular,
+B12 adds the separate purpose-bound receipt wrapper described in
+[ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
+B13 may add the Routing Evidence Pack, UI, and release gate. In particular,
 `routing_qualification_v1` remains pre-measurement vocabulary and is not
 executable or proven by the presence of this schema, fixture, or digest.
 

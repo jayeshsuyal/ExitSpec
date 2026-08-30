@@ -119,6 +119,7 @@ cross-repository import.
 
 B11 adds independent run evidence handling and reduction in
 [ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
-B12 may issue purpose-bound qualification receipts. B13 may add the Routing
-Evidence Pack, UI, and release gate. Those future slices own receipt and
-product-delivery behavior; none is implemented by B10.
+B12 adds the separate purpose-bound wrapper in
+[ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
+B13 may add the Routing Evidence Pack, UI, and release gate. Those later
+slices do not change B10 semantics; no receipt behavior is implemented by B10.

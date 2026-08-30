@@ -144,6 +144,18 @@ qualification receipt, Evidence Pack, UI, browser route, release gate, or tag.
 See
 [ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
 
+### Train B — B12 purpose-bound routing qualification receipts
+
+B12 adds one immutable `routing_policy_qualification_receipt_v1` wrapper over
+the exact B11 contract, affirmative confirmation, original admitted canonical
+evidence bundle, and context-recomputed result. It binds ordered run identities
+without pooling or rewriting evidence, issues for `PASS`, `FAIL`, and
+`NOT_PROVEN`, and issues nothing for ingestion rejection. Synthetic receipts
+are always test-only; every production, deployment, traffic, release, and
+contract-mutation authority remains false pending a separate human product
+decision. See
+[ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
+
 ### 0. POC-first workspace and multi-source shell
 
 The product direction is frozen in
