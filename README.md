@@ -30,6 +30,9 @@ retrospective admission gate are documented in the
 The additive B9 routing qualification vocabulary and synthetic evidence-side
 protocol are documented in the
 [Routing qualification protocol](docs/ROUTING_QUALIFICATION_PROTOCOL.md).
+The additive B10 confidence-bearing routing SLO contract semantics are
+documented in the
+[Routing SLO attainment protocol](docs/ROUTING_SLO_ATTAINMENT_PROTOCOL.md).
 
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded

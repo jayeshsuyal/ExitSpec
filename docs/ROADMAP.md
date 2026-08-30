@@ -117,9 +117,21 @@ The protocol-only B9 slice freezes the provider/orchestrator-agnostic
 `routing_qualification_v1` campaign vocabulary and its admissible
 evidence-side bindings. See
 [ROUTING_QUALIFICATION_PROTOCOL.md](ROUTING_QUALIFICATION_PROTOCOL.md).
-It deliberately defers confidence-bearing SLOs (B10), multi-run
+It points to the additive [B10 Routing SLO attainment protocol](ROUTING_SLO_ATTAINMENT_PROTOCOL.md)
+for confidence-bearing SLO semantics, and deliberately defers multi-run
 verification/reduction (B11), purpose-bound qualification receipts (B12), and
 the Routing Evidence Pack/UI/release gate (B13).
+
+### Train B — B10 confidence-bearing routing SLO attainment
+
+B10 adds a versioned companion criterion inside the existing full
+`POCContract`. It freezes one exact terminal end-to-end latency predicate per
+candidate/baseline assignment, explicit external-error/timeout and
+missing-evidence treatment, candidate `QUALIFICATION_GATE` versus baseline
+`REFERENCE_CONTROL` roles, and separate subject-specific Wilson confidence
+requirements. B10 does not ingest evidence, pool runs, calculate a verdict, or
+issue receipts. See
+[ROUTING_SLO_ATTAINMENT_PROTOCOL.md](ROUTING_SLO_ATTAINMENT_PROTOCOL.md).
 
 ### 0. POC-first workspace and multi-source shell
 

@@ -96,7 +96,9 @@ the existing prospective-handshake semantics used by Inferdrome.
 
 ## Scope deferrals
 
-B10 may add confidence-bearing SLO criteria. B11 may implement independent
+B10 adds the companion confidence-bearing SLO criterion described in
+[ROUTING_SLO_ATTAINMENT_PROTOCOL.md](ROUTING_SLO_ATTAINMENT_PROTOCOL.md).
+B11 may implement independent
 multi-run verification and a future reduction policy. B12 may emit
 purpose-bound qualification receipts. B13 may add the Routing Evidence Pack,
 UI, and release gate. None of those behaviors is claimed or implemented by
