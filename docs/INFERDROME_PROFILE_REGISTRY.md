@@ -30,6 +30,17 @@ adapter, model/revision, workload, population, reducer, unit, and provenance
 requirements. Unknown profile IDs and all incomplete, extra, aliased, or
 incompatible bindings fail closed with a stable reason code.
 
+The legacy A10 profile is admitted only through its established legacy
+validator; the managed-profile registry API rejects it rather than creating a
+second validation path. The A100 specialization reuses the mature invocation
+and local-GPU proof validator, adding only its exact `campaign_profile` field
+and server-argument template. The public A100 gate owns the archive, member,
+bundle, run, digest, and metric expectations; callers cannot replace those
+pins. External metadata uses exact frozen object shapes, rejects boolean
+integer aliases, and applies bounded integer/depth parsing. Any rejection
+after extraction deterministically removes the extracted bundle; cleanup
+failure is itself a stable rejection.
+
 ## External-only operator gate
 
 `admit_a100_qwen3_retrospective` is an offline operator gate for the exact
@@ -47,6 +58,11 @@ safe metadata, and the external profile document. The gate:
 5. independently recalculates nearest-rank p95 from
    `records/requests.jsonl`, requiring 96 successful measured records, zero
    errors, and `79,279,716 ns`.
+
+This is an external-only admission gate: metadata cannot substitute for the
+sealed archive or bundle, and a synthetic fixture is structure-only and must
+be labeled as such. Admission returns validated identity and recalculated
+facts, not a performance or acceptance verdict.
 
 The result contains admitted identity and recalculated facts only. It has no
 `PASS`, `FAIL`, or `NOT_PROVEN` field. The raw archive is never rewritten,

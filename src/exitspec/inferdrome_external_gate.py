@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 from dataclasses import dataclass
 from enum import Enum
@@ -72,6 +73,8 @@ A100_EXPECTED_MEASURED_REQUESTS: Final = 96
 A100_EXPECTED_SUCCESSFUL_REQUESTS: Final = 96
 A100_EXPECTED_FAILED_REQUESTS: Final = 0
 _MAX_METADATA_BYTES: Final = 1_048_576
+_MAX_METADATA_INTEGER: Final = (1 << 63) - 1
+_MAX_METADATA_DEPTH: Final = 64
 
 
 class ManagedEvidenceAdmissionErrorCode(str, Enum):
@@ -103,6 +106,7 @@ class ManagedEvidenceAdmissionErrorCode(str, Enum):
     CONCURRENCY_MISMATCH = "CONCURRENCY_MISMATCH"
     SAMPLE_COUNT_MISMATCH = "SAMPLE_COUNT_MISMATCH"
     ENVIRONMENT_MISMATCH = "ENVIRONMENT_MISMATCH"
+    LEGACY_PROFILE_REQUIRES_LEGACY_PATH = "LEGACY_PROFILE_REQUIRES_LEGACY_PATH"
     CHRONOLOGY_MISMATCH = "CHRONOLOGY_MISMATCH"
     CONTRACT_LINK_MISMATCH = "CONTRACT_LINK_MISMATCH"
     PROVENANCE_INSUFFICIENT = "PROVENANCE_INSUFFICIENT"
@@ -112,6 +116,7 @@ class ManagedEvidenceAdmissionErrorCode(str, Enum):
     MALFORMED_JSONL = "MALFORMED_JSONL"
     TAMPERED_INPUT = "TAMPERED_INPUT"
     RECALCULATION_MISMATCH = "RECALCULATION_MISMATCH"
+    CLEANUP_FAILED = "CLEANUP_FAILED"
 
 
 class ManagedEvidenceAdmissionRejected(ValueError):
@@ -194,7 +199,33 @@ def admit_a100_qwen3_retrospective(
     profile_document_path: Path,
     limits: InferdromeArchiveLimits | None = None,
     bundle_limits: InferdromeBundleLimits | None = None,
-    expectation: A100RetrospectiveArchiveExpectation = (A100_RETROSPECTIVE_EXPECTATION),
+) -> ManagedEvidenceAdmission:
+    """Admit the exact registry-owned external A100/Qwen3 bundle."""
+
+    return _admit_a100_qwen3_retrospective(
+        archive_path,
+        destination,
+        handoff_manifest_path=handoff_manifest_path,
+        publication_review_path=publication_review_path,
+        operational_summary_path=operational_summary_path,
+        profile_document_path=profile_document_path,
+        limits=limits,
+        bundle_limits=bundle_limits,
+        expectation=A100_RETROSPECTIVE_EXPECTATION,
+    )
+
+
+def _admit_a100_qwen3_retrospective(
+    archive_path: Path,
+    destination: Path,
+    *,
+    handoff_manifest_path: Path,
+    publication_review_path: Path,
+    operational_summary_path: Path,
+    profile_document_path: Path,
+    limits: InferdromeArchiveLimits | None = None,
+    bundle_limits: InferdromeBundleLimits | None = None,
+    expectation: A100RetrospectiveArchiveExpectation,
 ) -> ManagedEvidenceAdmission:
     """Admit the exact external A100/Qwen3 retrospective bundle.
 
@@ -226,55 +257,74 @@ def admit_a100_qwen3_retrospective(
         raise _archive_rejection(error) from error
 
     try:
-        verified = verify_inferdrome_bundle(
-            extracted.member,
-            expected_bundle_digest=expectation.bundle_digest,
-            limits=bundle_limits,
-            require_customer_eligible=True,
-            managed_evidence_profile=profile,
-        )
-    except ManagedEvidenceProfileRejected as error:
-        raise _profile_rejection(error) from error
-    except InferdromeBundleRejected as error:
-        raise _bundle_rejection(error) from error
+        try:
+            verified = verify_inferdrome_bundle(
+                extracted.member,
+                expected_bundle_digest=expectation.bundle_digest,
+                limits=bundle_limits,
+                require_customer_eligible=True,
+                managed_evidence_profile=profile,
+            )
+        except ManagedEvidenceProfileRejected as error:
+            raise _profile_rejection(error) from error
+        except InferdromeBundleRejected as error:
+            raise _bundle_rejection(error) from error
 
-    _validate_admitted_bundle(verified, profile, expectation, handoff)
-    recalculated = verified.recalculated
-    if (
-        recalculated.attempted_count != expectation.measured_requests
-        or recalculated.successful_count != expectation.successful_requests
-        or recalculated.failed_count != expectation.failed_requests
-        or recalculated.anomalous_count != 0
-        or recalculated.p95_ttft_ns != expectation.expected_p95_ns
-        or recalculated.ttft_definition != A100_METRIC_DEFINITION_ID
-    ):
-        _reject(
-            ManagedEvidenceAdmissionErrorCode.RECALCULATION_MISMATCH,
-            "Independent request-record recalculation does not match the exact handoff facts.",
+        _validate_admitted_bundle(verified, profile, expectation, handoff)
+        recalculated = verified.recalculated
+        if (
+            recalculated.attempted_count != expectation.measured_requests
+            or recalculated.successful_count != expectation.successful_requests
+            or recalculated.failed_count != expectation.failed_requests
+            or recalculated.anomalous_count != 0
+            or recalculated.p95_ttft_ns != expectation.expected_p95_ns
+            or recalculated.ttft_definition != A100_METRIC_DEFINITION_ID
+        ):
+            _reject(
+                ManagedEvidenceAdmissionErrorCode.RECALCULATION_MISMATCH,
+                "Independent request-record recalculation does not match the exact handoff facts.",
+            )
+        return ManagedEvidenceAdmission(
+            profile_id=profile.profile_id,
+            profile_sha256=profile.profile_sha256,
+            archive_sha256=extracted.archive_sha256,
+            bundle_digest=verified.bundle_digest,
+            bundle_member_path=extracted.member_path,
+            run_id=str(verified.descriptor["run_id"]),
+            recalculated=recalculated,
+            archive_member_count=extracted.member_count,
+            archive_file_count=extracted.file_count,
+            archive_directory_count=extracted.directory_count,
+            archive_expanded_bytes=extracted.expanded_bytes,
         )
-    return ManagedEvidenceAdmission(
-        profile_id=profile.profile_id,
-        profile_sha256=profile.profile_sha256,
-        archive_sha256=extracted.archive_sha256,
-        bundle_digest=verified.bundle_digest,
-        bundle_member_path=extracted.member_path,
-        run_id=str(verified.descriptor["run_id"]),
-        recalculated=recalculated,
-        archive_member_count=extracted.member_count,
-        archive_file_count=extracted.file_count,
-        archive_directory_count=extracted.directory_count,
-        archive_expanded_bytes=extracted.expanded_bytes,
-    )
+    except Exception:
+        _cleanup_extracted_bundle(extracted.root)
+        raise
 
 
 def admit_managed_evidence_archive(
     archive_path: Path,
     destination: Path,
-    **kwargs: Any,
+    *,
+    handoff_manifest_path: Path,
+    publication_review_path: Path,
+    operational_summary_path: Path,
+    profile_document_path: Path,
+    limits: InferdromeArchiveLimits | None = None,
+    bundle_limits: InferdromeBundleLimits | None = None,
 ) -> ManagedEvidenceAdmission:
     """Stable generic-facing alias for the currently authorized A100 gate."""
 
-    return admit_a100_qwen3_retrospective(archive_path, destination, **kwargs)
+    return admit_a100_qwen3_retrospective(
+        archive_path,
+        destination,
+        handoff_manifest_path=handoff_manifest_path,
+        publication_review_path=publication_review_path,
+        operational_summary_path=operational_summary_path,
+        profile_document_path=profile_document_path,
+        limits=limits,
+        bundle_limits=bundle_limits,
+    )
 
 
 def _validate_profile_document(
@@ -382,6 +432,23 @@ def _validate_handoff(
     profile: ManagedEvidenceProfile,
     expectation: A100RetrospectiveArchiveExpectation,
 ) -> None:
+    _exact_keys(
+        handoff,
+        {
+            "acceptance_boundary",
+            "archive",
+            "capability_profile",
+            "contract_binding",
+            "fixture_delivery",
+            "history_provenance",
+            "operational_completion",
+            "publication_review",
+            "run",
+            "runtime_capability",
+            "schema_version",
+        },
+        "handoff",
+    )
     _exact(
         handoff.get("schema_version"),
         "inferdrome.qwen3-gpu-evidence-handoff.v1",
@@ -412,7 +479,6 @@ def _validate_handoff(
         },
         "handoff.archive",
         ManagedEvidenceAdmissionErrorCode.ARCHIVE_SHA256_MISMATCH,
-        allow_extra=True,
     )
     capability = _object(handoff.get("capability_profile"))
     _exact(
@@ -427,35 +493,39 @@ def _validate_handoff(
         managed,
         {
             "identity": profile.profile_id,
+            "path": "campaigns/v1/profiles/managed-vllm-0.26-qwen3-8b-bf16-v1.json",
             "sha256": profile.profile_sha256,
         },
         "handoff.capability_profile.managed_profile",
         ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
-        allow_extra=True,
     )
     workload = _object(capability.get("workload"))
     _exact_values(
         workload,
         {
             "id": profile.workload_id,
+            "path": "campaigns/v1/workloads/qwen-text-mixed-length-v1.jsonl",
             "prompt_count": profile.measured_requests,
             "sha256": profile.workload_sha256,
         },
         "handoff.capability_profile.workload",
         ManagedEvidenceAdmissionErrorCode.WORKLOAD_MISMATCH,
-        allow_extra=True,
     )
     binding = _object(handoff.get("contract_binding"))
     _exact_values(
         binding,
         {
             "chronology": profile.chronology,
+            "chronology_disclosure": (
+                "No producer-side ExitSpec contract digest was frozen before this "
+                "measurement. A later consumer must use an explicit external "
+                "receipt binding without rewriting chronology."
+            ),
             "producer_exitspec_contract_digest": None,
             "required_consumer_mode": profile.consumer_mode,
         },
         "handoff.contract_binding",
         ManagedEvidenceAdmissionErrorCode.CONTRACT_LINK_MISMATCH,
-        allow_extra=True,
     )
     delivery = _object(handoff.get("fixture_delivery"))
     _exact(
@@ -471,12 +541,33 @@ def _validate_handoff(
         {
             "capability_profile_commit": "6cb774d210940073347f9045bb15611aa9e9cf27",
             "capture_producer_commit": "a02bfd7c3f8bd0f734da0e84d476bcfa905fec4b",
+            "eventual_merge_commit": None,
+            "merge_requirement": (
+                "Use a merge commit that preserves capture_producer_commit ancestry; "
+                "do not squash or rebase away the producer commit."
+            ),
+            "publication_review_commit": None,
         },
         "handoff.history_provenance",
         ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
-        allow_extra=True,
     )
     run = _object(handoff.get("run"))
+    _exact_keys(
+        run,
+        {
+            "bundle_digest",
+            "execution_fingerprint",
+            "metric_definitions_digest",
+            "model",
+            "request_plan_digest",
+            "request_population",
+            "run_id",
+            "source_spec_digest",
+            "summary_measurements",
+            "workload_sha256",
+        },
+        "handoff.run",
+    )
     _exact_values(
         run,
         {
@@ -493,26 +584,76 @@ def _validate_handoff(
         allow_extra=True,
     )
     target = _object(run.get("model"))
-    _exact_values(
-        target,
-        {"id": profile.model_id, "revision": profile.model_revision},
-        "handoff.run.model",
+    _exact_keys(target, {"id", "revision"}, "handoff.run.model")
+    _exact(
+        target.get("id"),
+        profile.model_id,
         ManagedEvidenceAdmissionErrorCode.MODEL_MISMATCH,
+        "Handoff model identity does not match the selected profile.",
+        "handoff.run.model.id",
+    )
+    _exact(
+        target.get("revision"),
+        profile.model_revision,
+        ManagedEvidenceAdmissionErrorCode.REVISION_MISMATCH,
+        "Handoff model revision does not match the selected profile.",
+        "handoff.run.model.revision",
     )
     metric = _object(_object(run.get("summary_measurements")).get("ttft_ns"))
-    _exact_values(
+    _exact_keys(
         metric,
         {
-            "definition_id": profile.metric_definition_id,
-            "population": profile.metric_population,
-            "quantile_method": profile.metric_reducer_id,
-            "p95": expectation.expected_p95_ns,
+            "definition_id",
+            "p50",
+            "p95",
+            "p99",
+            "population",
+            "quantile_method",
         },
         "handoff.run.summary_measurements.ttft_ns",
+    )
+    _exact(
+        metric.get("definition_id"),
+        profile.metric_definition_id,
         ManagedEvidenceAdmissionErrorCode.METRIC_SEMANTICS_MISMATCH,
-        allow_extra=True,
+        "Handoff metric identity does not match the selected profile.",
+        "handoff.run.summary_measurements.ttft_ns.definition_id",
+    )
+    _exact(
+        metric.get("population"),
+        profile.metric_population,
+        ManagedEvidenceAdmissionErrorCode.METRIC_POPULATION_MISMATCH,
+        "Handoff metric population does not match the selected profile.",
+        "handoff.run.summary_measurements.ttft_ns.population",
+    )
+    _exact(
+        metric.get("quantile_method"),
+        profile.metric_reducer_id,
+        ManagedEvidenceAdmissionErrorCode.METRIC_REDUCER_MISMATCH,
+        "Handoff metric reducer does not match the selected profile.",
+        "handoff.run.summary_measurements.ttft_ns.quantile_method",
+    )
+    _exact(
+        metric.get("p95"),
+        expectation.expected_p95_ns,
+        ManagedEvidenceAdmissionErrorCode.METRIC_SEMANTICS_MISMATCH,
+        "Handoff metric p95 does not match the exact external expectation.",
+        "handoff.run.summary_measurements.ttft_ns.p95",
     )
     runtime = _object(handoff.get("runtime_capability"))
+    _exact_keys(
+        runtime,
+        {
+            "expected_gpu_model",
+            "gpu_tier_id",
+            "hardware_attestation",
+            "hardware_observation",
+            "profile_id",
+            "spike_outcome",
+            "torch_cuda_device_count",
+        },
+        "handoff.runtime_capability",
+    )
     _exact_values(
         runtime,
         {
@@ -533,6 +674,26 @@ def _validate_publication_review(
     review: dict[str, Any],
     expectation: A100RetrospectiveArchiveExpectation,
 ) -> None:
+    _exact_keys(
+        review,
+        {
+            "archive",
+            "archive_integrity_and_safety",
+            "content_review",
+            "decision_reasons",
+            "detector_results",
+            "findings",
+            "license_review",
+            "owner_publication_approval_required",
+            "publication_status",
+            "raw_archive_modified",
+            "review_limits",
+            "review_method",
+            "schema_version",
+            "scope",
+        },
+        "publication_review",
+    )
     _exact(
         review.get("schema_version"),
         "inferdrome.gpu-evidence-publication-review.v1",
@@ -570,7 +731,6 @@ def _validate_publication_review(
         },
         "publication_review.archive",
         ManagedEvidenceAdmissionErrorCode.ARCHIVE_SHA256_MISMATCH,
-        allow_extra=True,
     )
     safety = _object(review.get("archive_integrity_and_safety"))
     _exact(
@@ -593,6 +753,23 @@ def _validate_operational_summary(
     summary: dict[str, Any],
     expectation: A100RetrospectiveArchiveExpectation,
 ) -> None:
+    _exact_keys(
+        summary,
+        {
+            "archive_sha256",
+            "bundle_digest",
+            "capture_manifest_sha256",
+            "cost_observation",
+            "evidence_kind",
+            "provider",
+            "repository_commit",
+            "run_id",
+            "schema_version",
+            "semantic_verification",
+            "source_receipts",
+        },
+        "operational_summary",
+    )
     _exact(
         summary.get("schema_version"),
         "inferdrome.qwen3-gpu-operational-summary.v1",
@@ -612,6 +789,17 @@ def _validate_operational_summary(
         "operational_summary",
         ManagedEvidenceAdmissionErrorCode.TAMPERED_INPUT,
         allow_extra=True,
+    )
+    _exact_keys(
+        _object(summary.get("provider")),
+        {
+            "gpu_tier_id",
+            "instance_type_name",
+            "termination_confirmed_at",
+            "termination_final_status",
+            "termination_trigger",
+        },
+        "operational_summary.provider",
     )
     _exact(
         _object(summary.get("provider")).get("termination_final_status"),
@@ -714,7 +902,9 @@ def _read_metadata(path: Path, label: str) -> dict[str, Any]:
             object_pairs_hook=_unique_object,
             parse_constant=_reject_json_number,
             parse_float=_reject_json_float,
+            parse_int=_bounded_json_int,
         )
+        _validate_metadata_depth(value)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise ManagedEvidenceAdmissionRejected(
             ManagedEvidenceAdmissionErrorCode.MALFORMED_JSON,
@@ -756,6 +946,44 @@ def _reject_json_float(value: str) -> NoReturn:
     raise ValueError(f"unsupported JSON float: {value}")
 
 
+def _bounded_json_int(value: str) -> int:
+    digits = value[1:] if value.startswith("-") else value
+    if len(digits) > 19:
+        raise ValueError("JSON integer exceeds the signed 64-bit bound")
+    parsed = int(value)
+    if not -_MAX_METADATA_INTEGER <= parsed <= _MAX_METADATA_INTEGER:
+        raise ValueError("JSON integer exceeds the signed 64-bit bound")
+    return parsed
+
+
+def _validate_metadata_depth(value: object, depth: int = 0) -> None:
+    if depth > _MAX_METADATA_DEPTH:
+        raise ValueError("JSON metadata nesting exceeds its depth bound")
+    if isinstance(value, dict):
+        for item in value.values():
+            _validate_metadata_depth(item, depth + 1)
+    elif isinstance(value, list):
+        for item in value:
+            _validate_metadata_depth(item, depth + 1)
+
+
+def _cleanup_extracted_bundle(root: Path) -> None:
+    try:
+        shutil.rmtree(root)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise ManagedEvidenceAdmissionRejected(
+            ManagedEvidenceAdmissionErrorCode.CLEANUP_FAILED,
+            "Extracted evidence cleanup failed after admission rejection.",
+        ) from error
+    if root.exists():
+        _reject(
+            ManagedEvidenceAdmissionErrorCode.CLEANUP_FAILED,
+            "Extracted evidence cleanup did not remove its destination.",
+        )
+
+
 def _object(value: object) -> dict[str, Any]:
     return value if type(value) is dict else {}
 
@@ -767,8 +995,29 @@ def _exact(
     message: str,
     path: str,
 ) -> None:
-    if actual != expected:
+    if not _strict_equal(actual, expected):
         _reject(code, message, path=path)
+
+
+def _exact_keys(
+    actual: dict[str, Any],
+    expected: set[str],
+    path: str,
+) -> None:
+    missing = expected - set(actual)
+    if missing:
+        _reject(
+            ManagedEvidenceAdmissionErrorCode.PROFILE_FACTS_MISSING,
+            f"Required metadata fields are missing at {path}.",
+            path=path,
+        )
+    extra = set(actual) - expected
+    if extra:
+        _reject(
+            ManagedEvidenceAdmissionErrorCode.PROFILE_FACTS_EXTRA,
+            f"Unsupported metadata fields are present at {path}.",
+            path=path,
+        )
 
 
 def _exact_values(
@@ -792,8 +1041,22 @@ def _exact_values(
             f"Unsupported facts are present at {path}.",
             path=path,
         )
-    if any(actual[name] != value for name, value in expected.items()):
+    if any(not _strict_equal(actual[name], value) for name, value in expected.items()):
         _reject(code, f"Facts do not match at {path}.", path=path)
+
+
+def _strict_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(actual, dict):
+        return set(actual) == set(expected) and all(
+            _strict_equal(actual[key], expected[key]) for key in actual
+        )
+    if isinstance(actual, list):
+        return len(actual) == len(expected) and all(
+            _strict_equal(left, right) for left, right in zip(actual, expected)
+        )
+    return actual == expected
 
 
 def _profile_rejection(

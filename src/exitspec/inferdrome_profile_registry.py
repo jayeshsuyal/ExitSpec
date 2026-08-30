@@ -17,9 +17,10 @@ from enum import Enum
 from functools import cache
 from typing import Any, Final, NoReturn
 
-from jsonschema import Draft202012Validator, FormatChecker
-from jsonschema.exceptions import SchemaError, ValidationError
-
+from .inferdrome_managed_profile import (
+    ManagedInferdromeProfileError,
+    validate_managed_invocation_profile,
+)
 from .inferdrome_profile import (
     MANAGED_PROFILE_ID,
     MANAGED_PROFILE_SHA256,
@@ -67,6 +68,43 @@ A100_PROFILE_ARGUMENTS: Final = (
     "--extra-body",
     '{"chat_template_kwargs":{"enable_thinking":false},"seed":42}',
 )
+A100_SERVER_ARGV_TEMPLATE: Final = (
+    "{producer_distribution.executable_path}",
+    "serve",
+    "{model_snapshot.root}",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "{resolved_target_port}",
+    "--served-model-name",
+    "{resolved_target_model}",
+    "--tokenizer",
+    "{tokenizer_snapshot.root}",
+    "--tokenizer-mode",
+    "auto",
+    "--dtype",
+    "bfloat16",
+    "--seed",
+    "{resolved_workload_seed}",
+    "--load-format",
+    "safetensors",
+    "--generation-config",
+    "vllm",
+    "--model-impl",
+    "vllm",
+    "--max-model-len",
+    "2048",
+    "--gpu-memory-utilization",
+    "0.90",
+    "--tensor-parallel-size",
+    "1",
+    "--device-ids",
+    "{selected_gpu_index}",
+    "--no-enable-log-requests",
+    "--disable-uvicorn-access-log",
+    "--uvicorn-log-level",
+    "warning",
+)
 
 _LOOPBACK_ENDPOINT = re.compile(r"http://127\.0\.0\.1:[0-9]{1,5}\Z")
 _MISSING = object()
@@ -95,6 +133,7 @@ class ManagedEvidenceProfileErrorCode(str, Enum):
     SAMPLE_COUNT_MISMATCH = "SAMPLE_COUNT_MISMATCH"
     ENVIRONMENT_MISMATCH = "ENVIRONMENT_MISMATCH"
     PROVENANCE_MISMATCH = "PROVENANCE_MISMATCH"
+    LEGACY_PROFILE_REQUIRES_LEGACY_PATH = "LEGACY_PROFILE_REQUIRES_LEGACY_PATH"
 
 
 class ManagedEvidenceProfileRejected(ValueError):
@@ -286,23 +325,31 @@ def validate_managed_evidence_profile(
 ) -> None:
     """Match every admitted A100 compatibility fact exactly.
 
-    The A10 entry is deliberately left to the existing profile validator.  It
-    is registered for lookup and backwards-compatibility introspection, but
-    this matcher is only enabled for the new profile-specific gate.
+    The A10 entry is deliberately rejected here.  It remains registered for
+    lookup and backwards-compatibility introspection, while A10 imports keep
+    using the established validator and import path.
     """
 
     if type(profile) is not ManagedEvidenceProfile:
         raise TypeError("profile must be a ManagedEvidenceProfile.")
     if profile.profile_id == LEGACY_A10_PROFILE.profile_id:
-        return
+        _profile_reject(
+            ManagedEvidenceProfileErrorCode.LEGACY_PROFILE_REQUIRES_LEGACY_PATH,
+            "The legacy A10 profile must use the established legacy validator.",
+        )
     if profile.profile_id != A100_QWEN3_PROFILE.profile_id:
         _profile_reject(
             ManagedEvidenceProfileErrorCode.PROFILE_UNKNOWN,
             "Managed evidence profile ID is not registered.",
         )
+    if profile != A100_QWEN3_PROFILE:
+        _profile_reject(
+            ManagedEvidenceProfileErrorCode.PROFILE_FACT_MISMATCH,
+            "Managed A100 profile facts must come from the registry unchanged.",
+        )
     _require_profile_binding(invocation.get("campaign_profile"), profile)
     proof = _object(invocation.get("local_gpu_proof"), "local GPU proof")
-    _validate_local_gpu_proof(proof, profile)
+    _validate_profile_specific_local_gpu_proof(proof, profile)
 
     _value(
         descriptor.get("schema_version"),
@@ -454,7 +501,6 @@ def validate_managed_evidence_profile(
         measurement,
         {
             "ttft_definition": profile.metric_definition_id,
-            "reducer_version": "1.0.0",
         },
         "resolved.measurement",
         category=ManagedEvidenceProfileErrorCode.METRIC_SEMANTICS_MISMATCH,
@@ -540,6 +586,21 @@ def validate_managed_evidence_profile(
         "Execution traffic does not match the managed profile.",
         "execution.configured_traffic",
     )
+    try:
+        validate_managed_invocation_profile(
+            invocation,
+            descriptor=descriptor,
+            resolved=resolved,
+            environment=environment,
+            execution=execution,
+            profile_document=_managed_validation_profile_document(profile),
+        )
+    except ManagedInferdromeProfileError as error:
+        raise ManagedEvidenceProfileRejected(
+            ManagedEvidenceProfileErrorCode.PROVENANCE_MISMATCH,
+            "Managed local GPU proof or invocation failed mature validation.",
+            path="invocation.local_gpu_proof",
+        ) from error
 
 
 def validate_managed_profile_binding(
@@ -583,18 +644,36 @@ def _require_profile_binding(
     _exact_mapping(actual, profile.profile_binding, "invocation.campaign_profile")
 
 
-def _validate_local_gpu_proof(
+@cache
+def _a100_mature_validation_profile_document() -> dict[str, Any]:
+    """Return the registry-owned A100 specialization of the mature contract."""
+
+    document = load_pinned_inferdrome_profile_documents().managed_profile
+    document["profile_id"] = A100_MANAGED_PROFILE_ID
+    document["producer_invocation"] = copy.deepcopy(document["producer_invocation"])
+    document["producer_invocation"]["required_root_fields"] = [
+        *document["producer_invocation"]["required_root_fields"],
+        "campaign_profile",
+    ]
+    document["server_argv_template"] = list(A100_SERVER_ARGV_TEMPLATE)
+    return document
+
+
+def _managed_validation_profile_document(
+    profile: ManagedEvidenceProfile,
+) -> Mapping[str, Any]:
+    if profile.profile_id == A100_QWEN3_PROFILE.profile_id:
+        return copy.deepcopy(_a100_mature_validation_profile_document())
+    _profile_reject(
+        ManagedEvidenceProfileErrorCode.LEGACY_PROFILE_REQUIRES_LEGACY_PATH,
+        "The legacy A10 profile must use the established legacy validator.",
+    )
+
+
+def _validate_profile_specific_local_gpu_proof(
     proof: Mapping[str, Any],
     profile: ManagedEvidenceProfile,
 ) -> None:
-    try:
-        _local_gpu_proof_validator().validate(proof)
-    except ValidationError as error:
-        raise ManagedEvidenceProfileRejected(
-            ManagedEvidenceProfileErrorCode.PROFILE_SCHEMA_INVALID,
-            "Managed local GPU proof does not match the pinned schema.",
-            path="invocation.local_gpu_proof",
-        ) from error
     selected = _array(proof.get("selected_gpu_indices"), "selected GPU indices")
     gpus = _array(proof.get("gpus"), "GPU inventory")
     if len(selected) != profile.hardware_count or len(gpus) != profile.hardware_count:
@@ -787,7 +866,7 @@ def _exact_mapping(actual: object, expected: Mapping[str, Any], path: str) -> No
             f"Managed profile facts contain unsupported fields at {path}.",
             path=path,
         )
-    if actual != expected:
+    if not _strict_equal(actual, expected):
         _profile_reject(
             ManagedEvidenceProfileErrorCode.PROFILE_FACT_MISMATCH,
             f"Managed profile facts do not match at {path}.",
@@ -810,7 +889,7 @@ def _exact_values(
                 f"Managed profile fact {path}.{name} is missing.",
                 path=f"{path}.{name}",
             )
-        if actual[name] != expected_value:
+        if not _strict_equal(actual[name], expected_value):
             _profile_reject(
                 category,
                 f"Managed profile fact {path}.{name} does not match.",
@@ -837,21 +916,22 @@ def _value(
             message,
             path=path,
         )
-    if actual != expected:
+    if not _strict_equal(actual, expected):
         _profile_reject(code, message, path=path)
 
 
-@cache
-def _local_gpu_proof_validator() -> Draft202012Validator:
-    schema = load_pinned_inferdrome_profile_documents().local_gpu_proof_schema
-    try:
-        Draft202012Validator.check_schema(schema)
-    except SchemaError as error:
-        raise ManagedEvidenceProfileRejected(
-            ManagedEvidenceProfileErrorCode.PROFILE_SCHEMA_INVALID,
-            "Pinned managed local GPU proof schema is invalid.",
-        ) from error
-    return Draft202012Validator(schema, format_checker=FormatChecker())
+def _strict_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(actual, dict):
+        return set(actual) == set(expected) and all(
+            _strict_equal(actual[key], expected[key]) for key in actual
+        )
+    if isinstance(actual, list):
+        return len(actual) == len(expected) and all(
+            _strict_equal(left, right) for left, right in zip(actual, expected)
+        )
+    return actual == expected
 
 
 def _object(value: object, label: str) -> dict[str, Any]:
@@ -895,6 +975,7 @@ __all__ = [
     "A100_PROFILE_BINDING_SCHEMA_VERSION",
     "A100_QWEN3_PROFILE",
     "A100_REDUCER_ID",
+    "A100_SERVER_ARGV_TEMPLATE",
     "A100_WORKLOAD_ID",
     "A100_WORKLOAD_SHA256",
     "LEGACY_A10_PROFILE",
