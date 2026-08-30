@@ -469,7 +469,7 @@ install remains dependency-light:
 ```bash
 python3 -m pip install -e '.[dev,browser]'
 python3 -m playwright install chromium
-EXITSPEC_BROWSER_E2E=1 python3 -m pytest tests/test_browser_new_id_flow.py
+EXITSPEC_BROWSER_E2E=1 python3 -m pytest tests/test_browser_new_id_flow.py tests/test_a3_assisted_review_browser.py tests/test_a4_capability_planner_browser.py tests/test_a5_agreement_browser.py
 ```
 
 Without `EXITSPEC_BROWSER_E2E=1`, that test is skipped intentionally. CI runs it
