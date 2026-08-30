@@ -156,6 +156,20 @@ contract-mutation authority remains false pending a separate human product
 decision. See
 [ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
 
+### Train B — B13 Routing Evidence Pack and release checkpoint
+
+**Complete for v0.4 review:** the additive Routing Evidence Pack revalidates
+the exact frozen B11 contract, affirmative confirmation, canonical evidence,
+recomputed result, and B12 receipt before publishing a bounded immutable pack.
+The existing Evidence Packs library exposes one explicit synthetic demo from
+the standard local `/app` journey. Its concise packet shows the candidate
+qualification subject, contextual baseline, confidence/threshold facts,
+missing repetition 2, `TEST ONLY`, `NOT_PROVEN`, and zero authority. The
+adversarial suite covers tampering, unsafe layout, canonicality, and context
+bypass; the mandatory v0.4 gate adds exact-count Chromium coverage. See
+[ROUTING_EVIDENCE_PACK_PROTOCOL.md](ROUTING_EVIDENCE_PACK_PROTOCOL.md) and
+[RELEASE_V0_4.md](RELEASE_V0_4.md).
+
 ### 0. POC-first workspace and multi-source shell
 
 The product direction is frozen in

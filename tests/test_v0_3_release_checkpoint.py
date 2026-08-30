@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import stat
 import tomllib
+from pathlib import Path
 
 import exitspec
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_package_and_release_notes_report_v0_3_without_claiming_a_release():
+def test_current_package_is_v0_4_while_v0_3_notes_remain_historical():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     release = (ROOT / "docs" / "RELEASE_V0_3.md").read_text(encoding="utf-8")
 
-    assert project["project"]["version"] == "0.3.0"
+    assert project["project"]["version"] == "0.4.0"
     assert "ruff==0.16.5" in project["project"]["optional-dependencies"]["dev"]
-    assert exitspec.__version__ == "0.3.0"
+    assert exitspec.__version__ == "0.4.0"
     assert "no tag or GitHub release has been created" in release
     assert "Capture → Review → Plan → Confirm → Prove → Decide" in release
     assert "Compatibility adapters" in release

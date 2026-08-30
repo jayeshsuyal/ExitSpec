@@ -39,6 +39,9 @@ protocol is documented in the
 The B12 immutable, purpose-bound wrapper over context-recomputed B11 results
 is documented in the
 [Routing policy qualification receipt protocol](docs/ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md).
+The B13 immutable Routing Evidence Pack and its concise Evidence Packs product
+surface are documented in the
+[Routing Evidence Pack protocol](docs/ROUTING_EVIDENCE_PACK_PROTOCOL.md).
 
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded
@@ -247,6 +250,14 @@ python3 -m playwright install chromium
 ./scripts/v0_3_release_gate.sh
 ```
 
+The v0.4 review candidate preserves that gate and adds the synthetic routing
+Evidence Pack, exact-count B13 Chromium coverage, adversarial pack checks, and
+the release checkpoint:
+
+```bash
+./scripts/v0_4_release_gate.sh
+```
+
 The POC dashboard is served at `http://127.0.0.1:8765/app`; its seeded
 support-agent workbench is at
 `http://127.0.0.1:8765/app/pocs/poc_support_agent_demo`, and its read-only
@@ -276,6 +287,10 @@ The seeded support-agent dashboard, inference-performance workbench, legacy
 routes, and optional exact A10 archive remain compatibility adapters. They are
 isolated from fresh flow and cannot choose its state, evidence method, or
 verdict. See the [v0.3 release checkpoint](docs/RELEASE_V0_3.md).
+The standard local demo server also seeds one clearly labeled synthetic routing
+qualification pack in the existing read-only Evidence Packs library; it is
+`NOT_PROVEN` because repetition 2 is missing and grants zero authority. See the
+[v0.4 release checkpoint](docs/RELEASE_V0_4.md).
 
 For the guided Wave 2 email demo, open
 `http://127.0.0.1:8765/app?intake=email` from a clean server and follow the
@@ -438,6 +453,7 @@ repository yet.
 - [Demo plan](docs/DEMO_PLAN.md)
 - [Three-minute product demo](docs/DEMO_RUNBOOK.md)
 - [v0.3 release checkpoint](docs/RELEASE_V0_3.md)
+- [v0.4 release checkpoint](docs/RELEASE_V0_4.md)
 - [Historical v0.2 release checkpoint](docs/RELEASE_V0_2.md)
 - [Historical v0.1 release gate](docs/RELEASE_V0_1.md)
 - [Security and privacy](docs/SECURITY.md)
