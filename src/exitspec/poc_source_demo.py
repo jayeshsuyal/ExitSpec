@@ -1,9 +1,9 @@
-"""Source-neutral, process-local browser runtime for Train A A2/A3/A4.
+"""Source-neutral, process-local browser runtime for Train A A2/A3/A4/A5.
 
 This runtime deliberately owns only draft identity, source attachment, and
-human proposal projection, or capability planning. It does not construct the
-seeded session, load seeded fixtures, or expose agreement, proof, provider, or
-lifecycle routes.
+human proposal projection, capability planning, or customer agreement review.
+It does not construct the seeded session, load seeded fixtures, or expose
+proof, provider, evidence, verdict, or execution routes.
 The existing compatibility demo remains in :mod:`exitspec.web`.
 """
 
@@ -45,6 +45,13 @@ from .poc_capability_planner import ProcessLocalCapabilityPlannerService
 from .poc_capability_planner_web_api import (
     handle_poc_capability_planner_web_api_request,
     is_poc_capability_planner_web_api_target,
+)
+from .poc_agreement import ProcessLocalAgreementLifecycleService
+from .poc_agreement_web_api import (
+    handle_customer_review_web_api_request,
+    handle_poc_agreement_web_api_request,
+    is_customer_review_web_api_target,
+    is_poc_agreement_web_api_target,
 )
 from .poc_source_intake import (
     POCSourceInput,
@@ -92,6 +99,12 @@ _ASSISTED_PAGE_RE = re.compile(
 _PLANNING_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/capability-plan$"
 )
+_AGREEMENT_PAGE_RE = re.compile(
+    r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/agreement$"
+)
+_CUSTOMER_REVIEW_PAGE_RE = re.compile(
+    r"^/review/[A-Za-z0-9_-]{32,512}$"
+)
 _DRAFT_API_RE = re.compile(r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})$")
 _SOURCE_API_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/sources(?:/([^/]+))?$"
@@ -127,6 +140,12 @@ _ASSET_NAMES = frozenset(
         "capability_plan.html",
         "capability_plan.css",
         "capability_plan.js",
+        "agreement_dynamic.html",
+        "agreement_dynamic.css",
+        "agreement_dynamic.js",
+        "customer_review_dynamic.html",
+        "customer_review_dynamic.css",
+        "customer_review_dynamic.js",
         "workbench.css",
     }
 )
@@ -167,6 +186,11 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         )
         self.capability_planner_service = ProcessLocalCapabilityPlannerService(
             proposal_lookup=self._retained_proposals_for_planning,
+        )
+        self.agreement_service = ProcessLocalAgreementLifecycleService(
+            poc_lookup=self.draft_poc_service.get,
+            retained_lookup=self._retained_proposals_for_planning,
+            planner=self.capability_planner_service,
         )
         self.assisted_authoring_service.bind_decision_lookup(
             self.proposal_review_service.source_has_decision
@@ -308,6 +332,26 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             if response is not None:
                 self._json(response.status, response.payload)
                 return
+        if is_poc_agreement_web_api_target(parsed.path):
+            response = handle_poc_agreement_web_api_request(
+                method="GET",
+                target=parsed.path,
+                payload=None,
+                runtime=self.server.agreement_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
+        if is_customer_review_web_api_target(parsed.path):
+            response = handle_customer_review_web_api_request(
+                method="GET",
+                target=parsed.path,
+                payload=None,
+                runtime=self.server.agreement_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
         if is_poc_source_web_api_target(parsed.path):
             response = handle_poc_source_web_api_request(
                 method="GET",
@@ -339,6 +383,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             or _REVIEW_PAGE_RE.fullmatch(parsed.path)
             or _ASSISTED_PAGE_RE.fullmatch(parsed.path)
             or _PLANNING_PAGE_RE.fullmatch(parsed.path)
+            or _AGREEMENT_PAGE_RE.fullmatch(parsed.path)
         ):
             poc_id = parsed.path.split("/")[3]
             if self._active_draft(poc_id):
@@ -348,11 +393,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                     asset = "proposal_review.html"
                 elif _ASSISTED_PAGE_RE.fullmatch(parsed.path):
                     asset = "assisted_authoring.html"
+                elif _AGREEMENT_PAGE_RE.fullmatch(parsed.path):
+                    asset = "agreement_dynamic.html"
                 else:
                     asset = "capability_plan.html"
                 self._file(asset)
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
+            return
+        if _CUSTOMER_REVIEW_PAGE_RE.fullmatch(parsed.path):
+            self._file("customer_review_dynamic.html")
             return
         asset = parsed.path.removeprefix("/")
         if asset in _ASSET_NAMES:
@@ -396,6 +446,26 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 target=parsed.path,
                 payload=payload,
                 runtime=self.server.capability_planner_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
+        if is_poc_agreement_web_api_target(parsed.path):
+            response = handle_poc_agreement_web_api_request(
+                method="POST",
+                target=parsed.path,
+                payload=payload,
+                runtime=self.server.agreement_service,
+            )
+            if response is not None:
+                self._json(response.status, response.payload)
+                return
+        if is_customer_review_web_api_target(parsed.path):
+            response = handle_customer_review_web_api_request(
+                method="POST",
+                target=parsed.path,
+                payload=payload,
+                runtime=self.server.agreement_service,
             )
             if response is not None:
                 self._json(response.status, response.payload)

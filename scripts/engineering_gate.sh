@@ -136,6 +136,14 @@ run_gate \
   node --check src/exitspec/static/capability_plan.js
 
 run_gate \
+  "Dynamic agreement JavaScript syntax" \
+  node --check src/exitspec/static/agreement_dynamic.js
+
+run_gate \
+  "Dynamic customer review JavaScript syntax" \
+  node --check src/exitspec/static/customer_review_dynamic.js
+
+run_gate \
   "POC contract definition JavaScript syntax" \
   node --check src/exitspec/static/contract_definition.js
 

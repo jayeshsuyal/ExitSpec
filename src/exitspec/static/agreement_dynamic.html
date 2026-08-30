@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Prepare and freeze one exact customer agreement." />
+    <title>ExitSpec — Customer agreement</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+    <link rel="stylesheet" href="/agreement_dynamic.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#agreement-main">Skip to agreement</a>
+    <div class="dashboard-shell agreement-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs"><span class="brand-mark" aria-hidden="true">E</span><span>ExitSpec</span></a>
+        <nav class="global-nav" aria-label="ExitSpec"><a href="/app" aria-current="page">POCs</a><a href="/app/evidence">Evidence Packs</a><a href="/app/pocs/new">New POC</a></nav>
+        <div class="local-identity"><span class="identity-dot" aria-hidden="true"></span><span>Local demo</span></div>
+      </header>
+      <main class="agreement-main workbench-main" id="agreement-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading workbench-object-identity">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Define · Agreement</p>
+            <h1 id="poc-title">Loading draft…</h1>
+            <p id="poc-context">Binding the current reviewed plan.</p>
+          </div>
+          <div class="authority-boundary" aria-label="Agreement boundary"><span>Agreement boundary</span><strong>Customer review only · no downstream authority</strong></div>
+        </header>
+
+        <section class="agreement-task workbench-current-task" id="agreement-task" aria-labelledby="agreement-heading" aria-busy="true">
+          <header class="task-heading">
+            <div><p class="eyebrow">Current task</p><h2 id="agreement-heading">Prepare one exact agreement</h2><p>Confirm the measurable rules and visible limitations before customer review.</p></div>
+            <strong id="agreement-status" class="agreement-badge">Loading</strong>
+          </header>
+
+          <form id="prepare-form" class="agreement-form" novalidate hidden>
+            <p class="form-intro">A named reviewer records the A5 assembly decision. It does not grant execution or evidence authority.</p>
+            <label>Named reviewer<input id="assembly-reviewer" name="reviewer" maxlength="160" autocomplete="off" required /></label>
+            <label>Assembly rationale<textarea id="assembly-rationale" name="rationale" maxlength="2000" required></textarea></label>
+            <div class="action-row"><p id="prepare-status" role="status" aria-live="polite">Ready to assemble the current A4 plan.</p><button id="prepare-agreement" class="primary-action" type="submit">Prepare agreement</button></div>
+          </form>
+
+          <section id="agreement-summary" class="agreement-summary" hidden>
+            <div class="summary-line"><div><span class="eyebrow">Customer agreement</span><h3 id="agreement-customer"></h3></div><span id="agreement-version" class="version-badge"></span></div>
+            <div id="agreement-criteria" class="agreement-criteria"></div>
+            <section class="limitations"><h3>Limitations that remain bound</h3><div id="agreement-limitations"></div></section>
+            <details class="technical-details"><summary>Technical binding</summary><div id="agreement-technical"></div></details>
+            <div id="agreement-actions" class="agreement-actions">
+              <a id="open-customer-review" class="primary-action" href="#" hidden>Open customer review</a>
+              <button id="freeze-agreement" class="primary-action" type="button" hidden>Freeze confirmed version</button>
+              <a id="revise-plan" class="secondary-action" href="#" hidden>Revise current A4 plan</a>
+              <form id="revision-form" class="revision-form" novalidate hidden>
+                <h3>Assemble successor version</h3>
+                <p>Only a materially changed current A3/A4 snapshot can become a successor.</p>
+                <label>Successor reviewer<input id="revision-reviewer" name="reviewer" maxlength="160" autocomplete="off" required /></label>
+                <label>Successor rationale<textarea id="revision-rationale" name="rationale" maxlength="2000" required></textarea></label>
+                <button id="start-revision" class="primary-action" type="submit">Create successor</button>
+              </form>
+            </div>
+          </section>
+        </section>
+        <p id="agreement-error" class="agreement-error" role="alert" hidden></p>
+      </main>
+    </div>
+    <script src="/agreement_dynamic.js"></script>
+  </body>
+</html>

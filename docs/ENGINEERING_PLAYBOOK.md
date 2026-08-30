@@ -447,6 +447,8 @@ node --check src/exitspec/static/source_intake.js
 node --check src/exitspec/static/proposal_review.js
 node --check src/exitspec/static/assisted_authoring.js
 node --check src/exitspec/static/capability_plan.js
+node --check src/exitspec/static/agreement_dynamic.js
+node --check src/exitspec/static/customer_review_dynamic.js
 node --check src/exitspec/static/contract_definition.js
 node --check src/exitspec/static/performance.js
 node --check src/exitspec/static/agreement.js

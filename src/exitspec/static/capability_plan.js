@@ -15,6 +15,7 @@
   const status = document.querySelector("#planner-status");
   const errorPanel = document.querySelector("#capability-plan-error");
   const resultPanel = document.querySelector("#planning-result");
+  const openAgreement = document.querySelector("#open-agreement");
   const RETAINED_PROPOSAL_KEYS = ["schema_version", "poc_id", "proposal_id", "authoring_receipt_id", "authoring_result_id", "source_receipt_id", "source_id", "source_kind", "source_content_sha256", "source_revision", "source_adapter_name", "source_adapter_version", "redaction_policy_version", "proposal_key", "source_quote", "normalized_claim", "numeric_facts", "retention_state", "reviewer", "rationale", "decided_at"];
   const SOURCE_KINDS = new Set(["EMAIL", "MEETING", "DOCUMENT", "EXISTING_CONTRACT"]);
   const RETAINED_RECEIPT = /^arcp_[a-f0-9]{32}$/;
@@ -112,6 +113,8 @@
   function renderResult(plan) {
     resultPanel.hidden = false; document.querySelector("#planning-result-heading").textContent = "Plan created";
     const ready = document.querySelector("#ready-for-agreement"); ready.textContent = plan.ready_for_agreement ? "READY FOR NEXT REVIEW" : "NOT READY"; ready.dataset.ready = String(plan.ready_for_agreement);
+    openAgreement.hidden = !plan.ready_for_agreement;
+    if (plan.ready_for_agreement && pocId) openAgreement.href = `/app/pocs/${encodeURIComponent(pocId)}/agreement`;
     document.querySelector("#planning-result-summary").textContent = `${plan.records.length} requests remain visible. No POC has run yet.`;
     const output = document.querySelector("#planning-result-records"); output.textContent = "";
     plan.records.forEach((record) => { const item = document.createElement("article"); item.className = "result-record"; item.dataset.disposition = record.disposition; const title = document.createElement("strong"); title.textContent = `${record.proposal_id} · ${record.scope} · ${record.disposition}`; const reason = document.createElement("span"); reason.textContent = record.reason; const next = document.createElement("small"); next.textContent = `Next action: ${record.next_action}`; item.append(title, reason, next); output.appendChild(item); });

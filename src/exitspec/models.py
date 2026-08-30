@@ -686,12 +686,131 @@ class InferencePerformanceCriterionV4(FrozenExitSpecModel):
         return self
 
 
+class CapabilityCriterion(FrozenExitSpecModel):
+    """Generic A4 capability criterion carried by the A5 agreement boundary.
+
+    A4 deliberately plans capabilities without choosing one of the older
+    vertical-specific contract schemas.  This small criterion keeps the
+    server-owned plan fields exact while allowing the existing POCContract,
+    digest, confirmation, and freeze primitives to remain the lifecycle
+    authority.
+    """
+
+    criterion_type: Literal["capability_v1"] = "capability_v1"
+    schema_version: Literal["exitspec.capability-criterion.v1"] = (
+        "exitspec.capability-criterion.v1"
+    )
+    id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
+    title: str = Field(min_length=1)
+    must_have: bool
+    source: Optional[SourceReference] = None
+    human_added: Literal[False] = False
+    normalized_claim: str = Field(min_length=1)
+    poc_id: str = Field(pattern=r"^poc_[a-z0-9][a-z0-9_-]{2,63}$")
+    capability_key: str = Field(min_length=1, max_length=160)
+    planning_scope: Literal["MUST_HAVE", "ADVISORY"]
+    planning_disposition: Literal[
+        "EXECUTABLE", "EVIDENCE_IMPORT", "CLARIFICATION_REQUIRED", "UNSUPPORTED"
+    ]
+    provenance: Optional[Literal[
+        "SOURCE_EXTRACTED", "HUMAN_DECLARED", "ADAPTER_PROFILE_DECLARED"
+    ]] = None
+    planning_item_id: str = Field(pattern=r"^cpitem_[a-f0-9]{32}$")
+    proposal_id: str = Field(pattern=r"^prop_[a-z0-9][a-z0-9_-]{7,95}$")
+    proposal_key: str = Field(min_length=1, max_length=160)
+    source_receipt_id: str = Field(pattern=r"^srcpt_[a-z0-9][a-z0-9_-]{7,95}$")
+    source_id: str = Field(pattern=r"^src_[a-z0-9][a-z0-9_-]{2,63}$")
+    source_kind: str = Field(min_length=1, max_length=80)
+    source_content_sha256: str = Field(pattern=SHA256_PATTERN)
+    source_revision: int = Field(ge=1)
+    source_adapter_name: str = Field(min_length=1, max_length=64)
+    source_adapter_version: str = Field(min_length=1, max_length=64)
+    redaction_policy_version: str = Field(min_length=1, max_length=64)
+    authoring_receipt_id: str = Field(min_length=1, max_length=160)
+    authoring_result_id: str = Field(min_length=1, max_length=160)
+    a4_plan_id: str = Field(pattern=r"^cplan_[a-f0-9]{32}$")
+    a4_plan_version: int = Field(ge=1)
+    a4_plan_sha256: str = Field(pattern=SHA256_PATTERN)
+    planner_reviewer: str = Field(min_length=1, max_length=160)
+    planner_rationale: str = Field(min_length=1, max_length=2_000)
+    planning_reason: str = Field(min_length=1, max_length=2_000)
+    planning_next_action: str = Field(min_length=1, max_length=2_000)
+    explicit_exclusion: bool = False
+    assembly_reviewer: str = Field(min_length=1, max_length=160)
+    assembly_rationale: str = Field(min_length=1, max_length=2_000)
+    rule: Optional[str] = Field(default=None, min_length=1)
+    operator: Optional[str] = Field(default=None, min_length=1)
+    threshold: Optional[float] = Field(default=None, allow_inf_nan=False)
+    unit: Optional[str] = Field(default=None, min_length=1)
+    measurement_population: Optional[str] = Field(default=None, min_length=1)
+    evidence_method: Optional[str] = Field(default=None, min_length=1)
+    adapter: Optional[str] = Field(default=None, min_length=1)
+    adapter_version: Optional[str] = Field(default=None, min_length=1)
+    evidence_profile: Optional[str] = None
+    workload_policy_id: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    workload_policy_sha256: Optional[str] = Field(default=None, pattern=SHA256_PATTERN)
+    execution_available: Literal[False] = False
+    owner: str = Field(min_length=1)
+    evidence_policy: Optional[str] = Field(default=None, min_length=1)
+    approved: bool = False
+
+    @model_validator(mode="after")
+    def require_traceable_origin(self) -> "CapabilityCriterion":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A capability criterion needs a source reference or must be explicitly human-added."
+            )
+        supported = self.planning_disposition in {"EXECUTABLE", "EVIDENCE_IMPORT"}
+        if supported:
+            required = (
+                self.provenance,
+                self.rule,
+                self.operator,
+                self.threshold,
+                self.unit,
+                self.measurement_population,
+                self.evidence_method,
+                self.adapter,
+                self.adapter_version,
+                self.workload_policy_id,
+                self.workload_policy_sha256,
+            )
+            if self.explicit_exclusion or any(value is None for value in required):
+                raise ValueError("A supported capability criterion is incomplete or excluded.")
+            if self.planning_disposition == "EVIDENCE_IMPORT" and self.evidence_profile is None:
+                raise ValueError("An evidence-import capability criterion requires its profile.")
+            if self.planning_disposition == "EXECUTABLE" and self.evidence_profile is not None:
+                raise ValueError("An executable capability criterion cannot carry an evidence profile.")
+        else:
+            if self.provenance is not None or any(
+                value is not None
+                for value in (
+                    self.rule,
+                    self.operator,
+                    self.threshold,
+                    self.unit,
+                    self.measurement_population,
+                    self.evidence_method,
+                    self.adapter,
+                    self.adapter_version,
+                    self.evidence_profile,
+                    self.workload_policy_id,
+                    self.workload_policy_sha256,
+                )
+            ):
+                raise ValueError("A non-executable capability record carries executable fields.")
+            if self.explicit_exclusion and self.planning_disposition != "UNSUPPORTED":
+                raise ValueError("Only an unsupported capability record may be explicitly excluded.")
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
     InferencePerformanceCriterionV2,
     InferencePerformanceCriterionV3,
     InferencePerformanceCriterionV4,
+    CapabilityCriterion,
 ]
 
 
@@ -921,6 +1040,36 @@ class POCContract(FrozenExitSpecModel):
             raise ValueError(
                 "Only a frozen contract may carry customer confirmation provenance."
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_capability_criterion_bindings(self) -> "POCContract":
+        """Keep one linear, internally consistent A4 handoff per contract."""
+
+        capability_criteria = tuple(
+            criterion
+            for criterion in self.criteria
+            if isinstance(criterion, CapabilityCriterion)
+        )
+        if not capability_criteria:
+            return self
+        if len(capability_criteria) != len(self.criteria):
+            raise ValueError("A capability agreement cannot mix legacy and generic criteria.")
+        proposal_ids = [criterion.proposal_id for criterion in capability_criteria]
+        planning_item_ids = [criterion.planning_item_id for criterion in capability_criteria]
+        if len(proposal_ids) != len(set(proposal_ids)):
+            raise ValueError("Capability agreement proposal IDs must be unique.")
+        if len(planning_item_ids) != len(set(planning_item_ids)):
+            raise ValueError("Capability agreement planning item IDs must be unique.")
+        common_plan = {
+            (criterion.a4_plan_id, criterion.a4_plan_version, criterion.a4_plan_sha256)
+            for criterion in capability_criteria
+        }
+        if len(common_plan) != 1:
+            raise ValueError("Capability agreement criteria must share one A4 plan binding.")
+        poc_ids = {criterion.poc_id for criterion in capability_criteria}
+        if len(poc_ids) != 1:
+            raise ValueError("Capability agreement criteria must share one POC binding.")
         return self
 
 
