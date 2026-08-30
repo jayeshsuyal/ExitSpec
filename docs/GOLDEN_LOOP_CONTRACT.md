@@ -244,6 +244,11 @@ Docker/guarded staging, and real Zoom transport are out of scope. The A1 slice a
 does not add lifecycle behavior, a runtime reducer, new verdict rules, a
 provider integration, a release tag, deployment, or production authorization.
 
+The B9 protocol-only routing qualification slice is documented in
+[ROUTING_QUALIFICATION_PROTOCOL.md](ROUTING_QUALIFICATION_PROTOCOL.md). It
+freezes a future campaign vocabulary without claiming that routing qualification
+is executable or proven.
+
 The executable contract checks are:
 
 ```text

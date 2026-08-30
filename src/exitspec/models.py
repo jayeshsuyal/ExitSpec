@@ -1028,6 +1028,357 @@ class CapabilityCriterion(FrozenExitSpecModel):
         return self
 
 
+class RoutingPolicyIdentityV1(FrozenExitSpecModel):
+    """A run-independent, digest-bound candidate or baseline policy."""
+
+    schema_version: Literal["exitspec.routing-policy-identity.v1"]
+    policy_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    policy_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+class RoutingConfigurationIdentityV1(FrozenExitSpecModel):
+    """The exact routing configuration required by a campaign."""
+
+    schema_version: Literal["exitspec.routing-configuration-identity.v1"]
+    configuration_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    configuration_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+class RoutingRequestTraceIdentityV1(FrozenExitSpecModel):
+    """The exact request-trace/workload identity frozen before capture."""
+
+    schema_version: Literal["exitspec.routing-request-trace-identity.v1"]
+    trace_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    trace_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
+class RoutingCanonicalizationBindingV1(FrozenExitSpecModel):
+    """The existing ExitSpec canonical bytes and digest vocabulary."""
+
+    canonicalization_scheme_id: Literal["rfc8785_jcs_v1"]
+    canonical_bytes_encoding: Literal["utf-8_rfc8785_jcs"]
+    hash_algorithm_id: Literal["sha256_v1"]
+    hash_encoding_id: Literal["lowercase_hex_without_prefix"]
+
+
+class RoutingQualificationOwnershipV1(FrozenExitSpecModel):
+    """Explicit authority boundaries for routing qualification."""
+
+    acceptance_owner: Literal["EXIT_SPEC"]
+    route_decision_emitter: Literal["ROUTER_OR_CASCADE"]
+    evidence_sealer: Literal["EVIDENCE_PRODUCER_OR_INFERDROME"]
+    producer_acceptance_authority: Literal["FORBIDDEN"]
+
+
+class RoutingTrialOrderV1(FrozenExitSpecModel):
+    """Deterministic request/trial allocation frozen before capture."""
+
+    schema_version: Literal["exitspec.routing-trial-order.v1"]
+    candidate_policy_id: str = Field(
+        pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
+    )
+    baseline_policy_id: str = Field(
+        pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
+    )
+    request_trace_binding: Literal["REQUEST_TRACE_INDEX"]
+    assignment_rule: Literal["ONE_CANDIDATE_AND_ONE_BASELINE_PER_REQUEST_PER_TRIAL"]
+    ordering_rule: Literal["TRIAL_INDEX_ASCENDING_REQUEST_INDEX_ASCENDING_POLICY_ORDER"]
+    trial_index_base: Literal[0]
+    policy_order: Tuple[Literal["candidate"], Literal["baseline"]]
+    trial_count: int = Field(ge=1, le=1_000)
+    request_count: int = Field(ge=1, le=100_000)
+    total_assignments: int = Field(ge=1, le=200_000_000)
+
+    @model_validator(mode="after")
+    def require_complete_deterministic_allocation(self) -> "RoutingTrialOrderV1":
+        if self.candidate_policy_id == self.baseline_policy_id:
+            raise ValueError("Candidate and baseline policy IDs must be distinct.")
+        if self.total_assignments != self.trial_count * self.request_count * 2:
+            raise ValueError(
+                "Trial allocation total_assignments must equal trials times requests times two."
+            )
+        return self
+
+
+class RoutingCacheResetProtocolV1(FrozenExitSpecModel):
+    """Cache state and reset boundary that prevent policy contamination."""
+
+    schema_version: Literal["exitspec.routing-cache-reset.v1"]
+    intended_start_state: Literal["COLD"]
+    reset_boundary: Literal["BEFORE_EACH_TRIAL"]
+    reset_scope: Literal["ROUTER_AND_SERVING_ENGINE_STATE"]
+    reset_required: Literal[True]
+    cross_policy_cache_reuse: Literal[False]
+
+
+class RoutingFailureInjectionProtocolV1(FrozenExitSpecModel):
+    """A digest-bound failure-injection configuration, including none."""
+
+    schema_version: Literal["exitspec.routing-failure-injection.v1"]
+    configuration_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    configuration_sha256: str = Field(pattern=SHA256_PATTERN)
+    posture: Literal["NO_INJECTION"]
+    injected_failure_classes: Tuple[()]
+    maximum_injected_failures: Literal[0]
+
+    @model_validator(mode="after")
+    def require_explicit_no_injection(self) -> "RoutingFailureInjectionProtocolV1":
+        if self.injected_failure_classes or self.maximum_injected_failures != 0:
+            raise ValueError("NO_INJECTION cannot carry failure classes or failures.")
+        return self
+
+
+class RoutingEnvironmentRequirementV1(FrozenExitSpecModel):
+    """An environment identity plus normalized fields future evidence must bind."""
+
+    schema_version: Literal["exitspec.routing-environment-requirement.v1"]
+    environment_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
+    environment_sha256: str = Field(pattern=SHA256_PATTERN)
+    required_evidence_fields: Tuple[
+        Literal[
+            "target.engine_version",
+            "target.model_revision",
+            "target.tokenizer_revision",
+            "gpu.model",
+            "gpu.count",
+            "cuda.version",
+            "driver.version",
+            "execution.environment_id",
+        ],
+        ...,
+    ] = Field(min_length=8, max_length=8)
+
+    @model_validator(mode="after")
+    def require_canonical_environment_fields(
+        self,
+    ) -> "RoutingEnvironmentRequirementV1":
+        expected = (
+            "target.engine_version",
+            "target.model_revision",
+            "target.tokenizer_revision",
+            "gpu.model",
+            "gpu.count",
+            "cuda.version",
+            "driver.version",
+            "execution.environment_id",
+        )
+        if self.required_evidence_fields != expected:
+            raise ValueError(
+                "Required environment evidence fields must use the canonical order."
+            )
+        return self
+
+
+class RoutingServingRequirementV1(FrozenExitSpecModel):
+    """Provider-neutral serving and execution identity requirements."""
+
+    schema_version: Literal["exitspec.routing-serving-requirement.v1"]
+    engine: str = Field(min_length=1, max_length=128)
+    engine_version: str = Field(min_length=1, max_length=128)
+    model: str = Field(min_length=1, max_length=256)
+    model_revision: str = Field(
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._-]{6,127}$", max_length=128
+    )
+    tokenizer: str = Field(min_length=1, max_length=256)
+    tokenizer_revision: str = Field(
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._-]{6,127}$", max_length=128
+    )
+    quantization: str = Field(min_length=1, max_length=128)
+    tensor_parallel_size: int = Field(ge=1, le=1_000)
+    execution_environment: RoutingEnvironmentRequirementV1
+
+
+class RoutingTelemetryPolicyV1(FrozenExitSpecModel):
+    """Freshness, identity, and provenance rules for telemetry capsules."""
+
+    schema_version: Literal["exitspec.routing-telemetry-policy.v1"]
+    capsule_type: Literal["ROUTING_TELEMETRY_CAPSULE_V1"]
+    capsule_identity_field: Literal["telemetry_capsule_id"]
+    capsule_digest_field: Literal["telemetry_capsule_sha256"]
+    capsule_digest_scope: Literal["CANONICAL_CAPSULE_BYTES"]
+    required_provenance_fields: Tuple[
+        Literal[
+            "telemetry_capsule_id",
+            "telemetry_capsule_sha256",
+            "run_id",
+            "captured_at",
+            "producer_id",
+            "environment_id",
+        ],
+        ...,
+    ] = Field(min_length=6, max_length=6)
+    max_age_seconds: int = Field(ge=0, le=2_147_483_647)
+    age_comparison: Literal["OBSERVED_AGE_SECONDS_LE_MAX_AGE_SECONDS"]
+    stale_when: Literal["OBSERVED_AGE_SECONDS_GT_MAX_AGE_SECONDS"]
+
+    @model_validator(mode="after")
+    def require_canonical_telemetry_provenance(
+        self,
+    ) -> "RoutingTelemetryPolicyV1":
+        expected = (
+            "telemetry_capsule_id",
+            "telemetry_capsule_sha256",
+            "run_id",
+            "captured_at",
+            "producer_id",
+            "environment_id",
+        )
+        if self.required_provenance_fields != expected:
+            raise ValueError(
+                "Telemetry provenance fields must use the canonical order."
+            )
+        return self
+
+
+class RoutingReceiptProtocolV1(FrozenExitSpecModel):
+    """Admissibility vocabulary for sealed route-decision receipts."""
+
+    schema_version: Literal["exitspec.routing-decision-receipt-protocol.v1"]
+    receipt_type: Literal["ROUTE_DECISION_RECEIPT_V1"]
+    receipt_identity_field: Literal["route_decision_receipt_id"]
+    receipt_digest_field: Literal["route_decision_receipt_sha256"]
+    required_bindings: Tuple[
+        Literal[
+            "campaign_contract_sha256",
+            "request_id",
+            "trial_index",
+            "policy_id",
+            "routing_configuration_id",
+            "routing_configuration_sha256",
+        ],
+        ...,
+    ] = Field(min_length=6, max_length=6)
+    required_provenance_fields: Tuple[
+        Literal[
+            "route_decision_receipt_id",
+            "route_decision_receipt_sha256",
+            "producer_id",
+            "producer_version",
+            "captured_at",
+            "source_digest",
+        ],
+        ...,
+    ] = Field(min_length=6, max_length=6)
+    completeness_expectation: Literal[
+        "EXACTLY_ONE_RECEIPT_PER_REQUEST_TRIAL_POLICY_ASSIGNMENT"
+    ]
+    route_decision_source: Literal["ROUTER_OR_CASCADE"]
+    verdict_boundary: Literal["EXIT_SPEC_ONLY"]
+
+    @model_validator(mode="after")
+    def require_canonical_receipt_bindings(self) -> "RoutingReceiptProtocolV1":
+        expected_bindings = (
+            "campaign_contract_sha256",
+            "request_id",
+            "trial_index",
+            "policy_id",
+            "routing_configuration_id",
+            "routing_configuration_sha256",
+        )
+        expected_provenance = (
+            "route_decision_receipt_id",
+            "route_decision_receipt_sha256",
+            "producer_id",
+            "producer_version",
+            "captured_at",
+            "source_digest",
+        )
+        if self.required_bindings != expected_bindings:
+            raise ValueError("Route receipt bindings must use the canonical order.")
+        if self.required_provenance_fields != expected_provenance:
+            raise ValueError(
+                "Route receipt provenance fields must use the canonical order."
+            )
+        return self
+
+
+class RoutingRunPolicyV1(FrozenExitSpecModel):
+    """The B9 default for independent repetitions and no pooled reduction."""
+
+    schema_version: Literal["exitspec.routing-run-policy.v1"]
+    run_mode: Literal["INDEPENDENT_RUNS"]
+    default_repetitions: int = Field(ge=1, le=100)
+    independence_requirement: Literal["EACH_RUN_HAS_A_SEPARATE_RUN_ID"]
+    pooling_policy: Literal["FORBIDDEN_UNLESS_FUTURE_FROZEN_CONTRACT_DEFINES_IT"]
+    aggregation_policy: Literal["UNDEFINED_IN_B9"]
+
+
+class RoutingPrivacyPolicyV1(FrozenExitSpecModel):
+    """The customer-artifact privacy posture for campaign evidence."""
+
+    schema_version: Literal["exitspec.routing-privacy-policy.v1"]
+    credentials: Literal["FORBIDDEN"]
+    secrets: Literal["FORBIDDEN"]
+    raw_sensitive_customer_content: Literal["FORBIDDEN"]
+    allowed_representation: Literal["IDENTITIES_DIGESTS_AND_BOUNDED_METADATA_ONLY"]
+
+
+class RoutingQualificationCriterionV1(FrozenExitSpecModel):
+    """Run-independent B9 routing qualification vocabulary.
+
+    This criterion is intentionally one member of the existing ``POCContract``
+    criterion union.  It owns no observed run identity and no acceptance
+    verdict; those belong to later evidence and ExitSpec-owned reduction.
+    """
+
+    criterion_type: Literal["routing_qualification_v1"]
+    protocol_id: Literal["routing_qualification_v1"]
+    schema_version: Literal["exitspec.routing-qualification.v1"]
+    protocol_version: Literal["1.0.0"]
+    id: Literal["routing_qualification_v1"]
+    title: str = Field(min_length=1, max_length=256)
+    must_have: Literal[True]
+    source: Optional[SourceReference]
+    human_added: bool
+    normalized_claim: str = Field(min_length=1, max_length=2_000)
+    owner: str = Field(min_length=1, max_length=160)
+    evidence_policy: str = Field(min_length=1, max_length=2_000)
+    canonicalization: RoutingCanonicalizationBindingV1
+    ownership: RoutingQualificationOwnershipV1
+    candidate_policy: RoutingPolicyIdentityV1
+    baseline_policy: RoutingPolicyIdentityV1
+    routing_configuration: RoutingConfigurationIdentityV1
+    request_trace: RoutingRequestTraceIdentityV1
+    trial_order: RoutingTrialOrderV1
+    cache_reset: RoutingCacheResetProtocolV1
+    failure_injection: RoutingFailureInjectionProtocolV1
+    serving: RoutingServingRequirementV1
+    telemetry: RoutingTelemetryPolicyV1
+    route_decision_receipts: RoutingReceiptProtocolV1
+    run_policy: RoutingRunPolicyV1
+    privacy: RoutingPrivacyPolicyV1
+    approved: bool
+
+    @model_validator(mode="after")
+    def require_traceability_and_consistent_bindings(
+        self,
+    ) -> "RoutingQualificationCriterionV1":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A routing qualification criterion needs a source reference or must be explicitly human-added."
+            )
+        if self.source is not None:
+            raise ValueError(
+                "Routing qualification contracts cannot carry raw source content."
+            )
+        if self.candidate_policy.policy_id == self.baseline_policy.policy_id:
+            raise ValueError("Candidate and baseline policy IDs must be distinct.")
+        if self.candidate_policy.policy_sha256 == self.baseline_policy.policy_sha256:
+            raise ValueError("Candidate and baseline policy digests must be distinct.")
+        if (
+            self.trial_order.candidate_policy_id != self.candidate_policy.policy_id
+            or self.trial_order.baseline_policy_id != self.baseline_policy.policy_id
+        ):
+            raise ValueError(
+                "Trial order policy assignment does not match policy identities."
+            )
+        if self.ownership.acceptance_owner != "EXIT_SPEC":
+            raise ValueError("ExitSpec must own routing qualification acceptance.")
+        if self.ownership.producer_acceptance_authority != "FORBIDDEN":
+            raise ValueError("Evidence producers cannot supply an acceptance verdict.")
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
@@ -1035,6 +1386,7 @@ ContractCriterion = Union[
     InferencePerformanceCriterionV3,
     InferencePerformanceCriterionV4,
     CapabilityCriterion,
+    RoutingQualificationCriterionV1,
 ]
 
 
@@ -1278,9 +1630,13 @@ class POCContract(FrozenExitSpecModel):
         if not capability_criteria:
             return self
         if len(capability_criteria) != len(self.criteria):
-            raise ValueError("A capability agreement cannot mix legacy and generic criteria.")
+            raise ValueError(
+                "A capability agreement cannot mix legacy and generic criteria."
+            )
         proposal_ids = [criterion.proposal_id for criterion in capability_criteria]
-        planning_item_ids = [criterion.planning_item_id for criterion in capability_criteria]
+        planning_item_ids = [
+            criterion.planning_item_id for criterion in capability_criteria
+        ]
         if len(proposal_ids) != len(set(proposal_ids)):
             raise ValueError("Capability agreement proposal IDs must be unique.")
         if len(planning_item_ids) != len(set(planning_item_ids)):
@@ -1290,10 +1646,14 @@ class POCContract(FrozenExitSpecModel):
             for criterion in capability_criteria
         }
         if len(common_plan) != 1:
-            raise ValueError("Capability agreement criteria must share one A4 plan binding.")
+            raise ValueError(
+                "Capability agreement criteria must share one A4 plan binding."
+            )
         poc_ids = {criterion.poc_id for criterion in capability_criteria}
         if len(poc_ids) != 1:
-            raise ValueError("Capability agreement criteria must share one POC binding.")
+            raise ValueError(
+                "Capability agreement criteria must share one POC binding."
+            )
         return self
 
 

@@ -4,6 +4,11 @@
 
 An adapter produces facts and evidence. The verdict engine applies the approved contract rule. Keeping those responsibilities separate prevents an adapter from turning a partial measurement into a silent pass.
 
+The pre-measurement routing qualification vocabulary is defined separately in
+the [Routing qualification protocol](ROUTING_QUALIFICATION_PROTOCOL.md). B9
+freezes campaign identities, allocation, reset, telemetry, receipt, and
+privacy requirements only; it adds no router execution or verdict behavior.
+
 ## Adapter interface
 
 Each adapter exposes a name, version, validation phase, execution phase, structured result, and artifact list.

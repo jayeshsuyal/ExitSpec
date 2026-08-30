@@ -27,6 +27,10 @@ The additive managed-evidence registry and external-only A100/Qwen3
 retrospective admission gate are documented in the
 [Managed evidence profile registry](docs/INFERDROME_PROFILE_REGISTRY.md).
 
+The additive B9 routing qualification vocabulary and synthetic evidence-side
+protocol are documented in the
+[Routing qualification protocol](docs/ROUTING_QUALIFICATION_PROTOCOL.md).
+
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded
 decision, one binary exit gate, adversarial verification, and inspectable
