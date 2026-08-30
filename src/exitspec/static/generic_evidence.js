@@ -9,6 +9,9 @@
   const $ = (selector) => document.querySelector(selector);
   const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
   const ATTEMPT_ID_PATTERN = /^eatm_[a-f0-9]{32}$/;
+  const OPERATION_ID_PATTERN = /^prun_[a-f0-9]{32}$/;
+  const RUN_ID_PATTERN = /^run_[a-f0-9]{32}$/;
+  const CLOSURE_ID_PATTERN = /^poccl_[a-f0-9]{32}$/;
   const HASH_PATTERN = /^[a-f0-9]{64}$/;
   const STATUSES = new Set([
     "RESERVED",
@@ -35,6 +38,38 @@
 
   function safeText(value, maximum = 4000) {
     return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
+  }
+
+  function timestamp(value) {
+    return typeof value === "string" &&
+      value.length <= 64 &&
+      /(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+      Number.isFinite(Date.parse(value));
+  }
+
+  function canonicalJson(value) {
+    if (value === null || typeof value === "boolean" || typeof value === "string") {
+      return JSON.stringify(value);
+    }
+    if (typeof value === "number" && Number.isFinite(value)) return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    if (plainObject(value)) {
+      return `{${Object.keys(value).sort().map((key) =>
+        `${JSON.stringify(key)}:${canonicalJson(value[key])}`
+      ).join(",")}}`;
+    }
+    throw new Error("Evidence response could not be trusted.");
+  }
+
+  async function sha256Hex(domain, value) {
+    const canonical = canonicalJson(value);
+    const bytes = new TextEncoder().encode(
+      domain === null ? canonical : `${domain}\u0000${canonical}`,
+    );
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)]
+      .map((part) => part.toString(16).padStart(2, "0"))
+      .join("");
   }
 
   function deepEqual(left, right) {
@@ -81,12 +116,17 @@
     if (
       !plainObject(value) ||
       !ATTEMPT_ID_PATTERN.test(value.attempt_id) ||
+      !OPERATION_ID_PATTERN.test(value.operation_id) ||
+      !RUN_ID_PATTERN.test(value.run_id) ||
       value.poc_id !== expectedPocId ||
       !STATUSES.has(value.status) ||
       typeof value.is_current !== "boolean" ||
       !safeText(value.contract_id, 160) ||
       !safeText(value.contract_version, 100) ||
       !HASH_PATTERN.test(value.contract_hash) ||
+      !HASH_PATTERN.test(value.request_digest) ||
+      !timestamp(value.reserved_at) ||
+      !(value.terminal_at === null || timestamp(value.terminal_at)) ||
       !safeText(value.reason) ||
       !safeText(value.next_action, 2000) ||
       value.shipping_authorized !== false ||
@@ -129,22 +169,134 @@
     return value;
   }
 
-  function validateClosure(value, expectedPocId) {
-    if (value === null) return null;
+  function validateEvidenceBinding(value, expectedPocId, current) {
     if (
-      !plainObject(value) ||
+      !exactKeys(value, [
+        "poc_id",
+        "contract_id",
+        "contract_version",
+        "contract_hash",
+        "run_id",
+        "verdict",
+        "evidence_pack_url",
+        "evidence_pack_sha256",
+      ]) ||
+      !current ||
+      current.status !== "COMPLETED" ||
+      current.poc_id !== expectedPocId ||
       value.poc_id !== expectedPocId ||
-      !["HANDOFF_COMPLETED", "POC_STOPPED"].includes(value.decision) ||
-      !safeText(value.decided_by, 160) ||
-      !safeText(value.rationale, 2000) ||
-      value.shipping_authorized !== false
+      value.contract_id !== current.contract_id ||
+      value.contract_version !== current.contract_version ||
+      value.contract_hash !== current.contract_hash ||
+      value.run_id !== current.run_id ||
+      value.verdict !== current.reduction?.verdict ||
+      value.evidence_pack_url !== current.evidence_pack_url ||
+      value.evidence_pack_sha256 !== current.evidence_pack_sha256 ||
+      !HASH_PATTERN.test(value.evidence_pack_sha256)
     ) {
+      throw new Error("Evidence response could not be trusted.");
+    }
+    trustedPackPath(value.evidence_pack_url, current.attempt_id);
+    return value;
+  }
+
+  async function validateTerminalRunBinding(value, expectedPocId, current) {
+    if (
+      !exactKeys(value, [
+        "poc_id",
+        "contract_id",
+        "contract_version",
+        "contract_hash",
+        "operation_id",
+        "runner_run_id",
+        "runner_input_digest",
+        "run_status",
+        "reason_code",
+        "terminal_at",
+        "run_receipt_sha256",
+      ]) ||
+      !current ||
+      !["INGESTION_REJECTED", "FAILED_INTERNAL", "CANCELLED"].includes(current.status) ||
+      current.evidence_pack_url !== null ||
+      current.evidence_pack_sha256 !== null ||
+      value.poc_id !== expectedPocId ||
+      value.contract_id !== current.contract_id ||
+      value.contract_version !== current.contract_version ||
+      value.contract_hash !== current.contract_hash ||
+      value.operation_id !== current.operation_id ||
+      value.runner_run_id !== current.run_id ||
+      value.runner_input_digest !== current.request_digest ||
+      value.run_status !== "BLOCKED" ||
+      value.reason_code !== current.status ||
+      value.terminal_at !== (current.terminal_at || current.reserved_at) ||
+      !timestamp(value.terminal_at) ||
+      !HASH_PATTERN.test(value.run_receipt_sha256)
+    ) {
+      throw new Error("Evidence response could not be trusted.");
+    }
+    const receiptDigest = await sha256Hex(null, current);
+    if (value.run_receipt_sha256 !== receiptDigest) {
       throw new Error("Evidence response could not be trusted.");
     }
     return value;
   }
 
-  function validateSnapshot(value) {
+  async function validateClosure(value, expectedPocId, current) {
+    if (value === null) return null;
+    if (
+      !exactKeys(value, [
+        "closure_id",
+        "poc_id",
+        "decision",
+        "decided_by",
+        "rationale",
+        "recorded_at",
+        "evidence_binding",
+        "terminal_run_binding",
+        "evidence_binding_sha256",
+        "authorization_scope",
+        "shipping_authorized",
+      ]) ||
+      !CLOSURE_ID_PATTERN.test(value.closure_id) ||
+      value.poc_id !== expectedPocId ||
+      !["HANDOFF_COMPLETED", "POC_STOPPED"].includes(value.decision) ||
+      !safeText(value.decided_by, 160) ||
+      !safeText(value.rationale, 2000) ||
+      !timestamp(value.recorded_at) ||
+      !HASH_PATTERN.test(value.evidence_binding_sha256) ||
+      value.authorization_scope !== "POC_LIFECYCLE_ONLY" ||
+      value.shipping_authorized !== false
+    ) {
+      throw new Error("Evidence response could not be trusted.");
+    }
+    const hasEvidenceBinding = value.evidence_binding !== null;
+    const hasTerminalRunBinding = value.terminal_run_binding !== null;
+    if (hasEvidenceBinding === hasTerminalRunBinding || !current?.is_current) {
+      throw new Error("Evidence response could not be trusted.");
+    }
+    let binding;
+    let domain;
+    if (hasEvidenceBinding) {
+      binding = validateEvidenceBinding(value.evidence_binding, expectedPocId, current);
+      domain = "exitspec-terminal-evidence-binding-v1";
+    } else {
+      if (value.decision === "HANDOFF_COMPLETED") {
+        throw new Error("Evidence response could not be trusted.");
+      }
+      binding = await validateTerminalRunBinding(
+        value.terminal_run_binding,
+        expectedPocId,
+        current,
+      );
+      domain = "exitspec-terminal-run-binding-v1";
+    }
+    if (value.evidence_binding_sha256 !== await sha256Hex(domain, binding)) {
+      throw new Error("Evidence response could not be trusted.");
+    }
+    return value;
+  }
+
+  async function validateSnapshot(value) {
     if (
       !exactKeys(value, [
         "poc_id",
@@ -169,10 +321,11 @@
       throw new Error("Evidence response could not be trusted.");
     }
     const markedCurrent = history.filter((attempt) => attempt.is_current);
+    let current = null;
     if (value.current === null) {
       if (markedCurrent.length !== 0) throw new Error("Evidence response could not be trusted.");
     } else {
-      const current = validateAttempt(value.current, pocId);
+      current = validateAttempt(value.current, pocId);
       const historicalCurrent = history.find(
         (attempt) => attempt.attempt_id === current.attempt_id
       );
@@ -186,7 +339,7 @@
         throw new Error("Evidence response could not be trusted.");
       }
     }
-    validateClosure(value.closure, pocId);
+    await validateClosure(value.closure, pocId, current);
     return value;
   }
 
@@ -202,11 +355,11 @@
     return value;
   }
 
-  function validateDecisionResponse(value) {
+  async function validateDecisionResponse(value, current) {
     if (!exactKeys(value, ["poc_id", "closure"]) || value.poc_id !== pocId) {
       throw new Error("Evidence response could not be trusted.");
     }
-    validateClosure(value.closure, pocId);
+    await validateClosure(value.closure, pocId, current);
     return value;
   }
 
@@ -319,7 +472,7 @@
     render();
     try {
       const candidate = await request(api, { headers: {} });
-      snapshot = validateSnapshot(candidate);
+      snapshot = await validateSnapshot(candidate);
       trustedSnapshot = true;
     } finally {
       busy = false;
@@ -365,14 +518,14 @@
     busy = true;
     render();
     try {
-      validateDecisionResponse(await request(`${api}/${current.attempt_id}/${decision}`, {
+      await validateDecisionResponse(await request(`${api}/${current.attempt_id}/${decision}`, {
         method: "POST",
         body: JSON.stringify({
           decided_by: owner,
           rationale: decision === "handoff" ? rationale : "Stopped after reviewing the current evidence state.",
           idempotency_key: `a6-browser-${decision}-${crypto.randomUUID()}`,
         }),
-      }));
+      }), current);
       await refresh();
     } catch (error) { setError(error.message); }
     finally {
