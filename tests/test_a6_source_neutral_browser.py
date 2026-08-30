@@ -3,9 +3,12 @@ import re
 from contextlib import contextmanager
 import threading
 
-from playwright.sync_api import sync_playwright
+import pytest
 
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
+
+
+playwright_sync = pytest.importorskip("playwright.sync_api")
 
 
 @contextmanager
@@ -49,7 +52,7 @@ def _complete_mixed_plan(page) -> None:
 
 
 def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
-    with _running_source_server() as base_url, sync_playwright() as playwright:
+    with _running_source_server() as base_url, playwright_sync.sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 820})
         network_urls: list[str] = []
