@@ -56,6 +56,7 @@ class InferdromeArchiveErrorCode(str, Enum):
     UNSAFE_ARCHIVE = "UNSAFE_ARCHIVE"
     ARCHIVE_LIMIT_EXCEEDED = "ARCHIVE_LIMIT_EXCEEDED"
     ARCHIVE_INTEGRITY_MISMATCH = "ARCHIVE_INTEGRITY_MISMATCH"
+    CLEANUP_FAILED = "CLEANUP_FAILED"
 
 
 class InferdromeArchiveRejected(ValueError):
@@ -200,11 +201,11 @@ def extract_pinned_inferdrome_archive(
             _verify_pinned_outer_provenance(destination)
     except InferdromeArchiveRejected:
         if created:
-            shutil.rmtree(destination, ignore_errors=True)
+            _cleanup_destination(destination)
         raise
     except (OSError, tarfile.TarError, EOFError, ValueError) as error:
         if created:
-            shutil.rmtree(destination, ignore_errors=True)
+            _cleanup_destination(destination)
         _reject(
             InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
             "Inferdrome archive could not be parsed or materialized safely.",
@@ -221,7 +222,7 @@ def extract_pinned_inferdrome_archive(
         *PurePosixPath(PINNED_SYNTHETIC_MEMBER_PATH).parts
     )
     if not all(path.is_dir() for path in (bundle_path, corrupted_path, synthetic_path)):
-        shutil.rmtree(destination, ignore_errors=True)
+        _cleanup_destination(destination)
         _reject(
             InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
             "Inferdrome archive is missing a pinned demonstration bundle.",
@@ -322,11 +323,11 @@ def extract_external_inferdrome_archive(
             )
     except InferdromeArchiveRejected:
         if created:
-            shutil.rmtree(destination, ignore_errors=True)
+            _cleanup_destination(destination)
         raise
     except (OSError, tarfile.TarError, EOFError, ValueError) as error:
         if created:
-            shutil.rmtree(destination, ignore_errors=True)
+            _cleanup_destination(destination)
         _reject(
             InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
             "Inferdrome archive could not be parsed or materialized safely.",
@@ -337,7 +338,7 @@ def extract_external_inferdrome_archive(
 
     member = destination.joinpath(*PurePosixPath(selected_member_path).parts)
     if not member.is_dir():
-        shutil.rmtree(destination, ignore_errors=True)
+        _cleanup_destination(destination)
         _reject(
             InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
             "Inferdrome archive is missing the requested bundle member.",
@@ -566,8 +567,7 @@ def _verify_pinned_outer_provenance(root: Path) -> None:
         capture.get("schema_version") != "inferdrome.real-gpu-capture.v1"
         or capture.get("repository_commit") != CAPTURE_PRODUCER_COMMIT
         or capture.get("acceptance_boundary") != "PENDING_EXTERNAL_EXITSPEC"
-        or single.get("receipt_path")
-        != "single/real-gpu-5osfyjjl/demo-receipt.json"
+        or single.get("receipt_path") != "single/real-gpu-5osfyjjl/demo-receipt.json"
         or single.get("receipt_sha256") != _sha256_tagged(receipt_bytes)
         or host_claim.get("path") != "support/host-preparation.json"
         or host_claim.get("sha256") != _sha256_tagged(host_bytes)
@@ -647,6 +647,34 @@ def _require_beneath(root: Path, target: Path) -> None:
         _reject(
             InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
             "Inferdrome archive target escapes the extraction root.",
+        )
+
+
+def _cleanup_destination(destination: Path) -> None:
+    """Remove an owned extraction root or fail closed if cleanup is uncertain."""
+
+    try:
+        shutil.rmtree(destination)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        _reject(
+            InferdromeArchiveErrorCode.CLEANUP_FAILED,
+            "Inferdrome extraction cleanup failed after rejection.",
+            error,
+        )
+    try:
+        still_exists = destination.exists() or destination.is_symlink()
+    except OSError as error:
+        _reject(
+            InferdromeArchiveErrorCode.CLEANUP_FAILED,
+            "Inferdrome extraction cleanup could not be verified.",
+            error,
+        )
+    if still_exists:
+        _reject(
+            InferdromeArchiveErrorCode.CLEANUP_FAILED,
+            "Inferdrome extraction cleanup left its destination behind.",
         )
 
 

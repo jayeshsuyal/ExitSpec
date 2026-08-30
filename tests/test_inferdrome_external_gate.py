@@ -11,7 +11,11 @@ import pytest
 
 import exitspec.inferdrome_external_gate as external_gate_module
 import exitspec.inferdrome_profile_registry as profile_registry_module
-from exitspec.inferdrome_archive import ExtractedInferdromeArchiveMember
+from exitspec.inferdrome_archive import (
+    ExtractedInferdromeArchiveMember,
+    InferdromeArchiveErrorCode,
+    InferdromeArchiveRejected,
+)
 from exitspec.inferdrome_bundle import (
     InferdromeBundleErrorCode,
     InferdromeBundleRejected,
@@ -334,6 +338,45 @@ def test_cleanup_failure_is_a_stable_admission_rejection(monkeypatch, tmp_path):
     assert rejected.value.code is ManagedEvidenceAdmissionErrorCode.CLEANUP_FAILED
 
 
+def test_archive_cleanup_failure_maps_through_public_admission_boundary(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        external_gate_module, "_validate_profile_document", lambda *args: None
+    )
+    monkeypatch.setattr(external_gate_module, "_read_metadata", lambda *args: {})
+    monkeypatch.setattr(external_gate_module, "_validate_handoff", lambda *args: None)
+    monkeypatch.setattr(
+        external_gate_module, "_validate_publication_review", lambda *args: None
+    )
+    monkeypatch.setattr(
+        external_gate_module, "_validate_operational_summary", lambda *args: None
+    )
+
+    def reject_extraction(*args, **kwargs):
+        raise InferdromeArchiveRejected(
+            InferdromeArchiveErrorCode.CLEANUP_FAILED,
+            "synthetic lower-level cleanup failure",
+        )
+
+    monkeypatch.setattr(
+        external_gate_module,
+        "extract_external_inferdrome_archive",
+        reject_extraction,
+    )
+    with pytest.raises(ManagedEvidenceAdmissionRejected) as rejected:
+        admit_a100_qwen3_retrospective(
+            tmp_path / "archive.tar.gz",
+            tmp_path / "extract",
+            handoff_manifest_path=tmp_path / "handoff.json",
+            publication_review_path=tmp_path / "review.json",
+            operational_summary_path=tmp_path / "summary.json",
+            profile_document_path=tmp_path / "profile.json",
+        )
+
+    assert rejected.value.code is ManagedEvidenceAdmissionErrorCode.CLEANUP_FAILED
+
+
 def test_external_metadata_rejects_duplicate_oversized_and_deep_json(tmp_path):
     nested = {}
     for _ in range(65):
@@ -379,6 +422,42 @@ def test_frozen_nested_metadata_shape_rejects_extra_archive_fields():
             review,
             A100_RETROSPECTIVE_EXPECTATION,
         )
+    assert rejected.value.code is ManagedEvidenceAdmissionErrorCode.PROFILE_FACTS_EXTRA
+
+
+@pytest.mark.parametrize(
+    "metadata_kind",
+    ["acceptance", "run", "runtime", "delivery", "safety", "operational"],
+)
+def test_frozen_nested_metadata_shapes_reject_extra_fields(metadata_kind):
+    if metadata_kind == "safety":
+        metadata = _synthetic_publication_review()
+        metadata["archive_integrity_and_safety"]["unreviewed_extra"] = True
+        validate = external_gate_module._validate_publication_review
+        arguments = (metadata, A100_RETROSPECTIVE_EXPECTATION)
+    elif metadata_kind == "operational":
+        metadata = _synthetic_operational_summary()
+        metadata["provider"]["unreviewed_extra"] = True
+        validate = external_gate_module._validate_operational_summary
+        arguments = (metadata, A100_RETROSPECTIVE_EXPECTATION)
+    else:
+        metadata = _synthetic_handoff()
+        target = {
+            "acceptance": metadata["acceptance_boundary"],
+            "run": metadata["run"],
+            "runtime": metadata["runtime_capability"],
+            "delivery": metadata["fixture_delivery"],
+        }[metadata_kind]
+        target["unreviewed_extra"] = True
+        validate = external_gate_module._validate_handoff
+        arguments = (
+            metadata,
+            A100_QWEN3_PROFILE,
+            A100_RETROSPECTIVE_EXPECTATION,
+        )
+
+    with pytest.raises(ManagedEvidenceAdmissionRejected) as rejected:
+        validate(*arguments)
     assert rejected.value.code is ManagedEvidenceAdmissionErrorCode.PROFILE_FACTS_EXTRA
 
 
@@ -666,6 +745,7 @@ def _synthetic_handoff():
             "capture_kind": "BOUNDED_RUNTIME_CAPABILITY_SPIKE",
             "inferdrome_acceptance_verdict": None,
             "publication_state": "OBSERVATION_ONLY_PENDING_REVIEW",
+            "statement": external_gate_module.A100_ACCEPTANCE_STATEMENT,
         },
         "archive": {
             "bundle_member_path": A100_RETROSPECTIVE_EXPECTATION.bundle_member_path,
@@ -675,17 +755,17 @@ def _synthetic_handoff():
         },
         "capability_profile": {
             "campaign_id": "qwen-gpu-capability-campaign-v1",
-            "commit": "6cb774d210940073347f9045bb15611aa9e9cf27",
+            "commit": external_gate_module.A100_CAPABILITY_PROFILE_COMMIT,
             "managed_profile": {
                 "identity": A100_QWEN3_PROFILE.profile_id,
                 "path": "campaigns/v1/profiles/managed-vllm-0.26-qwen3-8b-bf16-v1.json",
                 "sha256": A100_QWEN3_PROFILE.profile_sha256,
             },
             "model_snapshot": {
-                "file_count": 15,
+                "file_count": external_gate_module.A100_MODEL_SNAPSHOT_FILE_COUNT,
                 "revision": A100_QWEN3_PROFILE.model_revision,
-                "sha256": "sha256:" + "1" * 64,
-                "total_bytes": 16_397_461_266,
+                "sha256": external_gate_module.A100_MODEL_SNAPSHOT_SHA256,
+                "total_bytes": external_gate_module.A100_MODEL_SNAPSHOT_TOTAL_BYTES,
             },
             "workload": {
                 "id": A100_QWEN3_PROFILE.workload_id,
@@ -705,13 +785,13 @@ def _synthetic_handoff():
             "required_consumer_mode": "EXTERNAL_RECEIPT_BINDING",
         },
         "fixture_delivery": {
-            "proposed_checksum_pinned_location": "https://synthetic.invalid/archive",
+            "proposed_checksum_pinned_location": external_gate_module.A100_DELIVERY_LOCATION,
             "publication_state": "BLOCKED_PENDING_OWNER_APPROVAL",
             "required_sha256": A100_RETROSPECTIVE_EXPECTATION.archive_sha256,
-            "statement": "synthetic structure-only fixture",
+            "statement": external_gate_module.A100_DELIVERY_STATEMENT,
         },
         "history_provenance": {
-            "capability_profile_commit": "6cb774d210940073347f9045bb15611aa9e9cf27",
+            "capability_profile_commit": external_gate_module.A100_CAPABILITY_PROFILE_COMMIT,
             "capture_producer_commit": "a02bfd7c3f8bd0f734da0e84d476bcfa905fec4b",
             "eventual_merge_commit": None,
             "merge_requirement": (
@@ -720,8 +800,18 @@ def _synthetic_handoff():
             ),
             "publication_review_commit": None,
         },
-        "operational_completion": {},
-        "publication_review": {},
+        "operational_completion": {
+            "path": "evidence/gpu/2026-08-23-qwen3-8b-a100-sxm4/operational-summary.json",
+            "semantic_verification": "VALID_AFTER_PROVIDER_TERMINATION",
+            "sha256": external_gate_module.A100_OPERATIONAL_SUMMARY_SHA256,
+            "termination_final_status": "absent",
+        },
+        "publication_review": {
+            "owner_publication_approval_required": True,
+            "path": "evidence/gpu/2026-08-23-qwen3-8b-a100-sxm4/publication-review.json",
+            "publication_status": "EXTERNAL_ONLY",
+            "sha256": external_gate_module.A100_PUBLICATION_REVIEW_SHA256,
+        },
         "run": {
             "bundle_digest": A100_RETROSPECTIVE_EXPECTATION.bundle_digest,
             "execution_fingerprint": A100_RETROSPECTIVE_EXPECTATION.execution_fingerprint,
@@ -740,12 +830,12 @@ def _synthetic_handoff():
             "run_id": A100_RETROSPECTIVE_EXPECTATION.run_id,
             "source_spec_digest": A100_RETROSPECTIVE_EXPECTATION.source_spec_digest,
             "summary_measurements": {
-                "output_token_throughput_per_s": "synthetic",
+                "output_token_throughput_per_s": "73.377319",
                 "ttft_ns": {
                     "definition_id": A100_QWEN3_PROFILE.metric_definition_id,
-                    "p50": 1,
+                    "p50": 42_974_685,
                     "p95": A100_RETROSPECTIVE_EXPECTATION.expected_p95_ns,
-                    "p99": 2,
+                    "p99": 80_570_049,
                     "population": A100_QWEN3_PROFILE.metric_population,
                     "quantile_method": A100_QWEN3_PROFILE.metric_reducer_id,
                 },
@@ -855,7 +945,21 @@ def _synthetic_publication_review():
             "compressed_size_bytes": A100_RETROSPECTIVE_EXPECTATION.archive_size_bytes,
             "sha256": A100_RETROSPECTIVE_EXPECTATION.archive_sha256,
         },
-        "archive_integrity_and_safety": {"status": "PASS"},
+        "archive_integrity_and_safety": {
+            "archive_member_rules": [
+                "top-level capture directory required",
+                "absolute and traversal paths rejected",
+                "duplicate members rejected",
+                "links, devices, and special files rejected",
+                "member, directory, file, expanded-byte, and compressed-byte limits",
+            ],
+            "capture_manifest_sha256": A100_RETROSPECTIVE_EXPECTATION.capture_manifest_sha256,
+            "directory_count": 15,
+            "expanded_bytes": 2_103_304,
+            "file_count": 52,
+            "isolated_verification": True,
+            "status": "PASS",
+        },
         "content_review": {},
         "decision_reasons": [],
         "detector_results": {},
@@ -879,27 +983,14 @@ class _ExternalInputs:
 
 
 def _external_inputs_or_skip() -> _ExternalInputs:
-    archive = Path(
-        os.environ.get(
-            "EXITSPEC_INFERDROME_A100_ARCHIVE",
-            "/Users/jayeshsuyal/Documents/Inferdrome/gpu-proof-retrieved/"
-            "20260823T192609Z-a02bfd7c3f8b-dcb7a227/capture.tar.gz",
-        )
-    )
-    root = Path(
-        os.environ.get(
-            "EXITSPEC_INFERDROME_A100_METADATA",
-            "/Users/jayeshsuyal/Documents/Inferdrome/evidence/gpu/"
-            "2026-08-23-qwen3-8b-a100-sxm4",
-        )
-    )
-    profile = Path(
-        os.environ.get(
-            "EXITSPEC_INFERDROME_A100_PROFILE",
-            "/Users/jayeshsuyal/Documents/Inferdrome/campaigns/v1/profiles/"
-            "managed-vllm-0.26-qwen3-8b-bf16-v1.json",
-        )
-    )
+    archive_value = os.environ.get("EXITSPEC_INFERDROME_A100_ARCHIVE")
+    root_value = os.environ.get("EXITSPEC_INFERDROME_A100_METADATA")
+    profile_value = os.environ.get("EXITSPEC_INFERDROME_A100_PROFILE")
+    if not archive_value or not root_value or not profile_value:
+        pytest.skip("exact external A100 evidence inputs are not configured")
+    archive = Path(archive_value)
+    root = Path(root_value)
+    profile = Path(profile_value)
     if not archive.is_file() or not root.is_dir() or not profile.is_file():
         pytest.skip("exact external A100 evidence inputs are not available")
     return _ExternalInputs(root, archive, profile)

@@ -72,6 +72,40 @@ A100_EXPECTED_P95_NS: Final = 79_279_716
 A100_EXPECTED_MEASURED_REQUESTS: Final = 96
 A100_EXPECTED_SUCCESSFUL_REQUESTS: Final = 96
 A100_EXPECTED_FAILED_REQUESTS: Final = 0
+A100_CAPABILITY_PROFILE_COMMIT: Final = "6cb774d210940073347f9045bb15611aa9e9cf27"
+A100_MODEL_SNAPSHOT_SHA256: Final = (
+    "sha256:588d19e9e489cccdad793718d8c5efbad0738be717369f9eacb94ce514992d2c"
+)
+A100_MODEL_SNAPSHOT_FILE_COUNT: Final = 15
+A100_MODEL_SNAPSHOT_TOTAL_BYTES: Final = 16_397_461_266
+A100_ACCEPTANCE_STATEMENT: Final = (
+    "This capture proves one bounded runtime observation. It does not assign PASS, "
+    "FAIL, or NOT_PROVEN and is not a cross-GPU result."
+)
+A100_DELIVERY_LOCATION: Final = (
+    "https://github.com/jayeshsuyal/inferdrome/releases/download/"
+    "gpu-evidence-2026-08-23/inferdrome-qwen3-8b-a100-sxm4-92e9456b.tar.gz"
+)
+A100_DELIVERY_STATEMENT: Final = (
+    "The raw archive remains ignored. Public CI can validate committed anchors, "
+    "but byte-level archive reverification requires these exact reviewed bytes "
+    "until owner license and publication approval exists."
+)
+A100_PUBLICATION_REVIEW_SHA256: Final = (
+    "sha256:f2616b08b526cb7346457dec585a98b5918e2c246b03faab9335a8a358e74208"
+)
+A100_OPERATIONAL_SUMMARY_SHA256: Final = (
+    "sha256:167835a2e3c353f5ec06549cc06a5c049566a5d5201a5fae6e6567dea763488e"
+)
+A100_PROFILE_HOST_DEPENDENCIES_SHA256: Final = (
+    "sha256:4ae954afc7b7fec4db21c62d50c9f5262ad1e261270ce433840586c8410239a5"
+)
+A100_PROFILE_SNAPSHOT_MANIFEST_SHA256: Final = (
+    "sha256:ef291a8dd0f21604c8da3025f5112bd6641e891a3401c8550584725eaabe55cc"
+)
+A100_PROFILE_WORKLOAD_MANIFEST_SHA256: Final = (
+    "sha256:297cd52871a00c62914a61f6a4417fe6f97c813b0421e02c6097897af0ed792b"
+)
 _MAX_METADATA_BYTES: Final = 1_048_576
 _MAX_METADATA_INTEGER: Final = (1 << 63) - 1
 _MAX_METADATA_DEPTH: Final = 64
@@ -332,6 +366,23 @@ def _validate_profile_document(
     profile: ManagedEvidenceProfile,
 ) -> None:
     document = _read_metadata(path, "managed profile document")
+    _exact_keys(
+        document,
+        {
+            "benchmark_invocation",
+            "campaign_id",
+            "claims_boundary",
+            "digest_policy",
+            "implementation_state",
+            "model",
+            "producer",
+            "profile_id",
+            "schema_version",
+            "server_invocation",
+            "workload_binding",
+        },
+        "profile",
+    )
     try:
         document_digest = canonical_document_sha256(document)
     except ValueError as error:
@@ -377,10 +428,10 @@ def _validate_profile_document(
             "version": profile.producer_version,
             "adapter_name": profile.adapter_id,
             "adapter_version": profile.adapter_version,
+            "host_dependencies_sha256": A100_PROFILE_HOST_DEPENDENCIES_SHA256,
         },
         "profile.producer",
         ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
-        allow_extra=True,
     )
     model = _object(document.get("model"))
     _exact_values(
@@ -391,15 +442,17 @@ def _validate_profile_document(
             "tokenizer_revision": profile.tokenizer_revision,
             "checkpoint_precision": profile.checkpoint_precision,
             "activation_dtype": profile.dtype,
+            "snapshot_identity_sha256": A100_MODEL_SNAPSHOT_SHA256,
+            "snapshot_manifest_sha256": A100_PROFILE_SNAPSHOT_MANIFEST_SHA256,
         },
         "profile.model",
         ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
-        allow_extra=True,
     )
     server = _object(document.get("server_invocation"))
     _exact_values(
         server,
         {
+            "device_ids": "selected_single_physical_gpu",
             "dtype": profile.dtype,
             "max_model_len": profile.max_model_len,
             "gpu_memory_utilization": profile.gpu_memory_utilization,
@@ -410,7 +463,6 @@ def _validate_profile_document(
         },
         "profile.server_invocation",
         ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
-        allow_extra=True,
     )
     workload = _object(document.get("workload_binding"))
     _exact_values(
@@ -420,10 +472,10 @@ def _validate_profile_document(
             "workload_sha256": profile.workload_sha256,
             "warmup_requests": profile.warmup_requests,
             "measured_requests": profile.measured_requests,
+            "manifest_sha256": A100_PROFILE_WORKLOAD_MANIFEST_SHA256,
         },
         "profile.workload_binding",
         ManagedEvidenceAdmissionErrorCode.WORKLOAD_MISMATCH,
-        allow_extra=True,
     )
 
 
@@ -463,10 +515,10 @@ def _validate_handoff(
             "capture_kind": "BOUNDED_RUNTIME_CAPABILITY_SPIKE",
             "inferdrome_acceptance_verdict": None,
             "publication_state": "OBSERVATION_ONLY_PENDING_REVIEW",
+            "statement": A100_ACCEPTANCE_STATEMENT,
         },
         "handoff.acceptance_boundary",
         ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
-        allow_extra=True,
     )
     archive = _object(handoff.get("archive"))
     _exact_values(
@@ -481,12 +533,24 @@ def _validate_handoff(
         ManagedEvidenceAdmissionErrorCode.ARCHIVE_SHA256_MISMATCH,
     )
     capability = _object(handoff.get("capability_profile"))
+    _exact_keys(
+        capability,
+        {"campaign_id", "commit", "managed_profile", "model_snapshot", "workload"},
+        "handoff.capability_profile",
+    )
     _exact(
         capability.get("campaign_id"),
         A100_CAMPAIGN_ID,
         ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
         "Handoff campaign identity does not match the selected profile.",
         "handoff.capability_profile.campaign_id",
+    )
+    _exact(
+        capability.get("commit"),
+        A100_CAPABILITY_PROFILE_COMMIT,
+        ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
+        "Handoff capability profile commit does not match the reviewed profile.",
+        "handoff.capability_profile.commit",
     )
     managed = _object(capability.get("managed_profile"))
     _exact_values(
@@ -497,6 +561,18 @@ def _validate_handoff(
             "sha256": profile.profile_sha256,
         },
         "handoff.capability_profile.managed_profile",
+        ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
+    )
+    model_snapshot = _object(capability.get("model_snapshot"))
+    _exact_values(
+        model_snapshot,
+        {
+            "file_count": A100_MODEL_SNAPSHOT_FILE_COUNT,
+            "revision": profile.model_revision,
+            "sha256": A100_MODEL_SNAPSHOT_SHA256,
+            "total_bytes": A100_MODEL_SNAPSHOT_TOTAL_BYTES,
+        },
+        "handoff.capability_profile.model_snapshot",
         ManagedEvidenceAdmissionErrorCode.PROFILE_FACT_MISMATCH,
     )
     workload = _object(capability.get("workload"))
@@ -528,12 +604,16 @@ def _validate_handoff(
         ManagedEvidenceAdmissionErrorCode.CONTRACT_LINK_MISMATCH,
     )
     delivery = _object(handoff.get("fixture_delivery"))
-    _exact(
-        delivery.get("publication_state"),
-        "BLOCKED_PENDING_OWNER_APPROVAL",
+    _exact_values(
+        delivery,
+        {
+            "proposed_checksum_pinned_location": A100_DELIVERY_LOCATION,
+            "publication_state": "BLOCKED_PENDING_OWNER_APPROVAL",
+            "required_sha256": expectation.archive_sha256,
+            "statement": A100_DELIVERY_STATEMENT,
+        },
+        "handoff.fixture_delivery",
         ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
-        "Handoff delivery is not blocked behind owner approval.",
-        "handoff.fixture_delivery.publication_state",
     )
     history = _object(handoff.get("history_provenance"))
     _exact_values(
@@ -549,6 +629,28 @@ def _validate_handoff(
             "publication_review_commit": None,
         },
         "handoff.history_provenance",
+        ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
+    )
+    _exact_values(
+        _object(handoff.get("publication_review")),
+        {
+            "owner_publication_approval_required": True,
+            "path": "evidence/gpu/2026-08-23-qwen3-8b-a100-sxm4/publication-review.json",
+            "publication_status": "EXTERNAL_ONLY",
+            "sha256": A100_PUBLICATION_REVIEW_SHA256,
+        },
+        "handoff.publication_review",
+        ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
+    )
+    _exact_values(
+        _object(handoff.get("operational_completion")),
+        {
+            "path": "evidence/gpu/2026-08-23-qwen3-8b-a100-sxm4/operational-summary.json",
+            "semantic_verification": "VALID_AFTER_PROVIDER_TERMINATION",
+            "sha256": A100_OPERATIONAL_SUMMARY_SHA256,
+            "termination_final_status": "absent",
+        },
+        "handoff.operational_completion",
         ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
     )
     run = _object(handoff.get("run"))
@@ -568,20 +670,46 @@ def _validate_handoff(
         },
         "handoff.run",
     )
+    for name, expected in {
+        "bundle_digest": expectation.bundle_digest,
+        "execution_fingerprint": expectation.execution_fingerprint,
+        "metric_definitions_digest": expectation.metric_definitions_digest,
+        "request_plan_digest": expectation.request_plan_digest,
+        "run_id": expectation.run_id,
+        "source_spec_digest": expectation.source_spec_digest,
+        "workload_sha256": profile.workload_sha256,
+    }.items():
+        _exact(
+            run.get(name),
+            expected,
+            ManagedEvidenceAdmissionErrorCode.TAMPERED_INPUT,
+            f"Handoff run fact {name} does not match the reviewed run.",
+            f"handoff.run.{name}",
+        )
+    request_population = _object(run.get("request_population"))
     _exact_values(
-        run,
+        request_population,
         {
-            "bundle_digest": expectation.bundle_digest,
-            "execution_fingerprint": expectation.execution_fingerprint,
-            "metric_definitions_digest": expectation.metric_definitions_digest,
-            "request_plan_digest": expectation.request_plan_digest,
-            "run_id": expectation.run_id,
-            "source_spec_digest": expectation.source_spec_digest,
-            "workload_sha256": profile.workload_sha256,
+            "failed_requests": expectation.failed_requests,
+            "measured_requests": expectation.measured_requests,
+            "successful_requests": expectation.successful_requests,
+            "ttft_samples": expectation.successful_requests,
         },
-        "handoff.run",
-        ManagedEvidenceAdmissionErrorCode.TAMPERED_INPUT,
-        allow_extra=True,
+        "handoff.run.request_population",
+        ManagedEvidenceAdmissionErrorCode.SAMPLE_COUNT_MISMATCH,
+    )
+    summary_measurements = _object(run.get("summary_measurements"))
+    _exact_keys(
+        summary_measurements,
+        {"output_token_throughput_per_s", "ttft_ns"},
+        "handoff.run.summary_measurements",
+    )
+    _exact(
+        summary_measurements.get("output_token_throughput_per_s"),
+        "73.377319",
+        ManagedEvidenceAdmissionErrorCode.METRIC_SEMANTICS_MISMATCH,
+        "Handoff throughput measurement does not match the reviewed run.",
+        "handoff.run.summary_measurements.output_token_throughput_per_s",
     )
     target = _object(run.get("model"))
     _exact_keys(target, {"id", "revision"}, "handoff.run.model")
@@ -640,6 +768,20 @@ def _validate_handoff(
         "Handoff metric p95 does not match the exact external expectation.",
         "handoff.run.summary_measurements.ttft_ns.p95",
     )
+    _exact(
+        metric.get("p50"),
+        42_974_685,
+        ManagedEvidenceAdmissionErrorCode.METRIC_SEMANTICS_MISMATCH,
+        "Handoff metric p50 does not match the reviewed run.",
+        "handoff.run.summary_measurements.ttft_ns.p50",
+    )
+    _exact(
+        metric.get("p99"),
+        80_570_049,
+        ManagedEvidenceAdmissionErrorCode.METRIC_SEMANTICS_MISMATCH,
+        "Handoff metric p99 does not match the reviewed run.",
+        "handoff.run.summary_measurements.ttft_ns.p99",
+    )
     runtime = _object(handoff.get("runtime_capability"))
     _exact_keys(
         runtime,
@@ -660,13 +802,15 @@ def _validate_handoff(
             "expected_gpu_model": A100_HARDWARE_MODEL,
             "gpu_tier_id": "a100-40gb-sxm4",
             "hardware_attestation": False,
+            "hardware_observation": (
+                "SELECTED_GPU_REPORTED_NVIDIA_A100-SXM4-40GB_SINGLE_CUDA_DEVICE"
+            ),
             "profile_id": profile.profile_id,
             "spike_outcome": "SPIKE_SUCCEEDED",
             "torch_cuda_device_count": 1,
         },
         "handoff.runtime_capability",
         ManagedEvidenceAdmissionErrorCode.PROVENANCE_INSUFFICIENT,
-        allow_extra=True,
     )
 
 
@@ -733,12 +877,25 @@ def _validate_publication_review(
         ManagedEvidenceAdmissionErrorCode.ARCHIVE_SHA256_MISMATCH,
     )
     safety = _object(review.get("archive_integrity_and_safety"))
-    _exact(
-        safety.get("status"),
-        "PASS",
+    _exact_values(
+        safety,
+        {
+            "archive_member_rules": [
+                "top-level capture directory required",
+                "absolute and traversal paths rejected",
+                "duplicate members rejected",
+                "links, devices, and special files rejected",
+                "member, directory, file, expanded-byte, and compressed-byte limits",
+            ],
+            "capture_manifest_sha256": expectation.capture_manifest_sha256,
+            "directory_count": 15,
+            "expanded_bytes": 2_103_304,
+            "file_count": 52,
+            "isolated_verification": True,
+            "status": "PASS",
+        },
+        "publication_review.archive_integrity_and_safety",
         ManagedEvidenceAdmissionErrorCode.ARCHIVE_UNSAFE,
-        "Publication review does not record a passing archive safety scan.",
-        "publication_review.archive_integrity_and_safety.status",
     )
     _exact(
         review.get("owner_publication_approval_required"),
@@ -777,19 +934,20 @@ def _validate_operational_summary(
         "External operational summary schema is unsupported.",
         "operational_summary.schema_version",
     )
-    _exact_values(
-        summary,
-        {
-            "archive_sha256": expectation.archive_sha256,
-            "bundle_digest": expectation.bundle_digest,
-            "run_id": expectation.run_id,
-            "repository_commit": "a02bfd7c3f8bd0f734da0e84d476bcfa905fec4b",
-            "semantic_verification": "VALID_AFTER_PROVIDER_TERMINATION",
-        },
-        "operational_summary",
-        ManagedEvidenceAdmissionErrorCode.TAMPERED_INPUT,
-        allow_extra=True,
-    )
+    for name, expected in {
+        "archive_sha256": expectation.archive_sha256,
+        "bundle_digest": expectation.bundle_digest,
+        "run_id": expectation.run_id,
+        "repository_commit": "a02bfd7c3f8bd0f734da0e84d476bcfa905fec4b",
+        "semantic_verification": "VALID_AFTER_PROVIDER_TERMINATION",
+    }.items():
+        _exact(
+            summary.get(name),
+            expected,
+            ManagedEvidenceAdmissionErrorCode.TAMPERED_INPUT,
+            f"Operational summary fact {name} does not match the reviewed run.",
+            f"operational_summary.{name}",
+        )
     _exact_keys(
         _object(summary.get("provider")),
         {
@@ -1025,8 +1183,6 @@ def _exact_values(
     expected: dict[str, Any],
     path: str,
     code: ManagedEvidenceAdmissionErrorCode,
-    *,
-    allow_extra: bool = False,
 ) -> None:
     missing = set(expected) - set(actual)
     if missing:
@@ -1035,7 +1191,7 @@ def _exact_values(
             f"Required facts are missing at {path}.",
             path=path,
         )
-    if not allow_extra and set(actual) - set(expected):
+    if set(actual) - set(expected):
         _reject(
             ManagedEvidenceAdmissionErrorCode.PROFILE_FACTS_EXTRA,
             f"Unsupported facts are present at {path}.",
@@ -1072,7 +1228,9 @@ def _profile_rejection(
 def _archive_rejection(
     error: InferdromeArchiveRejected,
 ) -> ManagedEvidenceAdmissionRejected:
-    if error.code is InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH:
+    if error.code is InferdromeArchiveErrorCode.CLEANUP_FAILED:
+        code = ManagedEvidenceAdmissionErrorCode.CLEANUP_FAILED
+    elif error.code is InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH:
         message = str(error)
         if "SHA-256" in message:
             code = ManagedEvidenceAdmissionErrorCode.ARCHIVE_SHA256_MISMATCH

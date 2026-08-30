@@ -9,11 +9,13 @@ from pathlib import Path
 
 import pytest
 
+import exitspec.inferdrome_archive as archive_module
 from exitspec.canonical import canonical_json_bytes
 from exitspec.inferdrome_archive import (
     InferdromeArchiveErrorCode,
     InferdromeArchiveLimits,
     InferdromeArchiveRejected,
+    extract_external_inferdrome_archive,
     extract_pinned_inferdrome_archive,
 )
 from exitspec.inferdrome_bundle import (
@@ -33,10 +35,7 @@ REQUIRED_DIRECTORIES = (
     "capture/single",
     "capture/single/real-gpu-5osfyjjl",
     "capture/single/real-gpu-5osfyjjl/runs",
-    (
-        "capture/single/real-gpu-5osfyjjl/runs/"
-        "run-533c9f5f783958fb6077069a6c577144"
-    ),
+    ("capture/single/real-gpu-5osfyjjl/runs/" "run-533c9f5f783958fb6077069a6c577144"),
     (
         "capture/single/real-gpu-5osfyjjl/runs/"
         "run-533c9f5f783958fb6077069a6c577144/bundle"
@@ -144,9 +143,7 @@ def test_portable_casefold_archive_collisions_fail_closed(tmp_path):
 
 
 def test_archive_resource_limits_fail_before_materialization(tmp_path):
-    payload = _archive_bytes(
-        [("capture/oversized", tarfile.REGTYPE, b"12345")]
-    )
+    payload = _archive_bytes([("capture/oversized", tarfile.REGTYPE, b"12345")])
     archive_path = tmp_path / "oversized.tar.gz"
     archive_path.write_bytes(payload)
 
@@ -183,10 +180,119 @@ def test_wrong_archive_checksum_rejects_before_extraction(tmp_path):
             limits=_limits_for(payload),
         )
 
-    assert caught.value.code is (
-        InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH
-    )
+    assert caught.value.code is (InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH)
     assert not (tmp_path / "out").exists()
+
+
+def test_post_create_materialization_rejection_cleans_destination(
+    monkeypatch, tmp_path
+):
+    payload = _archive_bytes([])
+    archive_path = tmp_path / "fixture.tar.gz"
+    archive_path.write_bytes(payload)
+
+    def reject_materialization(*args, **kwargs):
+        raise InferdromeArchiveRejected(
+            InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+            "synthetic post-create materialization rejection",
+        )
+
+    monkeypatch.setattr(
+        archive_module,
+        "_materialize_archive",
+        reject_materialization,
+    )
+    destination = tmp_path / "out"
+    with pytest.raises(InferdromeArchiveRejected) as caught:
+        _extract_test_archive(archive_path, destination)
+
+    assert caught.value.code is InferdromeArchiveErrorCode.UNSAFE_ARCHIVE
+    assert not destination.exists()
+
+
+def test_post_create_cleanup_noop_is_a_deterministic_failure(monkeypatch, tmp_path):
+    payload = _archive_bytes([])
+    archive_path = tmp_path / "fixture.tar.gz"
+    archive_path.write_bytes(payload)
+
+    def reject_materialization(*args, **kwargs):
+        raise InferdromeArchiveRejected(
+            InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+            "synthetic post-create materialization rejection",
+        )
+
+    monkeypatch.setattr(
+        archive_module,
+        "_materialize_archive",
+        reject_materialization,
+    )
+    monkeypatch.setattr(archive_module.shutil, "rmtree", lambda path: None)
+    destination = tmp_path / "out"
+    with pytest.raises(InferdromeArchiveRejected) as caught:
+        _extract_test_archive(archive_path, destination)
+
+    assert caught.value.code is InferdromeArchiveErrorCode.CLEANUP_FAILED
+    assert destination.is_dir()
+
+
+def test_post_create_cleanup_error_is_a_deterministic_failure(monkeypatch, tmp_path):
+    payload = _archive_bytes([])
+    archive_path = tmp_path / "fixture.tar.gz"
+    archive_path.write_bytes(payload)
+
+    def reject_materialization(*args, **kwargs):
+        raise InferdromeArchiveRejected(
+            InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+            "synthetic post-create materialization rejection",
+        )
+
+    monkeypatch.setattr(
+        archive_module,
+        "_materialize_archive",
+        reject_materialization,
+    )
+
+    def fail_cleanup(path):
+        raise OSError("synthetic cleanup failure")
+
+    monkeypatch.setattr(archive_module.shutil, "rmtree", fail_cleanup)
+    destination = tmp_path / "out"
+    with pytest.raises(InferdromeArchiveRejected) as caught:
+        _extract_test_archive(archive_path, destination)
+
+    assert caught.value.code is InferdromeArchiveErrorCode.CLEANUP_FAILED
+    assert destination.is_dir()
+
+
+def test_selective_post_create_rejection_cleans_destination(monkeypatch, tmp_path):
+    payload = _archive_bytes([])
+    archive_path = tmp_path / "fixture.tar.gz"
+    archive_path.write_bytes(payload)
+
+    def reject_materialization(*args, **kwargs):
+        raise InferdromeArchiveRejected(
+            InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+            "synthetic selective materialization rejection",
+        )
+
+    monkeypatch.setattr(
+        archive_module,
+        "_materialize_archive",
+        reject_materialization,
+    )
+    destination = tmp_path / "out"
+    with pytest.raises(InferdromeArchiveRejected) as caught:
+        extract_external_inferdrome_archive(
+            archive_path,
+            destination,
+            expected_member_path=REQUIRED_DIRECTORIES[-1],
+            expected_sha256="sha256:" + hashlib.sha256(payload).hexdigest(),
+            expected_size_bytes=len(payload),
+            limits=_limits_for(payload),
+        )
+
+    assert caught.value.code is InferdromeArchiveErrorCode.UNSAFE_ARCHIVE
+    assert not destination.exists()
 
 
 def test_exact_external_a10_archive_passes_managed_profile_verification(tmp_path):
@@ -273,9 +379,7 @@ def test_managed_native_oversized_exponent_is_rejected_with_numeric_limits(
 ):
     extracted = _extract_exact_archive_or_skip(tmp_path)
     bundle = extracted.bundle_path
-    native = json.loads(
-        (bundle / "native" / "benchmark-result.json").read_bytes()
-    )
+    native = json.loads((bundle / "native" / "benchmark-result.json").read_bytes())
     native["duration"] = "EXITSPEC_OVERSIZED_DECIMAL"
     native_bytes = json.dumps(native, separators=(",", ":")).encode("utf-8")
     native_bytes = native_bytes.replace(b'"EXITSPEC_OVERSIZED_DECIMAL"', b"1e9999")

@@ -30,6 +30,11 @@ adapter, model/revision, workload, population, reducer, unit, and provenance
 requirements. Unknown profile IDs and all incomplete, extra, aliased, or
 incompatible bindings fail closed with a stable reason code.
 
+The frozen external metadata documents use exact nested object shapes as well
+as exact top-level shapes. Legitimate fields are enumerated at each consumed
+boundary; unrecognized fields, duplicate JSON keys, boolean/integer aliases,
+oversized integers, and excessive nesting fail closed.
+
 The legacy A10 profile is admitted only through its established legacy
 validator; the managed-profile registry API rejects it rather than creating a
 second validation path. The A100 specialization reuses the mature invocation
@@ -58,6 +63,11 @@ safe metadata, and the external profile document. The gate:
 5. independently recalculates nearest-rank p95 from
    `records/requests.jsonl`, requiring 96 successful measured records, zero
    errors, and `79,279,716 ns`.
+
+If any post-extraction check rejects the archive or bundle, the extractor
+removes its owned destination deterministically. A cleanup error or leftover
+destination is itself reported as `CLEANUP_FAILED` through the admission
+boundary.
 
 This is an external-only admission gate: metadata cannot substitute for the
 sealed archive or bundle, and a synthetic fixture is structure-only and must
