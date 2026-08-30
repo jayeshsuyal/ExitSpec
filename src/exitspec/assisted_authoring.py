@@ -2135,6 +2135,18 @@ class ProcessLocalAssistedAuthoringService:
                                 "The assisted-authoring reservation is unavailable.",
                                 code="service_unavailable",
                             )
+                        # Review preparation is an untrusted integration
+                        # boundary too: it may observe or mutate executor
+                        # metadata. Revalidate the locally pinned provenance
+                        # after every owner is prepared and before any commit
+                        # hook or authoring-map pointer swap.
+                        _safe_provider_receipt(
+                            receipt,
+                            executor=self._executor,
+                            requested_model=self._model,
+                            expected_provider=self._provider,
+                            expected_endpoint=self._endpoint,
+                        )
                         # Build every authoring-store copy from the current
                         # state while holding the publication condition. Two
                         # provider completions may otherwise copy the same

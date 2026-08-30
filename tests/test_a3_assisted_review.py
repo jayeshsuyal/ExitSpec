@@ -1701,6 +1701,135 @@ def test_a3_partial_transaction_guard_set_fails_before_provider_execution():
     _assert_a3_attempt_unpublished(service)
 
 
+@pytest.mark.parametrize(
+    "metadata_field, mutated_value",
+    (
+        ("provider_name", "mutated-provider"),
+        ("model", "mutated-model"),
+        ("endpoint", "local://mutated-after-final-check"),
+    ),
+)
+def test_a3_provider_metadata_is_rechecked_after_review_prepare(
+    metadata_field,
+    mutated_value,
+):
+    poc_id = "poc_a3_prepare_metadata_" + metadata_field
+    executor = PayloadExecutor(_valid_payload())
+    drafts, intake, service = _runtime(poc_id, executor=executor)
+    source_receipt_id = _attach_document(intake, poc_id)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    before_review = review.list_proposals(poc_id)
+    mutate_once = {"value": True}
+
+    @contextmanager
+    def mutating_review_guard(poc_id, source_receipt_id):
+        with review.authoring_commit_guard(poc_id, source_receipt_id) as guard:
+            class Token:
+                def prepare(self, proposal_ids):
+                    guard.prepare(proposal_ids)
+                    if mutate_once["value"]:
+                        setattr(executor, metadata_field, mutated_value)
+                        mutate_once["value"] = False
+
+                def commit(self):
+                    guard.commit()
+
+            yield Token()
+
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(mutating_review_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="prepare-metadata-recheck-" + metadata_field,
+        )
+    assert caught.value.code == "invalid_output"
+    _assert_a3_attempt_unpublished(service)
+    assert review.list_proposals(poc_id) == before_review
+
+    expected_metadata = {
+        "provider_name": "test-provider",
+        "model": ASSISTED_AUTHORING_MODEL,
+        "endpoint": "local://test-provider/a3",
+    }
+    setattr(executor, metadata_field, expected_metadata[metadata_field])
+    retried = service.create_assisted_draft(
+        poc_id=poc_id,
+        source_receipt_id=source_receipt_id,
+        idempotency_key="prepare-metadata-recheck-" + metadata_field,
+    )
+    assert retried.receipt.status == "NEEDS_REVIEW"
+    assert len(service.list_receipts(poc_id)) == 1
+
+
+def test_a3_provider_metadata_accessor_exception_after_review_prepare_fails_closed():
+    class EndpointExceptionExecutor(PayloadExecutor):
+        def __init__(self, payload):
+            super().__init__(payload)
+            self.raise_endpoint = False
+            self._endpoint_value = "local://test-provider/a3"
+
+        @property
+        def endpoint(self):
+            if self.raise_endpoint:
+                raise RuntimeError("endpoint accessor failed")
+            return self._endpoint_value
+
+    poc_id = "poc_a3_prepare_metadata_exception"
+    executor = EndpointExceptionExecutor(_valid_payload())
+    drafts, intake, service = _runtime(poc_id, executor=executor)
+    source_receipt_id = _attach_document(intake, poc_id)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    mutate_once = {"value": True}
+
+    @contextmanager
+    def raising_review_guard(poc_id, source_receipt_id):
+        with review.authoring_commit_guard(poc_id, source_receipt_id) as guard:
+            class Token:
+                def prepare(self, proposal_ids):
+                    guard.prepare(proposal_ids)
+                    if mutate_once["value"]:
+                        executor.raise_endpoint = True
+                        mutate_once["value"] = False
+
+                def commit(self):
+                    guard.commit()
+
+            yield Token()
+
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(raising_review_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="prepare-metadata-exception",
+        )
+    assert caught.value.code == "service_unavailable"
+    _assert_a3_attempt_unpublished(service)
+    assert review.list_proposals(poc_id)[0].review_state is ProposalReviewState.NEEDS_REVIEW
+
+    executor.raise_endpoint = False
+    retried = service.create_assisted_draft(
+        poc_id=poc_id,
+        source_receipt_id=source_receipt_id,
+        idempotency_key="prepare-metadata-exception",
+    )
+    assert retried.receipt.status == "NEEDS_REVIEW"
+    assert len(service.list_receipts(poc_id)) == 1
+
+
 def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
     drafts, intake, service = _runtime("poc_a3_stale")
     source_receipt_id = _attach_document(intake, "poc_a3_stale")
