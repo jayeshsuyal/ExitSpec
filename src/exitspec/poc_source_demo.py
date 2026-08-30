@@ -18,6 +18,7 @@ import tempfile
 import threading
 import webbrowser
 from collections.abc import Mapping
+from html import escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -89,6 +90,7 @@ from .poc_sources import (
     POCSourceStaleRevision,
     SourceKind,
 )
+from .review_links import ReviewInvitationError
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
@@ -498,7 +500,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
             return
         if _CUSTOMER_REVIEW_PAGE_RE.fullmatch(parsed.path):
-            self._file("customer_review_dynamic.html")
+            self._customer_review_page(parsed.path.rsplit("/", 1)[-1])
             return
         asset = parsed.path.removeprefix("/")
         if asset in _ASSET_NAMES:
@@ -1020,6 +1022,40 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _customer_review_page(self, token: str) -> None:
+        """Serve proof from the authoritative review before client hydration."""
+
+        target = (self.server.static_root / "customer_review_dynamic.html").resolve()
+        if not target.is_file():
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
+            return
+        template = target.read_text(encoding="utf-8")
+        try:
+            review = self.server.agreement_service.customer_review_payload(token)["review"]
+        except ReviewInvitationError:
+            proof_html = ""
+        else:
+            criteria = review["agreement"].get("criteria", [])
+            proof_html = "".join(
+                f"<p>{escape(_customer_review_proof_text(criterion))}</p>"
+                for criterion in criteria
+            )
+        marker = '<div id="review-proof"></div>'
+        if template.count(marker) != 1:
+            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Page is unavailable."})
+            return
+        data = template.replace(
+            marker,
+            f'<div id="review-proof">{proof_html}</div>',
+            1,
+        ).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
@@ -1031,6 +1067,33 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         return
+
+
+def _customer_review_proof_text(criterion: Mapping[str, Any]) -> str:
+    """Project one server-owned criterion for initial customer review HTML."""
+
+    binding = (criterion.get("evidence_binding") or {}).get("policy")
+    disposition = criterion.get("planning_disposition")
+    if disposition == "EXECUTABLE" and binding:
+        return (
+            "Run the server-owned exact-tool selection policy over "
+            f"{binding['minimum_samples']} approved support-tool cases; require "
+            f"{criterion['rule']} {criterion['operator']} {criterion['threshold']} "
+            f"{criterion['unit']} using {binding['confidence_method']}."
+        )
+    if disposition == "EVIDENCE_IMPORT" and binding:
+        return (
+            f"Import one managed TTFT evidence result for {binding['native_metric']}; "
+            f"require p95 {criterion['operator']} {criterion['threshold']} {criterion['unit']} "
+            f"over {binding['attempts']} attempts, with {binding['minimum_successful_samples']} "
+            "required successful TTFT samples, at configured concurrency "
+            f"{binding['configured_concurrency']}, reduced with {binding['reducer_id']}."
+        )
+    reason = criterion.get("planning_reason") or "the A4 limitation is preserved."
+    return (
+        "No executable proof is scheduled in A5. This "
+        f"{str(disposition).lower()} item remains customer-bound: {reason}"
+    )
 
 
 def _generic_evidence_page_poc_id(request_path: str) -> str | None:

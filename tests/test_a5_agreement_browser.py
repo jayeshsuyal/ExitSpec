@@ -1,13 +1,12 @@
 """Execution-enabled browser proof for the source-neutral A5 journey."""
 
-from contextlib import contextmanager
 import re
 import threading
+from contextlib import contextmanager
 
 import pytest
 
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
-
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
@@ -248,8 +247,10 @@ def test_managed_ttft_proof_projection_shows_attempt_and_success_requirements():
             assert "100 required successful TTFT samples" in page.locator("#agreement-proof").inner_text()
             page.locator("#open-customer-review").click()
             page.wait_for_url(re.compile(r"/review/[A-Za-z0-9_-]+$"))
-            assert "100 attempts" in page.locator("#review-proof").inner_text()
-            assert "100 required successful TTFT samples" in page.locator("#review-proof").inner_text()
+            immediate_review_proof = page.locator("#review-proof").inner_text()
+            assert immediate_review_proof
+            assert "100 attempts" in immediate_review_proof
+            assert "100 required successful TTFT samples" in immediate_review_proof
             assert not any(re.search(r"/(run|import|evidence|verdict)(?:/|$)", url) for url in network_urls)
         finally:
             browser.close()

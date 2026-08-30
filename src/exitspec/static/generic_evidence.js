@@ -264,19 +264,27 @@
     const stop = $("#stop-evidence");
     const handoff = $("#handoff-evidence");
     const handoffFields = $("#handoff-fields");
+    const acknowledgement = $("#evidence-acknowledgement");
+    const acknowledgementInput = $("#evidence-acknowledged");
     const owner = $("#decision-owner").value.trim();
     const rationale = $("#decision-rationale").value.trim();
+    const hasCurrentPack = Boolean(pack && current?.is_current);
+    const deciding = hasCurrentPack && !closed;
     stop.hidden = !canStop || closed;
-    handoff.hidden = !(pack && current?.is_current && !closed);
+    handoff.hidden = !deciding;
     handoffFields.hidden = closed || (!canStop && handoff.hidden);
-    start.disabled = busy || !trustedSnapshot || closed || !$("#evidence-acknowledged").checked || Boolean(current && ["RESERVED", "RUNNING"].includes(current.status));
+    acknowledgement.hidden = hasCurrentPack;
+    acknowledgementInput.disabled = hasCurrentPack;
+    start.hidden = hasCurrentPack;
+    start.disabled = busy || !trustedSnapshot || closed || deciding || !acknowledgementInput.checked || Boolean(current && ["RESERVED", "RUNNING"].includes(current.status));
     stop.disabled = busy || !owner;
     handoff.disabled = busy || !owner || !rationale;
-    const deciding = !handoff.hidden;
-    $("#evidence-task-kicker").textContent = deciding ? "Current task · Decide" : "Current task · Prove";
-    $("#evidence-task-heading").textContent = deciding
-      ? "Review the current pack and record the human decision"
-      : "Run the approved evidence method";
+    $("#evidence-task-kicker").textContent = closed && hasCurrentPack
+      ? "Decision recorded"
+      : deciding ? "Current task · Decide" : "Current task · Prove";
+    $("#evidence-task-heading").textContent = closed && hasCurrentPack
+      ? "Human decision recorded"
+      : deciding ? "Review the current pack and record the human decision" : "Run the approved evidence method";
 
     const history = $("#evidence-history");
     history.replaceChildren();
@@ -320,7 +328,8 @@
   }
 
   async function start() {
-    if (busy || !trustedSnapshot || snapshot?.closure) return;
+    const current = snapshot?.current;
+    if (busy || !trustedSnapshot || snapshot?.closure || (current?.evidence_pack_url && current.is_current)) return;
     setError("");
     busy = true;
     render();

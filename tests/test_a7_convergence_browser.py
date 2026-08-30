@@ -232,6 +232,12 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             assert page.locator("#evidence-result-verdict").inner_text() == "PASS"
             assert page.locator("#evidence-limitation").inner_text()
             assert page.locator("#evidence-next-action").inner_text()
+            assert page.locator("#evidence-acknowledgement").is_hidden()
+            assert page.locator("#evidence-acknowledged").is_disabled()
+            assert page.locator("#start-evidence").is_hidden()
+            assert page.locator("#start-evidence").is_disabled()
+            assert page.locator(".primary-action:visible").count() == 1
+            assert page.locator(".primary-action:visible").get_attribute("id") == "handoff-evidence"
             assert evidence_requests and set(evidence_requests[0]) == {"acknowledgement", "idempotency_key"}
             assert len(evidence_requests) == 1
             snapshot = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
@@ -239,6 +245,11 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             assert len(snapshot["history"]) == 1
             assert snapshot["shipping_authorized"] is False
             assert "no result authorizes deployment" in snapshot["authorization"]
+            page.locator("#start-evidence").dispatch_event("click")
+            after_retry = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
+            assert after_retry["current"] == snapshot["current"]
+            assert after_retry["history"] == snapshot["history"]
+            assert len(evidence_requests) == 1
 
             pack_url = page.locator("#evidence-pack-link").get_attribute("href")
             assert re.fullmatch(r"/artifacts/eatm_[a-f0-9]{32}/decision-packet\.html", pack_url or "")
@@ -265,6 +276,13 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             assert page.locator("#handoff-evidence").is_enabled()
             page.locator("#handoff-evidence").click()
             page.wait_for_function("document.querySelector('#handoff-evidence')?.hidden === true")
+            assert page.locator("#evidence-acknowledgement").is_hidden()
+            assert page.locator("#evidence-acknowledged").is_disabled()
+            assert page.locator("#start-evidence").is_hidden()
+            assert page.locator("#start-evidence").is_disabled()
+            assert page.locator("#evidence-task-kicker").inner_text() == "Decision recorded"
+            assert page.locator("#evidence-task-heading").inner_text() == "Human decision recorded"
+            assert page.locator(".primary-action:visible").count() == 0
             closed = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
             assert closed["closure"]["decision"] == "HANDOFF_COMPLETED"
             assert closed["closure"]["decided_by"] == "a7.named.human"
