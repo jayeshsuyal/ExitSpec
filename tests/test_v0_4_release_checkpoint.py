@@ -47,8 +47,9 @@ def test_v0_4_gate_and_ci_require_exact_b13_coverage():
     assert "v0_3_release_gate.sh" in gate
     assert "tests/test_b13_routing_evidence_pack_browser.py" in gate
     assert "tests/test_routing_evidence_pack.py" in gate
-    assert "expected=4" in gate
+    assert "tests/test_routing_evidence_pack_artifact_reader.py" in gate
     assert "expected=16" in gate
+    assert "expected=4" in gate
     assert "skipped == 0" in gate
     assert "failed == 0" in gate
     assert "v0_4_release_gate.sh" in workflow

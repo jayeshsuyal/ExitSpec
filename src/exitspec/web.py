@@ -202,6 +202,7 @@ from .routing_evidence_pack import (
     ROUTING_EVIDENCE_PACK_POC_ID,
     load_routing_evidence_demo_context,
     publish_routing_evidence_pack,
+    read_routing_evidence_pack_artifact,
     verify_routing_evidence_pack,
 )
 from .review_links import (
@@ -6430,9 +6431,11 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         routing_demo = self.server.routing_evidence_pack
         if routing_demo is not None and logical.parts and logical.parts[0] == routing_demo.pack_id:
             try:
-                verify_routing_evidence_pack(
+                artifact_name = "/".join(logical.parts[1:])
+                data = read_routing_evidence_pack_artifact(
                     self.server.session.output_root.resolve(),
                     routing_demo.pack_id,
+                    artifact_name,
                 )
             except Exception:
                 self._send_json(
@@ -6440,11 +6443,16 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
                     {"error": "Artifact not found."},
                 )
                 return
+            self._send_bytes(target, data)
+            return
         self._send_file(target)
 
     def _send_file(self, path: Path) -> None:
-        content_type, _ = mimetypes.guess_type(str(path))
         data = path.read_bytes()
+        self._send_bytes(path, data)
+
+    def _send_bytes(self, path: Path, data: bytes) -> None:
+        content_type, _ = mimetypes.guess_type(str(path))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type or "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))

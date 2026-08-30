@@ -15,8 +15,10 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal
@@ -268,6 +270,139 @@ def _validate_pack_id(pack_id: object) -> str:
     if type(pack_id) is not str or _PACK_ID.fullmatch(pack_id) is None:
         _fail("Routing Evidence Pack identity is invalid.")
     return pack_id
+
+
+def _stat_signature(metadata: os.stat_result) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _bounded_read_fd(descriptor: int, limit: int) -> bytes:
+    before = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or before.st_size > limit
+    ):
+        _fail("Routing Evidence Pack artifact is unsafe or oversized.")
+    try:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            chunk = os.read(descriptor, min(64 * 1024, limit - size + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > limit:
+                _fail("Routing Evidence Pack artifact is oversized.")
+        after = os.fstat(descriptor)
+    except OSError as error:
+        raise RoutingEvidencePackError(
+            "Routing Evidence Pack artifact cannot be read safely."
+        ) from error
+    if (
+        _stat_signature(before) != _stat_signature(after)
+        or after.st_size != size
+    ):
+        _fail("Routing Evidence Pack artifact changed during read.")
+    return b"".join(chunks)
+
+
+@contextmanager
+def _open_pack_directory(output_root: Path, pack_id: str):
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        _fail("Routing Evidence Pack no-follow descriptor boundary is unavailable.")
+    root = _validated_root(output_root, create=False)
+    directory_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY
+    root_descriptor: int | None = None
+    pack_descriptor: int | None = None
+    try:
+        root_descriptor = os.open(root, directory_flags)
+        pack_descriptor = os.open(pack_id, directory_flags, dir_fd=root_descriptor)
+        yield root_descriptor, pack_descriptor
+    except RoutingEvidencePackError:
+        raise
+    except (OSError, ValueError) as error:
+        raise RoutingEvidencePackError(
+            "Routing Evidence Pack directory cannot be opened safely."
+        ) from error
+    finally:
+        if pack_descriptor is not None:
+            try:
+                os.close(pack_descriptor)
+            except OSError:
+                pass
+        if root_descriptor is not None:
+            try:
+                os.close(root_descriptor)
+            except OSError:
+                pass
+
+
+def _pack_entry_limit(name: str) -> int:
+    return (
+        0
+        if name == ROUTING_EVIDENCE_PACK_COMPLETION_MARKER
+        else _MAX_MANIFEST_BYTES
+        if name == ROUTING_EVIDENCE_PACK_MANIFEST
+        else _MAX_HTML_ARTIFACT_BYTES
+        if name.endswith(".html")
+        else _MAX_SUMMARY_BYTES
+        if name == "summary.json"
+        else _MAX_JSON_ARTIFACT_BYTES
+    )
+
+
+def _read_pack_entry(pack_descriptor: int, name: str) -> bytes:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW,
+            dir_fd=pack_descriptor,
+        )
+        return _bounded_read_fd(descriptor, _pack_entry_limit(name))
+    except RoutingEvidencePackError:
+        raise
+    except (OSError, ValueError) as error:
+        raise RoutingEvidencePackError(
+            "Routing Evidence Pack artifact cannot be opened safely."
+        ) from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _assert_pack_path_identity(
+    root_descriptor: int,
+    pack_id: str,
+    pack_descriptor: int,
+) -> None:
+    try:
+        named = os.stat(
+            pack_id,
+            dir_fd=root_descriptor,
+            follow_symlinks=False,
+        )
+        opened = os.fstat(pack_descriptor)
+    except OSError as error:
+        raise RoutingEvidencePackError(
+            "Routing Evidence Pack directory identity cannot be verified."
+        ) from error
+    if _stat_signature(named) != _stat_signature(opened):
+        _fail("Routing Evidence Pack directory was replaced during verification.")
 
 
 def _safe_child(root: Path, relative: object) -> Path | None:
@@ -678,85 +813,130 @@ def publish_routing_evidence_pack(
     return _publication(pack_id, manifest_bytes, artifact_bytes, validated_receipt)
 
 
+def _verify_pack_contents(
+    pack_id: str,
+    manifest_bytes: bytes,
+    artifact_bytes: Mapping[str, bytes],
+    completion_marker: bytes,
+) -> RoutingEvidencePackPublication:
+    manifest = _strict_json_loads(manifest_bytes, label="manifest")
+    if (
+        type(manifest) is not dict
+        or set(manifest) != {"schema_version", "protocol_id", "pack_id", "artifacts"}
+        or manifest["schema_version"] != ROUTING_EVIDENCE_PACK_SCHEMA_VERSION
+        or manifest["protocol_id"] != ROUTING_EVIDENCE_PACK_PROTOCOL_ID
+        or manifest["pack_id"] != pack_id
+        or type(manifest["artifacts"]) is not dict
+        or set(manifest["artifacts"]) != set(ROUTING_EVIDENCE_PACK_ARTIFACTS)
+    ):
+        _fail("Routing Evidence Pack manifest is invalid.")
+    if set(artifact_bytes) != set(ROUTING_EVIDENCE_PACK_ARTIFACTS):
+        _fail("Routing Evidence Pack artifact set is invalid.")
+    for name in ROUTING_EVIDENCE_PACK_ARTIFACTS:
+        expected = manifest["artifacts"].get(name)
+        if type(expected) is not str or _ARTIFACT_HASH.fullmatch(expected) is None:
+            _fail("Routing Evidence Pack manifest artifact entry is invalid.")
+        content = artifact_bytes[name]
+        if _sha256(content) != expected:
+            _fail("Routing Evidence Pack artifact hash verification failed.")
+        if name.endswith(".json"):
+            _strict_json_loads(content, label=name)
+    if completion_marker != b"":
+        _fail("Routing Evidence Pack completion marker is invalid.")
+    contract = parse_routing_campaign_contract(artifact_bytes["contract.json"])
+    confirmation = parse_routing_campaign_confirmation(artifact_bytes["confirmation.json"])
+    evidence = parse_routing_campaign_evidence(artifact_bytes["evidence.json"])
+    result = RoutingCampaignReductionResultV1.model_validate_json(
+        artifact_bytes["result.json"], strict=True
+    )
+    receipt = parse_routing_qualification_receipt(artifact_bytes["receipt.json"])
+    _context_artifacts(contract, confirmation, evidence, result, receipt)
+    expected_result_bytes = serialize_routing_campaign_reduction_result(
+        contract, confirmation, evidence, result
+    )
+    if expected_result_bytes != artifact_bytes["result.json"]:
+        _fail("Routing Evidence Pack result is not canonical or context-bound.")
+    summary = RoutingEvidencePackSummaryV1.model_validate_json(
+        artifact_bytes["summary.json"], strict=True
+    )
+    expected_summary = _summary(contract, result, receipt)
+    if summary != expected_summary:
+        _fail("Routing Evidence Pack summary is not context-bound.")
+    expected_html = _render_routing_decision_packet(pack_id, summary, receipt)
+    if expected_html != artifact_bytes["decision-packet.html"]:
+        _fail("Routing Evidence Pack decision packet is not deterministic.")
+    return _publication(pack_id, manifest_bytes, artifact_bytes, receipt)
+
+
+def _read_verified_pack(
+    output_root: Path,
+    pack_id: str,
+) -> tuple[RoutingEvidencePackPublication, dict[str, bytes]]:
+    """Read and verify one pack entirely through one anchored descriptor chain."""
+
+    pack_id = _validate_pack_id(pack_id)
+    try:
+        with _open_pack_directory(output_root, pack_id) as (
+            root_descriptor,
+            pack_descriptor,
+        ):
+            _assert_pack_path_identity(root_descriptor, pack_id, pack_descriptor)
+            entries = set(os.listdir(pack_descriptor))
+            if entries != ROUTING_EVIDENCE_PACK_ENTRIES:
+                _fail("Routing Evidence Pack directory entries are invalid.")
+            manifest_bytes = _read_pack_entry(
+                pack_descriptor, ROUTING_EVIDENCE_PACK_MANIFEST
+            )
+            artifact_bytes = {
+                name: _read_pack_entry(pack_descriptor, name)
+                for name in ROUTING_EVIDENCE_PACK_ARTIFACTS
+            }
+            completion_marker = _read_pack_entry(
+                pack_descriptor, ROUTING_EVIDENCE_PACK_COMPLETION_MARKER
+            )
+            _assert_pack_path_identity(root_descriptor, pack_id, pack_descriptor)
+            if set(os.listdir(pack_descriptor)) != entries:
+                _fail("Routing Evidence Pack directory changed during verification.")
+            publication = _verify_pack_contents(
+                pack_id, manifest_bytes, artifact_bytes, completion_marker
+            )
+            return publication, {
+                **artifact_bytes,
+                ROUTING_EVIDENCE_PACK_MANIFEST: manifest_bytes,
+                ROUTING_EVIDENCE_PACK_COMPLETION_MARKER: completion_marker,
+            }
+    except RoutingEvidencePackError:
+        raise
+    except Exception as error:
+        raise RoutingEvidencePackError(
+            "Routing Evidence Pack verification failed safely."
+        ) from error
+
+
 def verify_routing_evidence_pack(
     output_root: Path,
     pack_id: str,
 ) -> RoutingEvidencePackPublication:
     """Verify bytes, exact layout, and the full B11/B12 context before linking."""
 
-    root = _validated_root(output_root, create=False)
-    pack_id = _validate_pack_id(pack_id)
-    pack_root = root / pack_id
-    try:
-        if pack_root.is_symlink() or not pack_root.is_dir():
-            _fail("Routing Evidence Pack directory is unavailable.")
-        entries = tuple(pack_root.iterdir())
-        if {entry.name for entry in entries} != ROUTING_EVIDENCE_PACK_ENTRIES:
-            _fail("Routing Evidence Pack directory entries are invalid.")
-        if any(entry.is_symlink() or not entry.is_file() for entry in entries):
-            _fail("Routing Evidence Pack contains an unsafe entry.")
-        manifest_path = _safe_child(pack_root, ROUTING_EVIDENCE_PACK_MANIFEST)
-        if manifest_path is None:
-            _fail("Routing Evidence Pack manifest path is unsafe.")
-        manifest_bytes = _bounded_read(manifest_path, _MAX_MANIFEST_BYTES)
-        manifest = _strict_json_loads(manifest_bytes, label="manifest")
-        if (
-            type(manifest) is not dict
-            or set(manifest) != {"schema_version", "protocol_id", "pack_id", "artifacts"}
-            or manifest["schema_version"] != ROUTING_EVIDENCE_PACK_SCHEMA_VERSION
-            or manifest["protocol_id"] != ROUTING_EVIDENCE_PACK_PROTOCOL_ID
-            or manifest["pack_id"] != pack_id
-            or type(manifest["artifacts"]) is not dict
-            or set(manifest["artifacts"]) != set(ROUTING_EVIDENCE_PACK_ARTIFACTS)
-        ):
-            _fail("Routing Evidence Pack manifest is invalid.")
-        artifact_bytes: dict[str, bytes] = {}
-        for name in ROUTING_EVIDENCE_PACK_ARTIFACTS:
-            expected = manifest["artifacts"].get(name)
-            target = _safe_child(pack_root, name)
-            limit = _MAX_HTML_ARTIFACT_BYTES if name.endswith(".html") else (
-                _MAX_SUMMARY_BYTES if name == "summary.json" else _MAX_JSON_ARTIFACT_BYTES
-            )
-            if target is None or type(expected) is not str or _ARTIFACT_HASH.fullmatch(expected) is None:
-                _fail("Routing Evidence Pack manifest artifact entry is invalid.")
-            content = _bounded_read(target, limit)
-            if _sha256(content) != expected:
-                _fail("Routing Evidence Pack artifact hash verification failed.")
-            artifact_bytes[name] = content
-        for name, content in artifact_bytes.items():
-            if name.endswith(".json"):
-                _strict_json_loads(content, label=name)
-        if _bounded_read(pack_root / ROUTING_EVIDENCE_PACK_COMPLETION_MARKER, 0) != b"":
-            _fail("Routing Evidence Pack completion marker is invalid.")
-        contract = parse_routing_campaign_contract(artifact_bytes["contract.json"])
-        confirmation = parse_routing_campaign_confirmation(artifact_bytes["confirmation.json"])
-        evidence = parse_routing_campaign_evidence(artifact_bytes["evidence.json"])
-        _strict_json_loads(artifact_bytes["result.json"], label="result")
-        result = RoutingCampaignReductionResultV1.model_validate_json(
-            artifact_bytes["result.json"], strict=True
-        )
-        receipt = parse_routing_qualification_receipt(artifact_bytes["receipt.json"])
-        _context_artifacts(contract, confirmation, evidence, result, receipt)
-        expected_result_bytes = serialize_routing_campaign_reduction_result(
-            contract, confirmation, evidence, result
-        )
-        if expected_result_bytes != artifact_bytes["result.json"]:
-            _fail("Routing Evidence Pack result is not canonical or context-bound.")
-        _strict_json_loads(artifact_bytes["summary.json"], label="summary")
-        summary = RoutingEvidencePackSummaryV1.model_validate_json(
-            artifact_bytes["summary.json"], strict=True
-        )
-        expected_summary = _summary(contract, result, receipt)
-        if summary != expected_summary:
-            _fail("Routing Evidence Pack summary is not context-bound.")
-        expected_html = _render_routing_decision_packet(pack_id, summary, receipt)
-        if expected_html != artifact_bytes["decision-packet.html"]:
-            _fail("Routing Evidence Pack decision packet is not deterministic.")
-    except RoutingEvidencePackError:
-        raise
-    except Exception as error:
-        raise RoutingEvidencePackError("Routing Evidence Pack verification failed safely.") from error
-    return _publication(pack_id, manifest_bytes, artifact_bytes, receipt)
+    publication, _ = _read_verified_pack(output_root, pack_id)
+    return publication
+
+
+def read_routing_evidence_pack_artifact(
+    output_root: Path,
+    pack_id: str,
+    artifact_name: str,
+) -> bytes:
+    """Return one artifact only after full anchored pack verification."""
+
+    if (
+        type(artifact_name) is not str
+        or artifact_name not in ROUTING_EVIDENCE_PACK_ENTRIES
+    ):
+        _fail("Routing Evidence Pack artifact name is invalid.")
+    _, artifacts = _read_verified_pack(output_root, pack_id)
+    return artifacts[artifact_name]
 
 
 def load_routing_evidence_demo_context(
@@ -820,5 +1000,6 @@ __all__ = [
     "RoutingEvidencePackSummaryV1",
     "load_routing_evidence_demo_context",
     "publish_routing_evidence_pack",
+    "read_routing_evidence_pack_artifact",
     "verify_routing_evidence_pack",
 ]

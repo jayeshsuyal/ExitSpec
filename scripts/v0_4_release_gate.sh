@@ -6,7 +6,8 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 python_command="${EXITSPEC_PYTHON:-python3}"
 browser_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-v0-4-browser.XXXXXX")"
 adversarial_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-v0-4-adversarial.XXXXXX")"
-trap 'rm -f -- "${browser_report}" "${adversarial_report}"' EXIT
+artifact_reader_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-v0-4-artifact-reader.XXXXXX")"
+trap 'rm -f -- "${browser_report}" "${adversarial_report}" "${artifact_reader_report}"' EXIT
 
 # The v0.3 wrapper owns the complete historical four-case Chromium and
 # engineering gate. Keep it intact, then add the exact B13 collections below.
@@ -50,5 +51,15 @@ printf 'ExitSpec v0.4 mandatory B13 Chromium and adversarial gate.\n'
 "${python_command}" -c \
   'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=16; print(f"B13 adversarial cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
   "${adversarial_report}"
+
+"${python_command}" -m pytest \
+  --strict-markers \
+  --runxfail \
+  --junitxml="${artifact_reader_report}" \
+  tests/test_routing_evidence_pack_artifact_reader.py
+
+"${python_command}" -c \
+  'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=4; print(f"B13 direct artifact-reader cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
+  "${artifact_reader_report}"
 
 printf 'ExitSpec v0.4 B13 gate passed.\n'
