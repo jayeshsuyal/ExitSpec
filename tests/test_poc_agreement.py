@@ -125,6 +125,18 @@ def _ttft_plan_item(proposal_id: str, *, threshold: float = 250.0) -> PlannerIte
     )
 
 
+def _nested_keys(value: object) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        keys.update(key for key in value if isinstance(key, str))
+        for child in value.values():
+            keys.update(_nested_keys(child))
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            keys.update(_nested_keys(child))
+    return keys
+
+
 def _fixture(poc_id: str = "poc_a5_test"):
     proposal = _proposal(poc_id, "prop_a5_test_001")
     state = {"retained": (proposal,)}
@@ -283,6 +295,83 @@ def test_idempotency_is_poc_and_operation_scoped_and_confirmation_keeps_only_dig
     assert confirmations[0].idempotency_key != "same-key"
     assert len(confirmations[0].idempotency_key) == 64
     assert confirmations[0].confirmation_id != confirmations[1].confirmation_id
+
+
+def test_snapshot_payload_is_coherent_during_concurrent_successor_revision():
+    service, planner, _, proposal = _fixture()
+    service.prepare(
+        "poc_a5_test",
+        reviewer="a5",
+        rationale="Assemble the first agreement.",
+        idempotency_key="coherent-prepare",
+    )
+    service.record_customer_review_decision(
+        _token(service),
+        decision="REQUEST_CHANGES",
+        agreement_acknowledged=True,
+        rationale="Change the threshold.",
+        idempotency_key="coherent-request-changes",
+    )
+    planner.plan(
+        "poc_a5_test",
+        (_plan_item(proposal.proposal_id, threshold=0.9),),
+        idempotency_key="coherent-successor-plan",
+    )
+
+    stable_inputs_entered = threading.Event()
+    release_stable_inputs = threading.Event()
+    original_stable_inputs = service._stable_current_inputs
+
+    def blocked_stable_inputs(poc_id: str):
+        stable_inputs_entered.set()
+        assert release_stable_inputs.wait(timeout=2)
+        return original_stable_inputs(poc_id)
+
+    service._stable_current_inputs = blocked_stable_inputs
+    payloads: list[dict[str, object]] = []
+    errors: list[Exception] = []
+
+    def read_payload() -> None:
+        try:
+            payloads.append(service.snapshot_payload("poc_a5_test"))
+        except Exception as error:  # pragma: no cover - assertion reports races
+            errors.append(error)
+
+    def revise() -> None:
+        try:
+            service.start_revision(
+                "poc_a5_test",
+                reviewer="a5.successor",
+                rationale="Review the changed successor.",
+                idempotency_key="coherent-successor",
+            )
+        except Exception as error:  # pragma: no cover - assertion reports races
+            errors.append(error)
+
+    reader = threading.Thread(target=read_payload)
+    reader.start()
+    assert stable_inputs_entered.wait(timeout=2)
+    successor = threading.Thread(target=revise)
+    successor.start()
+    release_stable_inputs.set()
+    reader.join(timeout=2)
+    successor.join(timeout=2)
+    assert not reader.is_alive()
+    assert not successor.is_alive()
+    assert errors == []
+    assert len(payloads) == 1
+
+    payload = payloads[0]
+    agreement = payload["agreement"]
+    review = payload["customer_review"]
+    assert isinstance(agreement, dict)
+    assert isinstance(review, dict)
+    assert payload["draft"]["contract_id"] == agreement["id"] == review["contract_id"]
+    assert payload["draft"]["contract_version"] == agreement["version"] == review["contract_version"]
+    assert payload["draft"]["contract_version"] == "1"
+    current = service.snapshot("poc_a5_test").preparation
+    assert current is not None
+    assert current.contract.version == "2"
 
 
 def test_stale_inputs_keep_parent_snapshot_readable_but_block_review_and_freeze():
@@ -454,16 +543,23 @@ def test_a5_managed_ttft_binding_is_complete_and_run_independent():
     )
     assert binding.policy_sha256 == capability_evidence_policy_digest(policy)
     serialized = policy.model_dump(mode="json")
-    assert not any(
-        forbidden in serialized
-        for forbidden in (
-            "request_plan",
-            "bundle",
-            "run_id",
-            "observed",
-            "receipt",
-        )
-    )
+    observed_keys = _nested_keys(serialized)
+    forbidden_runtime_keys = {
+        "request_plan_digest",
+        "run_id",
+        "bundle_id",
+        "bundle_digest",
+        "measurements",
+        "receipts",
+        "producer_verdict",
+        "producer_link",
+    }
+    assert observed_keys.isdisjoint(forbidden_runtime_keys)
+    assert {
+        "bundle_verifier_id",
+        "include_request_plan",
+        "expected_execution_fingerprint",
+    } <= observed_keys
 
 
 def test_a5_rejects_forged_or_incomplete_evidence_bindings_before_publication():

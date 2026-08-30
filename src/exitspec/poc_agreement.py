@@ -1370,16 +1370,16 @@ class ProcessLocalAgreementLifecycleService:
 
     def snapshot(self, poc_id: str, *, allow_empty: bool = True) -> AgreementSnapshot:
         poc_id = _validate_poc_id(poc_id)
-        with self._lock:
-            preparation = self._preparations.get(poc_id)
-            if preparation is None:
-                if not allow_empty:
-                    raise AgreementNotFound("Agreement preparation was not found.")
-                return AgreementSnapshot(
-                    None, None, False, None, None, self._revisions.get(poc_id),
-                    len(self._history.get(poc_id, ())), False,
-                )
         with self._mutation_guard(poc_id, "AGREEMENT_SNAPSHOT"):
+            with self._lock:
+                preparation = self._preparations.get(poc_id)
+                if preparation is None:
+                    if not allow_empty:
+                        raise AgreementNotFound("Agreement preparation was not found.")
+                    return AgreementSnapshot(
+                        None, None, False, None, None, self._revisions.get(poc_id),
+                        len(self._history.get(poc_id, ())), False,
+                    )
             try:
                 current = self._stable_current_inputs(poc_id)
                 current_inputs_stale = _snapshot_fingerprint(*current) != preparation.input_fingerprint

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ExitSpec — Evidence</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+    <link rel="stylesheet" href="/generic_evidence.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec POCs">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+        <nav class="global-nav" aria-label="ExitSpec">
+          <a href="/app">POCs</a>
+          <a href="/app/evidence">Evidence Packs</a>
+        </nav>
+        <div class="local-identity">
+          <span class="identity-dot" aria-hidden="true"></span>
+          <span>Local demo</span>
+        </div>
+      </header>
+
+      <main class="generic-evidence-main" id="generic-main" aria-busy="true">
+        <header class="object-header">
+          <div class="object-identity">
+            <a class="back-link" href="/app">← POC workspace</a>
+            <p class="eyebrow">Step 3 of 3 · Evidence</p>
+            <h1 id="evidence-title">Current evidence</h1>
+            <p id="evidence-subtitle">Loading the frozen customer agreement…</p>
+          </div>
+          <span class="object-phase">EVIDENCE</span>
+        </header>
+
+        <section class="current-task-card" aria-labelledby="evidence-task-heading">
+          <div class="task-copy">
+            <p class="task-kicker">Current task · Verify</p>
+            <h2 id="evidence-task-heading">Run the approved evidence method</h2>
+            <p id="evidence-guidance">ExitSpec selects the method from the frozen agreement.</p>
+            <label class="run-acknowledgement" for="evidence-acknowledged">
+              <input id="evidence-acknowledged" type="checkbox" />
+              <span>I acknowledge this exact frozen evidence request.</span>
+            </label>
+          </div>
+          <dl class="state-boundary" aria-label="Evidence state">
+            <div><dt>Current</dt><dd id="evidence-current-status">Loading</dd></div>
+            <div><dt>Verdict</dt><dd id="evidence-current-verdict">—</dd></div>
+          </dl>
+          <div class="task-actions">
+            <button class="primary-action" id="start-evidence" type="button" disabled>
+              Start verified evidence
+            </button>
+            <button class="secondary-action" id="stop-evidence" type="button" hidden>
+              Stop POC
+            </button>
+          </div>
+        </section>
+
+        <section class="generic-evidence-panel" aria-labelledby="evidence-result-heading">
+          <div class="panel-heading">
+            <div><p class="panel-index">01 · Customer Evidence Pack</p><h2 id="evidence-result-heading">Verified result</h2></div>
+          </div>
+          <p id="evidence-result-reason">No admitted terminal evidence yet.</p>
+          <div class="generic-evidence-actions">
+            <strong id="evidence-result-verdict">NOT RUN</strong>
+            <a id="evidence-pack-link" href="#" hidden>Open Evidence Pack</a>
+            <button class="secondary-action" id="handoff-evidence" type="button" hidden>Complete human handoff</button>
+          </div>
+        </section>
+
+        <section class="generic-history-panel" aria-labelledby="evidence-history-heading">
+          <div class="panel-heading">
+            <div><p class="panel-index">02 · Current / historical</p><h2 id="evidence-history-heading">Attempt history</h2></div>
+          </div>
+          <ul id="evidence-history"><li>Loading…</li></ul>
+        </section>
+
+        <details class="technical-details">
+          <summary>Technical details and limitations</summary>
+          <div class="technical-content"><p id="evidence-authorization">Evidence is proof, not shipping authorization.</p></div>
+        </details>
+        <p class="workspace-error" id="evidence-error" role="alert" hidden></p>
+      </main>
+    </div>
+    <script src="/generic_evidence.js"></script>
+  </body>
+</html>

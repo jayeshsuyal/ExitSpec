@@ -1,0 +1,118 @@
+{
+  "schema_version": "exitspec.request-to-proof-a6-closure-evidence.v1",
+  "train_slice": "A6",
+  "status": "IMPLEMENTED_AND_TESTED",
+  "scope": "GL-11 through GL-15 only",
+  "claims": {
+    "GL-11": {
+      "statement": "A fresh source-neutral POC reaches the exact frozen A5 agreement through the existing A2-A5 spine, then ExitSpec selects the executable evidence method from the frozen per-criterion binding and runs the generic orchestration service with acknowledgement and idempotency only.",
+      "proof": [
+        "tests/test_a6_source_neutral_browser.py::test_fresh_source_neutral_a5_to_a6_evidence_loopback_path",
+        "tests/test_a6_executable_orchestration.py::test_generic_orchestration_selects_frozen_executable_binding",
+        "tests/test_a6_evidence_web_api.py::test_generic_evidence_api_is_server_selected_and_replayable"
+      ]
+    },
+    "GL-12": {
+      "statement": "Evidence admission, independent recalculation, typed criterion verdicts, and MUST_HAVE reduction are separate from producer claims; rejected ingestion has no acceptance reduction, while admitted unsupported or insufficient evidence is explicitly NOT_PROVEN.",
+      "proof": [
+        "tests/test_a6_executable_orchestration.py::test_criterion_result_invariants_fail_closed",
+        "tests/test_a6_executable_orchestration.py::test_generic_unsupported_must_have_is_completed_not_proven_without_import",
+        "tests/test_a6_executable_orchestration.py::test_generic_import_unknown_catalog_evidence_is_ingestion_rejected",
+        "tests/test_a6_executable_orchestration.py::test_generic_managed_import_uses_catalog_reference_and_retains_independent_facts"
+      ]
+    },
+    "GL-13": {
+      "statement": "The append-only attempt history has one current pointer: reserving a successor displaces an earlier current attempt before work, terminal predecessor semantics remain intact, cancellation is terminal, and a late completion is historical and cannot replace the successor.",
+      "proof": [
+        "tests/test_a6_executable_orchestration.py::test_stale_attempt_is_never_newly_published_and_terminal_history_is_retained",
+        "tests/test_a6_executable_orchestration.py::test_cancelled_current_attempt_can_stop_without_an_evidence_pack",
+        "tests/test_a6_executable_orchestration.py::test_generic_successor_stays_current_when_predecessor_finishes_late"
+      ]
+    },
+    "GL-14": {
+      "statement": "An immutable contract/run-bound Evidence Pack is published only for admitted current terminal evidence, is verified with bounded exact artifacts, and the public packet route rejects tampering and non-packet paths.",
+      "proof": [
+        "tests/test_a6_executable_orchestration.py::test_generic_pack_is_verified_and_current_handoff_is_bound",
+        "tests/test_a6_executable_orchestration.py::test_pack_replay_tamper_bounds_and_no_overwrite",
+        "tests/test_a6_source_neutral_evidence_http.py::test_source_neutral_artifact_route_verifies_captured_packet_before_serving"
+      ]
+    },
+    "GL-15": {
+      "statement": "The current eligible Evidence Pack supports a human handoff or explicit stop with visible status, limitations, next action, historical/current state, and shipping_authorized=false; closure never authorizes deployment, spending, procurement, production traffic, shipping, or other external action.",
+      "proof": [
+        "tests/test_a6_source_neutral_browser.py::test_fresh_source_neutral_a5_to_a6_evidence_loopback_path",
+        "tests/test_a6_evidence_web_api.py::test_generic_evidence_api_is_server_selected_and_replayable",
+        "tests/test_a6_executable_orchestration.py::test_generic_pack_is_verified_and_current_handoff_is_bound"
+      ]
+    }
+  },
+  "acceptance_matrix": {
+    "fresh_browser_a2_to_a6_pass_pack_handoff": {
+      "requirement": "Fresh generated POC: A2 source, A3 retained proposals, mixed A4 plan, exact A5 customer confirmation/freeze, A6 PASS, immutable pack, and current human handoff.",
+      "proof": [
+        "tests/test_a6_source_neutral_browser.py::test_fresh_source_neutral_a5_to_a6_evidence_loopback_path"
+      ],
+      "no_skip": true
+    },
+    "service_successor_displacement_cancel_stale": {
+      "requirement": "Service-level successor reservation displaces current state before work; cancellation and late stale completion preserve terminal/history semantics.",
+      "proof": [
+        "tests/test_a6_executable_orchestration.py::test_generic_successor_stays_current_when_predecessor_finishes_late",
+        "tests/test_a6_executable_orchestration.py::test_stale_attempt_is_never_newly_published_and_terminal_history_is_retained",
+        "tests/test_a6_executable_orchestration.py::test_cancelled_current_attempt_can_stop_without_an_evidence_pack"
+      ],
+      "no_skip": true
+    },
+    "admitted_not_proven_vs_catalog_ingestion_rejected": {
+      "requirement": "An unsupported MUST_HAVE reaches COMPLETED with NOT_PROVEN and a reduction; an unknown server-catalog reference reaches INGESTION_REJECTED with reduction null and no pack.",
+      "proof": [
+        "tests/test_a6_executable_orchestration.py::test_generic_unsupported_must_have_is_completed_not_proven_without_import",
+        "tests/test_a6_executable_orchestration.py::test_generic_import_unknown_catalog_evidence_is_ingestion_rejected"
+      ],
+      "no_skip": true
+    },
+    "http_tamper_rejection": {
+      "requirement": "The exact public decision-packet route verifies the pack, captures bounded bytes, and rejects a same-size tamper before serving.",
+      "proof": [
+        "tests/test_a6_source_neutral_evidence_http.py::test_source_neutral_artifact_route_verifies_captured_packet_before_serving"
+      ],
+      "no_skip": true
+    },
+    "api_authority_injection": {
+      "requirement": "The evidence start API accepts acknowledgement/idempotency and an opaque catalog reference only; caller method or authority fields are rejected.",
+      "proof": [
+        "tests/test_a6_evidence_web_api.py::test_generic_evidence_api_rejects_noncanonical_routes_and_authority_fields"
+      ],
+      "no_skip": true
+    }
+  },
+  "release_gate": {
+    "kind": "NO_SKIP_A6_GL11_GL15",
+    "required_proof": "Every acceptance_matrix entry above is exercised by the named focused service, API, HTTP, or Chromium test.",
+    "allowed_skip": {
+      "name": "optional external A10 exact pinned archive acceptance",
+      "test": "tests/test_a6_executable_orchestration.py::test_generic_managed_import_uses_catalog_reference_and_retains_independent_facts",
+      "condition": "EXITSPEC_INFERDROME_A10_ARCHIVE is unset",
+      "meaning": "The archive is intentionally external and not vendored; no local accepted managed import is claimed when it is unavailable."
+    }
+  },
+  "authority_boundary": {
+    "evidence_selection": "SERVER_FROZEN_CAPABILITY_EVIDENCE_BINDING_ONLY",
+    "evidence_admission": "SERVER_VERIFIED_AND_INDEPENDENTLY_RECALCULATED_ONLY",
+    "human_handoff": "CURRENT_ELIGIBLE_PACK_OR_EXPLICIT_STOP_ONLY",
+    "shipping_authorized": false,
+    "may_authorize_deployment": false,
+    "may_authorize_spending": false,
+    "may_authorize_procurement": false,
+    "may_authorize_production_traffic": false,
+    "may_authorize_shipping": false
+  },
+  "limitations": [
+    "Storage and closure are process-local, in-memory, non-durable, and not shared across workers.",
+    "This PR includes only the authorized A5 snapshot-concurrency and recursive authority-key test hardening; frozen A1-A5 identifiers and artifacts remain unchanged.",
+    "EXECUTABLE uses the server-owned deterministic support-agent fixture and the synthetic demo profile; it is not real endpoint proof and has no provider call.",
+    "Accepted managed import is optionally proven only when the exact external A10 archive is supplied through EXITSPEC_INFERDROME_A10_ARCHIVE; the intentional focused skip is disclosed above.",
+    "The release proof does not authorize deployment, spending, procurement, production traffic, shipping, or Train B/A7 work."
+  ],
+  "frozen_identifiers_or_artifacts_edited": false
+}

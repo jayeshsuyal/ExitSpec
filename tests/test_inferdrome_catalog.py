@@ -42,7 +42,7 @@ def test_unconfigured_catalog_publishes_no_candidates():
     assert snapshot.rejected == ()
 
 
-def test_catalog_verifies_and_resolves_only_run_id_plus_digest(tmp_path: Path):
+def test_catalog_verifies_and_resolves_only_server_issued_opaque_reference(tmp_path: Path):
     runs_root, bundle = _eligible_bundle(tmp_path)
     catalog = InferdromeBundleCatalog(runs_root.resolve())
 
@@ -57,6 +57,13 @@ def test_catalog_verifies_and_resolves_only_run_id_plus_digest(tmp_path: Path):
     assert entry.adapter == "vllm_bench_serve"
     assert entry.measured_requests == 4
     assert catalog.resolve(entry.run_id, entry.bundle_digest).path == bundle
+    reference = catalog.evidence_reference(entry.run_id, entry.bundle_digest)
+    assert reference.startswith("evref_")
+    assert catalog.resolve_reference(reference).path == bundle
+
+    for value in ("../etc/passwd", "run-" + "a" * 32 + "|" + entry.bundle_digest):
+        with pytest.raises(InferdromeCatalogNotFound):
+            catalog.resolve_reference(value)
 
     for run_id, digest in (
         ("../../etc/passwd", entry.bundle_digest),
