@@ -200,11 +200,14 @@ from .reporting import render_customer_draft, render_decision_packet
 from .routing_evidence_pack import (
     ROUTING_EVIDENCE_PACK_DISPLAY_NAME,
     ROUTING_EVIDENCE_PACK_POC_ID,
+    RoutingEvidencePackDemoContext,
+    RoutingEvidencePackError,
     load_routing_evidence_demo_context,
     publish_routing_evidence_pack,
     read_routing_evidence_pack_artifact,
     verify_routing_evidence_pack,
 )
+from .routing_qualification_receipts import serialize_routing_qualification_receipt
 from .review_links import (
     CustomerReviewInvitation,
     ReviewInvitationError,
@@ -218,6 +221,39 @@ from .synthetic_assisted_authoring import (
     SyntheticAssistedAuthoringExecutor,
     safe_receipt_facts,
 )
+
+
+def _load_or_publish_routing_evidence_pack(
+    output_root: Path,
+    context: RoutingEvidencePackDemoContext,
+):
+    """Reuse one verified seeded pack across safe local server restarts."""
+
+    receipt_bytes = serialize_routing_qualification_receipt(
+        context.contract,
+        context.confirmation,
+        context.evidence,
+        context.result,
+        context.receipt,
+    )
+    expected_pack_id = "rpk_" + hashlib.sha256(receipt_bytes).hexdigest()
+    root = output_root.resolve()
+    destination = root / expected_pack_id
+    if destination.exists() or destination.is_symlink():
+        return verify_routing_evidence_pack(root, expected_pack_id)
+    try:
+        return publish_routing_evidence_pack(
+            root,
+            context.contract,
+            context.confirmation,
+            context.evidence,
+            context.result,
+            context.receipt,
+        )
+    except RoutingEvidencePackError:
+        if not destination.exists() and not destination.is_symlink():
+            raise
+        return verify_routing_evidence_pack(root, expected_pack_id)
 from .source_web import (
     SourceIntakeRecord,
     SourceWebRefusal,
@@ -3176,13 +3212,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             raise ValueError("Routing Evidence Pack demo flag is invalid.")
         if enable_routing_evidence_pack_demo:
             routing_context = load_routing_evidence_demo_context()
-            self.routing_evidence_pack = publish_routing_evidence_pack(
-                self.session.output_root.resolve(),
-                routing_context.contract,
-                routing_context.confirmation,
-                routing_context.evidence,
-                routing_context.result,
-                routing_context.receipt,
+            self.routing_evidence_pack = _load_or_publish_routing_evidence_pack(
+                self.session.output_root,
+                routing_context,
             )
 
     def workspace_payload(
