@@ -747,6 +747,36 @@ def _pack_service(tmp_path):
     )
 
 
+_SECRET_CONFIRMATION_IDEMPOTENCY_KEY = (
+    "confirm__A6_PRIVATE_TEST__do-not-publish__9f4c1e"
+)
+
+
+def _secret_confirmation_pack_service(tmp_path):
+    frozen, confirmation = _frozen_contract()
+    public_test_confirmation = confirmation.model_copy(
+        update={"idempotency_key": _SECRET_CONFIRMATION_IDEMPOTENCY_KEY}
+    )
+    return ProcessLocalEvidenceOrchestrationService(
+        contract_lookup=lambda _: frozen,
+        confirmation_lookup=lambda _: public_test_confirmation,
+        clock=lambda: NOW,
+        output_root=(tmp_path / "packs").resolve(),
+    )
+
+
+def _nested_keys(value: object) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        keys.update(key for key in value if isinstance(key, str))
+        for child in value.values():
+            keys.update(_nested_keys(child))
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            keys.update(_nested_keys(child))
+    return keys
+
+
 def test_generic_pack_is_verified_and_current_handoff_is_bound(tmp_path):
     service = _pack_service(tmp_path)
     started = service.start(
@@ -791,6 +821,52 @@ def test_generic_pack_is_verified_and_current_handoff_is_bound(tmp_path):
             acknowledgement=True,
             idempotency_key="generic-a6-pack-after-handoff",
         )
+
+
+def test_public_pack_and_handoff_snapshot_redact_confirmation_idempotency_key(tmp_path):
+    service = _secret_confirmation_pack_service(tmp_path)
+    attempt = service.start(
+        "poc_a6_executable_test",
+        acknowledgement=True,
+        idempotency_key="generic-a6-public-confirmation",
+    ).attempt
+    pack_root = tmp_path / "packs" / attempt.attempt_id
+    confirmation_payload = json.loads(
+        (pack_root / "confirmation.json").read_bytes()
+    )
+    evidence_payload = json.loads((pack_root / "evidence.json").read_bytes())
+    decision_packet = (pack_root / "decision-packet.html").read_bytes()
+
+    for payload in (confirmation_payload, evidence_payload):
+        assert "idempotency_key" not in _nested_keys(payload)
+        assert _SECRET_CONFIRMATION_IDEMPOTENCY_KEY not in json.dumps(payload)
+    assert "idempotency_key" not in decision_packet.decode("utf-8")
+    assert _SECRET_CONFIRMATION_IDEMPOTENCY_KEY.encode() not in decision_packet
+    assert confirmation_payload == {
+        "confirmation_id": attempt.confirmation_id,
+        "contract_id": attempt.contract_id,
+        "contract_version": attempt.contract_version,
+        "contract_fingerprint": attempt.confirmation_fingerprint,
+        "confirmer": "A6 customer approver",
+        "decision": "CONFIRM",
+        "agreement_acknowledged": True,
+        "confirmed_at": NOW.isoformat(),
+        "rationale": "I confirm the exact executable criterion.",
+    }
+    assert service.verify_evidence_pack(attempt.attempt_id) == attempt.evidence_pack_sha256
+
+    before_closure = service.snapshot_payload("poc_a6_executable_test")
+    assert "idempotency_key" not in _nested_keys(before_closure)
+    assert _SECRET_CONFIRMATION_IDEMPOTENCY_KEY not in json.dumps(before_closure)
+    service.handoff(
+        attempt.attempt_id,
+        decided_by="a6.customer",
+        rationale="Review the redacted confirmation binding.",
+        idempotency_key="generic-a6-public-confirmation-handoff",
+    )
+    after_closure = service.snapshot_payload("poc_a6_executable_test")
+    assert "idempotency_key" not in _nested_keys(after_closure)
+    assert _SECRET_CONFIRMATION_IDEMPOTENCY_KEY not in json.dumps(after_closure)
 
 
 def test_handoff_rejects_tampered_pack_without_recording_closure(tmp_path):

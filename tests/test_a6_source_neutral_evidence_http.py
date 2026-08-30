@@ -6,7 +6,11 @@ from urllib.request import urlopen
 
 from exitspec.poc_creation import DraftPOCCreateRequest
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
-from tests.test_a6_executable_orchestration import _pack_service
+from tests.test_a6_executable_orchestration import (
+    _SECRET_CONFIRMATION_IDEMPOTENCY_KEY,
+    _secret_confirmation_pack_service,
+    _pack_service,
+)
 
 
 @contextmanager
@@ -66,6 +70,26 @@ def test_source_neutral_artifact_route_verifies_captured_packet_before_serving(t
         service.verify_evidence_pack_publication = verify_then_same_size_tamper
         status, _ = _get(packet_url)
         assert status == 404
+
+
+def test_source_neutral_artifact_route_redacts_confirmation_idempotency_key(tmp_path):
+    service = _secret_confirmation_pack_service(tmp_path)
+    with _running_source_server(tmp_path) as (server, base_url):
+        server.generic_evidence_service = service
+        server.evidence_artifact_root = service._output_root
+        attempt = service.start(
+            "poc_a6_executable_test",
+            acknowledgement=True,
+            idempotency_key="a6-source-http-secret-confirmation",
+        ).attempt
+
+        status, body = _get(f"{base_url}{attempt.evidence_pack_url}")
+
+        assert status == 200
+        assert b"idempotency_key" not in body
+        assert _SECRET_CONFIRMATION_IDEMPOTENCY_KEY.encode() not in body
+        assert attempt.confirmation_id.encode() in body
+        assert b"contract_fingerprint" in body
 
 
 def test_source_neutral_evidence_page_uses_exact_poc_identity(tmp_path):

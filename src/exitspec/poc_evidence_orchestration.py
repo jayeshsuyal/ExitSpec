@@ -1840,6 +1840,24 @@ class ProcessLocalEvidenceOrchestrationService:
             return record.attempt
 
 
+def _public_confirmation_payload(
+    confirmation: ContractConfirmation,
+) -> dict[str, object]:
+    """Project confirmation binding without the authoritative idempotency key."""
+
+    return {
+        "confirmation_id": confirmation.confirmation_id,
+        "contract_id": confirmation.contract_id,
+        "contract_version": confirmation.contract_version,
+        "contract_fingerprint": confirmation.contract_fingerprint,
+        "confirmer": confirmation.confirmer_identity,
+        "decision": confirmation.decision.value,
+        "agreement_acknowledged": confirmation.agreement_acknowledged,
+        "confirmed_at": confirmation.decided_at.isoformat(),
+        "rationale": confirmation.rationale,
+    }
+
+
 def _generic_pack_payload(record: _GenericRecord) -> dict[str, object]:
     """Project one immutable, contract-bound attempt into pack artifacts."""
 
@@ -1926,7 +1944,7 @@ def _generic_pack_payload(record: _GenericRecord) -> dict[str, object]:
             "version": attempt.contract_version,
             "sha256": attempt.contract_hash,
         },
-        "confirmation": record.confirmation.model_dump(mode="json"),
+        "confirmation": _public_confirmation_payload(record.confirmation),
         "confirmation_identity": {
             "id": attempt.confirmation_id,
             "fingerprint": attempt.confirmation_fingerprint,
