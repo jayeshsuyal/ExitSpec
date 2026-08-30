@@ -132,6 +132,10 @@ run_gate \
   node --check src/exitspec/static/assisted_authoring.js
 
 run_gate \
+  "POC capability planning JavaScript syntax" \
+  node --check src/exitspec/static/capability_plan.js
+
+run_gate \
   "POC contract definition JavaScript syntax" \
   node --check src/exitspec/static/contract_definition.js
 

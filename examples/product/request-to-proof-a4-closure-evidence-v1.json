@@ -1,0 +1,42 @@
+{
+  "schema_version": "exitspec.request-to-proof-a4-closure-evidence.v1",
+  "train_slice": "A4",
+  "status": "IMPLEMENTED_AND_TESTED",
+  "scope": "GL-04 and GL-06 only",
+  "claims": {
+    "GL-04": {
+      "statement": "Every current retained A3 proposal receives exactly one visible capability outcome from the server-owned registry: EXECUTABLE, EVIDENCE_IMPORT, CLARIFICATION_REQUIRED, or UNSUPPORTED.",
+      "proof": [
+        "tests/test_a4_capability_planner.py::test_a4_every_retained_candidate_gets_one_of_four_outcomes_and_two_scopes",
+        "tests/test_a4_capability_planner.py::test_a4_one_to_one_visibility_rejects_omission_duplicate_extra_and_stale",
+        "tests/test_a4_capability_planner_browser.py::test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness"
+      ]
+    },
+    "GL-06": {
+      "statement": "Every retained claim receives a versioned source-bound planning record with MUST_HAVE or ADVISORY scope, explicit criterion fields when supported, declared provenance, visible safe reason/next action when unresolved, and fail-closed readiness.",
+      "proof": [
+        "tests/test_a4_capability_planner.py::test_a4_planning_record_rejects_forged_authority_when_constructed_directly",
+        "tests/test_a4_capability_planner.py::test_a4_explicit_must_have_exclusion_is_a_versioned_visible_successor",
+        "tests/test_a4_capability_planner.py::test_a4_api_is_exact_and_returns_versioned_plan_without_downstream_authority"
+      ]
+    }
+  },
+  "authority_boundary": {
+    "source_authority": "UNTRUSTED_SOURCE_ONLY",
+    "planning_state": "PLANNING_ONLY",
+    "may_approve": false,
+    "may_confirm": false,
+    "may_freeze": false,
+    "may_execute": false,
+    "may_import_evidence": false,
+    "may_issue_verdict": false,
+    "may_authorize_deployment": false
+  },
+  "limitations": [
+    "Storage is process-local, in-memory, non-durable, and not shared across workers.",
+    "The registry is intentionally narrow and server-owned; no plugin framework or live provider call is introduced.",
+    "Planning does not create an agreement, contract, confirmation, freeze, execution, evidence import, Evidence Pack, verdict, feedback loop, release tag, or deployment claim.",
+    "External evidence import is proven only at the pure planner registry seam; this browser journey does not ingest external evidence."
+  ],
+  "frozen_baseline_edited": false
+}
