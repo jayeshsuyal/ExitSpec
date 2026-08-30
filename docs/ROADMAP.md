@@ -133,6 +133,17 @@ requirements. B10 does not ingest evidence, pool runs, calculate a verdict, or
 issue receipts. See
 [ROUTING_SLO_ATTAINMENT_PROTOCOL.md](ROUTING_SLO_ATTAINMENT_PROTOCOL.md).
 
+### Train B — B11 independent campaign verification and reduction
+
+B11 adds one versioned `routing_campaign_reduction_v1` criterion to the
+existing full B9+B10 `POCContract` and freezes the exact independent-run
+reducer, repetition indices, evidence protocol, ingestion/acceptance split,
+assignment recalculation, Wilson facts, and candidate-gate campaign rule.
+Runs are never pooled and baseline remains contextual. B11 emits no
+qualification receipt, Evidence Pack, UI, browser route, release gate, or tag.
+See
+[ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
+
 ### 0. POC-first workspace and multi-source shell
 
 The product direction is frozen in

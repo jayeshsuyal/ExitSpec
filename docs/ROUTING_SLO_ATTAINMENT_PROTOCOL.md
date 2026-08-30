@@ -117,7 +117,8 @@ fixture bytes, and canonical hash. It adds no provider SDK, credentials,
 customer content, router/orchestrator execution, GPU/container behavior, or
 cross-repository import.
 
-B11 may add independent run evidence handling and reduction. B12 may issue
-purpose-bound qualification receipts. B13 may add the Routing Evidence Pack,
-UI, and release gate. Those future slices own observed evidence and verdict
-behavior; none is implemented by B10.
+B11 adds independent run evidence handling and reduction in
+[ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
+B12 may issue purpose-bound qualification receipts. B13 may add the Routing
+Evidence Pack, UI, and release gate. Those future slices own receipt and
+product-delivery behavior; none is implemented by B10.

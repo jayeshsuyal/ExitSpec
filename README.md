@@ -33,6 +33,9 @@ protocol are documented in the
 The additive B10 confidence-bearing routing SLO contract semantics are
 documented in the
 [Routing SLO attainment protocol](docs/ROUTING_SLO_ATTAINMENT_PROTOCOL.md).
+The additive B11 independent routing campaign verification and reduction
+protocol is documented in the
+[Routing campaign verification protocol](docs/ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
 
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded

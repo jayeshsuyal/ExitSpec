@@ -660,6 +660,7 @@ def _load_object(
     *,
     label: str,
     max_json_integer: int = _MAX_JSON_INTEGER,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
     if isinstance(value, Mapping):
         if type(value) is not dict:
@@ -675,7 +676,7 @@ def _load_object(
                 f"{label} is outside the canonical JSON domain.",
             )
             raise AssertionError from error
-        limit = _size_limit(label)
+        limit = max_bytes if max_bytes is not None else _size_limit(label)
         if len(content) > limit:
             _reject(
                 RoutingQualificationValidationCode.OVERSIZED,
@@ -687,13 +688,14 @@ def _load_object(
             label=label,
             require_canonical=False,
             max_json_integer=max_json_integer,
+            max_bytes=max_bytes,
         )
     if type(value) is not bytes:
         _reject(
             RoutingQualificationValidationCode.WRONG_TYPE,
             f"{label} must be bytes or one JSON object.",
         )
-    limit = _size_limit(label)
+    limit = max_bytes if max_bytes is not None else _size_limit(label)
     if len(value) > limit:
         _reject(
             RoutingQualificationValidationCode.OVERSIZED,
@@ -704,6 +706,7 @@ def _load_object(
         label=label,
         require_canonical=True,
         max_json_integer=max_json_integer,
+        max_bytes=max_bytes,
     )
 
 
@@ -717,8 +720,10 @@ def _decode_json(
     label: str,
     require_canonical: bool,
     max_json_integer: int = _MAX_JSON_INTEGER,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
-    if len(content) > _size_limit(label):
+    limit = max_bytes if max_bytes is not None else _size_limit(label)
+    if len(content) > limit:
         _reject(
             RoutingQualificationValidationCode.OVERSIZED,
             f"{label} exceeds the bounded JSON size.",
@@ -774,8 +779,10 @@ def _validate_model(
     *,
     label: str,
     path_prefix: str | None = None,
+    reject_producer_verdict_aliases: bool = True,
 ) -> Any:
-    _reject_producer_verdict_aliases(payload)
+    if reject_producer_verdict_aliases:
+        _reject_producer_verdict_aliases(payload)
     try:
         # JSON arrays are the wire representation of immutable tuple fields.
         # Pydantic's strict Python validator intentionally rejects a list for a

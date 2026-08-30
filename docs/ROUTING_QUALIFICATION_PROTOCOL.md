@@ -98,14 +98,16 @@ the existing prospective-handshake semantics used by Inferdrome.
 
 B10 adds the companion confidence-bearing SLO criterion described in
 [ROUTING_SLO_ATTAINMENT_PROTOCOL.md](ROUTING_SLO_ATTAINMENT_PROTOCOL.md).
-B11 may implement independent
-multi-run verification and a future reduction policy. B12 may emit
-purpose-bound qualification receipts. B13 may add the Routing Evidence Pack,
-UI, and release gate. None of those behaviors is claimed or implemented by
-B9. In particular, `routing_qualification_v1` is not executable or proven by
-the presence of this schema, fixture, or digest.
+B11 implements independent multi-run verification and reduction through the
+additive, versioned full-contract policy in
+[ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md](ROUTING_CAMPAIGN_VERIFICATION_PROTOCOL.md).
+B12 may emit purpose-bound qualification receipts. B13 may add the Routing
+Evidence Pack, UI, and release gate. In particular,
+`routing_qualification_v1` remains pre-measurement vocabulary and is not
+executable or proven by the presence of this schema, fixture, or digest.
 
 The portable synthetic contract and evidence fixtures are covered by
-`tests/test_routing_qualification.py`. Existing A100/A10 behavior,
+`tests/test_routing_campaign_verifier.py` for B11 and
+`tests/test_routing_qualification.py` for B9. Existing A100/A10 behavior,
 retrospective/prospective external evidence, frozen V1 identifiers, UI flows,
 and existing verdict behavior remain outside this additive protocol slice.
