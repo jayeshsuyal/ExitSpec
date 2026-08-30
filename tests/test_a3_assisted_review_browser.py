@@ -69,7 +69,7 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             )
             page.wait_for_load_state("networkidle")
             assert page.locator(".object-heading .eyebrow").inner_text().casefold() == (
-                "define · proposal review"
+                "review · human triage"
             )
             state = page.request.get(f"{base_url}/api/state")
             assert state.ok
@@ -84,7 +84,7 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             )
             page.wait_for_load_state("networkidle")
             assert page.locator(".object-heading .eyebrow").inner_text().casefold() == (
-                "define · assisted draft"
+                "review · schema-bound draft"
             )
             assert "poc_support_agent_demo" not in page.content()
             assert page.locator("#source-receipt-list").locator("label").count() == 1
@@ -110,7 +110,7 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             )
             page.wait_for_load_state("networkidle")
             assert page.locator(".object-heading .eyebrow").inner_text().casefold() == (
-                "define · proposal review"
+                "review · human triage"
             )
             assert page.locator("#proposal-support").inner_text().startswith(
                 "Source-bound proposal material"

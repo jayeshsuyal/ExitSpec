@@ -36,15 +36,17 @@ characterization boundary, and ownership of gaps for Train A slices A2–A7.
 
 ## What the current product does
 
-The local browser product implements one guided **Define → Confirm → Prove**
-journey. It includes a deterministic support-agent POC and a
-bounded synthetic inference-performance POC:
+The v0.3 source-neutral browser product starts at `/app` and implements one
+guided **Capture → Review → Plan → Confirm → Prove → Decide** journey. Email
+text, notes/document text, and meeting transcript or recording-derived text
+create fresh generated POC IDs and enter the same path:
 
 ```text
-employee-selected synthetic sample email
-    -> deterministic normalization and redaction
-    -> source-linked NEEDS_REVIEW proposals
+employee-selected bounded source text
+    -> generated process-local POC and redacted source receipt
+    -> schema-bound, source-linked NEEDS_REVIEW proposals
     -> named employee decisions
+    -> server-owned capability and evidence-method planning
     -> exact-version customer review
     -> explicit customer acknowledgement
     -> immutable frozen contract
@@ -54,7 +56,7 @@ employee-selected synthetic sample email
     -> Completed POC
 ```
 
-### Define
+### Capture, Review, and Plan
 
 - `/app?intake=email` offers exactly two manifest-approved synthetic samples:
   **Support-agent requirements** and **Untrusted-instructions test**.
@@ -120,7 +122,7 @@ are source choices for the same POC object; they are not separate products.
 - Local reviewer identity, links, decisions, and idempotency records are
   synthetic, unauthenticated, in-memory, and non-durable.
 
-### Prove
+### Prove and Decide
 
 - The employee workbench polls only while a customer decision is pending, then
   advances to the exact terminal state.
@@ -218,15 +220,14 @@ python3 -m pip install -e '.[dev]'
 exitspec serve --open-browser
 ```
 
-For the current v0.2 release checkpoint, install the browser extra and run the
-single v0.2 gate. This makes the clean-process Chromium journeys, including the
-external-evidence handoff, mandatory in addition to the complete engineering
-gate:
+For the current v0.3 release checkpoint, install the browser extra and run the
+single v0.3 gate. It requires an exact four-case Chromium collection with zero
+skips, failures, or errors before running the complete engineering gate:
 
 ```bash
 python3 -m pip install -e '.[dev,browser]'
 python3 -m playwright install chromium
-./scripts/v0_2_release_gate.sh
+./scripts/v0_3_release_gate.sh
 ```
 
 The POC dashboard is served at `http://127.0.0.1:8765/app`; its seeded
@@ -240,19 +241,24 @@ support-agent recording, choose **Guided demo** on the dashboard or open
 seeded support-agent demo before opening it. Follow the
 [three-minute product demo](docs/DEMO_RUNBOOK.md).
 
-For the Train A A2 source-neutral intake journey, start the separate bounded
-runtime instead:
+The canonical v0.3 source-neutral Request-to-Proof runtime is:
 
 ```bash
 exitspec serve --source-neutral --open-browser
 ```
 
-It opens `/app/pocs/new`, creates a fresh process-local POC, and routes Email,
-Meeting paste, Notes/document, and Existing contract through the same typed
-source intake spine. Notes is only an input alias for `DOCUMENT`. This runtime
-does not seed the support-agent POC and exposes no approval, lifecycle, proof,
-evidence, provider, or deployment route. Its redacted source state is
-in-memory, non-durable, and limited to the current process.
+It opens `/app` with source choice first, creates a fresh process-local POC,
+and routes Email, Meeting text, and Notes/document through the same typed
+Capture → Review → Plan → Confirm → Prove → Decide spine. Notes is only an
+input alias for `DOCUMENT`. The browser submits bounded human planning fields;
+the server-owned A4 registry selects adapter, profile, evidence method,
+measurement population, and provenance. Exact A5 freeze then feeds the existing
+A6 evidence, immutable pack, and human handoff/stop services.
+
+The seeded support-agent dashboard, inference-performance workbench, legacy
+routes, and optional exact A10 archive remain compatibility adapters. They are
+isolated from fresh flow and cannot choose its state, evidence method, or
+verdict. See the [v0.3 release checkpoint](docs/RELEASE_V0_3.md).
 
 For the guided Wave 2 email demo, open
 `http://127.0.0.1:8765/app?intake=email` from a clean server and follow the
@@ -414,7 +420,8 @@ repository yet.
 - [Engineering playbook](docs/ENGINEERING_PLAYBOOK.md)
 - [Demo plan](docs/DEMO_PLAN.md)
 - [Three-minute product demo](docs/DEMO_RUNBOOK.md)
-- [v0.2 release checkpoint](docs/RELEASE_V0_2.md)
+- [v0.3 release checkpoint](docs/RELEASE_V0_3.md)
+- [Historical v0.2 release checkpoint](docs/RELEASE_V0_2.md)
 - [Historical v0.1 release gate](docs/RELEASE_V0_1.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Roadmap](docs/ROADMAP.md)

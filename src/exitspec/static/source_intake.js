@@ -4,6 +4,8 @@
   const POC_ID_PATTERN = /^poc_[a-z0-9][a-z0-9_-]{2,63}$/;
   const ROUTE_PATTERN =
     /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/sources\/new$/;
+  const CANONICAL_ROUTE_PATTERN =
+    /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/capture$/;
   const RECEIPT_ID_PATTERN = /^srcpt_[a-z0-9][a-z0-9_-]{7,95}$/;
   const SHA256_PATTERN = /^[a-f0-9]{64}$/;
   const MEETING_SESSION_ID_PATTERN = /^meetsess_[a-f0-9]{64}$/;
@@ -129,8 +131,15 @@
     EXISTING_CONTRACT: "contract-json",
   });
   const routeMatch = window.location.pathname.match(ROUTE_PATTERN);
+  const canonicalRouteMatch = window.location.pathname.match(
+    CANONICAL_ROUTE_PATTERN
+  );
+  const resolvedRouteMatch = routeMatch || canonicalRouteMatch;
   const pocId =
-    routeMatch && POC_ID_PATTERN.test(routeMatch[1]) ? routeMatch[1] : null;
+    resolvedRouteMatch && POC_ID_PATTERN.test(resolvedRouteMatch[1])
+      ? resolvedRouteMatch[1]
+      : null;
+  const canonicalSourceFlow = Boolean(canonicalRouteMatch);
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const sourcesApi = pocApi ? `${pocApi}/sources` : null;
   const sttApi = pocApi ? `${pocApi}/stt` : null;
@@ -163,6 +172,18 @@
   const meetingModeRadios = Array.from(
     document.querySelectorAll('input[name="meeting_mode"]')
   );
+  if (canonicalSourceFlow) {
+    meetingModeRadios.forEach((radio) => {
+      const isPaste = radio.value === "PASTE";
+      radio.checked = isPaste;
+      radio.closest("label").hidden = !isPaste;
+    });
+    document
+      .querySelector("#meeting-mode-paste")
+      .closest("label")
+      .querySelector("span").textContent =
+        "Paste transcript or recording-derived text";
+  }
   const meetingSessionPanel = document.querySelector(
     "#meeting-session-panel"
   );
@@ -238,7 +259,7 @@
   let preferredSource = null;
   let inFlight = false;
   let pendingAttempt = null;
-  let meetingMode = "SESSION";
+  let meetingMode = canonicalSourceFlow ? "PASTE" : "SESSION";
   let meetingSessionDisclosure = null;
   let meetingSession = null;
   let meetingSessionUnavailable = false;
@@ -2516,7 +2537,20 @@
         throw new SafeRequestError(200, true);
       }
       applyDraft(draft, sourceList);
-      if (preferredSource === "MEETING") {
+      if (canonicalSourceFlow) {
+        // Canonical A7 meeting intake accepts pasted or recording-derived text
+        // and never probes optional provider, Zoom, or STT compatibility routes.
+        meetingSessionUnavailable = true;
+        zoomGuidedUnavailable = true;
+        sttUnavailable = true;
+        meetingSessionDisclosureCopy.textContent =
+          "Paste a transcript instead in the canonical flow.";
+        zoomGuidedDisclosureCopy.textContent =
+          "Live meeting handoff is outside the canonical flow.";
+        document.querySelector("#stt-disclosure").textContent =
+          "Paste already-derived recording text; no provider call is made.";
+        renderSelectedSource();
+      } else if (preferredSource === "MEETING") {
         await Promise.all([
           loadSttDisclosure(),
           loadMeetingSession(),

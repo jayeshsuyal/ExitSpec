@@ -7,6 +7,7 @@
   const pocId = route && POC_ID_PATTERN.test(route[1]) ? route[1] : null;
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const planApi = pocApi ? `${pocApi}/capability-plan` : null;
+  const convergenceApi = planApi ? `${planApi}/converge` : null;
   const retainedApi = pocApi ? `${pocApi}/retained-proposals` : null;
   const task = document.querySelector("#capability-current-task");
   const records = document.querySelector("#planning-records");
@@ -28,7 +29,7 @@
 
   function exactKeys(value, keys) { return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("|") === [...keys].sort().join("|")); }
   function safeText(value, max) { return typeof value === "string" && value.trim() && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value); }
-  function safePath(value) { if (typeof value !== "string") return false; try { const parsed = new URL(value, window.location.origin); return parsed.origin === window.location.origin && parsed.pathname === value && !parsed.search && !parsed.hash && [pocApi, planApi, retainedApi].includes(value); } catch { return false; } }
+  function safePath(value) { if (typeof value !== "string") return false; try { const parsed = new URL(value, window.location.origin); return parsed.origin === window.location.origin && parsed.pathname === value && !parsed.search && !parsed.hash && [pocApi, planApi, convergenceApi, retainedApi].includes(value); } catch { return false; } }
   async function getJson(path) {
     if (!safePath(path)) throw new Error("untrusted path");
     const response = await fetch(path, {cache: "no-store", credentials: "same-origin", headers: {Accept: "application/json"}});
@@ -52,10 +53,10 @@
     select.value = value || options[0]?.value || ""; wrapper.appendChild(select); return wrapper;
   }
   function registryOptions() { return [{value: "", label: "Choose proof method"}, {value: "unsupported_capability", label: "Unsupported boundary"}, ...registry.map((entry) => ({value: entry.capability_key, label: entry.label, registry: "true"}))]; }
-  function setCriterionAvailability(row, enabled) { ["rule", "operator", "threshold", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile", "provenance"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) input.disabled = !enabled; }); }
+  function setCriterionAvailability(row, enabled) { ["rule", "operator", "threshold", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) input.disabled = !enabled; }); }
   function resetOperator(row) { const operator = row.querySelector('[name="operator"]'); if (!operator) return; operator.textContent = ""; const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose operator"; operator.appendChild(placeholder); }
   function clearCriterion(row) {
-    ["rule", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) { input.value = ""; input.readOnly = false; } });
+    ["rule", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) input.value = ""; });
     resetOperator(row);
     const threshold = row.querySelector('[name="threshold"]'); if (threshold) { threshold.value = ""; threshold.readOnly = false; }
     const provenance = row.querySelector('[name="provenance"]'); if (provenance) provenance.value = "";
@@ -63,8 +64,9 @@
   function fillFromRegistry(row, key) {
     clearCriterion(row);
     const entry = registry.find((candidate) => candidate.capability_key === key); if (!entry) { setCriterionAvailability(row, false); return; }
-    ["rule", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) { input.value = entry[name] || ""; input.readOnly = true; } });
+    ["rule", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile"].forEach((name) => { const input = row.querySelector(`[name="${name}"]`); if (input) input.value = entry[name] || ""; });
     const operator = row.querySelector('[name="operator"]'); if (operator) { operator.textContent = ""; const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose operator"; operator.appendChild(placeholder); (entry.allowed_operators || []).forEach((value) => { const option = document.createElement("option"); option.value = value; option.textContent = value; operator.appendChild(option); }); operator.value = ""; }
+    const provenance = row.querySelector('[name="provenance"]'); if (provenance) provenance.value = "HUMAN_DECLARED";
     setCriterionAvailability(row, true);
   }
   function isTrustedNumericFacts(value) {
@@ -90,7 +92,12 @@
       const scope = selectField("Scope", "scope", [{value: "", label: "Choose scope"}, {value: "MUST_HAVE", label: "Must have"}, {value: "ADVISORY", label: "Advisory"}], "");
       const capability = selectField("Proof method", "capability_key", registryOptions(), "");
       capability.querySelector("select").addEventListener("change", (event) => fillFromRegistry(row, event.target.value));
-      inputs.append(scope, capability, field("Rule", "rule", "", true), selectField("Operator", "operator", [{value: "", label: "Choose operator"}], ""), field("Threshold", "threshold", ""), field("Unit", "unit", ""), field("Population", "measurement_population", "", true), field("Evidence method", "evidence_method", ""), field("Adapter", "adapter", ""), field("Adapter version", "adapter_version", ""), field("Evidence profile", "evidence_profile", "", true), selectField("Provenance", "provenance", [{value: "", label: "Choose provenance"}, {value: "SOURCE_EXTRACTED", label: "Source-extracted"}, {value: "HUMAN_DECLARED", label: "Human-declared"}, {value: "ADAPTER_PROFILE_DECLARED", label: "Adapter/profile-declared"}], ""));
+      const provenance = selectField("Threshold source", "provenance", [{value: "", label: "Server-bound after selection"}, {value: "HUMAN_DECLARED", label: "Human-declared"}], "");
+      provenance.querySelector("select").disabled = true;
+      inputs.append(scope, capability, selectField("Operator", "operator", [{value: "", label: "Choose operator"}], ""), field("Threshold", "threshold", ""), provenance);
+      const serverOwned = document.createElement("div"); serverOwned.hidden = true; serverOwned.setAttribute("aria-hidden", "true");
+      serverOwned.append(field("Rule", "rule", ""), field("Unit", "unit", ""), field("Population", "measurement_population", ""), field("Evidence method", "evidence_method", ""), field("Adapter", "adapter", ""), field("Adapter version", "adapter_version", ""), field("Evidence profile", "evidence_profile", ""));
+      inputs.append(serverOwned);
       const human = document.createElement("section"); human.className = "planning-inputs"; human.append(field("Named reviewer", "reviewer", "", true), field("Rationale", "rationale", "", true));
       const exclusion = document.createElement("label"); exclusion.className = "planning-exclusion"; const check = document.createElement("input"); check.type = "checkbox"; check.name = "explicit_exclusion"; check.addEventListener("change", () => { const selectedCapability = capability.querySelector("select").value; if (check.checked) { clearCriterion(row); setCriterionAvailability(row, false); } else { fillFromRegistry(row, selectedCapability); } }); exclusion.append(check, document.createTextNode("Explicitly exclude in this named, rationale-bound plan version")); human.append(exclusion);
       row.append(claim, inputs, human); records.appendChild(row);
@@ -102,11 +109,8 @@
     return [...records.querySelectorAll(".planning-row")].map((row) => {
       const value = (name) => row.querySelector(`[name="${name}"]`)?.value.trim() || null;
       const thresholdText = value("threshold");
-      const criterion = {rule: value("rule"), operator: value("operator"), threshold: thresholdText === null ? null : Number(thresholdText), unit: value("unit"), measurement_population: value("measurement_population"), evidence_method: value("evidence_method"), adapter: value("adapter"), adapter_version: value("adapter_version"), evidence_profile: value("evidence_profile"), provenance: value("provenance")};
-      if (criterion.threshold === null || Number.isNaN(criterion.threshold)) criterion.threshold = null;
-      const criterionFields = ["rule", "operator", "threshold", "unit", "measurement_population", "evidence_method", "adapter", "adapter_version", "evidence_profile", "provenance"];
-      const hasCriterion = criterionFields.some((name) => criterion[name] !== null);
-      return {proposal_id: row.dataset.proposalId, scope: value("scope"), capability_key: value("capability_key"), criterion: hasCriterion ? criterion : null, reviewer: value("reviewer") || "", rationale: value("rationale") || "", explicit_exclusion: Boolean(row.querySelector('[name="explicit_exclusion"]')?.checked)};
+      const threshold = thresholdText === null ? null : Number(thresholdText);
+      return {proposal_id: row.dataset.proposalId, scope: value("scope"), capability_key: value("capability_key"), operator: value("operator"), threshold: Number.isNaN(threshold) ? null : threshold, reviewer: value("reviewer") || "", rationale: value("rationale") || "", explicit_exclusion: Boolean(row.querySelector('[name="explicit_exclusion"]')?.checked)};
     });
   }
   function clearError() { errorPanel.hidden = true; errorPanel.textContent = ""; }
@@ -129,6 +133,6 @@
       retained = retainedPayload.retained_proposals.slice(); registry = planner.registry; render(); task.setAttribute("aria-busy", "false");
     } catch { retained = []; registry = []; records.textContent = ""; submit.disabled = true; errorPanel.textContent = "The approved requests or proof methods could not be verified. No plan was created."; errorPanel.hidden = false; task.setAttribute("aria-busy", "false"); }
   }
-  form.addEventListener("submit", async (event) => { event.preventDefault(); clearError(); submit.disabled = true; status.textContent = "Creating the immutable process-local plan…"; try { const response = await fetch(planApi, {method: "POST", cache: "no-store", credentials: "same-origin", headers: {Accept: "application/json", "Content-Type": "application/json", Origin: window.location.origin}, body: JSON.stringify({items: collect(), idempotency_key: newKey()})}); const payload = await response.json().catch(() => null); if (!response.ok || !payload?.plan) throw new Error("plan refused"); renderResult(payload.plan); } catch { errorPanel.textContent = "The plan was refused safely. Check each named field and retry; no downstream object was created."; errorPanel.hidden = false; submit.disabled = false; status.textContent = "Planning did not complete."; } });
+  form.addEventListener("submit", async (event) => { event.preventDefault(); clearError(); submit.disabled = true; status.textContent = "Creating the immutable process-local plan…"; try { const response = await fetch(convergenceApi, {method: "POST", cache: "no-store", credentials: "same-origin", headers: {Accept: "application/json", "Content-Type": "application/json", Origin: window.location.origin}, body: JSON.stringify({items: collect(), idempotency_key: newKey()})}); const payload = await response.json().catch(() => null); if (!response.ok || !payload?.plan) throw new Error("plan refused"); renderResult(payload.plan); } catch { errorPanel.textContent = "The plan was refused safely. Check each named field and retry; no downstream object was created."; errorPanel.hidden = false; submit.disabled = false; status.textContent = "Planning did not complete."; } });
   initialise();
 })();

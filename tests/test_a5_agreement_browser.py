@@ -1,13 +1,12 @@
 """Execution-enabled browser proof for the source-neutral A5 journey."""
 
-from contextlib import contextmanager
 import re
 import threading
+from contextlib import contextmanager
 
 import pytest
 
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
-
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
@@ -40,7 +39,8 @@ def _complete_a4_plan(
         "LT" if supported_capability == "inference_performance_external" else "GTE"
     )
     second.locator('[name="threshold"]').fill(threshold)
-    second.locator('[name="provenance"]').select_option("SOURCE_EXTRACTED")
+    assert second.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
+    assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("named.a4.reviewer")
     second.locator('[name="rationale"]').fill("Complete executable policy.")
     third = page.locator(".planning-row").nth(2)
@@ -173,6 +173,12 @@ def test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey():
             frozen = page.request.get(f"{base_url}/api/pocs/{poc_id}/agreement").json()
             assert frozen["frozen_contract"]["status"] == "FROZEN"
             assert frozen["frozen_contract"]["version"] == "2"
+            executable = next(
+                criterion
+                for criterion in frozen["frozen_contract"]["criteria"]
+                if criterion["planning_disposition"] == "EXECUTABLE"
+            )
+            assert executable["provenance"] == "HUMAN_DECLARED"
             assert re.fullmatch(r"[a-f0-9]{64}", frozen["frozen_contract"]["canonical_hash"])
             assert old_token_url != page.url
             assert browser_errors in ([], ["Failed to load resource: the server responded with a status of 404 (Not Found)"])
@@ -241,8 +247,10 @@ def test_managed_ttft_proof_projection_shows_attempt_and_success_requirements():
             assert "100 required successful TTFT samples" in page.locator("#agreement-proof").inner_text()
             page.locator("#open-customer-review").click()
             page.wait_for_url(re.compile(r"/review/[A-Za-z0-9_-]+$"))
-            assert "100 attempts" in page.locator("#review-proof").inner_text()
-            assert "100 required successful TTFT samples" in page.locator("#review-proof").inner_text()
+            immediate_review_proof = page.locator("#review-proof").inner_text()
+            assert immediate_review_proof
+            assert "100 attempts" in immediate_review_proof
+            assert "100 required successful TTFT samples" in immediate_review_proof
             assert not any(re.search(r"/(run|import|evidence|verdict)(?:/|$)", url) for url in network_urls)
         finally:
             browser.close()

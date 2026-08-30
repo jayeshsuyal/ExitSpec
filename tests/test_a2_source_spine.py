@@ -595,4 +595,6 @@ def test_source_neutral_cli_keeps_open_browser_valid(monkeypatch, capsys):
     monkeypatch.setattr(cli, "serve_source_neutral_demo", fake_serve)
     assert cli.main(["serve", "--source-neutral", "--open-browser"]) == 0
     assert calls == {"host": "127.0.0.1", "port": 8765, "open_browser": True, "closed": True}
-    assert "source-neutral A2 demo" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "v0.3 source-neutral Request-to-Proof" in output
+    assert "http://127.0.0.1:9876/app" in output

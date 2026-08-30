@@ -47,10 +47,10 @@ jobs:
       - run: python -m pip install -e '.[dev,browser]'
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
-      - name: Run the browser E2E flow
+      - name: Run the mandatory v0.3 no-skip release and browser gate
         env:
           EXITSPEC_BROWSER_E2E: "1"
-        run: python -m pytest tests/test_browser_new_id_flow.py tests/test_a3_assisted_review_browser.py tests/test_a4_capability_planner_browser.py tests/test_a5_agreement_browser.py tests/test_a6_source_neutral_browser.py
+        run: ./scripts/v0_3_release_gate.sh
 
   zoom-fixture-operator:
     name: Zoom fixture operator (synthetic only)

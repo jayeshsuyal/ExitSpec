@@ -9,24 +9,48 @@ The existing compatibility demo remains in :mod:`exitspec.web`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import mimetypes
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-import hashlib
 import re
 import tempfile
 import threading
-from typing import Any, Mapping
-from urllib.parse import parse_qsl, unquote, urlparse
 import webbrowser
+from collections.abc import Mapping
+from html import escape
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qsl, unquote, urlparse
 
 from pydantic import ValidationError
 
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
+from .generic_evidence_pack import GenericEvidencePackError
+from .poc_agreement import ProcessLocalAgreementLifecycleService
+from .poc_agreement_web_api import (
+    handle_customer_review_web_api_request,
+    handle_poc_agreement_web_api_request,
+    is_customer_review_web_api_target,
+    is_poc_agreement_web_api_target,
+)
+from .poc_assisted_authoring_web_api import (
+    handle_poc_assisted_authoring_web_api_request,
+    is_poc_assisted_authoring_web_api_target,
+)
+from .poc_capability_planner import (
+    PlannerCriterionInput,
+    PlannerItemInput,
+    PlanningProvenance,
+    ProcessLocalCapabilityPlannerService,
+)
+from .poc_capability_planner_web_api import (
+    handle_poc_capability_planner_web_api_request,
+    is_poc_capability_planner_web_api_target,
+)
 from .poc_creation import (
     DraftPOCCapacityExceeded,
     DraftPOCCreateRequest,
@@ -35,31 +59,15 @@ from .poc_creation import (
     DuplicateDraftPOCId,
     ProcessLocalDraftPOCService,
 )
-from .poc_proposal_review import (
-    ProcessLocalProposalReviewService,
-)
-from .poc_assisted_authoring_web_api import (
-    handle_poc_assisted_authoring_web_api_request,
-    is_poc_assisted_authoring_web_api_target,
-)
-from .poc_proposal_web_api import handle_poc_proposal_web_api_request
-from .poc_capability_planner import ProcessLocalCapabilityPlannerService
-from .poc_capability_planner_web_api import (
-    handle_poc_capability_planner_web_api_request,
-    is_poc_capability_planner_web_api_target,
-)
-from .poc_agreement import ProcessLocalAgreementLifecycleService
-from .poc_agreement_web_api import (
-    handle_customer_review_web_api_request,
-    handle_poc_agreement_web_api_request,
-    is_customer_review_web_api_target,
-    is_poc_agreement_web_api_target,
-)
 from .poc_evidence_orchestration import ProcessLocalEvidenceOrchestrationService
 from .poc_evidence_web_api import (
     handle_poc_evidence_web_api_request,
     is_poc_evidence_web_api_target,
 )
+from .poc_proposal_review import (
+    ProcessLocalProposalReviewService,
+)
+from .poc_proposal_web_api import handle_poc_proposal_web_api_request
 from .poc_source_intake import (
     POCSourceInput,
     POCSourceIntakeCapacityExceeded,
@@ -82,10 +90,10 @@ from .poc_sources import (
     POCSourceStaleRevision,
     SourceKind,
 )
+from .review_links import ReviewInvitationError
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
-
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -96,6 +104,9 @@ POC_ID_PATTERN = r"^poc_[a-z0-9][a-z0-9_-]{2,63}$"
 _POC_ID_RE = re.compile(POC_ID_PATTERN)
 _SOURCE_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/sources/new$"
+)
+_CANONICAL_SOURCE_PAGE_RE = re.compile(
+    r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/capture$"
 )
 _REVIEW_PAGE_RE = re.compile(
     r"^/app/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/review$"
@@ -118,6 +129,9 @@ _SOURCE_API_RE = re.compile(
 )
 _PROPOSAL_API_RE = re.compile(
     r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/proposals(?:/([^/]+)/decision)?$"
+)
+_CONVERGENCE_PLAN_API_RE = re.compile(
+    r"^/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/capability-plan/converge$"
 )
 _EVIDENCE_ARTIFACT_RE = re.compile(
     r"^/artifacts/(eatm_[a-f0-9]{32})/decision-packet\.html$"
@@ -269,7 +283,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         a2 = self.poc_source_intake.proposal_inputs(poc_id)
         assisted_by_source: dict[str, tuple[Any, ...]] = {}
         for proposal in assisted:
-            assisted_by_source.setdefault(proposal.source_receipt_id, tuple())
+            assisted_by_source.setdefault(proposal.source_receipt_id, ())
             assisted_by_source[proposal.source_receipt_id] = (
                 *assisted_by_source[proposal.source_receipt_id],
                 proposal,
@@ -330,7 +344,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path != "/api/workspace" and (
             parsed.params or parsed.query or parsed.fragment
@@ -441,7 +455,9 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             self._serve_artifact(parsed.path)
             return
         if parsed.path in {"", "/", "/app", "/app/"}:
-            self._file("dashboard.html")
+            # A7 canonical entry: source choice is the first fresh-flow task.
+            # The seeded runtime retains its own compatibility dashboard.
+            self._file("new_poc.html")
             return
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
@@ -458,6 +474,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         if (
             _SOURCE_PAGE_RE.fullmatch(parsed.path)
+            or _CANONICAL_SOURCE_PAGE_RE.fullmatch(parsed.path)
             or _REVIEW_PAGE_RE.fullmatch(parsed.path)
             or _ASSISTED_PAGE_RE.fullmatch(parsed.path)
             or _PLANNING_PAGE_RE.fullmatch(parsed.path)
@@ -465,7 +482,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         ):
             poc_id = parsed.path.split("/")[3]
             if self._active_draft(poc_id):
-                if _SOURCE_PAGE_RE.fullmatch(parsed.path):
+                if (
+                    _SOURCE_PAGE_RE.fullmatch(parsed.path)
+                    or _CANONICAL_SOURCE_PAGE_RE.fullmatch(parsed.path)
+                ):
                     asset = "source_intake.html"
                 elif _REVIEW_PAGE_RE.fullmatch(parsed.path):
                     asset = "proposal_review.html"
@@ -480,7 +500,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC was not found in this local process."})
             return
         if _CUSTOMER_REVIEW_PAGE_RE.fullmatch(parsed.path):
-            self._file("customer_review_dynamic.html")
+            self._customer_review_page(parsed.path.rsplit("/", 1)[-1])
             return
         asset = parsed.path.removeprefix("/")
         if asset in _ASSET_NAMES:
@@ -488,7 +508,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
 
-    def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+    def do_POST(self) -> None:
         parsed = urlparse(self.path)
         if parsed.params or parsed.query or parsed.fragment:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Route parameters are not accepted."})
@@ -502,6 +522,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         except ValueError:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Request is invalid."})
+            return
+        convergence_match = _CONVERGENCE_PLAN_API_RE.fullmatch(parsed.path)
+        if convergence_match is not None:
+            self._converge_plan(convergence_match.group(1), payload)
             return
         if is_poc_evidence_web_api_target(parsed.path):
             response = handle_poc_evidence_web_api_request(
@@ -575,7 +599,87 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 return
         self._json(HTTPStatus.NOT_FOUND, {"error": "Route was not found."})
 
-    def do_PUT(self) -> None:  # noqa: N802 - stdlib request handler API
+    def _converge_plan(self, poc_id: str, payload: Any) -> None:
+        """Expand bounded human planning input from the server-owned A4 registry."""
+
+        try:
+            self._exact_fields(payload, {"items", "idempotency_key"})
+            idempotency_key = self._required_string(payload, "idempotency_key")
+            raw_items = payload["items"]
+            if type(raw_items) is not list or not raw_items:
+                raise ValueError
+            registry = {
+                entry.capability_key: entry
+                for entry in self.server.capability_planner_service.registry
+            }
+            items = []
+            allowed = {
+                "proposal_id",
+                "scope",
+                "capability_key",
+                "operator",
+                "threshold",
+                "reviewer",
+                "rationale",
+                "explicit_exclusion",
+            }
+            for raw in raw_items:
+                self._exact_fields(raw, allowed)
+                capability_key = self._required_string(raw, "capability_key")
+                excluded = raw["explicit_exclusion"]
+                if type(excluded) is not bool:
+                    raise ValueError
+                operator = raw["operator"]
+                threshold = raw["threshold"]
+                criterion = None
+                if not excluded and capability_key in registry:
+                    entry = registry[capability_key]
+                    operator = self._required_string(raw, "operator")
+                    if operator not in entry.allowed_operators or isinstance(threshold, bool):
+                        raise ValueError
+                    criterion = PlannerCriterionInput(
+                        rule=entry.rule,
+                        operator=operator,
+                        threshold=threshold,
+                        unit=entry.unit,
+                        measurement_population=entry.measurement_population,
+                        evidence_method=entry.evidence_method,
+                        adapter=entry.adapter,
+                        adapter_version=entry.adapter_version,
+                        evidence_profile=entry.evidence_profile,
+                        provenance=PlanningProvenance.HUMAN_DECLARED,
+                    )
+                else:
+                    if operator is not None or threshold is not None:
+                        raise ValueError
+                    if not excluded and capability_key != "unsupported_capability":
+                        raise ValueError
+                items.append(
+                    PlannerItemInput(
+                        proposal_id=self._required_string(raw, "proposal_id"),
+                        scope=self._required_string(raw, "scope"),
+                        capability_key=capability_key,
+                        criterion=criterion,
+                        reviewer=self._required_string(raw, "reviewer"),
+                        rationale=self._required_string(raw, "rationale"),
+                        explicit_exclusion=excluded,
+                    ).model_dump(mode="json")
+                )
+        except (KeyError, TypeError, ValueError, ValidationError):
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "Convergence planning request is invalid."})
+            return
+        response = handle_poc_capability_planner_web_api_request(
+            method="POST",
+            target=f"/api/pocs/{poc_id}/capability-plan",
+            payload={"items": items, "idempotency_key": idempotency_key},
+            runtime=self.server.capability_planner_service,
+        )
+        if response is None:  # pragma: no cover - exact internal route
+            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Capability planning is unavailable."})
+            return
+        self._json(response.status, response.payload)
+
+    def do_PUT(self) -> None:
         if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
             response = handle_poc_capability_planner_web_api_request(
                 method="PUT",
@@ -702,7 +806,7 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 != publication.decision_packet_sha256
             ):
                 raise OSError("artifact changed while it was read")
-        except (OSError, ValueError, KeyError):
+        except (GenericEvidencePackError, OSError, ValueError, KeyError):
             self._json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
             return
         self.send_response(HTTPStatus.OK)
@@ -794,12 +898,12 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         origin_authority = (
             normalized_origin_host
             if origin_port is None
-            else "{0}:{1}".format(normalized_origin_host, origin_port)
+            else f"{normalized_origin_host}:{origin_port}"
         )
         request_authority = (
             normalized_request_host
             if host_port is None
-            else "{0}:{1}".format(normalized_request_host, host_port)
+            else f"{normalized_request_host}:{host_port}"
         )
         return (
             parsed_origin.netloc.lower() == origin_authority.lower()
@@ -918,6 +1022,40 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _customer_review_page(self, token: str) -> None:
+        """Serve proof from the authoritative review before client hydration."""
+
+        target = (self.server.static_root / "customer_review_dynamic.html").resolve()
+        if not target.is_file():
+            self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
+            return
+        template = target.read_text(encoding="utf-8")
+        try:
+            review = self.server.agreement_service.customer_review_payload(token)["review"]
+        except ReviewInvitationError:
+            proof_html = ""
+        else:
+            criteria = review["agreement"].get("criteria", [])
+            proof_html = "".join(
+                f"<p>{escape(_customer_review_proof_text(criterion))}</p>"
+                for criterion in criteria
+            )
+        marker = '<div id="review-proof"></div>'
+        if template.count(marker) != 1:
+            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Page is unavailable."})
+            return
+        data = template.replace(
+            marker,
+            f'<div id="review-proof">{proof_html}</div>',
+            1,
+        ).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
@@ -929,6 +1067,33 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         return
+
+
+def _customer_review_proof_text(criterion: Mapping[str, Any]) -> str:
+    """Project one server-owned criterion for initial customer review HTML."""
+
+    binding = (criterion.get("evidence_binding") or {}).get("policy")
+    disposition = criterion.get("planning_disposition")
+    if disposition == "EXECUTABLE" and binding:
+        return (
+            "Run the server-owned exact-tool selection policy over "
+            f"{binding['minimum_samples']} approved support-tool cases; require "
+            f"{criterion['rule']} {criterion['operator']} {criterion['threshold']} "
+            f"{criterion['unit']} using {binding['confidence_method']}."
+        )
+    if disposition == "EVIDENCE_IMPORT" and binding:
+        return (
+            f"Import one managed TTFT evidence result for {binding['native_metric']}; "
+            f"require p95 {criterion['operator']} {criterion['threshold']} {criterion['unit']} "
+            f"over {binding['attempts']} attempts, with {binding['minimum_successful_samples']} "
+            "required successful TTFT samples, at configured concurrency "
+            f"{binding['configured_concurrency']}, reduced with {binding['reducer_id']}."
+        )
+    reason = criterion.get("planning_reason") or "the A4 limitation is preserved."
+    return (
+        "No executable proof is scheduled in A5. This "
+        f"{str(disposition).lower()} item remains customer-bound: {reason}"
+    )
 
 
 def _generic_evidence_page_poc_id(request_path: str) -> str | None:
@@ -960,7 +1125,7 @@ def serve_source_neutral_demo(
         threading.Timer(
             0.15,
             lambda: webbrowser.open(
-                "http://{0}:{1}/app/pocs/new".format(host, server.server_port)
+                f"http://{host}:{server.server_port}/app"
             ),
         ).start()
     return server

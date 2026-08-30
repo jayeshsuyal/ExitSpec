@@ -303,13 +303,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 open_browser=args.open_browser,
             )
             print(
-                "ExitSpec source-neutral A2 demo: "
-                "http://{0}:{1}/app/pocs/new".format(
+                "ExitSpec v0.3 source-neutral Request-to-Proof: "
+                "http://{0}:{1}/app".format(
                     args.host,
                     server.server_port,
                 )
             )
-            print("Process-local source intake only. Press Ctrl+C to stop.")
+            print("Process-local Capture-to-Decide flow. Press Ctrl+C to stop.")
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

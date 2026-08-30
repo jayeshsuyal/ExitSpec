@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exitspec"
-version = "0.2.0"
+version = "0.3.0"
 description = "Executable acceptance criteria and evidence packs for AI infrastructure POCs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,6 +21,7 @@ dependencies = [
 dev = [
   "pytest>=9.0.3,<10",
   "pip-audit>=2.9,<3",
+  "ruff==0.16.5",
   "setuptools>=68",
   "wheel>=0.44",
 ]

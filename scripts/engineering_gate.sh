@@ -108,6 +108,14 @@ run_gate \
   "${python_command}" -m pytest --ignore=tests/test_distribution.py
 
 run_gate \
+  "A7 Python lint" \
+  ruff check \
+  src/exitspec/poc_source_demo.py \
+  tests/test_a7_convergence_api.py \
+  tests/test_a7_convergence_browser.py \
+  tests/test_a7_evidence_response_trust_browser.py
+
+run_gate \
   "Employee workbench JavaScript syntax" \
   node --check src/exitspec/static/app.js
 

@@ -1,12 +1,11 @@
 import json
 import re
-from contextlib import contextmanager
 import threading
+from contextlib import contextmanager
 
 import pytest
 
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
-
 
 playwright_sync = pytest.importorskip("playwright.sync_api")
 
@@ -37,7 +36,8 @@ def _complete_mixed_plan(page) -> None:
     second.locator('[name="capability_key"]').select_option("exact_tool_selection")
     second.locator('[name="operator"]').select_option("GTE")
     second.locator('[name="threshold"]').fill("0.95")
-    second.locator('[name="provenance"]').select_option("SOURCE_EXTRACTED")
+    assert second.locator('[name="provenance"]').input_value() == "HUMAN_DECLARED"
+    assert second.locator('[name="provenance"]').is_disabled()
     second.locator('[name="reviewer"]').fill("a6.browser.a4")
     second.locator('[name="rationale"]').fill("Bind the executable acceptance rule.")
 
@@ -151,19 +151,48 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
             )
             assert page.locator("#evidence-result-verdict").inner_text() == "PASS"
             assert page.locator("#evidence-pack-link").is_visible()
+            assert page.locator("#evidence-acknowledgement").is_hidden()
+            assert page.locator("#evidence-acknowledged").is_disabled()
+            assert page.locator("#start-evidence").is_hidden()
+            assert page.locator("#start-evidence").is_disabled()
+            assert page.locator(".primary-action:visible").count() == 1
+            assert page.locator(".primary-action:visible").get_attribute("id") == "handoff-evidence"
             assert evidence_start_bodies == [{
                 "acknowledgement": True,
                 "idempotency_key": evidence_start_bodies[0]["idempotency_key"],
             }]
+            before_retry = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
+            page.locator("#start-evidence").dispatch_event("click")
+            after_retry = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
+            assert after_retry["current"] == before_retry["current"]
+            assert after_retry["history"] == before_retry["history"]
+            assert len(evidence_start_bodies) == 1
             pack_url = page.locator("#evidence-pack-link").get_attribute("href")
             assert re.fullmatch(r"/artifacts/eatm_[a-f0-9]{32}/decision-packet\.html", pack_url or "")
             page.goto(f"{base_url}{pack_url}")
             assert "ExitSpec Evidence Pack" in page.title()
             assert "does not authorize deployment" in page.locator("body").inner_text()
             page.goto(f"{base_url}/app/pocs/{poc_id}/evidence")
+            assert page.locator("#decision-owner").input_value() == ""
+            assert page.locator("#decision-rationale").input_value() == ""
+            assert page.locator("#stop-evidence").is_disabled()
+            assert page.locator("#handoff-evidence").is_disabled()
+            page.locator("#decision-owner").fill("a6.named.human")
+            assert page.locator("#stop-evidence").is_enabled()
+            assert page.locator("#handoff-evidence").is_disabled()
+            page.locator("#decision-rationale").fill(
+                "Reviewed the current pack, limitations, and next action."
+            )
+            assert page.locator("#handoff-evidence").is_enabled()
             page.locator("#handoff-evidence").click()
             page.wait_for_function("document.querySelector('#handoff-evidence')?.hidden === true")
+            assert page.locator("#evidence-acknowledgement").is_hidden()
+            assert page.locator("#evidence-acknowledged").is_disabled()
+            assert page.locator("#start-evidence").is_hidden()
             assert page.locator("#start-evidence").is_disabled()
+            assert page.locator("#evidence-task-kicker").inner_text() == "Decision recorded"
+            assert page.locator("#evidence-task-heading").inner_text() == "Human decision recorded"
+            assert page.locator(".primary-action:visible").count() == 0
             page.locator("#start-evidence").dispatch_event("click")
             snapshot = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
             assert snapshot["closure"]["decision"] == "HANDOFF_COMPLETED"

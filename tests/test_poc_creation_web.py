@@ -105,7 +105,7 @@ def test_new_poc_page_and_dashboard_action_are_real_local_routes(tmp_path):
     assert b"Draft only" in page
     assert stylesheet
     assert b'const CREATE_API = "/api/pocs";' in javascript
-    assert b"Create draft POC" in page
+    assert b"Create POC and continue" in page
     assert b"Zoom" not in page
     assert b"STT" not in page
 
