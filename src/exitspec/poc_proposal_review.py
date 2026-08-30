@@ -407,7 +407,12 @@ class _IdempotencyRecord:
 class _AuthoringCommitGuard:
     """Review-lock-held commit token for the shared A2/A3 source boundary."""
 
-    __slots__ = ("_proposal_ids", "_service", "_source_key")
+    __slots__ = (
+        "_authoring_current_proposals",
+        "_proposal_ids",
+        "_service",
+        "_source_key",
+    )
 
     def __init__(
         self,
@@ -417,6 +422,9 @@ class _AuthoringCommitGuard:
         self._service = service
         self._source_key = source_key
         self._proposal_ids: frozenset[str] | None = None
+        self._authoring_current_proposals: dict[
+            tuple[str, str], frozenset[str]
+        ] | None = None
 
     def prepare(self, proposal_ids: Sequence[str]) -> None:
         if self._proposal_ids is not None:
@@ -431,11 +439,14 @@ class _AuthoringCommitGuard:
         if len(set(validated)) != len(validated):
             raise ProposalReviewInvalid("The authoring proposal set is ambiguous.")
         self._proposal_ids = frozenset(validated)
+        new_current = dict(self._service._authoring_current_proposals)
+        new_current[self._source_key] = self._proposal_ids
+        self._authoring_current_proposals = new_current
 
     def commit(self) -> None:
-        if self._proposal_ids is None:
+        if self._proposal_ids is None or self._authoring_current_proposals is None:
             raise ProposalReviewInvalid("The authoring guard was not prepared.")
-        self._service._authoring_current_proposals[self._source_key] = self._proposal_ids
+        self._service._authoring_current_proposals = self._authoring_current_proposals
 
 
 def _utc_now() -> datetime:

@@ -13,7 +13,7 @@ import json
 import math
 import re
 import time
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -41,7 +41,12 @@ from .models import (
     ProportionRule,
     TranscriptSpan,
 )
-from .poc_creation import DraftPOCArchiveState, DraftPOCNotFound, DraftPOCSnapshot
+from .poc_creation import (
+    DraftPOCArchiveState,
+    DraftPOCCommitConflict,
+    DraftPOCNotFound,
+    DraftPOCSnapshot,
+)
 
 from .providers import (
     ProviderError,
@@ -881,6 +886,28 @@ class _LocalProposalReviewCommitGuard:
         return None
 
 
+class _LocalAuthoringOwnerCommitGuard:
+    """Explicit fallback token for the unbound deterministic unit seam."""
+
+    __slots__ = ()
+
+    def prepare(self) -> None:
+        return None
+
+    def commit(self) -> None:
+        return None
+
+
+class AuthoringOwnerCommitGuard(Protocol):
+    """Owner lock token used by the final A3 publication transaction."""
+
+    def prepare(self) -> None:
+        ...
+
+    def commit(self) -> None:
+        ...
+
+
 class ProposalReviewService(Protocol):
     """Small A3 port for the existing human triage service."""
 
@@ -1294,6 +1321,8 @@ class ProcessLocalAssistedAuthoringService:
         "_endpoint",
         "_decision_lookup",
         "_review_commit_guard",
+        "_source_commit_guard",
+        "_draft_commit_guard",
         "_results_by_request",
         "_source_attempts",
         "_source_lookup",
@@ -1383,6 +1412,12 @@ class ProcessLocalAssistedAuthoringService:
         self._review_commit_guard: Callable[
             [str, str], ContextManager[ProposalReviewCommitGuard]
         ] | None = None
+        self._source_commit_guard: Callable[
+            [str, str, POCSourceSnapshot], ContextManager[AuthoringOwnerCommitGuard]
+        ] | None = None
+        self._draft_commit_guard: Callable[
+            [str, DraftPOCSnapshot], ContextManager[AuthoringOwnerCommitGuard]
+        ] | None = None
         self._idempotency: dict[str, str] = {}
         self._inflight: dict[str, _InFlightAssistedAttempt] = {}
         self._inflight_sources: dict[tuple[str, str], _InFlightAssistedAttempt] = {}
@@ -1416,6 +1451,36 @@ class ProcessLocalAssistedAuthoringService:
                 raise ValueError("commit_guard is already bound.")
             self._review_commit_guard = commit_guard
 
+    def bind_source_commit_guard(
+        self,
+        commit_guard: Callable[
+            [str, str, POCSourceSnapshot], ContextManager[AuthoringOwnerCommitGuard]
+        ],
+    ) -> None:
+        """Bind the source-owner lock used by the final A3 commit."""
+
+        if not callable(commit_guard):
+            raise TypeError("commit_guard must be callable.")
+        with self._lock:
+            if self._source_commit_guard is not None:
+                raise ValueError("source commit_guard is already bound.")
+            self._source_commit_guard = commit_guard
+
+    def bind_draft_commit_guard(
+        self,
+        commit_guard: Callable[
+            [str, DraftPOCSnapshot], ContextManager[AuthoringOwnerCommitGuard]
+        ],
+    ) -> None:
+        """Bind the draft-owner lock used by the final A3 commit."""
+
+        if not callable(commit_guard):
+            raise TypeError("commit_guard must be callable.")
+        with self._lock:
+            if self._draft_commit_guard is not None:
+                raise ValueError("draft commit_guard is already bound.")
+            self._draft_commit_guard = commit_guard
+
     def _require_no_source_decision(self, poc_id: str, source_receipt_id: str) -> None:
         lookup = self._decision_lookup
         if lookup is None:
@@ -1439,6 +1504,30 @@ class ProcessLocalAssistedAuthoringService:
                 "The source already has a human triage decision.",
                 code="attempt_conflict",
             )
+
+    def _require_coherent_guard_set(self) -> bool:
+        """Require either the complete production transaction or no ports.
+
+        The unbound mode is the deliberately deterministic unit seam. Once
+        any decision or owner port is supplied, all four owners must be
+        present so a publication cannot silently omit archive/source or human
+        decision atomicity.
+        """
+
+        guards = (
+            self._decision_lookup,
+            self._review_commit_guard,
+            self._source_commit_guard,
+            self._draft_commit_guard,
+        )
+        if any(guard is not None for guard in guards) and not all(
+            guard is not None for guard in guards
+        ):
+            raise AssistedAuthoringError(
+                "The assisted-authoring owner state is unavailable.",
+                code="service_unavailable",
+            )
+        return all(guard is not None for guard in guards)
 
     @property
     def semantics(self) -> AssistedAuthoringSemantics:
@@ -1596,6 +1685,7 @@ class ProcessLocalAssistedAuthoringService:
                 adapter_name=self._adapter_name,
                 adapter_version=self._adapter_version,
             )
+            owner_guards_bound = self._require_coherent_guard_set()
             replay: _StoredAssistedAttempt | None = None
             replay_needs_alias = False
             with self._condition:
@@ -1684,32 +1774,162 @@ class ProcessLocalAssistedAuthoringService:
                         self._inflight[key_digest] = reservation
                         self._inflight_sources[source_key] = reservation
             if replay is not None:
-                self._require_current_generation(
-                    poc_id=poc_id,
-                    source_receipt_id=source_receipt_id,
-                    draft=draft,
-                    source=source,
-                )
-                if replay_needs_alias:
+                if not owner_guards_bound:
+                    # The direct deterministic unit seam has no owner lock
+                    # ports; retain its compare-before-commit behavior
+                    # explicitly. Production binds the complete guard set.
+                    self._require_current_generation(
+                        poc_id=poc_id,
+                        source_receipt_id=source_receipt_id,
+                        draft=draft,
+                        source=source,
+                    )
                     self._require_no_source_decision(poc_id, source_receipt_id)
-                    with self._condition:
-                        already_bound = self._idempotency.get(key_digest)
-                        if already_bound is not None:
-                            if already_bound != replay.receipt.authoring_receipt_id:
-                                raise AssistedAuthoringError(
-                                    "The authoring idempotency key conflicts with an earlier request.",
-                                    code="idempotency_conflict",
+                    if replay_needs_alias:
+                        with self._condition:
+                            already_bound = self._idempotency.get(key_digest)
+                            if already_bound is not None:
+                                if already_bound != replay.receipt.authoring_receipt_id:
+                                    raise AssistedAuthoringError(
+                                        "The authoring idempotency key conflicts with an earlier request.",
+                                        code="idempotency_conflict",
+                                    )
+                                return AssistedDraftResult(
+                                    replay.receipt.model_copy(update={"idempotent_replay": True}),
+                                    replay.proposals,
                                 )
-                            return AssistedDraftResult(
-                                replay.receipt.model_copy(update={"idempotent_replay": True}),
-                                replay.proposals,
+                            if len(self._idempotency) >= self._max_idempotency_records:
+                                raise AssistedAuthoringError(
+                                    "The process-local assisted-authoring idempotency store is at capacity.",
+                                    code="capacity_exceeded",
+                                )
+                            new_idempotency = dict(self._idempotency)
+                            new_idempotency[key_digest] = replay.receipt.authoring_receipt_id
+                            self._idempotency = new_idempotency
+                elif replay_needs_alias:
+                    # Alias publication uses the same source -> draft -> review
+                    # lock order as a fresh result. The owner guards validate
+                    # the captured generation while held; review commit is
+                    # copy-on-write, so a fault occurs before the alias swap.
+                    try:
+                        source_guard_context = self._source_commit_guard(
+                            poc_id,
+                            source_receipt_id,
+                            source,
+                        )
+                        draft_guard_context = self._draft_commit_guard(poc_id, draft)
+                        review_guard_context = self._review_commit_guard(
+                            poc_id,
+                            source_receipt_id,
+                        )
+                        with ExitStack() as alias_guards:
+                            source_guard = alias_guards.enter_context(source_guard_context)
+                            draft_guard = alias_guards.enter_context(draft_guard_context)
+                            review_guard = alias_guards.enter_context(review_guard_context)
+                            source_guard.prepare()
+                            draft_guard.prepare()
+                            review_guard.prepare(
+                                tuple(item.proposal_id for item in replay.proposals)
                             )
-                        if len(self._idempotency) >= self._max_idempotency_records:
-                            raise AssistedAuthoringError(
-                                "The process-local assisted-authoring idempotency store is at capacity.",
-                                code="capacity_exceeded",
+                            with self._condition:
+                                already_bound = self._idempotency.get(key_digest)
+                                if already_bound is not None:
+                                    if already_bound != replay.receipt.authoring_receipt_id:
+                                        raise AssistedAuthoringError(
+                                            "The authoring idempotency key conflicts with an earlier request.",
+                                            code="idempotency_conflict",
+                                        )
+                                    return AssistedDraftResult(
+                                        replay.receipt.model_copy(update={"idempotent_replay": True}),
+                                        replay.proposals,
+                                    )
+                                if len(self._idempotency) >= self._max_idempotency_records:
+                                    raise AssistedAuthoringError(
+                                        "The process-local assisted-authoring idempotency store is at capacity.",
+                                        code="capacity_exceeded",
+                                    )
+                                new_idempotency = dict(self._idempotency)
+                                new_idempotency[key_digest] = replay.receipt.authoring_receipt_id
+                                source_guard.commit()
+                                draft_guard.commit()
+                                review_guard.commit()
+                                self._idempotency = new_idempotency
+                    except ProposalReviewDecisionConflict:
+                        raise AssistedAuthoringError(
+                            "The source already has a human triage decision.",
+                            code="attempt_conflict",
+                        ) from None
+                    except POCSourceIntakeRevisionRequired:
+                        raise AssistedAuthoringError(
+                            "The assisted-authoring source changed during authoring.",
+                            code="source_stale",
+                        ) from None
+                    except POCSourceIntakeInvalid:
+                        raise AssistedAuthoringError(
+                            "The assisted-authoring source is unavailable.",
+                            code="source_unavailable",
+                        ) from None
+                    except DraftPOCCommitConflict:
+                        raise AssistedAuthoringError(
+                            "The draft POC changed during assisted authoring.",
+                            code="source_stale",
+                        ) from None
+                    except DraftPOCNotFound:
+                        raise AssistedAuthoringError(
+                            "The draft POC is unavailable in this process.",
+                            code="source_unavailable",
+                        ) from None
+                    except AssistedAuthoringError:
+                        raise
+                    except Exception:
+                        raise AssistedAuthoringError(
+                            "Assisted authoring is temporarily unavailable.",
+                            code="service_unavailable",
+                        ) from None
+                else:
+                    # An exact replay has no new write, but it must still
+                    # validate the current source and active draft. The owner
+                    # guards close the same archive/revision window used by a
+                    # fresh publication.
+                    try:
+                        with ExitStack() as replay_guards:
+                            replay_guards.enter_context(
+                                self._source_commit_guard(
+                                    poc_id,
+                                    source_receipt_id,
+                                    source,
+                                )
                             )
-                        self._idempotency[key_digest] = replay.receipt.authoring_receipt_id
+                            replay_guards.enter_context(
+                                self._draft_commit_guard(poc_id, draft)
+                            )
+                    except POCSourceIntakeRevisionRequired:
+                        raise AssistedAuthoringError(
+                            "The assisted-authoring source changed during authoring.",
+                            code="source_stale",
+                        ) from None
+                    except POCSourceIntakeInvalid:
+                        raise AssistedAuthoringError(
+                            "The assisted-authoring source is unavailable.",
+                            code="source_unavailable",
+                        ) from None
+                    except DraftPOCCommitConflict:
+                        raise AssistedAuthoringError(
+                            "The draft POC changed during assisted authoring.",
+                            code="source_stale",
+                        ) from None
+                    except DraftPOCNotFound:
+                        raise AssistedAuthoringError(
+                            "The draft POC is unavailable in this process.",
+                            code="source_unavailable",
+                        ) from None
+                    except AssistedAuthoringError:
+                        raise
+                    except Exception:
+                        raise AssistedAuthoringError(
+                            "Assisted authoring is temporarily unavailable.",
+                            code="service_unavailable",
+                        ) from None
                 return AssistedDraftResult(
                     replay.receipt.model_copy(update={"idempotent_replay": True}),
                     replay.proposals,
@@ -1717,11 +1937,7 @@ class ProcessLocalAssistedAuthoringService:
 
         try:
             self._require_no_source_decision(poc_id, source_receipt_id)
-            if self._decision_lookup is not None and self._review_commit_guard is None:
-                raise AssistedAuthoringError(
-                    "The current proposal decision state is unavailable.",
-                    code="service_unavailable",
-                )
+            owner_guards_bound = self._require_coherent_guard_set()
             request = _source_neutral_provider_request(source, model=self._model)
             try:
                 provider_result = self._executor.execute(request)
@@ -1858,13 +2074,6 @@ class ProcessLocalAssistedAuthoringService:
                 receipt=result_receipt,
                 proposals=tuple(proposal_values),
             )
-            self._require_current_generation(
-                poc_id=poc_id,
-                source_receipt_id=source_receipt_id,
-                draft=draft,
-                source=source,
-            )
-            self._require_no_source_decision(poc_id, source_receipt_id)
             # Executor metadata is an independently mutable boundary. This check is
             # deliberately outside the review guard: a decision injected by a
             # metadata accessor must be observed by the atomic guard below.
@@ -1875,25 +2084,50 @@ class ProcessLocalAssistedAuthoringService:
                 expected_provider=self._provider,
                 expected_endpoint=self._endpoint,
             )
+            if not owner_guards_bound:
+                # The direct deterministic unit seam has no owner lock port;
+                # retain its compare-before-commit behavior explicitly. A
+                # production service with decision lookup bound fails closed
+                # above unless all owner guards are present.
+                self._require_current_generation(
+                    poc_id=poc_id,
+                    source_receipt_id=source_receipt_id,
+                    draft=draft,
+                    source=source,
+                )
+            source_guard_context = (
+                self._source_commit_guard(
+                    poc_id,
+                    source_receipt_id,
+                    source,
+                )
+                if self._source_commit_guard is not None
+                else nullcontext(_LocalAuthoringOwnerCommitGuard())
+            )
+            draft_guard_context = (
+                self._draft_commit_guard(poc_id, draft)
+                if self._draft_commit_guard is not None
+                else nullcontext(_LocalAuthoringOwnerCommitGuard())
+            )
             review_guard_context = (
                 self._review_commit_guard(poc_id, source_receipt_id)
                 if self._review_commit_guard is not None
                 else nullcontext(_LocalProposalReviewCommitGuard())
             )
             try:
-                with review_guard_context as review_guard:
-                    # The review guard performs the final decision check while its
-                    # lock is held. It also records the exact replacement IDs before
-                    # releasing the lock, so a waiter with an old A2 lookup cannot
-                    # commit a stale decision afterward.
+                with ExitStack() as commit_guards:
+                    # The complete process-local lock order is
+                    # source -> draft -> review -> assisted publication. Source
+                    # attachment already uses source -> draft. Review lookup is
+                    # performed before its lock, matching decide(); no lock is
+                    # acquired by a callback in the reverse direction.
+                    source_guard = commit_guards.enter_context(source_guard_context)
+                    draft_guard = commit_guards.enter_context(draft_guard_context)
+                    review_guard = commit_guards.enter_context(review_guard_context)
+                    source_guard.prepare()
+                    draft_guard.prepare()
                     review_guard.prepare(
                         tuple(item.proposal_id for item in proposal_values)
-                    )
-                    self._require_current_generation(
-                        poc_id=poc_id,
-                        source_receipt_id=source_receipt_id,
-                        draft=draft,
-                        source=source,
                     )
                     with self._condition:
                         if self._inflight.get(key_digest) != reservation:
@@ -1901,17 +2135,58 @@ class ProcessLocalAssistedAuthoringService:
                                 "The assisted-authoring reservation is unavailable.",
                                 code="service_unavailable",
                             )
-                        self._results_by_request[authoring_receipt_id] = stored
-                        self._source_attempts[(poc_id, source.source_id)] = stored
-                        self._idempotency[key_digest] = authoring_receipt_id
+                        # Build every authoring-store copy from the current
+                        # state while holding the publication condition. Two
+                        # provider completions may otherwise copy the same
+                        # old maps and the later pointer swap could erase the
+                        # earlier successful source attempt.
+                        new_results_by_request = dict(self._results_by_request)
+                        new_results_by_request[authoring_receipt_id] = stored
+                        new_source_attempts = dict(self._source_attempts)
+                        new_source_attempts[(poc_id, source.source_id)] = stored
+                        new_idempotency = dict(self._idempotency)
+                        new_idempotency[key_digest] = authoring_receipt_id
+                        new_inflight = dict(self._inflight)
+                        new_inflight.pop(key_digest, None)
+                        new_inflight_sources = dict(self._inflight_sources)
+                        new_inflight_sources.pop((poc_id, source.source_id), None)
+                        # All fallible owner hooks run before publication. The
+                        # remaining operations are pointer swaps under the
+                        # assisted lock, so an injected review commit failure
+                        # leaves every externally meaningful store unchanged.
+                        source_guard.commit()
+                        draft_guard.commit()
                         review_guard.commit()
-                        self._inflight.pop(key_digest, None)
-                        self._inflight_sources.pop((poc_id, source.source_id), None)
+                        self._results_by_request = new_results_by_request
+                        self._source_attempts = new_source_attempts
+                        self._idempotency = new_idempotency
+                        self._inflight = new_inflight
+                        self._inflight_sources = new_inflight_sources
                         self._condition.notify_all()
             except ProposalReviewDecisionConflict:
                 raise AssistedAuthoringError(
                     "The source already has a human triage decision.",
                     code="attempt_conflict",
+                ) from None
+            except POCSourceIntakeRevisionRequired:
+                raise AssistedAuthoringError(
+                    "The assisted-authoring source changed during authoring.",
+                    code="source_stale",
+                ) from None
+            except POCSourceIntakeInvalid:
+                raise AssistedAuthoringError(
+                    "The assisted-authoring source is unavailable.",
+                    code="source_unavailable",
+                ) from None
+            except DraftPOCCommitConflict:
+                raise AssistedAuthoringError(
+                    "The draft POC changed during assisted authoring.",
+                    code="source_stale",
+                ) from None
+            except DraftPOCNotFound:
+                raise AssistedAuthoringError(
+                    "The draft POC is unavailable in this process.",
+                    code="source_unavailable",
                 ) from None
             return AssistedDraftResult(result_receipt, stored.proposals)
         except AssistedAuthoringError:
@@ -2256,6 +2531,7 @@ __all__ = [
     "AssistedAuthoringReceipt",
     "AssistedDraftProposal",
     "AssistedDraftResult",
+    "AuthoringOwnerCommitGuard",
     "CurrentAssistedProposalProjection",
     "NumericProposalMaterial",
     "ProposalReviewCommitGuard",

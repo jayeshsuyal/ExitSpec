@@ -14,6 +14,7 @@ name the latest ``source_id`` in ``revises_source_id``.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -511,6 +512,18 @@ class _IdempotencyRecord:
     source_id: str
 
 
+class _AuthoringCommitGuard:
+    """A source-owner lock token for an atomic source-bound publication."""
+
+    __slots__ = ()
+
+    def prepare(self) -> None:
+        return None
+
+    def commit(self) -> None:
+        return None
+
+
 def _default_clock() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -660,6 +673,51 @@ class ProcessLocalPOCSourceService:
         if draft.archive_state != DraftPOCArchiveState.ACTIVE:
             raise POCSourceDraftArchived("Archived draft POCs cannot accept sources.")
         return draft
+
+    @contextmanager
+    def authoring_commit_guard(
+        self,
+        poc_id: str,
+        source_id: str,
+        expected_source: POCSourceSnapshot,
+    ):
+        """Hold the source owner lock while an A3 publication is prepared.
+
+        Source attachment already takes this lock before looking up the draft;
+        A3 follows the same ``source -> draft`` order. The expected immutable
+        source and latest identity are checked while the source lock is held,
+        so a revision cannot pass a final unlocked read and race publication.
+        """
+
+        validated_poc_id = _validate_poc_id(poc_id)
+        validated_source_id = _validate_source_id(source_id)
+        if (
+            type(expected_source) is not POCSourceSnapshot
+            or expected_source.poc_id != validated_poc_id
+            or expected_source.source_id != validated_source_id
+        ):
+            raise POCSourceStaleRevision(
+                "The source owner snapshot does not match the requested source."
+            )
+        with self._lock:
+            self._require_active_draft(validated_poc_id)
+            current = self._by_id.get((validated_poc_id, validated_source_id))
+            if current is None:
+                raise POCSourceNotFound(
+                    "Attached source is not present beneath this POC."
+                )
+            latest = self._identity_latest.get(
+                (validated_poc_id, current.kind, current.external_id)
+            )
+            if (
+                current != expected_source
+                or latest is None
+                or latest.source_id != current.source_id
+            ):
+                raise POCSourceStaleRevision(
+                    "The source changed during assisted authoring."
+                )
+            yield _AuthoringCommitGuard()
 
     def attach(
         self,

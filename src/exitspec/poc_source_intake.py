@@ -9,6 +9,7 @@ source-anchored ``NEEDS_REVIEW`` input for a later human-review boundary.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -38,9 +39,12 @@ from .poc_proposal_review import (
 from .poc_sources import (
     EXTERNAL_ID_PATTERN,
     POCSourceAttachmentResult,
+    POCSourceDraftArchived,
+    POCSourceDraftUnavailable,
     POCSourceRevisionRequired,
     POCSourceNotFound,
     POCSourceSnapshot,
+    POCSourceStaleRevision,
     PreparedPOCSource,
     PreparedRequirementCandidate,
     ProcessLocalPOCSourceService,
@@ -566,6 +570,50 @@ class ProcessLocalPOCSourceIntake:
                 "The source receipt is stale; use the latest source revision."
             )
         return snapshot
+
+    @contextmanager
+    def authoring_commit_guard(
+        self,
+        poc_id: str,
+        source_receipt_id: str,
+        expected_source: POCSourceSnapshot,
+    ):
+        """Hold the source owner lock for an atomic A3 publication.
+
+        The source service owns the lock and validates the exact immutable
+        snapshot. This adapter exposes that transaction without leaking a
+        private service lock to the demo runtime.
+        """
+
+        if (
+            type(source_receipt_id) is not str
+            or re.fullmatch(_RECEIPT_ID_PATTERN, source_receipt_id) is None
+        ):
+            raise POCSourceIntakeInvalid(
+                "The source receipt is outside its supported bounds."
+            )
+        if type(expected_source) is not POCSourceSnapshot:
+            raise POCSourceIntakeInvalid("The source snapshot is unavailable.")
+        source_id = "src_" + source_receipt_id.removeprefix("srcpt_")
+        try:
+            with self._source_service.authoring_commit_guard(
+                poc_id,
+                source_id,
+                expected_source,
+            ) as guard:
+                yield guard
+        except POCSourceStaleRevision:
+            raise POCSourceIntakeRevisionRequired(
+                "The source changed during assisted authoring."
+            ) from None
+        except (
+            POCSourceDraftArchived,
+            POCSourceDraftUnavailable,
+            POCSourceNotFound,
+        ):
+            raise POCSourceIntakeInvalid(
+                "The source is unavailable for assisted authoring."
+            ) from None
 
     def capture_source(
         self,

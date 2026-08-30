@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from http.client import HTTPConnection
+import hashlib
 import json
 from pathlib import Path
 import threading
@@ -15,6 +17,7 @@ import pytest
 from exitspec.assisted_authoring import (
     ASSISTED_AUTHORING_MODEL,
     AssistedAuthoringError,
+    AssistedDraftResult,
     NumericProposalMaterial,
     ProcessLocalAssistedAuthoringService,
     SourceNeutralProposalBatch,
@@ -41,7 +44,11 @@ from exitspec.poc_source_intake import (
     POCSourceInput,
     ProcessLocalPOCSourceIntake,
 )
-from exitspec.poc_sources import SourceKind
+from exitspec.poc_sources import (
+    PreparedPOCSource,
+    PreparedRequirementCandidate,
+    SourceKind,
+)
 from exitspec.providers import (
     ProviderError,
     ProviderErrorCode,
@@ -967,7 +974,7 @@ def test_a3_current_review_projection_preserves_decided_membership_and_binding()
 
 
 def test_a3_existing_decision_blocks_new_authoring_without_orphaning_decision():
-    _, intake, service = _runtime("poc_a3_decision_guard")
+    drafts, intake, service = _runtime("poc_a3_decision_guard")
     source_receipt_id = _attach_document(intake, "poc_a3_decision_guard")
     review = ProcessLocalProposalReviewService(
         proposal_lookup=intake.proposal_inputs,
@@ -975,6 +982,8 @@ def test_a3_existing_decision_blocks_new_authoring_without_orphaning_decision():
     )
     service.bind_decision_lookup(review.source_has_decision)
     service.bind_review_commit_guard(review.authoring_commit_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
     prior = review.list_proposals("poc_a3_decision_guard")[0]
     review.decide(
         "poc_a3_decision_guard",
@@ -997,7 +1006,7 @@ def test_a3_existing_decision_blocks_new_authoring_without_orphaning_decision():
 
 def test_a3_inflight_authoring_discards_result_when_decision_lands():
     executor = BlockingExecutor(_valid_payload())
-    _, intake, service = _runtime("poc_a3_decision_race", executor=executor)
+    drafts, intake, service = _runtime("poc_a3_decision_race", executor=executor)
     source_receipt_id = _attach_document(intake, "poc_a3_decision_race")
     review = ProcessLocalProposalReviewService(
         proposal_lookup=intake.proposal_inputs,
@@ -1005,6 +1014,8 @@ def test_a3_inflight_authoring_discards_result_when_decision_lands():
     )
     service.bind_decision_lookup(review.source_has_decision)
     service.bind_review_commit_guard(review.authoring_commit_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
     prior = review.list_proposals("poc_a3_decision_race")[0]
     outcome = []
 
@@ -1092,6 +1103,8 @@ def test_a3_atomic_final_review_guard_prevents_decision_orphan_race(decision):
     )
     service.bind_decision_lookup(review.source_has_decision)
     service.bind_review_commit_guard(review.authoring_commit_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
 
     with pytest.raises(AssistedAuthoringError) as caught:
         service.create_assisted_draft(
@@ -1109,6 +1122,489 @@ def test_a3_atomic_final_review_guard_prevents_decision_orphan_race(decision):
     assert service._source_attempts == {}
     assert service._idempotency == {}
     assert service._inflight == {}
+
+
+def _assert_a3_attempt_unpublished(service):
+    assert service._results_by_request == {}
+    assert service._source_attempts == {}
+    assert service._idempotency == {}
+    assert service._inflight == {}
+    assert service._inflight_sources == {}
+
+
+def test_a3_source_owner_guard_rejects_revision_in_last_publication_window():
+    poc_id = "poc_a3_source_last_window"
+    drafts, intake, _ = _runtime(poc_id)
+    source_receipt_id = _attach_document(intake, poc_id)
+    expected_source = intake.source_snapshot(poc_id, source_receipt_id)
+    revised_text = "The error rate must remain below 2%."
+    revised = PreparedPOCSource(
+        kind=expected_source.kind,
+        external_id=expected_source.external_id,
+        redacted_text=revised_text,
+        content_sha256=hashlib.sha256(revised_text.encode("utf-8")).hexdigest(),
+        candidates=(
+            PreparedRequirementCandidate(
+                candidate_id="cand_revision_001",
+                source_quote=revised_text,
+                normalized_claim=revised_text,
+            ),
+        ),
+        adapter_name=expected_source.adapter_name,
+        adapter_version=expected_source.adapter_version,
+        redaction_policy_version=expected_source.redaction_policy_version,
+        observed_at=NOW,
+        revises_source_id=expected_source.source_id,
+    )
+
+    @contextmanager
+    def raced_source_guard(poc_id, source_receipt_id, expected_source):
+        intake._source_service.attach(
+            poc_id,
+            revised,
+            "source-last-window-revision",
+        )
+        with intake.authoring_commit_guard(
+            poc_id,
+            source_receipt_id,
+            expected_source,
+        ) as guard:
+            yield guard
+
+    executor = PayloadExecutor(_valid_payload())
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=intake.source_snapshot,
+        draft_lookup=drafts.get,
+        executor=executor,
+        provider=executor.provider_name,
+        endpoint=executor.endpoint,
+        clock=lambda: NOW,
+    )
+    service.bind_source_commit_guard(raced_source_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review.authoring_commit_guard)
+
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="source-last-window-authoring",
+        )
+    assert caught.value.code == "source_stale"
+    _assert_a3_attempt_unpublished(service)
+    snapshots = intake._source_service.snapshots(poc_id)
+    assert snapshots[-1].source_revision == expected_source.source_revision + 1
+    assert snapshots[-1].source_id != expected_source.source_id
+
+
+def test_a3_draft_owner_guard_rejects_archive_in_last_publication_window():
+    poc_id = "poc_a3_archive_last_window"
+    drafts, intake, _ = _runtime(poc_id)
+    source_receipt_id = _attach_document(intake, poc_id)
+
+    @contextmanager
+    def raced_draft_guard(poc_id, expected_draft):
+        drafts.archive(poc_id)
+        with drafts.authoring_commit_guard(poc_id, expected_draft) as guard:
+            yield guard
+
+    executor = PayloadExecutor(_valid_payload())
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=intake.source_snapshot,
+        draft_lookup=drafts.get,
+        executor=executor,
+        provider=executor.provider_name,
+        endpoint=executor.endpoint,
+        clock=lambda: NOW,
+    )
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(raced_draft_guard)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review.authoring_commit_guard)
+
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="archive-last-window-authoring",
+        )
+    assert caught.value.code == "source_unavailable"
+    assert drafts.get(poc_id).archive_state.value == "ARCHIVED"
+    _assert_a3_attempt_unpublished(service)
+
+
+def test_a3_review_commit_fault_has_zero_partial_state_and_replays_after_abort():
+    poc_id = "poc_a3_review_commit_fault"
+    drafts, intake, service = _runtime(poc_id)
+    source_receipt_id = _attach_document(intake, poc_id)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    failing = {"value": True}
+
+    @contextmanager
+    def faulting_review_guard(poc_id, source_receipt_id):
+        with review.authoring_commit_guard(poc_id, source_receipt_id) as guard:
+            class Token:
+                def prepare(self, proposal_ids):
+                    guard.prepare(proposal_ids)
+
+                def commit(self):
+                    if failing["value"]:
+                        raise RuntimeError("injected review commit failure")
+                    guard.commit()
+
+            yield Token()
+
+    service.bind_review_commit_guard(faulting_review_guard)
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="review-commit-fault",
+        )
+    assert caught.value.code == "service_unavailable"
+    _assert_a3_attempt_unpublished(service)
+    assert review.list_proposals(poc_id)[0].review_state is ProposalReviewState.NEEDS_REVIEW
+
+    failing["value"] = False
+    committed = service.create_assisted_draft(
+        poc_id=poc_id,
+        source_receipt_id=source_receipt_id,
+        idempotency_key="review-commit-fault",
+    )
+    replay = service.create_assisted_draft(
+        poc_id=poc_id,
+        source_receipt_id=source_receipt_id,
+        idempotency_key="review-commit-fault",
+    )
+    assert replay.receipt.idempotent_replay is True
+    assert replay.receipt.authoring_receipt_id == committed.receipt.authoring_receipt_id
+    assert replay.proposals == committed.proposals
+
+
+def test_a3_review_guard_reentrant_decision_fails_closed_without_partial_state():
+    poc_id = "poc_a3_reentrant_decision"
+    drafts, intake, service = _runtime(poc_id)
+    source_receipt_id = _attach_document(intake, poc_id)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    prior = review.list_proposals(poc_id)[0]
+
+    @contextmanager
+    def reentrant_review_guard(poc_id, source_receipt_id):
+        with review.authoring_commit_guard(poc_id, source_receipt_id) as guard:
+            review.decide(
+                poc_id,
+                prior.proposal_id,
+                ProposalDecision.DISCARD,
+                "named.employee",
+                "Attempt a reentrant decision during authoring commit.",
+                "reentrant-decision",
+            )
+            yield guard
+
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(reentrant_review_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="reentrant-authoring",
+        )
+    assert caught.value.code == "attempt_conflict"
+    _assert_a3_attempt_unpublished(service)
+    assert review.list_proposals(poc_id)[0].review_state is ProposalReviewState.NEEDS_REVIEW
+
+
+def test_a3_review_waiter_finishes_without_deadlock_and_rejects_stale_decision():
+    poc_id = "poc_a3_stale_decision_waiter"
+    drafts, intake, service = _runtime(poc_id)
+    source_receipt_id = _attach_document(intake, poc_id)
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=intake.proposal_inputs,
+        clock=lambda: NOW,
+    )
+    prior = review.list_proposals(poc_id)[0]
+    prepared = threading.Event()
+    release = threading.Event()
+
+    @contextmanager
+    def slow_review_guard(poc_id, source_receipt_id):
+        with review.authoring_commit_guard(poc_id, source_receipt_id) as guard:
+            class Token:
+                def prepare(self, proposal_ids):
+                    guard.prepare(proposal_ids)
+                    prepared.set()
+                    assert release.wait(timeout=2)
+
+                def commit(self):
+                    guard.commit()
+
+            yield Token()
+
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(slow_review_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    author_result = []
+    decision_result = []
+
+    def author():
+        try:
+            author_result.append(
+                service.create_assisted_draft(
+                    poc_id=poc_id,
+                    source_receipt_id=source_receipt_id,
+                    idempotency_key="stale-waiter-authoring",
+                )
+            )
+        except Exception as error:
+            author_result.append(error)
+
+    def decide():
+        try:
+            decision_result.append(
+                review.decide(
+                    poc_id,
+                    prior.proposal_id,
+                    ProposalDecision.DISCARD,
+                    "named.employee",
+                    "Decision arrived while authoring was committing.",
+                    "stale-waiter-decision",
+                )
+            )
+        except Exception as error:
+            decision_result.append(error)
+
+    author_thread = threading.Thread(target=author)
+    author_thread.start()
+    assert prepared.wait(timeout=2)
+    decision_thread = threading.Thread(target=decide)
+    decision_thread.start()
+    release.set()
+    author_thread.join(timeout=5)
+    decision_thread.join(timeout=5)
+    assert not author_thread.is_alive()
+    assert not decision_thread.is_alive()
+    assert len(author_result) == 1 and isinstance(author_result[0], AssistedDraftResult)
+    assert len(decision_result) == 1
+    assert isinstance(decision_result[0], ProposalReviewStaleProposal)
+    assert service.list_receipts(poc_id)[0].authoring_receipt_id == author_result[0].receipt.authoring_receipt_id
+
+
+def test_a3_concurrent_two_source_publications_preserve_all_authoring_maps():
+    executor = PayloadExecutor(_valid_payload())
+    executor.barrier = threading.Barrier(2)
+
+    def synchronized_execute(request):
+        executor.requests.append(request)
+        executor.barrier.wait(timeout=3)
+        return StructuredJSONResult(
+            output=executor.payload,
+            receipt=_safe_provider_receipt(),
+        )
+
+    executor.execute = synchronized_execute
+    poc_ids = ("poc_a3_concurrent_one", "poc_a3_concurrent_two")
+    drafts, intake, service = _runtime(*poc_ids, executor=executor)
+    receipts = {
+        poc_id: _attach_document(intake, poc_id, key="capture-" + poc_id)
+        for poc_id in poc_ids
+    }
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=lambda poc_id: (
+            service.proposal_inputs(poc_id) or intake.proposal_inputs(poc_id)
+        ),
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review.authoring_commit_guard)
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+    service.bind_draft_commit_guard(drafts.authoring_commit_guard)
+    outcomes = []
+
+    def author(poc_id):
+        try:
+            outcomes.append(
+                service.create_assisted_draft(
+                    poc_id=poc_id,
+                    source_receipt_id=receipts[poc_id],
+                    idempotency_key="author-" + poc_id,
+                )
+            )
+        except Exception as error:
+            outcomes.append(error)
+
+    threads = [threading.Thread(target=author, args=(poc_id,)) for poc_id in poc_ids]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+    assert len(outcomes) == 2
+    assert all(isinstance(outcome, AssistedDraftResult) for outcome in outcomes)
+    assert len(service._results_by_request) == 2
+    assert len(service._source_attempts) == 2
+    assert len(service._idempotency) == 2
+    assert service._inflight == {}
+    assert service._inflight_sources == {}
+    for poc_id in poc_ids:
+        assert len(service.list_receipts(poc_id)) == 1
+        assert len(review.list_proposals(poc_id)) == 1
+
+
+@pytest.mark.parametrize(
+    "failure_mode, expected_code",
+    (
+        ("revision", "source_stale"),
+        ("archive", "source_unavailable"),
+        ("decided", "attempt_conflict"),
+        ("fault", "service_unavailable"),
+    ),
+)
+def test_a3_alias_publication_is_atomic_on_owner_revision_archive_decision_or_fault(
+    failure_mode,
+    expected_code,
+):
+    poc_id = "poc_a3_alias_" + failure_mode
+    drafts, intake, _ = _runtime(poc_id)
+    source_receipt_id = _attach_document(intake, poc_id)
+    expected_source = intake.source_snapshot(poc_id, source_receipt_id)
+    revised_text = "The error rate must remain below 2%."
+    revised = PreparedPOCSource(
+        kind=expected_source.kind,
+        external_id=expected_source.external_id,
+        redacted_text=revised_text,
+        content_sha256=hashlib.sha256(revised_text.encode("utf-8")).hexdigest(),
+        candidates=(
+            PreparedRequirementCandidate(
+                candidate_id="cand_alias_revision_001",
+                source_quote=revised_text,
+                normalized_claim=revised_text,
+            ),
+        ),
+        adapter_name=expected_source.adapter_name,
+        adapter_version=expected_source.adapter_version,
+        redaction_policy_version=expected_source.redaction_policy_version,
+        observed_at=NOW,
+        revises_source_id=expected_source.source_id,
+    )
+    mode = {"value": "normal"}
+    review = None
+    first = None
+
+    @contextmanager
+    def source_guard(poc_id, source_receipt_id, expected_source):
+        if mode["value"] == "revision":
+            intake._source_service.attach(
+                poc_id,
+                revised,
+                "alias-last-window-revision",
+            )
+        with intake.authoring_commit_guard(
+            poc_id,
+            source_receipt_id,
+            expected_source,
+        ) as guard:
+            yield guard
+
+    @contextmanager
+    def draft_guard(poc_id, expected_draft):
+        if mode["value"] == "archive":
+            drafts.archive(poc_id)
+        with drafts.authoring_commit_guard(poc_id, expected_draft) as guard:
+            yield guard
+
+    @contextmanager
+    def review_guard(poc_id, source_receipt_id):
+        assert review is not None
+        if mode["value"] == "decided":
+            assert first is not None
+            review.decide(
+                poc_id,
+                first.proposals[0].proposal_id,
+                ProposalDecision.KEEP_FOR_CONTRACT,
+                "named.employee",
+                "Keep the existing result before alias retry.",
+                "alias-decision-before-guard",
+            )
+        with review.authoring_commit_guard(poc_id, source_receipt_id) as guard:
+            class Token:
+                def prepare(self, proposal_ids):
+                    guard.prepare(proposal_ids)
+
+                def commit(self):
+                    if mode["value"] == "fault":
+                        raise RuntimeError("injected alias commit failure")
+                    guard.commit()
+
+            yield Token()
+
+    executor = PayloadExecutor(_valid_payload())
+    service = ProcessLocalAssistedAuthoringService(
+        source_lookup=intake.source_snapshot,
+        draft_lookup=drafts.get,
+        executor=executor,
+        provider=executor.provider_name,
+        endpoint=executor.endpoint,
+        clock=lambda: NOW,
+    )
+    review = ProcessLocalProposalReviewService(
+        proposal_lookup=lambda poc_id: (
+            service.proposal_inputs(poc_id) or intake.proposal_inputs(poc_id)
+        ),
+        clock=lambda: NOW,
+    )
+    service.bind_decision_lookup(review.source_has_decision)
+    service.bind_review_commit_guard(review_guard)
+    service.bind_source_commit_guard(source_guard)
+    service.bind_draft_commit_guard(draft_guard)
+    first = service.create_assisted_draft(
+        poc_id=poc_id,
+        source_receipt_id=source_receipt_id,
+        idempotency_key="alias-original",
+    )
+    before_keys = dict(service._idempotency)
+    before_attempts = dict(service._source_attempts)
+    mode["value"] = failure_mode
+
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id=poc_id,
+            source_receipt_id=source_receipt_id,
+            idempotency_key="alias-retry-" + failure_mode,
+        )
+    assert caught.value.code == expected_code
+    assert service._idempotency == before_keys
+    assert service._source_attempts == before_attempts
+    assert service._inflight == {}
+    assert service._inflight_sources == {}
+    if failure_mode == "revision":
+        assert service.list_receipts(poc_id) == ()
+    elif failure_mode == "archive":
+        with pytest.raises(AssistedAuthoringError) as unavailable:
+            service.list_receipts(poc_id)
+        assert unavailable.value.code == "source_unavailable"
+    else:
+        assert service.list_receipts(poc_id)[0].authoring_receipt_id == first.receipt.authoring_receipt_id
 
 
 def test_a3_executor_metadata_is_required_and_rechecked_before_write():
@@ -1183,6 +1679,26 @@ def test_a3_executor_metadata_is_required_and_rechecked_before_write():
         )
     assert caught.value.code == "invalid_output"
     assert service.list_receipts("poc_a3_metadata_changes_during_attempt") == ()
+
+
+def test_a3_partial_transaction_guard_set_fails_before_provider_execution():
+    executor = PayloadExecutor(_valid_payload())
+    drafts, intake, service = _runtime(
+        "poc_a3_partial_guard_set",
+        executor=executor,
+    )
+    source_receipt_id = _attach_document(intake, "poc_a3_partial_guard_set")
+    service.bind_source_commit_guard(intake.authoring_commit_guard)
+
+    with pytest.raises(AssistedAuthoringError) as caught:
+        service.create_assisted_draft(
+            poc_id="poc_a3_partial_guard_set",
+            source_receipt_id=source_receipt_id,
+            idempotency_key="partial-guard-set",
+        )
+    assert caught.value.code == "service_unavailable"
+    assert executor.requests == []
+    _assert_a3_attempt_unpublished(service)
 
 
 def test_a3_stale_source_fails_closed_and_cannot_reenter_review_queue():
