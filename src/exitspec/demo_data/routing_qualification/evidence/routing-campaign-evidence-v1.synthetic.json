@@ -1,0 +1,67 @@
+{
+  "schema_version": "exitspec.routing-campaign-evidence-bundle.v1",
+  "protocol_id": "routing_campaign_verification_v1",
+  "evidence_class": "SYNTHETIC_FIXTURE",
+  "contract_sha256": "66a6642ab761e8430e0a955e4b43de4779dda12fa08207ad25bb708c858bd260",
+  "runs": [
+    {
+      "schema_version": "exitspec.routing-campaign-evidence.v1",
+      "protocol_id": "routing_campaign_verification_v1",
+      "evidence_class": "SYNTHETIC_FIXTURE",
+      "contract_sha256": "66a6642ab761e8430e0a955e4b43de4779dda12fa08207ad25bb708c858bd260",
+      "run_id": "synthetic-run-1",
+      "repetition_index": 1,
+      "candidate_policy_id": "candidate-policy-v1",
+      "candidate_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseline_policy_id": "baseline-policy-v1",
+      "baseline_policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "routing_configuration_id": "routing-config-v1",
+      "routing_configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "request_trace_id": "request-trace-v1",
+      "request_trace_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "failure_injection_id": "no-failure-injection-v1",
+      "failure_injection_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "serving": {
+        "schema_version": "exitspec.routing-campaign-serving-evidence.v1",
+        "engine": "engine-neutral",
+        "engine_version": "1.0.0",
+        "model": "model-neutral",
+        "model_revision": "revision-123456",
+        "tokenizer": "tokenizer-neutral",
+        "tokenizer_revision": "tokenizer-123456",
+        "quantization": "unquantized",
+        "tensor_parallel_size": 1,
+        "environment_id": "environment-v1",
+        "environment_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "target_engine_version": "1.0.0",
+        "target_model_revision": "revision-123456",
+        "target_tokenizer_revision": "tokenizer-123456",
+        "gpu_model": "synthetic-gpu",
+        "gpu_count": 1,
+        "cuda_version": "synthetic-cuda",
+        "driver_version": "synthetic-driver",
+        "execution_environment_id": "environment-v1"
+      },
+      "telemetry": {
+        "schema_version": "exitspec.routing-campaign-telemetry-capsule.v1",
+        "telemetry_capsule_id": "synthetic-telemetry-run-1",
+        "telemetry_capsule_sha256": "ef8157846a038d0f12bb7934185ebbc45045d53ea4772d4c588ebdc15fbcc1fe",
+        "run_id": "synthetic-run-1",
+        "captured_at": "2026-08-30T12:00:00Z",
+        "producer_id": "synthetic-producer-v1",
+        "producer_version": "1.0.0",
+        "source_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "environment_id": "environment-v1"
+      },
+      "cache_resets": [],
+      "producer": {
+        "schema_version": "exitspec.routing-campaign-producer.v1",
+        "producer_id": "synthetic-producer-v1",
+        "producer_version": "1.0.0",
+        "source_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "observed_at": "2026-08-30T12:00:00Z",
+      "assignments": []
+    }
+  ]
+}

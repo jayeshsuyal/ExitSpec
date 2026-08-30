@@ -20,6 +20,7 @@ import tempfile
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal
 
@@ -97,7 +98,9 @@ _MAX_SUMMARY_BYTES: Final = 64 * 1024
 _MAX_JSON_DEPTH: Final = 24
 _PACK_ID = re.compile(ROUTING_EVIDENCE_PACK_ID_PATTERN)
 _ARTIFACT_HASH = re.compile(SHA256_PATTERN)
-_EXAMPLE_ROOT = Path(__file__).resolve().parents[2] / "examples" / "routing-qualification"
+_PACKAGED_ROUTING_ROOT = files("exitspec.demo_data").joinpath(
+    "routing_qualification"
+)
 
 
 class RoutingEvidencePackError(ValueError):
@@ -944,7 +947,7 @@ def load_routing_evidence_demo_context(
 ) -> RoutingEvidencePackDemoContext:
     """Load the explicit repository-seeded synthetic B13 fixture and validate it."""
 
-    fixture_root = _EXAMPLE_ROOT if root is None else root
+    fixture_root = _PACKAGED_ROUTING_ROOT if root is None else root
     paths = {
         "contract": fixture_root / "contracts" / "routing-campaign-reduction-v1.synthetic.json",
         "confirmation": fixture_root / "contracts" / "routing-campaign-reduction-v1.synthetic.confirmation.json",

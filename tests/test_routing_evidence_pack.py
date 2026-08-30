@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,22 @@ def _rewrite_manifest(pack_root: Path) -> None:
     (pack_root / ROUTING_EVIDENCE_PACK_MANIFEST).write_bytes(
         canonical_json_bytes(manifest)
     )
+
+
+def test_packaged_demo_inputs_match_authoritative_examples():
+    package_root = files("exitspec.demo_data").joinpath("routing_qualification")
+    example_root = Path(__file__).resolve().parents[1] / "examples" / "routing-qualification"
+    relative_paths = (
+        "contracts/routing-campaign-reduction-v1.synthetic.json",
+        "contracts/routing-campaign-reduction-v1.synthetic.confirmation.json",
+        "evidence/routing-campaign-evidence-v1.synthetic.json",
+        "receipts/routing-qualification-receipt-v1.synthetic.json",
+    )
+    for relative in relative_paths:
+        parts = relative.split("/")
+        assert package_root.joinpath(*parts).read_bytes() == (
+            example_root.joinpath(*parts).read_bytes()
+        )
 
 
 def test_frozen_context_and_fixture_are_b13_exact():

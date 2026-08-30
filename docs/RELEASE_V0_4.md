@@ -19,7 +19,7 @@ the missing repetition is visible above the fold.
 ## Verification
 
 The mandatory v0.4 gate preserves the complete v0.3 four-case no-skip Chromium
-gate, adds four exact B13 Chromium cases, 16 adversarial pack cases, and four
+gate, adds four exact B13 Chromium cases, 17 adversarial pack cases, and four
 direct descriptor-reader cases, then runs the full engineering and distribution
 checks. It fails on any skip, error, or failure:
 
