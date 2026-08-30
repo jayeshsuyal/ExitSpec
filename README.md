@@ -23,6 +23,10 @@ the existing Prove workbench, independently recalculate it, release a typed
 Evidence Pack, and complete the same human handoff. The browser never receives
 or submits a filesystem path.
 
+The additive managed-evidence registry and external-only A100/Qwen3
+retrospective admission gate are documented in the
+[Managed evidence profile registry](docs/INFERDROME_PROFILE_REGISTRY.md).
+
 Engineering changes follow the
 [ExitSpec Engineering Playbook](docs/ENGINEERING_PLAYBOOK.md): one bounded
 decision, one binary exit gate, adversarial verification, and inspectable

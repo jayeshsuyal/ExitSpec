@@ -108,6 +108,20 @@ class ExtractedInferdromeArchive:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtractedInferdromeArchiveMember:
+    """One selectively materialized member from a verified archive."""
+
+    root: Path
+    archive_sha256: str
+    member_path: str
+    member: Path
+    member_count: int
+    file_count: int
+    directory_count: int
+    expanded_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class _ArchiveMember:
     name: str
     size: int
@@ -226,9 +240,127 @@ def extract_pinned_inferdrome_archive(
     )
 
 
+def extract_external_inferdrome_archive(
+    archive_path: Path,
+    destination: Path,
+    *,
+    expected_member_path: str,
+    expected_sha256: str,
+    expected_size_bytes: int,
+    limits: InferdromeArchiveLimits | None = None,
+) -> ExtractedInferdromeArchiveMember:
+    """Verify and selectively extract one exact bundle member.
+
+    The complete tar stream is scanned, including members that are not
+    materialized.  Only the requested bundle subtree is written, and all
+    existing archive path, type, size, and stable-byte checks remain active.
+    """
+
+    if not isinstance(archive_path, Path) or not isinstance(destination, Path):
+        raise TypeError("archive_path and destination must be Path objects.")
+    if not destination.is_absolute() or destination.exists():
+        raise ValueError("destination must be a new absolute path.")
+    _require_tagged_sha256(expected_sha256)
+    if type(expected_size_bytes) is not int or expected_size_bytes <= 0:
+        raise ValueError("expected_size_bytes must be a positive integer.")
+    active_limits = limits if limits is not None else InferdromeArchiveLimits()
+    if expected_size_bytes > active_limits.max_compressed_bytes:
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_LIMIT_EXCEEDED,
+            "Inferdrome archive exceeds the compressed-byte limit.",
+        )
+    selected_member_path = _safe_member_name(
+        expected_member_path,
+        active_limits.max_depth,
+    )
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(archive_path, flags)
+    except OSError as error:
+        _reject(
+            InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+            "Inferdrome archive is missing, linked, or inaccessible.",
+            error,
+        )
+    created = False
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_size != expected_size_bytes
+            or before.st_size > active_limits.max_compressed_bytes
+        ):
+            _reject(
+                InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+                "Inferdrome archive size or file type is invalid.",
+            )
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            archive_sha256 = _hash_open_file(handle)
+            if not hmac.compare_digest(archive_sha256, expected_sha256):
+                _reject(
+                    InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+                    "Inferdrome archive SHA-256 does not match its retained pin.",
+                )
+            handle.seek(0)
+            members, counts = _scan_archive(
+                handle,
+                active_limits,
+                selected_roots=(selected_member_path,),
+                selected_outer_members=frozenset(),
+            )
+            handle.seek(0)
+            destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+            created = True
+            _materialize_archive(handle, destination, members, active_limits)
+        after = os.fstat(descriptor)
+        if _file_identity(before) != _file_identity(after):
+            _reject(
+                InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+                "Inferdrome archive changed during extraction.",
+            )
+    except InferdromeArchiveRejected:
+        if created:
+            shutil.rmtree(destination, ignore_errors=True)
+        raise
+    except (OSError, tarfile.TarError, EOFError, ValueError) as error:
+        if created:
+            shutil.rmtree(destination, ignore_errors=True)
+        _reject(
+            InferdromeArchiveErrorCode.UNSAFE_ARCHIVE,
+            "Inferdrome archive could not be parsed or materialized safely.",
+            error,
+        )
+    finally:
+        os.close(descriptor)
+
+    member = destination.joinpath(*PurePosixPath(selected_member_path).parts)
+    if not member.is_dir():
+        shutil.rmtree(destination, ignore_errors=True)
+        _reject(
+            InferdromeArchiveErrorCode.ARCHIVE_INTEGRITY_MISMATCH,
+            "Inferdrome archive is missing the requested bundle member.",
+        )
+    member_count, file_count, directory_count, expanded_bytes = counts
+    return ExtractedInferdromeArchiveMember(
+        root=destination,
+        archive_sha256=archive_sha256,
+        member_path=selected_member_path,
+        member=member,
+        member_count=member_count,
+        file_count=file_count,
+        directory_count=directory_count,
+        expanded_bytes=expanded_bytes,
+    )
+
+
 def _scan_archive(
     handle: object,
     limits: InferdromeArchiveLimits,
+    *,
+    selected_roots: tuple[str, ...] = _SELECTED_MEMBER_ROOTS,
+    selected_outer_members: frozenset[str] = _SELECTED_OUTER_MEMBERS,
 ) -> tuple[list[_ArchiveMember], tuple[int, int, int, int]]:
     members: list[_ArchiveMember] = []
     seen: set[str] = set()
@@ -295,7 +427,11 @@ def _scan_archive(
                     name=name,
                     size=raw.size,
                     is_file=is_file,
-                    materialize=_selected_member(name),
+                    materialize=_selected_member(
+                        name,
+                        selected_roots=selected_roots,
+                        selected_outer_members=selected_outer_members,
+                    ),
                 )
             )
     counts = (len(members), file_count, directory_count, expanded_bytes)
@@ -389,10 +525,14 @@ def _safe_member_name(value: str, max_depth: int) -> str:
     return logical.as_posix()
 
 
-def _selected_member(name: str) -> bool:
-    return name in _SELECTED_OUTER_MEMBERS or any(
-        name == root or name.startswith(f"{root}/")
-        for root in _SELECTED_MEMBER_ROOTS
+def _selected_member(
+    name: str,
+    *,
+    selected_roots: tuple[str, ...],
+    selected_outer_members: frozenset[str],
+) -> bool:
+    return name in selected_outer_members or any(
+        name == root or name.startswith(f"{root}/") for root in selected_roots
     )
 
 
@@ -554,8 +694,10 @@ def _reject(
 
 __all__ = [
     "ExtractedInferdromeArchive",
+    "ExtractedInferdromeArchiveMember",
     "InferdromeArchiveErrorCode",
     "InferdromeArchiveLimits",
     "InferdromeArchiveRejected",
+    "extract_external_inferdrome_archive",
     "extract_pinned_inferdrome_archive",
 ]
