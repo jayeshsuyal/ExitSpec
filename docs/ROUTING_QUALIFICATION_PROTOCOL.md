@@ -10,10 +10,11 @@ an acceptance verdict.
 The criterion and protocol identifier is exactly `routing_qualification_v1`.
 Its schema is `exitspec.routing-qualification.v1`, protocol version is
 `1.0.0`, and its canonicalization/hash binding is `rfc8785_jcs_v1` plus
-`sha256_v1` with lowercase hexadecimal and no prefix. When the criterion is
-carried by the existing `POCContract`, the existing ExitSpec
+`sha256_v1` with lowercase hexadecimal and no prefix. The criterion is only a
+member of the existing `POCContract.criteria` union. The existing ExitSpec
 `freeze_contract`, `contract_digest`, confirmation, and immutable-frozen
-primitives remain the lifecycle and hash authority.
+primitives are the sole lifecycle and hash authority; B9 has no criterion-only
+contract digest.
 
 The ownership boundary is explicit:
 
@@ -56,12 +57,18 @@ request-trace identity/digest. It also freezes:
   customer content. Customer artifacts contain identities, digests, and
   bounded metadata only.
 
-All fields are bounded, immutable nested models with extra fields forbidden.
-The contract parser rejects duplicate JSON keys, non-canonical bytes, aliases,
-wrong versions/types, oversized values, malformed digests, incomplete or
-non-deterministic trial order, contradictory cache/reset or injection posture,
-stale/negative age bounds, and insufficient provenance using stable reason
-codes.
+All B9 evidence/provenance fields are bounded immutable models and all typed
+public B9 paths revalidate complete raw model state before serializing,
+hashing, or binding. The contract parser accepts only an exact, digest-valid,
+`FROZEN` `POCContract` containing exactly one routing criterion. It rejects
+duplicate JSON keys, non-canonical bytes, aliases, wrong versions/types,
+oversized values, malformed digests, incomplete or non-deterministic trial
+order, contradictory cache/reset or injection posture, stale/negative age
+bounds, and insufficient provenance using stable reason codes. Validation
+precedence is explicit: producer verdict aliases, extra fields, missing
+fields, wrong types, oversized values, invalid digests, invalid bounds, wrong
+versions, invalid values, then semantic inconsistencies; ties use
+lexicographic canonical field paths.
 
 ## Frozen requirements versus observed facts
 
@@ -71,14 +78,17 @@ ID, request plan, bundle, measurement, or producer verdict. Those values are
 run-scoped facts and must be bound by future evidence to the frozen contract;
 they must not be inserted into the pre-measurement contract digest.
 
-The checked-in evidence-side object at
+The checked-in frozen POC golden fixture at
+`examples/routing-qualification/contracts/routing-qualification-v1.json` is
+an inspectable synthetic `POCContract`; its outer `canonical_hash` is the
+only contract binding. The checked-in evidence-side object at
 `examples/routing-qualification/evidence/routing-qualification-evidence.synthetic.json`
-is a loudly synthetic protocol fixture. Its synthetic run, capsule, and
+is a loudly synthetic protocol fixture with one synthetic route-decision
+receipt ID per frozen trial assignment. Its synthetic run, capsule, and
 receipt IDs exist only to test observed binding and cannot masquerade as a
-real campaign or acceptance evidence. The portable contract fixture is a
-criterion-only canonicalization test object; the tests also embed it into the
-existing `POCContract` and verify that the outer ExitSpec contract hash changes
-when routing vocabulary changes.
+real campaign or acceptance evidence. The evidence fixture binds to the
+golden POC's outer hash and is checked for repetition and receipt-count
+completeness; no observed value is inserted into the pre-measurement contract.
 
 The request trace remains a prospective identity, rather than a
 contract-to-request-plan-to-source-to-contract digest cycle. This preserves

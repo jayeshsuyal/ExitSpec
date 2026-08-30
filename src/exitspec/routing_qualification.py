@@ -12,18 +12,19 @@ nor a router can assign ExitSpec's acceptance verdict.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
-import hashlib
 import json
 import re
-from typing import Any, Final, Mapping
+from types import UnionType
+from typing import Any, Final, Mapping, Union, get_args, get_origin
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .canonical import CanonicalizationError, canonical_json_bytes
 from .contracts import contract_digest, verify_contract_digest
 from .models import (
-    ExitSpecModel,
+    FrozenExitSpecModel,
     POCContract,
     RoutingQualificationCriterionV1,
     SHA256_PATTERN,
@@ -49,10 +50,23 @@ _SYNTHETIC_RUN_ID = re.compile(r"^synthetic-routing-run-[a-z0-9-]{1,48}$")
 _SYNTHETIC_CAPSULE_ID = re.compile(r"^synthetic-routing-capsule-[a-z0-9-]{1,48}$")
 _SYNTHETIC_RECEIPT_ID = re.compile(r"^synthetic-route-receipt-[a-z0-9-]{1,48}$")
 
-# The domain model remains named as a criterion because it is inserted into
-# the existing POCContract criterion union.  This alias makes the protocol
-# vocabulary discoverable to callers without creating another contract type.
-RoutingQualificationContractV1 = RoutingQualificationCriterionV1
+# Public parsing and binding always use this existing lifecycle authority.
+# The routing criterion is only a typed member of POCContract.criteria.
+_MODEL_FIELD_PRECEDENCE: Final = (
+    "producer_verdict",
+    "extra",
+    "missing",
+    "wrong_type",
+    "oversized",
+    "invalid_digest",
+    "invalid_bound",
+    "wrong_version",
+    "invalid_value",
+    "semantic",
+)
+_MODEL_ERROR_PRIORITY: Final = {
+    name: index for index, name in enumerate(_MODEL_FIELD_PRECEDENCE)
+}
 
 
 class RoutingQualificationValidationCode(str, Enum):
@@ -94,52 +108,49 @@ class _JsonBoundaryError(ValueError):
         super().__init__(message)
 
 
-def routing_qualification_contract_digest(
-    value: POCContract | RoutingQualificationCriterionV1,
-) -> str:
-    """Return the existing bare lowercase SHA-256 contract digest.
+def routing_qualification_contract_digest(value: POCContract) -> str:
+    """Return the existing frozen ``POCContract`` canonical hash.
 
-    A full ``POCContract`` uses the established ExitSpec contract hash.  The
-    criterion-only form is useful for portable protocol fixtures and uses the
-    same RFC 8785/JCS + SHA-256 convention without introducing a second
-    persisted contract hash field.
+    The routing criterion has no independent contract authority or persisted
+    contract digest.  It contributes to the outer ExitSpec contract hash only
+    after the complete frozen POC contract has been revalidated.
     """
 
-    if type(value) is POCContract:
-        return contract_digest(value)
-    if type(value) is RoutingQualificationCriterionV1:
-        return hashlib.sha256(
-            canonical_json_bytes(value.model_dump(mode="json"))
-        ).hexdigest()
-    raise TypeError("value must be a POCContract or RoutingQualificationCriterionV1.")
+    validated = _validated_frozen_routing_contract(value)
+    return contract_digest(validated)
 
 
 def parse_routing_qualification_contract(
     value: bytes | Mapping[str, Any],
-) -> RoutingQualificationCriterionV1:
-    """Strictly parse one run-independent B9 criterion."""
+) -> POCContract:
+    """Strictly parse one frozen POCContract containing one routing criterion."""
 
     payload = _load_object(value, label="routing qualification contract")
-    return _validate_model(
-        RoutingQualificationCriterionV1,
-        payload,
-        label="routing qualification contract",
+    _reject_producer_verdict_aliases(payload)
+    criteria = payload.get("criteria")
+    if type(criteria) is list and len(criteria) == 1 and type(criteria[0]) is dict:
+        criterion_payload = criteria[0]
+        if criterion_payload.get("criterion_type") == "routing_qualification_v1":
+            _validate_model(
+                RoutingQualificationCriterionV1,
+                criterion_payload,
+                label="routing qualification contract.criteria[0]",
+            )
+    parsed = _validate_model(
+        POCContract, payload, label="routing qualification contract"
     )
+    return _validated_frozen_routing_contract(parsed)
 
 
 def serialize_routing_qualification_contract(
-    value: RoutingQualificationCriterionV1,
+    value: POCContract,
 ) -> bytes:
     """Return canonical bytes after rerunning strict B9 validation."""
 
-    if type(value) is not RoutingQualificationCriterionV1:
-        _reject(
-            RoutingQualificationValidationCode.WRONG_TYPE,
-            "A typed routing qualification criterion is required.",
-        )
-    content = canonical_json_bytes(value.model_dump(mode="json"))
+    validated = _validated_frozen_routing_contract(value)
+    content = canonical_json_bytes(validated.model_dump(mode="json"))
     parsed = parse_routing_qualification_contract(content)
-    if parsed != value:
+    if parsed != validated:
         _reject(
             RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY,
             "Routing qualification contract changed during serialization.",
@@ -165,14 +176,10 @@ def serialize_routing_qualification_evidence_fixture(
 ) -> bytes:
     """Return canonical bytes after rerunning strict fixture validation."""
 
-    if type(value) is not RoutingQualificationEvidenceFixtureV1:
-        _reject(
-            RoutingQualificationValidationCode.WRONG_TYPE,
-            "A typed routing qualification evidence fixture is required.",
-        )
-    content = canonical_json_bytes(value.model_dump(mode="json"))
+    validated = _validated_evidence_fixture(value)
+    content = canonical_json_bytes(validated.model_dump(mode="json"))
     parsed = parse_routing_qualification_evidence_fixture(content)
-    if parsed != value:
+    if parsed != validated:
         _reject(
             RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY,
             "Routing qualification evidence changed during serialization.",
@@ -181,7 +188,7 @@ def serialize_routing_qualification_evidence_fixture(
 
 
 def validate_routing_qualification_evidence_fixture(
-    contract: POCContract | RoutingQualificationCriterionV1,
+    contract: POCContract,
     evidence: "RoutingQualificationEvidenceFixtureV1",
 ) -> "RoutingQualificationEvidenceFixtureV1":
     """Bind synthetic observed references to a frozen routing contract.
@@ -191,14 +198,11 @@ def validate_routing_qualification_evidence_fixture(
     FAIL, BLOCKED, NOT_PROVEN, or any other acceptance verdict.
     """
 
-    if type(evidence) is not RoutingQualificationEvidenceFixtureV1:
-        raise RoutingQualificationRejected(
-            RoutingQualificationValidationCode.WRONG_TYPE,
-            "A typed routing qualification evidence fixture is required.",
-        )
-    criterion = _routing_criterion(contract)
-    expected_digest = routing_qualification_contract_digest(contract)
-    if evidence.contract_sha256 != expected_digest:
+    frozen_contract = _validated_frozen_routing_contract(contract)
+    validated_evidence = _validated_evidence_fixture(evidence)
+    criterion = frozen_contract.criteria[0]
+    expected_digest = frozen_contract.canonical_hash
+    if validated_evidence.contract_sha256 != expected_digest:
         _reject(
             RoutingQualificationValidationCode.CONTRACT_BINDING_MISMATCH,
             "Evidence fixture contract digest does not match the frozen contract.",
@@ -211,6 +215,7 @@ def validate_routing_qualification_evidence_fixture(
         "baseline_policy_sha256": criterion.baseline_policy.policy_sha256,
         "routing_configuration_id": criterion.routing_configuration.configuration_id,
         "routing_configuration_sha256": criterion.routing_configuration.configuration_sha256,
+        "request_trace_id": criterion.request_trace.trace_id,
         "request_trace_sha256": criterion.request_trace.trace_sha256,
         "failure_injection_id": criterion.failure_injection.configuration_id,
         "failure_injection_sha256": criterion.failure_injection.configuration_sha256,
@@ -220,48 +225,64 @@ def validate_routing_qualification_evidence_fixture(
         "route_decision_receipt_type": criterion.route_decision_receipts.receipt_type,
     }
     for name, expected_value in expected.items():
-        if getattr(evidence, name) != expected_value:
+        if getattr(validated_evidence, name) != expected_value:
             _reject(
                 RoutingQualificationValidationCode.CONTRACT_BINDING_MISMATCH,
                 f"Evidence fixture field {name} does not match the frozen contract.",
                 name,
             )
-    return evidence
+    if validated_evidence.repetition_index > criterion.run_policy.default_repetitions:
+        _reject(
+            RoutingQualificationValidationCode.INVALID_BOUND,
+            "Evidence repetition_index exceeds the frozen default repetition bound.",
+            "repetition_index",
+        )
+    if (
+        len(validated_evidence.route_decision_receipt_ids)
+        != criterion.trial_order.total_assignments
+    ):
+        _reject(
+            RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY,
+            "Evidence receipt count must equal frozen total_assignments.",
+            "route_decision_receipt_ids",
+        )
+    return validated_evidence
 
 
-def _routing_criterion(
-    contract: POCContract | RoutingQualificationCriterionV1,
-) -> RoutingQualificationCriterionV1:
-    if type(contract) is RoutingQualificationCriterionV1:
-        return contract
+def _validated_frozen_routing_contract(contract: object) -> POCContract:
     if type(contract) is not POCContract:
         _reject(
             RoutingQualificationValidationCode.WRONG_TYPE,
-            "A POCContract or routing qualification criterion is required.",
+            "A frozen POCContract is required; a routing criterion is not a contract.",
         )
-    if not verify_contract_digest(contract):
+    validated = _revalidate_typed_model(
+        contract, POCContract, label="routing qualification contract"
+    )
+    if validated.status.value != "FROZEN":
+        _reject(
+            RoutingQualificationValidationCode.CONTRACT_BINDING_MISMATCH,
+            "Routing qualification requires a FROZEN POCContract.",
+            "status",
+        )
+    if not verify_contract_digest(validated):
         _reject(
             RoutingQualificationValidationCode.CONTRACT_BINDING_MISMATCH,
             "Routing evidence requires a digest-valid frozen contract.",
         )
     criteria = tuple(
         criterion
-        for criterion in contract.criteria
+        for criterion in validated.criteria
         if type(criterion) is RoutingQualificationCriterionV1
     )
-    if (
-        contract.status.value != "FROZEN"
-        or len(criteria) != 1
-        or len(contract.criteria) != 1
-    ):
+    if len(criteria) != 1 or len(validated.criteria) != 1:
         _reject(
             RoutingQualificationValidationCode.CONTRACT_BINDING_MISMATCH,
             "Routing evidence requires exactly one frozen routing qualification criterion.",
         )
-    return criteria[0]
+    return validated
 
 
-class RoutingEvidenceProvenanceV1(ExitSpecModel):
+class RoutingEvidenceProvenanceV1(FrozenExitSpecModel):
     """Producer/sealer provenance; it is not an acceptance authority."""
 
     schema_version: str = Field(pattern=r"^exitspec\.routing-evidence-provenance\.v1$")
@@ -274,8 +295,19 @@ class RoutingEvidenceProvenanceV1(ExitSpecModel):
     )
     source_digest: str = Field(pattern=SHA256_PATTERN)
 
+    @field_validator("captured_at")
+    @classmethod
+    def require_real_utc_second_timestamp(cls, value: str) -> str:
+        try:
+            datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError as error:
+            raise ValueError(
+                "captured_at must be a real UTC timestamp at whole-second precision."
+            ) from error
+        return value
 
-class RoutingQualificationEvidenceFixtureV1(ExitSpecModel):
+
+class RoutingQualificationEvidenceFixtureV1(FrozenExitSpecModel):
     """Loudly synthetic observed IDs used only to test the B9 boundary."""
 
     schema_version: str = Field(
@@ -298,6 +330,7 @@ class RoutingQualificationEvidenceFixtureV1(ExitSpecModel):
         pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
     )
     routing_configuration_sha256: str = Field(pattern=SHA256_PATTERN)
+    request_trace_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128)
     request_trace_sha256: str = Field(pattern=SHA256_PATTERN)
     failure_injection_id: str = Field(
         pattern=r"^[a-z][a-z0-9._-]{2,127}$", max_length=128
@@ -326,6 +359,263 @@ class RoutingQualificationEvidenceFixtureV1(ExitSpecModel):
         return value
 
 
+def _validated_evidence_fixture(value: object) -> RoutingQualificationEvidenceFixtureV1:
+    if type(value) is not RoutingQualificationEvidenceFixtureV1:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "A typed routing qualification evidence fixture is required.",
+        )
+    return _revalidate_typed_model(
+        value,
+        RoutingQualificationEvidenceFixtureV1,
+        label="routing qualification evidence fixture",
+    )
+
+
+def _revalidate_typed_model(
+    value: object,
+    model_type: type[Any],
+    *,
+    label: str,
+) -> Any:
+    """Revalidate an object's complete raw Pydantic state before any dump.
+
+    ``model_copy`` and ``model_construct`` intentionally bypass normal
+    Pydantic validation.  This walk checks the raw ``__dict__`` (including
+    nested models) for missing/unknown fields before strict validation, so a
+    serializer or digest path cannot sanitize an invalid typed object through
+    ``model_dump``.
+    """
+
+    if type(value) is not model_type:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            f"{label} has the wrong typed model.",
+        )
+    raw = _raw_model_state(value, path=None)
+    try:
+        return model_type.model_validate(raw, strict=True)
+    except ValidationError as error:
+        code, path = _classify_validation_error(error)
+        _reject(code, f"{label} failed strict revalidation.", path)
+    except (TypeError, ValueError):
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            f"{label} failed strict revalidation.",
+        )
+
+
+def _raw_model_state(value: BaseModel, *, path: str | None) -> dict[str, Any]:
+    model_type = type(value)
+    field_names = set(model_type.model_fields)
+    try:
+        raw_state = object.__getattribute__(value, "__dict__")
+    except AttributeError:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "Typed model has no inspectable raw state.",
+            path,
+        )
+    if type(raw_state) is not dict:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "Typed model raw state must be one object.",
+            path,
+        )
+    unexpected = sorted(set(raw_state) - field_names)
+    if unexpected:
+        _reject_producer_aliases_in_names(unexpected, path)
+        _reject(
+            RoutingQualificationValidationCode.EXTRA_FIELD,
+            "Typed model contains an undocumented raw field.",
+            _join_path(path, unexpected[0]),
+        )
+    try:
+        extra_state = object.__getattribute__(value, "__pydantic_extra__")
+    except AttributeError:
+        extra_state = None
+    if extra_state:
+        if type(extra_state) is not dict:
+            _reject(
+                RoutingQualificationValidationCode.WRONG_TYPE,
+                "Typed model extra state must be one object.",
+                _join_path(path, "__pydantic_extra__"),
+            )
+        extra_names = sorted(extra_state)
+        _reject_producer_aliases_in_names(extra_names, path)
+        _reject(
+            RoutingQualificationValidationCode.EXTRA_FIELD,
+            "Typed model contains undocumented extra state.",
+            _join_path(path, extra_names[0]),
+        )
+    missing = sorted(field_names - set(raw_state))
+    if missing:
+        _reject(
+            RoutingQualificationValidationCode.MISSING_FIELD,
+            "Typed model is missing a raw field.",
+            _join_path(path, missing[0]),
+        )
+    try:
+        private_state = object.__getattribute__(value, "__pydantic_private__")
+    except AttributeError:
+        private_state = None
+    if private_state:
+        _reject(
+            RoutingQualificationValidationCode.EXTRA_FIELD,
+            "Typed model contains undocumented private state.",
+            _join_path(path, "__pydantic_private__"),
+        )
+
+    state: dict[str, Any] = {}
+    for field_name in sorted(field_names):
+        annotation = model_type.model_fields[field_name].annotation
+        state[field_name] = _raw_value(
+            raw_state[field_name],
+            annotation,
+            path=_join_path(path, field_name),
+        )
+    return state
+
+
+def _raw_value(value: object, annotation: object, *, path: str | None) -> object:
+    if isinstance(value, BaseModel):
+        allowed_types = _model_types(annotation)
+        if not allowed_types or type(value) not in allowed_types:
+            _reject(
+                RoutingQualificationValidationCode.WRONG_TYPE,
+                "Nested typed model has the wrong model type.",
+                path,
+            )
+        raw_state = _raw_model_state(value, path=path)
+        try:
+            type(value).model_validate(raw_state, strict=True)
+        except ValidationError as error:
+            code, error_path = _classify_validation_error(error)
+            _reject(code, "Nested typed model failed strict revalidation.", error_path)
+        except (TypeError, ValueError):
+            _reject(
+                RoutingQualificationValidationCode.WRONG_TYPE,
+                "Nested typed model failed strict revalidation.",
+                path,
+            )
+        return raw_state
+    if _model_types(annotation) and value is not None:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "A nested model field cannot be replaced by a raw mapping.",
+            path,
+        )
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is tuple and type(value) is not tuple:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "A tuple field cannot be replaced by another collection type.",
+            path,
+        )
+    if origin is list and type(value) is not list:
+        _reject(
+            RoutingQualificationValidationCode.WRONG_TYPE,
+            "A list field cannot be replaced by another collection type.",
+            path,
+        )
+    if type(value) is tuple:
+        item_annotation = args[0] if args and args[-1] is Ellipsis else None
+        if item_annotation is not None:
+            return tuple(
+                _raw_value(item, item_annotation, path=_index_path(path, index))
+                for index, item in enumerate(value)
+            )
+        return value
+    if type(value) is list:
+        item_annotation = args[0] if args else None
+        if origin is list and item_annotation is not None:
+            return [
+                _raw_value(item, item_annotation, path=_index_path(path, index))
+                for index, item in enumerate(value)
+            ]
+        return value
+    if type(value) is dict:
+        return {
+            key: _raw_value(child, None, path=_join_path(path, str(key)))
+            for key, child in value.items()
+        }
+    return value
+
+
+def _model_types(annotation: object) -> tuple[type[BaseModel], ...]:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return (annotation,)
+    origin = get_origin(annotation)
+    if origin in (Union, UnionType):
+        types: list[type[BaseModel]] = []
+        for child in get_args(annotation):
+            types.extend(_model_types(child))
+        return tuple(types)
+    return ()
+
+
+def _join_path(path: str | None, name: str) -> str:
+    return f"{path}.{name}" if path else name
+
+
+def _index_path(path: str | None, index: int) -> str:
+    return f"{path}[{index}]" if path else f"[{index}]"
+
+
+def _is_producer_verdict_alias(name: str) -> bool:
+    normalized = name.lower()
+    return (
+        ("verdict" in normalized and normalized != "verdict_boundary")
+        or normalized in {"acceptance", "decision"}
+        or normalized.endswith("_decision")
+    )
+
+
+def _reject_producer_aliases_in_names(names: list[str], path: str | None) -> None:
+    for name in sorted(names):
+        if _is_producer_verdict_alias(name):
+            _reject(
+                RoutingQualificationValidationCode.PRODUCER_VERDICT_FORBIDDEN,
+                "Producer acceptance verdict/decision fields are forbidden.",
+                _join_path(path, name),
+            )
+
+
+def _reject_producer_verdict_aliases(payload: Mapping[str, Any]) -> None:
+    matches: list[tuple[str, ...]] = []
+
+    def walk(value: object, path: tuple[str, ...]) -> None:
+        if type(value) is dict:
+            for key in sorted(value):
+                key_path = path + (str(key),)
+                if _is_producer_verdict_alias(str(key)):
+                    matches.append(key_path)
+                walk(value[key], key_path)
+        elif type(value) is list:
+            for index, child in enumerate(value):
+                walk(child, path + (f"[{index}]",))
+
+    walk(payload, ())
+    if matches:
+        first = min(matches)
+        _reject(
+            RoutingQualificationValidationCode.PRODUCER_VERDICT_FORBIDDEN,
+            "Producer acceptance verdict/decision fields are forbidden.",
+            _components_path(first),
+        )
+
+
+def _components_path(components: tuple[str, ...]) -> str:
+    path: str | None = None
+    for component in components:
+        if component.startswith("["):
+            path = f"{path or ''}{component}"
+        else:
+            path = _join_path(path, component)
+    return path or "<root>"
+
+
 def _load_object(
     value: bytes | Mapping[str, Any],
     *,
@@ -337,7 +627,6 @@ def _load_object(
                 RoutingQualificationValidationCode.WRONG_TYPE,
                 f"{label} must be one JSON object.",
             )
-        _walk_bounded(value, depth=0)
         try:
             content = canonical_json_bytes(value)
         except (CanonicalizationError, TypeError, ValueError) as error:
@@ -346,13 +635,20 @@ def _load_object(
                 f"{label} is outside the canonical JSON domain.",
             )
             raise AssertionError from error
+        limit = _size_limit(label)
+        if len(content) > limit:
+            _reject(
+                RoutingQualificationValidationCode.OVERSIZED,
+                f"{label} exceeds the bounded JSON size.",
+            )
+        _walk_bounded(value, depth=0)
         return _decode_json(content, label=label, require_canonical=False)
     if type(value) is not bytes:
         _reject(
             RoutingQualificationValidationCode.WRONG_TYPE,
             f"{label} must be bytes or one JSON object.",
         )
-    limit = _MAX_EVIDENCE_BYTES if "evidence" in label else _MAX_CONTRACT_BYTES
+    limit = _size_limit(label)
     if len(value) > limit:
         _reject(
             RoutingQualificationValidationCode.OVERSIZED,
@@ -361,12 +657,21 @@ def _load_object(
     return _decode_json(value, label=label, require_canonical=True)
 
 
+def _size_limit(label: str) -> int:
+    return _MAX_EVIDENCE_BYTES if "evidence" in label else _MAX_CONTRACT_BYTES
+
+
 def _decode_json(
     content: bytes,
     *,
     label: str,
     require_canonical: bool,
 ) -> dict[str, Any]:
+    if len(content) > _size_limit(label):
+        _reject(
+            RoutingQualificationValidationCode.OVERSIZED,
+            f"{label} exceeds the bounded JSON size.",
+        )
     try:
         text = content.decode("utf-8")
         payload = json.loads(
@@ -413,6 +718,7 @@ def _decode_json(
 def _validate_model(
     model_type: type[Any], payload: dict[str, Any], *, label: str
 ) -> Any:
+    _reject_producer_verdict_aliases(payload)
     try:
         # JSON arrays are the wire representation of immutable tuple fields.
         # Pydantic's strict Python validator intentionally rejects a list for a
@@ -429,6 +735,7 @@ def _validate_model(
             RoutingQualificationValidationCode.WRONG_TYPE,
             f"{label} failed strict validation.",
         )
+    model = _revalidate_typed_model(model, model_type, label=label)
     try:
         if canonical_json_bytes(model.model_dump(mode="json")) != canonical_json_bytes(
             payload
@@ -448,17 +755,36 @@ def _validate_model(
 def _classify_validation_error(
     error: ValidationError,
 ) -> tuple[RoutingQualificationValidationCode, str | None]:
-    first = error.errors()[0]
-    location = tuple(str(item) for item in first.get("loc", ()))
-    path = ".".join(location) or None
-    error_type = str(first.get("type", ""))
-    field = location[-1] if location else ""
+    candidates = []
+    for detail in error.errors():
+        location = tuple(detail.get("loc", ()))
+        path = _location_path(location)
+        error_type = str(detail.get("type", ""))
+        field = str(location[-1]) if location else ""
+        code = _classify_error_type(error_type, field)
+        candidates.append(
+            (
+                _MODEL_ERROR_PRIORITY[_error_category(code)],
+                _location_sort_key(location),
+                error_type,
+                code.value,
+                code,
+                path,
+            )
+        )
+    _, _, _, _, code, path = min(candidates)
+    return code, path
+
+
+def _classify_error_type(
+    error_type: str, field: str
+) -> RoutingQualificationValidationCode:
     if error_type == "extra_forbidden":
-        if "verdict" in field.lower() or field.lower() in {"acceptance", "decision"}:
-            return RoutingQualificationValidationCode.PRODUCER_VERDICT_FORBIDDEN, path
-        return RoutingQualificationValidationCode.EXTRA_FIELD, path
+        if _is_producer_verdict_alias(field):
+            return RoutingQualificationValidationCode.PRODUCER_VERDICT_FORBIDDEN
+        return RoutingQualificationValidationCode.EXTRA_FIELD
     if "missing" in error_type:
-        return RoutingQualificationValidationCode.MISSING_FIELD, path
+        return RoutingQualificationValidationCode.MISSING_FIELD
     if error_type in {
         "int_type",
         "bool_type",
@@ -468,20 +794,22 @@ def _classify_validation_error(
         "dict_type",
         "model_type",
     }:
-        return RoutingQualificationValidationCode.WRONG_TYPE, path
+        return RoutingQualificationValidationCode.WRONG_TYPE
     if "too_long" in error_type or "too_short" in error_type:
-        return RoutingQualificationValidationCode.OVERSIZED, path
+        return RoutingQualificationValidationCode.OVERSIZED
     if error_type == "string_pattern_mismatch":
         if "sha" in field or "digest" in field or "hash" in field:
-            return RoutingQualificationValidationCode.INVALID_DIGEST, path
-        return RoutingQualificationValidationCode.INVALID_VALUE, path
+            return RoutingQualificationValidationCode.INVALID_DIGEST
+        return RoutingQualificationValidationCode.INVALID_VALUE
     if error_type in {
         "greater_than",
         "greater_than_equal",
         "less_than",
         "less_than_equal",
     }:
-        return RoutingQualificationValidationCode.INVALID_BOUND, path
+        return RoutingQualificationValidationCode.INVALID_BOUND
+    if field == "captured_at" and error_type == "value_error":
+        return RoutingQualificationValidationCode.INVALID_VALUE
     if error_type == "literal_error":
         if (
             "version" in field
@@ -489,9 +817,48 @@ def _classify_validation_error(
             or "canonical" in field
             or "hash" in field
         ):
-            return RoutingQualificationValidationCode.WRONG_VERSION, path
-        return RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY, path
-    return RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY, path
+            return RoutingQualificationValidationCode.WRONG_VERSION
+        return RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY
+    return RoutingQualificationValidationCode.SEMANTIC_INCONSISTENCY
+
+
+def _error_category(code: RoutingQualificationValidationCode) -> str:
+    if code is RoutingQualificationValidationCode.PRODUCER_VERDICT_FORBIDDEN:
+        return "producer_verdict"
+    if code is RoutingQualificationValidationCode.EXTRA_FIELD:
+        return "extra"
+    if code is RoutingQualificationValidationCode.MISSING_FIELD:
+        return "missing"
+    if code is RoutingQualificationValidationCode.WRONG_TYPE:
+        return "wrong_type"
+    if code is RoutingQualificationValidationCode.OVERSIZED:
+        return "oversized"
+    if code is RoutingQualificationValidationCode.INVALID_DIGEST:
+        return "invalid_digest"
+    if code is RoutingQualificationValidationCode.INVALID_BOUND:
+        return "invalid_bound"
+    if code is RoutingQualificationValidationCode.WRONG_VERSION:
+        return "wrong_version"
+    if code is RoutingQualificationValidationCode.INVALID_VALUE:
+        return "invalid_value"
+    return "semantic"
+
+
+def _location_sort_key(location: tuple[object, ...]) -> tuple[str, ...]:
+    return tuple(
+        f"0:{item}" if isinstance(item, int) else f"1:{item}" for item in location
+    )
+
+
+def _location_path(location: tuple[object, ...]) -> str | None:
+    path: str | None = None
+    for item in location:
+        path = (
+            _index_path(path, item)
+            if isinstance(item, int)
+            else _join_path(path, str(item))
+        )
+    return path
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -594,7 +961,6 @@ __all__ = [
     "ROUTING_QUALIFICATION_PROTOCOL_ID",
     "ROUTING_QUALIFICATION_SCHEMA_VERSION",
     "RoutingEvidenceProvenanceV1",
-    "RoutingQualificationContractV1",
     "RoutingQualificationEvidenceFixtureV1",
     "RoutingQualificationRejected",
     "RoutingQualificationValidationCode",

@@ -1250,8 +1250,8 @@ class RoutingReceiptProtocolV1(FrozenExitSpecModel):
     ] = Field(min_length=6, max_length=6)
     required_provenance_fields: Tuple[
         Literal[
-            "receipt_id",
-            "receipt_sha256",
+            "route_decision_receipt_id",
+            "route_decision_receipt_sha256",
             "producer_id",
             "producer_version",
             "captured_at",
@@ -1276,8 +1276,8 @@ class RoutingReceiptProtocolV1(FrozenExitSpecModel):
             "routing_configuration_sha256",
         )
         expected_provenance = (
-            "receipt_id",
-            "receipt_sha256",
+            "route_decision_receipt_id",
+            "route_decision_receipt_sha256",
             "producer_id",
             "producer_version",
             "captured_at",
