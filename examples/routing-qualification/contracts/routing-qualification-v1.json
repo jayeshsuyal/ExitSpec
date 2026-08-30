@@ -1,0 +1,160 @@
+{
+  "approved": true,
+  "baseline_policy": {
+    "policy_id": "baseline-policy-v1",
+    "policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "schema_version": "exitspec.routing-policy-identity.v1"
+  },
+  "cache_reset": {
+    "cross_policy_cache_reuse": false,
+    "intended_start_state": "COLD",
+    "reset_boundary": "BEFORE_EACH_TRIAL",
+    "reset_required": true,
+    "reset_scope": "ROUTER_AND_SERVING_ENGINE_STATE",
+    "schema_version": "exitspec.routing-cache-reset.v1"
+  },
+  "candidate_policy": {
+    "policy_id": "candidate-policy-v1",
+    "policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "schema_version": "exitspec.routing-policy-identity.v1"
+  },
+  "canonicalization": {
+    "canonical_bytes_encoding": "utf-8_rfc8785_jcs",
+    "canonicalization_scheme_id": "rfc8785_jcs_v1",
+    "hash_algorithm_id": "sha256_v1",
+    "hash_encoding_id": "lowercase_hex_without_prefix"
+  },
+  "criterion_type": "routing_qualification_v1",
+  "evidence_policy": "Evidence is independently sealed; ExitSpec owns acceptance.",
+  "failure_injection": {
+    "configuration_id": "no-failure-injection-v1",
+    "configuration_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "injected_failure_classes": [],
+    "maximum_injected_failures": 0,
+    "posture": "NO_INJECTION",
+    "schema_version": "exitspec.routing-failure-injection.v1"
+  },
+  "human_added": true,
+  "id": "routing_qualification_v1",
+  "must_have": true,
+  "normalized_claim": "Freeze the routing campaign evidence requirements before measurement.",
+  "owner": "exitspec",
+  "privacy": {
+    "allowed_representation": "IDENTITIES_DIGESTS_AND_BOUNDED_METADATA_ONLY",
+    "credentials": "FORBIDDEN",
+    "raw_sensitive_customer_content": "FORBIDDEN",
+    "schema_version": "exitspec.routing-privacy-policy.v1",
+    "secrets": "FORBIDDEN"
+  },
+  "protocol_id": "routing_qualification_v1",
+  "protocol_version": "1.0.0",
+  "request_trace": {
+    "schema_version": "exitspec.routing-request-trace-identity.v1",
+    "trace_id": "request-trace-v1",
+    "trace_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "route_decision_receipts": {
+    "completeness_expectation": "EXACTLY_ONE_RECEIPT_PER_REQUEST_TRIAL_POLICY_ASSIGNMENT",
+    "receipt_digest_field": "route_decision_receipt_sha256",
+    "receipt_identity_field": "route_decision_receipt_id",
+    "receipt_type": "ROUTE_DECISION_RECEIPT_V1",
+    "required_bindings": [
+      "campaign_contract_sha256",
+      "request_id",
+      "trial_index",
+      "policy_id",
+      "routing_configuration_id",
+      "routing_configuration_sha256"
+    ],
+    "required_provenance_fields": [
+      "receipt_id",
+      "receipt_sha256",
+      "producer_id",
+      "producer_version",
+      "captured_at",
+      "source_digest"
+    ],
+    "route_decision_source": "ROUTER_OR_CASCADE",
+    "schema_version": "exitspec.routing-decision-receipt-protocol.v1",
+    "verdict_boundary": "EXIT_SPEC_ONLY"
+  },
+  "routing_configuration": {
+    "configuration_id": "routing-config-v1",
+    "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "schema_version": "exitspec.routing-configuration-identity.v1"
+  },
+  "run_policy": {
+    "aggregation_policy": "UNDEFINED_IN_B9",
+    "default_repetitions": 2,
+    "independence_requirement": "EACH_RUN_HAS_A_SEPARATE_RUN_ID",
+    "pooling_policy": "FORBIDDEN_UNLESS_FUTURE_FROZEN_CONTRACT_DEFINES_IT",
+    "run_mode": "INDEPENDENT_RUNS",
+    "schema_version": "exitspec.routing-run-policy.v1"
+  },
+  "schema_version": "exitspec.routing-qualification.v1",
+  "serving": {
+    "engine": "engine-neutral",
+    "engine_version": "1.0.0",
+    "execution_environment": {
+      "environment_id": "environment-v1",
+      "environment_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "required_evidence_fields": [
+        "target.engine_version",
+        "target.model_revision",
+        "target.tokenizer_revision",
+        "gpu.model",
+        "gpu.count",
+        "cuda.version",
+        "driver.version",
+        "execution.environment_id"
+      ],
+      "schema_version": "exitspec.routing-environment-requirement.v1"
+    },
+    "model": "model-neutral",
+    "model_revision": "revision-123456",
+    "quantization": "unquantized",
+    "schema_version": "exitspec.routing-serving-requirement.v1",
+    "tensor_parallel_size": 1,
+    "tokenizer": "tokenizer-neutral",
+    "tokenizer_revision": "tokenizer-123456"
+  },
+  "source": null,
+  "telemetry": {
+    "age_comparison": "OBSERVED_AGE_SECONDS_LE_MAX_AGE_SECONDS",
+    "capsule_digest_field": "telemetry_capsule_sha256",
+    "capsule_digest_scope": "CANONICAL_CAPSULE_BYTES",
+    "capsule_identity_field": "telemetry_capsule_id",
+    "capsule_type": "ROUTING_TELEMETRY_CAPSULE_V1",
+    "max_age_seconds": 300,
+    "required_provenance_fields": [
+      "telemetry_capsule_id",
+      "telemetry_capsule_sha256",
+      "run_id",
+      "captured_at",
+      "producer_id",
+      "environment_id"
+    ],
+    "schema_version": "exitspec.routing-telemetry-policy.v1",
+    "stale_when": "OBSERVED_AGE_SECONDS_GT_MAX_AGE_SECONDS"
+  },
+  "title": "Synthetic routing qualification vocabulary",
+  "trial_order": {
+    "assignment_rule": "ONE_CANDIDATE_AND_ONE_BASELINE_PER_REQUEST_PER_TRIAL",
+    "baseline_policy_id": "baseline-policy-v1",
+    "candidate_policy_id": "candidate-policy-v1",
+    "ordering_rule": "TRIAL_INDEX_ASCENDING_REQUEST_INDEX_ASCENDING_POLICY_ORDER",
+    "policy_order": ["candidate", "baseline"],
+    "request_count": 4,
+    "request_trace_binding": "REQUEST_TRACE_INDEX",
+    "schema_version": "exitspec.routing-trial-order.v1",
+    "total_assignments": 16,
+    "trial_count": 2,
+    "trial_index_base": 0
+  },
+  "ownership": {
+    "acceptance_owner": "EXIT_SPEC",
+    "evidence_sealer": "EVIDENCE_PRODUCER_OR_INFERDROME",
+    "producer_acceptance_authority": "FORBIDDEN",
+    "route_decision_emitter": "ROUTER_OR_CASCADE"
+  }
+}

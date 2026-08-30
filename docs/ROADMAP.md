@@ -111,6 +111,16 @@ Post-implementation status is recorded separately in
 
 ## Next sequence
 
+### Train B — B9 routing qualification vocabulary
+
+The protocol-only B9 slice freezes the provider/orchestrator-agnostic
+`routing_qualification_v1` campaign vocabulary and its admissible
+evidence-side bindings. See
+[ROUTING_QUALIFICATION_PROTOCOL.md](ROUTING_QUALIFICATION_PROTOCOL.md).
+It deliberately defers confidence-bearing SLOs (B10), multi-run
+verification/reduction (B11), purpose-bound qualification receipts (B12), and
+the Routing Evidence Pack/UI/release gate (B13).
+
 ### 0. POC-first workspace and multi-source shell
 
 The product direction is frozen in

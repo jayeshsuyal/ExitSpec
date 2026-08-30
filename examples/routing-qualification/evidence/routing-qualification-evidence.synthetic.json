@@ -1,0 +1,35 @@
+{
+  "baseline_policy_id": "baseline-policy-v1",
+  "baseline_policy_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidate_policy_id": "candidate-policy-v1",
+  "candidate_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "contract_sha256": "a6fcca1a613e9c13cd89ff1feb3f5d8853a2b5f97994446ca6267b8ef01fde0e",
+  "environment_id": "environment-v1",
+  "environment_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "failure_injection_id": "no-failure-injection-v1",
+  "failure_injection_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "fixture_status": "LOUDLY_SYNTHETIC_TEST_ONLY",
+  "protocol_id": "routing_qualification_v1",
+  "provenance": {
+    "captured_at": "2026-08-30T12:00:00Z",
+    "producer_id": "synthetic-evidence-sealer-v1",
+    "producer_role": "EVIDENCE_PRODUCER_OR_INFERDROME",
+    "producer_version": "1.0.0",
+    "schema_version": "exitspec.routing-evidence-provenance.v1",
+    "source_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "repetition_index": 1,
+  "request_trace_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "route_decision_receipt_ids": [
+    "synthetic-route-receipt-0001",
+    "synthetic-route-receipt-0002"
+  ],
+  "route_decision_receipt_type": "ROUTE_DECISION_RECEIPT_V1",
+  "routing_configuration_id": "routing-config-v1",
+  "routing_configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "run_id": "synthetic-routing-run-0001",
+  "schema_version": "exitspec.routing-qualification-evidence-fixture.v1",
+  "telemetry_capsule_id": "synthetic-routing-capsule-0001",
+  "telemetry_capsule_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "telemetry_capsule_type": "ROUTING_TELEMETRY_CAPSULE_V1"
+}
