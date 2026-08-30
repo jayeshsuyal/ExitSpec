@@ -19,13 +19,13 @@ import uuid
 import webbrowser
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from functools import wraps
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qsl, unquote, urlparse
 
@@ -197,6 +197,17 @@ from .reference_inference import (
 )
 from .runner import RunResult, run_demo
 from .reporting import render_customer_draft, render_decision_packet
+from .routing_evidence_pack import (
+    ROUTING_EVIDENCE_PACK_DISPLAY_NAME,
+    ROUTING_EVIDENCE_PACK_POC_ID,
+    RoutingEvidencePackDemoContext,
+    RoutingEvidencePackError,
+    load_routing_evidence_demo_context,
+    publish_routing_evidence_pack,
+    read_routing_evidence_pack_artifact,
+    verify_routing_evidence_pack,
+)
+from .routing_qualification_receipts import serialize_routing_qualification_receipt
 from .review_links import (
     CustomerReviewInvitation,
     ReviewInvitationError,
@@ -210,6 +221,39 @@ from .synthetic_assisted_authoring import (
     SyntheticAssistedAuthoringExecutor,
     safe_receipt_facts,
 )
+
+
+def _load_or_publish_routing_evidence_pack(
+    output_root: Path,
+    context: RoutingEvidencePackDemoContext,
+):
+    """Reuse one verified seeded pack across safe local server restarts."""
+
+    receipt_bytes = serialize_routing_qualification_receipt(
+        context.contract,
+        context.confirmation,
+        context.evidence,
+        context.result,
+        context.receipt,
+    )
+    expected_pack_id = "rpk_" + hashlib.sha256(receipt_bytes).hexdigest()
+    root = output_root.resolve()
+    destination = root / expected_pack_id
+    if destination.exists() or destination.is_symlink():
+        return verify_routing_evidence_pack(root, expected_pack_id)
+    try:
+        return publish_routing_evidence_pack(
+            root,
+            context.contract,
+            context.confirmation,
+            context.evidence,
+            context.result,
+            context.receipt,
+        )
+    except RoutingEvidencePackError:
+        if not destination.exists() and not destination.is_symlink():
+            raise
+        return verify_routing_evidence_pack(root, expected_pack_id)
 from .source_web import (
     SourceIntakeRecord,
     SourceWebRefusal,
@@ -3033,6 +3077,7 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         performance_fireworks_api_key: object = None,
         stt_fireworks_transport: object = None,
         inferdrome_runs_root: Path | None = None,
+        enable_routing_evidence_pack_demo: bool = False,
     ) -> None:
         configuration = (
             Wave1ProviderExecutionConfiguration()
@@ -3162,6 +3207,15 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         self.wave1_provider_execution = configuration
         self.session.configure_wave1_provider_execution(configuration)
         self.static_root = STATIC_ROOT
+        self.routing_evidence_pack = None
+        if type(enable_routing_evidence_pack_demo) is not bool:
+            raise ValueError("Routing Evidence Pack demo flag is invalid.")
+        if enable_routing_evidence_pack_demo:
+            routing_context = load_routing_evidence_demo_context()
+            self.routing_evidence_pack = _load_or_publish_routing_evidence_pack(
+                self.session.output_root,
+                routing_context,
+            )
 
     def workspace_payload(
         self,
@@ -3343,6 +3397,36 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         """List independently reverified packs without collapsing run history."""
 
         items = []
+        if self.routing_evidence_pack is not None:
+            routing_context = load_routing_evidence_demo_context()
+            routing_pack = verify_routing_evidence_pack(
+                self.session.output_root.resolve(),
+                self.routing_evidence_pack.pack_id,
+            )
+            if routing_pack.receipt_id != routing_context.receipt.receipt_id:
+                raise RuntimeError(
+                    "The seeded routing Evidence Pack context changed."
+                )
+            issued_at = datetime.strptime(
+                routing_context.receipt.issued_at,
+                "%Y-%m-%dT%H:%M:%SZ",
+            ).replace(tzinfo=timezone.utc)
+            items.append(
+                EvidencePackLibraryItem(
+                    poc_id=ROUTING_EVIDENCE_PACK_POC_ID,
+                    display_name=ROUTING_EVIDENCE_PACK_DISPLAY_NAME,
+                    customer_label=routing_context.contract.customer,
+                    contract_id=routing_context.receipt.contract_id,
+                    contract_version=routing_context.receipt.contract_version,
+                    contract_hash=routing_context.receipt.contract_sha256,
+                    run_id=routing_context.receipt.receipt_id,
+                    verdict=routing_context.receipt.verdict,
+                    evidence_pack_url=routing_pack.evidence_pack_url,
+                    evidence_pack_sha256=routing_pack.evidence_pack_sha256,
+                    handoff_state=EvidencePackHandoffState.READY_FOR_HANDOFF,
+                    updated_at=issued_at,
+                )
+            )
         support_history, support_last = self.session.evidence_run_snapshot()
         support_current = (
             None
@@ -6361,15 +6445,46 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_artifact(self, request_path: str) -> None:
         relative = request_path.removeprefix("/artifacts/")
+        decoded = unquote(relative)
+        logical = PurePosixPath(decoded)
         target = _safe_child(self.server.session.output_root, relative)
-        if target is None or not target.is_file():
+        raw_target = self.server.session.output_root / decoded
+        if (
+            target is None
+            or not target.is_file()
+            or target.is_symlink()
+            or raw_target.is_symlink()
+            or logical.is_absolute()
+            or "\\" in decoded
+            or any(part in {"", ".", ".."} for part in logical.parts)
+        ):
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Artifact not found."})
+            return
+        routing_demo = self.server.routing_evidence_pack
+        if routing_demo is not None and logical.parts and logical.parts[0] == routing_demo.pack_id:
+            try:
+                artifact_name = "/".join(logical.parts[1:])
+                data = read_routing_evidence_pack_artifact(
+                    self.server.session.output_root.resolve(),
+                    routing_demo.pack_id,
+                    artifact_name,
+                )
+            except Exception:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Artifact not found."},
+                )
+                return
+            self._send_bytes(target, data)
             return
         self._send_file(target)
 
     def _send_file(self, path: Path) -> None:
-        content_type, _ = mimetypes.guess_type(str(path))
         data = path.read_bytes()
+        self._send_bytes(path, data)
+
+    def _send_bytes(self, path: Path, data: bytes) -> None:
+        content_type, _ = mimetypes.guess_type(str(path))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type or "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
@@ -6841,6 +6956,7 @@ def serve_demo(
             ),
             stt_fireworks_transport=stt_transport,
             inferdrome_runs_root=inferdrome_runs_root,
+            enable_routing_evidence_pack_demo=True,
         )
     except Exception:
         resource_stack.close()

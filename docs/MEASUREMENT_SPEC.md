@@ -11,6 +11,10 @@ and B11 [Routing campaign verification protocol](ROUTING_CAMPAIGN_VERIFICATION_P
 B12's separate [Routing policy qualification receipt protocol](ROUTING_QUALIFICATION_RECEIPT_PROTOCOL.md)
 binds the recomputed B11 result and original evidence identities for routing
 qualification use only.
+B13's [Routing Evidence Pack protocol](ROUTING_EVIDENCE_PACK_PROTOCOL.md)
+publishes only that fully revalidated B11/B12 context into an immutable,
+content-addressed, presentation-safe pack; the seeded fixture remains
+synthetic `TEST ONLY` and `NOT_PROVEN` when repetition 2 is missing.
 B9 freezes campaign identities, allocation, reset, telemetry, receipt, and
 privacy requirements; B10 freezes per-assignment SLO and subject-specific
 confidence semantics. B11 freezes only independent run verification and

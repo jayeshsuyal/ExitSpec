@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exitspec"
-version = "0.3.0"
+version = "0.4.0"
 description = "Executable acceptance criteria and evidence packs for AI infrastructure POCs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -47,6 +47,9 @@ exitspec = [
   "inference_performance/contracts/*.json",
   "inference_performance/prompts/*.jsonl",
   "inference_performance/workloads/*.json",
+  "routing_qualification/contracts/*.json",
+  "routing_qualification/evidence/*.json",
+  "routing_qualification/receipts/*.json",
   "support_agent/authoring/*.json",
   "support_agent/contracts/*.yaml",
   "support_agent/email/*.eml",

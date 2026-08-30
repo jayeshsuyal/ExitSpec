@@ -96,5 +96,6 @@ B12 preserves these earlier frozen identities exactly:
 | B11 confirmation canonical bytes | `3a64a55affa7bfc661b311651c55c2120ac8bb9492645c75ccceb3a8e7d8f6d5` |
 | B11 evidence canonical bytes | `01bdc0f93b6f9bb40c72be17bae0aab07edba31f456881e3aa2596e863c31f86` |
 
-B13 alone may later define a Routing Evidence Pack, UI, browser route, release
-gate, or tag. None is part of B12.
+B13 defines the additive [Routing Evidence Pack protocol](ROUTING_EVIDENCE_PACK_PROTOCOL.md)
+around this receipt. It revalidates the same B11 context and changes no B12
+identity or authority semantics.

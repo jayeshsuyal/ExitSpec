@@ -35,6 +35,36 @@ INFERDROME_SCHEMA_ROOT = (
 INFERDROME_PROFILE_ROOT = (
     PROJECT_ROOT / "src" / "exitspec" / "profiles" / "inferdrome" / "v1"
 )
+ROUTING_FIXTURE_EXAMPLES = {
+    "contracts/routing-campaign-reduction-v1.synthetic.json": (
+        PROJECT_ROOT
+        / "examples"
+        / "routing-qualification"
+        / "contracts"
+        / "routing-campaign-reduction-v1.synthetic.json"
+    ),
+    "contracts/routing-campaign-reduction-v1.synthetic.confirmation.json": (
+        PROJECT_ROOT
+        / "examples"
+        / "routing-qualification"
+        / "contracts"
+        / "routing-campaign-reduction-v1.synthetic.confirmation.json"
+    ),
+    "evidence/routing-campaign-evidence-v1.synthetic.json": (
+        PROJECT_ROOT
+        / "examples"
+        / "routing-qualification"
+        / "evidence"
+        / "routing-campaign-evidence-v1.synthetic.json"
+    ),
+    "receipts/routing-qualification-receipt-v1.synthetic.json": (
+        PROJECT_ROOT
+        / "examples"
+        / "routing-qualification"
+        / "receipts"
+        / "routing-qualification-receipt-v1.synthetic.json"
+    ),
+}
 EXPECTED_INFERDROME_SCHEMAS = {
     "environment.schema.json": (
         "0a0c43552f86d45579786f30f71da62cf6c02ea7c5c2cfcf76dc1427dc9df777"
@@ -441,6 +471,12 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
             member = "exitspec/demo_data/support_agent/{0}".format(relative_path)
             assert member in members
             assert _sha256(archive.read(member)) == expected_sha256
+        for relative_path, authoritative_path in ROUTING_FIXTURE_EXAMPLES.items():
+            member = "exitspec/demo_data/routing_qualification/{0}".format(
+                relative_path
+            )
+            assert member in members
+            assert archive.read(member) == authoritative_path.read_bytes()
         expected_email_members = {
             "exitspec/demo_data/support_agent/email/{0}".format(filename)
             for filename in EXPECTED_EMAIL_RESOURCES
@@ -553,7 +589,8 @@ from exitspec.demo_data import (
 )
 from exitspec.inferdrome_bundle import INFERDROME_VERIFIER_VERSION
 from exitspec.inferdrome_import import INFERDROME_RECEIPT_SCHEMA_VERSION
-from exitspec.web import DemoSession
+from exitspec.routing_evidence_pack import load_routing_evidence_demo_context
+from exitspec.web import DemoSession, ExitSpecDemoServer
 from exitspec.workspace import DashboardFilter
 from exitspec.performance_workspace import load_performance_demo_bundle
 
@@ -590,6 +627,28 @@ payload["performance_contract_hash"] = (
 payload["performance_request_count"] = (
     performance.context.workload.request_count
 )
+with support_agent_demo_paths() as routing_data:
+    routing_session = DemoSession.synthetic_support_agent(
+        Path.cwd() / "routing-demo-runs",
+        discovery_path=routing_data.discovery_pack,
+        contract_seed_path=routing_data.contract_seed,
+        fixture_path=routing_data.fixture,
+    )
+    routing_server = ExitSpecDemoServer(
+        ("127.0.0.1", 0),
+        routing_session,
+        enable_routing_evidence_pack_demo=True,
+    )
+    try:
+        routing_library = routing_server.evidence_pack_library_payload()
+        payload["routing_pack_count"] = len(routing_library["packs"])
+        payload["routing_pack_id"] = routing_server.routing_evidence_pack.pack_id
+        payload["routing_verdict"] = routing_library["packs"][0]["verdict"]
+        payload["routing_missing_repetition_indices"] = (
+            load_routing_evidence_demo_context().receipt.missing_repetition_indices
+        )
+    finally:
+        routing_server.server_close()
 with support_agent_email_paths() as email:
     payload["email_resource_root"] = str(email.root)
     payload["email_manifest_sha256"] = hashlib.sha256(
@@ -631,6 +690,12 @@ print(json.dumps(payload))
         "88c4f55dd1a0810efa59fac1bd1041a21c3cbe1179ceb3e101e75000eb7d909f"
     )
     assert probe["performance_request_count"] == 100
+    assert probe["routing_pack_count"] == 1
+    assert probe["routing_pack_id"] == (
+        "rpk_c502a1e3bae757015b90ecca96839b5c792a1d3c2fab9a048a40d00829cfaa87"
+    )
+    assert probe["routing_verdict"] == "NOT_PROVEN"
+    assert probe["routing_missing_repetition_indices"] == [2]
     assert Path(probe["email_resource_root"]).is_relative_to(
         installed_site_packages
     )
