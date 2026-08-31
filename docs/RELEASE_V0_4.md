@@ -1,6 +1,7 @@
 # ExitSpec v0.4.0 release checkpoint
 
-Status: review candidate until the parent task tags it; no tag or GitHub release has been created.
+Status: released as v0.4.0 from the exact green main commit; the annotated tag
+and public GitHub release are its publication record.
 
 ## B13 closure
 
@@ -40,7 +41,8 @@ The machine-readable closure record is
 - no deployment, shipping, production-traffic, traffic-expansion, release,
   spending, procurement, or contract-mutation authority;
 - a separate named human/product decision remains required;
-- no actual tag or GitHub release is part of this checkpoint.
+- the v0.4.0 tag and GitHub release are publication records only and grant no
+  additional authority.
 
 ## Rollback
 

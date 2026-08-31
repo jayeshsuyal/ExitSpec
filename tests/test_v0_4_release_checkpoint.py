@@ -26,11 +26,11 @@ def test_v0_4_release_truth_and_frozen_closure_artifact():
     )
     assert project["project"]["version"] == "0.4.0"
     assert exitspec.__version__ == "0.4.0"
-    assert "review candidate until the parent task tags it" in release
-    assert "no tag or GitHub release has been created" in release
+    assert "released as v0.4.0 from the exact green main commit" in release
+    assert "the v0.4.0 tag and GitHub release are publication records only" in release
     assert "no router execution or provider provisioning" in release
     assert closure["release_version"] == "0.4.0"
-    assert closure["status"] == "REVIEW_CANDIDATE"
+    assert closure["status"] == "RELEASED"
     assert closure["frozen_context"]["b11_contract_sha256"] == (
         "66a6642ab761e8430e0a955e4b43de4779dda12fa08207ad25bb708c858bd260"
     )

@@ -1,6 +1,7 @@
 # Routing Evidence Pack protocol
 
-Status: v0.4 review candidate; no tag or GitHub release has been created.
+Status: included in the released v0.4.0 checkpoint; the tag and GitHub release
+are publication records only.
 
 The B13 Routing Evidence Pack is a read-only, content-addressed presentation
 of one already admitted B11 routing campaign and its B12 purpose-bound receipt.
