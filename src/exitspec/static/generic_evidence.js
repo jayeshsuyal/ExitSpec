@@ -467,8 +467,9 @@
   async function refresh() {
     if (!api) throw new Error("Evidence route is invalid.");
     busy = true;
-    trustedSnapshot = false;
-    snapshot = null;
+    // Keep the last trusted projection visible while the replacement is
+    // fetched and validated. Controls are busy-disabled until the swap, so a
+    // failed refresh cannot turn a transient untrusted state into UI state.
     render();
     try {
       const candidate = await request(api, { headers: {} });

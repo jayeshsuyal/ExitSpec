@@ -80,6 +80,33 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
             if response.status >= 400
             else None,
         )
+        page.add_init_script(
+            """
+            (() => {
+                const nativeFetch = window.fetch.bind(window);
+                window.__holdEvidenceRefresh = false;
+                window.__releaseEvidenceRefresh = null;
+                window.fetch = (input, init = {}) => {
+                    const url = typeof input === "string" ? input : input?.url;
+                    const method = (init.method || input?.method || "GET").toUpperCase();
+                    const path = url ? new URL(url, window.location.origin).pathname : "";
+                    if (
+                        window.__holdEvidenceRefresh &&
+                        method === "GET" &&
+                        /\\/api\\/pocs\\/poc_[a-z0-9][a-z0-9_-]{2,63}\\/evidence$/.test(path)
+                    ) {
+                        return new Promise((resolve, reject) => {
+                            window.__releaseEvidenceRefresh = () => {
+                                window.__holdEvidenceRefresh = false;
+                                nativeFetch(input, init).then(resolve, reject);
+                            };
+                        });
+                    }
+                    return nativeFetch(input, init);
+                };
+            })();
+            """
+        )
         try:
             page.goto(f"{base_url}/app/pocs/new")
             page.locator('input[name="first_source_choice"][value="DOCUMENT"]').check()
@@ -184,7 +211,13 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
                 "Reviewed the current pack, limitations, and next action."
             )
             assert page.locator("#handoff-evidence").is_enabled()
+            page.evaluate("window.__holdEvidenceRefresh = true")
             page.locator("#handoff-evidence").click()
+            page.wait_for_function("window.__releaseEvidenceRefresh !== null")
+            assert page.locator("#evidence-acknowledgement").is_hidden()
+            assert page.locator("#handoff-evidence").is_visible()
+            assert page.locator("#handoff-evidence").is_disabled()
+            page.evaluate("window.__releaseEvidenceRefresh()")
             page.wait_for_function("document.querySelector('#handoff-evidence')?.hidden === true")
             assert page.locator("#evidence-acknowledgement").is_hidden()
             assert page.locator("#evidence-acknowledged").is_disabled()
