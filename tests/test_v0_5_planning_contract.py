@@ -131,6 +131,48 @@ def test_v0_5_pr2_subject_identity_contract_stays_digest_only_and_bounded():
     assert "`exitspec-serving-subject-manifest-v1\\\\x00`" not in plan
 
 
+def test_v0_5_pr3_scope_and_context_contract_remains_zero_authority():
+    plan = _read(PLAN)
+    scope_section = plan.split("### 2. `QualificationScopeV1`", 1)[1].split(
+        "### 3. `QualificationContextV1`", 1
+    )[0]
+
+    for marker in (
+        "`exitspec.qualification-scope.v1`",
+        '"evaluated_use": "CANARY_CONSIDERATION"',
+        '"maximum_traffic_percent": 1',
+        "integer from 1 through 5",
+        "`EVIDENCE_CAPTURED_AT`",
+        "`NOT_REQUIRED` or `REQUIRED`",
+        "No parser default-fills either optional\nfield.",
+        "`exitspec-qualification-scope-v1\\x00`",
+    ):
+        assert marker in scope_section
+    for prohibited in (
+        "deployment_authorized",
+        "production_traffic_authorized",
+        "traffic_expansion_authorized",
+        "external_authorization_required",
+        "expires_after_seconds",
+    ):
+        assert prohibited not in scope_section
+
+    context_section = plan.split("### 3. `QualificationContextV1`", 1)[1].split(
+        "### 4. `ProofabilityReportV1`", 1
+    )[0]
+    for marker in (
+        '"schema_version": "exitspec.qualification-context.v1"',
+        '"qualification_context_digest": "sha256:<64 lowercase hex>"',
+        "`exitspec-qualification-context-v1\\x00`",
+        "never informal string concatenation",
+        "tests/fixtures/qualification_scope/v1/golden-scope.json",
+        "sha256:5db651e8c2eae05147d2c5fc52bae0b4526ed84508f76d62d41471ac4ca677ab",
+        "sha256:9159ac21169d0674b916053e6605a72f6f25e65cfe94b30b708a86f343d0193c",
+        "not proof of execution, authorship, chronology",
+    ):
+        assert marker in context_section
+
+
 def test_v0_5_threat_model_covers_required_boundaries_and_limitations():
     plan = _read(PLAN)
 
@@ -162,16 +204,17 @@ def test_v0_5_threat_model_covers_required_boundaries_and_limitations():
 def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     ledger = _read(LEDGER)
 
-    assert "Base revision:" in ledger
+    assert "PR1 base revision:" in ledger
+    assert "PR3 base revision:" in ledger
     assert "Rejected candidate history:" in ledger
-    assert "Superseding candidate selector:" in ledger
+    assert "Candidate selector:" in ledger
     assert "PR1 | Architecture, vocabulary, and threat contract" in ledger
     assert "PR14 | Adversarial closure and candidate checkpoint" in ledger
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
     assert ledger.count("CHANGES_REQUIRED") >= 3
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "second PR2 superseding local candidate prepared for Mission" in ledger
+    assert "local PR3 qualification-scope candidate is" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -179,19 +222,28 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "2a6ce7b681063b73450bf7a4573dea5dac8314b5" in ledger
     assert "ca96e6e737402fe3fcbea990f5ac411e5cb6105c" in ledger
     assert "PR CI `33363876409`; main CI `33364429844`" in ledger
-    assert "| PR2 | Serving-subject identity | PR1 | CANDIDATE |" in ledger
+    assert "| PR2 | Serving-subject identity | PR1 | MERGED |" in ledger
+    assert "| PR3 | Qualification scope and context | PR2 | CANDIDATE |" in ledger
+    assert "00b4f01c27eabac37a63adb1015d8e1434113009" in ledger
+    assert "edb62a071d68a9281e6127ee8ade51f7f23daa02" in ledger
+    assert "PR CI `33415971409`" in ledger
+    assert "main CI `33416637002`, all four jobs green" in ledger
     assert "426c792c35ed5ea212b9cdedcbb58612e3f581ab" in ledger
     assert "P1 — runtime-config deny pairs" in ledger
     assert "b473b8bae5644aa8ef7ef5dcb02119230efe8c72" in ledger
     assert "compact fallback" in ledger
     assert "3,755 passed, 33 skipped" in ledger
     assert "3,768 passed, 23 skipped" in ledger
+    assert "3,798 passed, 33 skipped" in ledger
+    assert "3,811 passed, 23 skipped" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():
     for document in (PLAN, RUNBOOK, LEDGER):
         markdown = _read(document)
         for target in re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", markdown):
+            if target.startswith(("https://", "http://")):
+                continue
             assert (document.parent / target).is_file(), (
                 f"Broken local link in {document}: {target}"
             )

@@ -1,6 +1,7 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: proposed product and release contract. Implementation has not started.
+Status: frozen product and release contract. PR1 and PR2 are merged; the local
+PR3 candidate defines only qualification scope and context.
 ExitSpec v0.4.0 remains the immutable released baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.
@@ -253,6 +254,55 @@ that the unchanged serving subject became a different subject.
 The same strict canonicalization, bounds, validation, and domain-separated
 hashing rules apply to `scope_digest`.
 
+PR3 fixes `exitspec.qualification-scope.v1` as one fully explicit, typed
+object. Its unsigned projection contains exactly:
+
+```json
+{
+  "schema_version": "exitspec.qualification-scope.v1",
+  "frozen_contract": {
+    "contract_id": "<strict identity>",
+    "contract_canonical_digest": "sha256:<64 lowercase hex>"
+  },
+  "workload": {
+    "workload_id": "<strict identity>",
+    "workload_digest": "sha256:<64 lowercase hex>"
+  },
+  "measurement_profile": {
+    "environment_id": "<strict identity>",
+    "environment_digest": "sha256:<64 lowercase hex>",
+    "profile_id": "<strict identity>",
+    "profile_version": "<exact semantic version>",
+    "profile_digest": "sha256:<64 lowercase hex>"
+  },
+  "evaluated_use": "CANARY_CONSIDERATION",
+  "maximum_use": {"maximum_traffic_percent": 1},
+  "freshness_policy": {
+    "age_basis": "EVIDENCE_CAPTURED_AT",
+    "maximum_evidence_age_seconds": 1
+  },
+  "reference_subject_requirement": "NOT_REQUIRED",
+  "reference_subject_digest": null
+}
+```
+
+`maximum_traffic_percent` is an integer from 1 through 5. It records only the
+bounded qualification question: consideration of a canary of at most 5%. It
+does not grant a canary, deployment, production traffic, or traffic expansion.
+The scope contains no authorization, permission, deployment, or traffic-grant
+field; ExitSpec's zero-authority invariant remains an external contract rule.
+
+Every field above is physically required. `freshness_policy` is either an
+explicit `null` or the exact prospective evidence-age policy shown above; it
+has no issuance, capture, expiry, or currentness fact of its own. Its
+`EVIDENCE_CAPTURED_AT` basis only tells a later protocol which evidence fact it
+would need to evaluate age. `reference_subject_requirement` is exactly
+`NOT_REQUIRED` or `REQUIRED`; its digest is `null` exactly when not required
+and present exactly when required. No parser default-fills either optional
+field. The domain separator for `scope_digest` is the stable bytes
+`exitspec-qualification-scope-v1\x00`; its unsigned projection excludes only
+the derived `scope_digest`.
+
 ### 3. `QualificationContextV1`
 
 The context binds subject, scope, and qualification protocol without informal
@@ -264,13 +314,30 @@ string concatenation:
   "subject_digest": "sha256:<64 lowercase hex>",
   "scope_digest": "sha256:<64 lowercase hex>",
   "protocol_id": "<versioned protocol identity>",
-  "protocol_version": "<exact version>"
+  "protocol_version": "<exact version>",
+  "qualification_context_digest": "sha256:<64 lowercase hex>"
 }
 ```
 
 `qualification_context_digest` is domain-separated SHA-256 over this canonical
 object. It becomes the common substitution boundary across the prospective
 handoff, admitted evidence, receipt, assessment, CLI, and UI.
+
+The context unsigned projection excludes only
+`qualification_context_digest` and uses stable domain-separator bytes
+`exitspec-qualification-context-v1\x00`. It binds validated subject and scope
+digests through canonical JSON fields, never informal string concatenation.
+PR3 parsing and self-consistency do not resolve those digests to a producer,
+evidence, clock, hardware, or authenticated principal.
+
+The checked-in PR3 vectors at
+`tests/fixtures/qualification_scope/v1/golden-scope.json` and
+`tests/fixtures/qualification_scope/v1/golden-context.json` have raw bytes
+equal to their JCS serializations. They independently derive scope digest
+`sha256:5db651e8c2eae05147d2c5fc52bae0b4526ed84508f76d62d41471ac4ca677ab`
+and context digest
+`sha256:9159ac21169d0674b916053e6605a72f6f25e65cfe94b30b708a86f343d0193c`
+from their literal domain separators and unsigned projections.
 
 Self-consistent digests are not proof of execution, authorship, chronology,
 hardware truth, or authenticated identity. Those assurances remain explicit
