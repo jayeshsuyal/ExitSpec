@@ -158,7 +158,7 @@ decision. See
 
 ### Train B — B13 Routing Evidence Pack and release checkpoint
 
-**Complete for v0.4 review:** the additive Routing Evidence Pack revalidates
+**Complete for v0.4:** the additive Routing Evidence Pack revalidates
 the exact frozen B11 contract, affirmative confirmation, canonical evidence,
 recomputed result, and B12 receipt before publishing a bounded immutable pack.
 The existing Evidence Packs library exposes one explicit synthetic demo from

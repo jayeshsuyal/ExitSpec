@@ -23,13 +23,13 @@ named human handoff without presenting a local demo as production authorization.
 
 ![ExitSpec seeded workbench showing the Define → Confirm → Prove flow](docs/assets/exitspec-seeded-workbench.jpg)
 
-*Current v0.4 review-candidate product surface, captured from a clean local
+*Current v0.4 product surface, captured from a clean local
 seeded demo. The sample data is synthetic.*
 
-> **Release status:** v0.4.0 is a review candidate. No v0.4.0 tag or GitHub
-> release has been created. The v0.3 Request-to-Proof contract remains the
-> historical compatibility reference; the current package and release gate are
-> v0.4.0.
+> **Release status:** v0.4.0 is the current release. The annotated `v0.4.0`
+> tag and public GitHub release point to the exact green main commit. The v0.3
+> Request-to-Proof contract remains the historical compatibility reference; the
+> current package and release gate are v0.4.0.
 
 ## 60-second quickstart
 

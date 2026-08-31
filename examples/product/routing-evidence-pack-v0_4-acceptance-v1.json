@@ -1,7 +1,7 @@
 {
   "artifact_kind": "ROUTING_EVIDENCE_PACK_V0_4_ACCEPTANCE",
   "artifact_version": "1.0.0",
-  "status": "REVIEW_CANDIDATE",
+  "status": "RELEASED",
   "release_version": "0.4.0",
   "frozen_context": {
     "b9_contract_sha256": "e3bbcab57ac37987f981e0de1a36e56ae6f649cd2f3c75d8d7bcd637583a0516",
