@@ -1,19 +1,25 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1 superseding candidate prepared for Mission Control review.
+Last updated: second PR2 superseding local candidate prepared for Mission
+Control review after all required local gates passed.
 
 ## Train controls
 
 - **Authoritative plan:** [V0_5_QUALIFICATION_GATE_PLAN.md](V0_5_QUALIFICATION_GATE_PLAN.md)
 - **Operating procedure:** [V0_5_EXECUTION_RUNBOOK.md](V0_5_EXECUTION_RUNBOOK.md)
-- **Base revision:** `05e66208e9fdd98a04bde0bd3a4d83ee1ec71c3c`
+- **Base revision:** `2a6ce7b681063b73450bf7a4573dea5dac8314b5` (PR #157 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
-  `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`
-- **Superseding candidate selector:** `HEAD` after the current local corrective
-  commit; resolve its immutable SHA with `git rev-parse HEAD` during review.
-- **Scope:** documentation/process only for PR1; no product feature code.
+  `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
+  `426c792c35ed5ea212b9cdedcbb58612e3f581ab` and
+  `b473b8bae5644aa8ef7ef5dcb02119230efe8c72`
+- **Superseding candidate selector:** `HEAD` after the second local PR2
+  superseding candidate commit; resolve its immutable SHA with `git rev-parse
+  HEAD` during review.
+- **Scope:** merged PR1 architecture/process contract plus PR2 serving-subject
+  identity only. PR2 adds no qualification scope/context, evidence, verdict,
+  provider execution, deployment, or traffic functionality.
 - **Non-authority:** ExitSpec never authorizes deployment or traffic. Provider
   integration, GPU execution, spending, external capture, cross-repository
   work, deployment, release publication, and traffic changes are out of scope.
@@ -29,8 +35,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 
 | PR | Decision boundary | Depends on | State | Exit evidence / hold |
 | --- | --- | --- | --- | --- |
-| PR1 | Architecture, vocabulary, and threat contract | v0.4 baseline | CANDIDATE | GitHub Actions contract correction, focused validation, link and scope scans, and clean superseding candidate passed; Mission Control review is pending. |
-| PR2 | Serving-subject identity | PR1 | NOT_STARTED | Strict identity mutation and malformed-input coverage. |
+| PR1 | Architecture, vocabulary, and threat contract | v0.4 baseline | MERGED | PR #157; branch head `ca96e6e737402fe3fcbea990f5ac411e5cb6105c`; merge `2a6ce7b681063b73450bf7a4573dea5dac8314b5`; PR CI `33363876409`; main CI `33364429844`. |
+| PR2 | Serving-subject identity | PR1 | CANDIDATE | Second superseding candidate verifies exact accumulated nested runtime-config paths, single-key compact detection, raw-JCS parsing, golden vector, focused suite, engineering gate, and v0.4 release gate; Mission Control SHA review is pending. |
 | PR3 | Qualification scope and context | PR2 | NOT_STARTED | Distinguishable subject/scope drift and canonical context. |
 | PR4 | Producer capability descriptor | PR3 | NOT_STARTED | Server-owned profile; no caller can expand capability. |
 | PR5 | Proofability engine | PR4 | NOT_STARTED | Unsupported semantics stop before any external operation. |
@@ -50,7 +56,10 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | --- | --- | --- | --- |
 | `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` | Mission Control | `CHANGES_REQUIRED` | Preserve this parent. Restore PR12 as a least-privilege GitHub required check, make PR1–PR14 exact, add an explicit threat model, strengthen contract tests, and do not send this candidate to MTS as approved. |
 | `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c` | Mission Control | `CHANGES_REQUIRED` | P1 — invalid permissions syntax: `permissions: contents: read` is not valid GitHub Actions YAML. Replace prose/test assertions with the exact valid least-privilege block; forbid `pull_request_target` for untrusted contribution code and privileged/untrusted checkout combinations; retain no `id-token`, secrets, deployment/provider credentials, or write permissions; and keep required-status branch protection owner-configured outside ExitSpec. |
-| `HEAD` after the current local corrective commit | Mission Control and independent MTS | PENDING | New candidate must retain both rejection records, use the valid YAML block, and pass the focused validation before Mission Control review. |
+| `ca96e6e737402fe3fcbea990f5ac411e5cb6105c` | Mission Control and independent MTS | MERGED | PR1 corrections were accepted and merged as PR #157; post-merge main CI `33364429844` was green. |
+| `426c792c35ed5ea212b9cdedcbb58612e3f581ab` | Mission Control | `CHANGES_REQUIRED` | P1 — runtime-config deny pairs were checked only within an individual key and did not reject accumulated nested paths such as `api`/`key`, `private`/`key`, or `gpu`/`reservation`. P2 — render the Markdown domain separator with one literal `\x00`, not a doubled slash. Preserve this candidate and supersede it locally. |
+| `b473b8bae5644aa8ef7ef5dcb02119230efe8c72` | Mission Control | `CHANGES_REQUIRED` | P1 — the compact fallback joined the entire accumulated path, incorrectly rejecting harmless multi-key split paths such as `a`/`pi`/`k`/`ey` and `gpu`/`re`/`servation`. Preserve real nested denied pairs, but scope compact matching to one key's segments. Preserve this candidate and supersede it locally. |
+| `HEAD` after the second local PR2 superseding candidate commit | Mission Control | PENDING | Inspect the exact SHA, precise accumulated-path deny enforcement, single-key compact detection, corrected domain-separator rendering, and refreshed local gate evidence before any next milestone. |
 
 ## PR1 evidence record
 
@@ -64,16 +73,36 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Remaining risks | The 14 milestones are a fixed execution contract, not an implementation claim. PR12 must retain the exact valid read-only YAML block, a status-only GitHub boundary, and owner-configured branch protection; later PRs must keep provider and real-evidence operations outside this train. |
 | Reviewer handoff | Mission Control requested a second superseding candidate. Do not submit either preserved parent to MTS as approved; after correction, Mission Control inspects the new `HEAD` SHA and this ledger before any next milestone. |
 
+## PR2 evidence record
+
+| Item | Record |
+| --- | --- |
+| Decision | Add only immutable serving-subject identity. It is distinct from future qualification scope/context, evidence, proofability, verdict, validity, deployment, and traffic authority. |
+| Changed files | `src/exitspec/serving_subject.py`; `tests/test_serving_subject.py`; `tests/fixtures/serving_subject/v1/golden.json`; `docs/V0_5_QUALIFICATION_GATE_PLAN.md`; this ledger; planning-contract test. |
+| Schema and identity | `exitspec.serving-subject-manifest.v1`; RFC 8785 JCS; unsigned projection excludes only `subject_digest`; domain separator bytes `exitspec-serving-subject-manifest-v1\x00`; output format `sha256:<64 lowercase hex>`. |
+| Material boundary | Pinned model/tokenizer revisions; exact engine/profile/adapter versions; required explicit-null optional artifact/routing fields; runtime configuration; required `launch_arguments_digest`; hardware; profile/adapter; and all-or-none routing identity/digest. Raw launch arguments, workload, scope, evidence, verdict, run ID, provider execution, deployment, and traffic are excluded. |
+| Golden vector | `tests/fixtures/serving_subject/v1/golden.json` has raw bytes equal to its JCS serialization and independently derives `sha256:2921dd76c90a5dd4a6131ef8bb7a369f7b4b1a3a829744751e6b38e81dfb988a` from the literal domain separator plus unsigned projection. |
+| Mission Control correction | Preserve `426c792c35ed5ea212b9cdedcbb58612e3f581ab` as `CHANGES_REQUIRED`. The superseding implementation accumulates normalized key segments through nested objects and arrays before evaluating prohibited segments/pairs; it adds split, deeper, case, dash, dot, camel-case, harmless-key, and content-safe-error coverage. The plan now renders one literal `\x00` in the Markdown code span. |
+| Second Mission Control correction | Preserve `b473b8bae5644aa8ef7ef5dcb02119230efe8c72` as `CHANGES_REQUIRED`. Accumulated paths now reject only exact denied segments and exact adjacent denied pairs; the unseparated `apikey`, `privatekey`, and `gpureservation` fallback inspects only the current key's segments. Positive regressions admit `a`/`pi`/`k`/`ey` and `gpu`/`re`/`servation`, while hostile split, deeper, case, dash, dot, camel-case, and non-echoing error cases remain rejected. |
+| Focused checks | `/private/tmp/exitspec-b13-venv/bin/python -m pytest -q tests/test_serving_subject.py tests/test_canonical.py tests/test_source_models.py tests/test_performance_contract_models.py tests/test_distribution.py tests/test_engineering_process.py tests/test_v0_4_release_checkpoint.py tests/test_v0_5_planning_contract.py` — passed; Ruff on changed Python and `git diff --check` — passed. |
+| Required gates | `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=2a6ce7b681063b73450bf7a4573dea5dac8314b5 ./scripts/engineering_gate.sh` — 3,755 passed, 33 skipped; `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,768 passed, 23 skipped, including 4 Chromium, 17 adversarial, and 4 artifact-reader checks. |
+| Remaining risks | A self-consistent subject digest proves identity/integrity only, not authorship, execution, physical hardware truth, chronology, or authority. `launch_arguments_digest` relies on a future separately bounded argument-capture policy. Future milestones must preserve this zero-authority boundary. |
+| Reviewer handoff | Candidate is local only. Do not push, open a PR, merge, tag, release, execute a GPU/provider, or authorize deployment/traffic. Mission Control reviews the immutable `HEAD` SHA before PR3. |
+
 ## Proposed PR metadata
 
-- **Title:** `docs: freeze v0.5 provider-neutral qualification execution contract`
-- **Body summary:** Freezes the ExitSpec-only v0.5 architecture and execution
-  contract: exactly PR1–PR14, provider-neutral PR7/PR8 boundaries, an explicit
-  threat model, and a least-privilege GitHub required check that reports
-  qualification state only. ExitSpec never authorizes deployment or traffic.
-  No product feature code, external evidence operation, provider action,
-  cross-repository change, release publication, deployment, or traffic action
-  is included.
-- **Evidence note:** This superseding candidate incorporates independent review
-  corrections, preserved in the review history above, including the valid
-  GitHub Actions permissions contract.
+- **PR2 title:** `feat: add v0.5 serving-subject identity manifest`
+- **PR2 body summary:** Adds the strict, immutable `ServingSubjectManifestV1`
+  boundary with RFC 8785 JCS serialization, domain-separated digesting,
+  canonical raw-byte parsing, explicit optional-field presence, a digest-only
+  launch-argument identity, and a bounded denylisted runtime configuration.
+  Includes a checked-in golden vector and adversarial mutation, bypass, and
+  content-safety coverage. It does not add workload/scope, evidence, verdict,
+  provider execution, deployment, or traffic authority.
+- **PR2 evidence note:** Focused checks, the full engineering gate, and the
+  v0.4 release gate passed locally; this candidate is pending Mission Control
+  review only.
+- **Historical PR1 title:** `docs: freeze v0.5 provider-neutral qualification execution contract`
+- **Historical PR1 evidence note:** The merged PR1 candidate incorporated
+  independent review corrections, preserved above, including the valid GitHub
+  Actions permissions contract.
