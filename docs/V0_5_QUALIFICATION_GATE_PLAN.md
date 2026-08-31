@@ -1,7 +1,7 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: frozen product and release contract. PR1 and PR2 are merged; the local
-PR3 candidate defines only qualification scope and context.
+Status: frozen product and release contract. PR1–PR3 are merged; PR4 defines
+only the provider-neutral producer-capability descriptor and registry.
 ExitSpec v0.4.0 remains the immutable released baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.
@@ -343,7 +343,101 @@ Self-consistent digests are not proof of execution, authorship, chronology,
 hardware truth, or authenticated identity. Those assurances remain explicit
 and profile-specific.
 
-### 4. `ProofabilityReportV1`
+### 4. `ProducerCapabilityDescriptorV1`
+
+PR4 fixes one server-owned, provider-neutral registry entry. It declares only
+which observations the selected external-evidence profile can provide; it does
+not inspect source text, provider output, API or browser payloads, or evidence.
+The first entry has ExitSpec-owned profile identity
+`exitspec.external-evidence.native-ttft-profile.v1` at exact profile version
+`v1`. Its profile identity is not a provider connection, a run, a producer
+attestation, or an authorization.
+
+The descriptor is one fully explicit closed object:
+
+```json
+{
+  "schema_version": "exitspec.producer-capability-descriptor.v1",
+  "registry_version": "exitspec.producer-capability-registry.v1",
+  "profile": {
+    "profile_id": "exitspec.external-evidence.native-ttft-profile.v1",
+    "profile_version": "v1"
+  },
+  "engine_adapter": {
+    "engine_id": "vllm",
+    "engine_version": "0.26.0",
+    "adapter_id": "vllm_bench_serve",
+    "adapter_version": "1.0.0"
+  },
+  "available_observations": {
+    "native_ttft": {
+      "observation_id": "native_ttft_sample",
+      "metric_definition_id": "vllm_first_choices_event_v0_26",
+      "source_field": "request.timing.ttft_ns",
+      "unit": "ns",
+      "population": "successful_measured_requests_with_observed_ttft",
+      "reducer_id": "nearest_rank_v1",
+      "supported_percentile": "p95"
+    },
+    "measured_attempt_reliability": {
+      "observation_id": "native_measured_request_outcome",
+      "source_field": "request.outcome.status",
+      "latency_population": "successful_measured_requests_with_observed_ttft",
+      "reliability_numerator": "failed_or_anomalous_native_measured_requests",
+      "reliability_denominator": "all_measured_requests"
+    }
+  },
+  "capability_digest": "sha256:<64 lowercase hex>"
+}
+```
+
+Every value above is material. The advertised TTFT semantics are native
+`vllm_first_choices_event_v0_26` samples only: they are not the existing
+`first_nonempty_choices_delta_content_v1` semantics. That semantic observation
+is absent and unsupported by this descriptor; a later proofability boundary
+must report it missing rather than infer a conversion.
+
+Untrusted callers may submit only this exact canonical registry request:
+
+```json
+{
+  "schema_version": "exitspec.producer-capability-request.v1",
+  "profile_id": "exitspec.external-evidence.native-ttft-profile.v1",
+  "profile_version": "v1"
+}
+```
+
+There is no create, override, merge, or caller-supplied descriptor API. Unknown,
+aliased, malformed, duplicate, extra, oversized, unsupported-version, or
+noncanonical requests fail closed with stable content-safe reason classes. A
+descriptor parser admits only a byte-exact canonical descriptor identical to
+the package registry, so self-consistent replacement content cannot expand the
+declared capability. Direct mapping input is bounded before canonicalization:
+cycles, excessive depth, nodes, object keys, array items, and strings reject
+with stable content-safe reason classes. At every public projection, digest,
+verify, and serialization boundary, ExitSpec recursively requires each model
+node to be its exact declared class (no subclass), have exactly its declared
+raw fields, have no extra raw state, and have an empty Pydantic extra state
+before any potentially lossy projection.
+
+`capability_digest` is domain-separated SHA-256 over RFC 8785 JCS bytes of the
+complete validated descriptor, excluding only the derived digest. The stable
+domain-separator bytes are
+`exitspec-producer-capability-descriptor-v1\x00`. The checked-in raw JCS vector
+at `tests/fixtures/producer_capability/v1/golden.json` independently derives
+`sha256:1b8732d26a94dadfab984b43a4c67c1fc858ddf39f95ec496f5914f1c08e066b`
+from that literal separator and unsigned projection. Raw parsing rejects
+duplicate keys and any representation that is not exactly canonical; typed
+models are strict, deeply immutable, bounded, and revalidated at every public
+verify or serialization boundary.
+
+The registry is declaration only. Its self-consistent digest proves only
+ExitSpec's declared planning capability, never producer execution, evidence,
+hardware truth, chronology, authorship, provider identity, verdict, receipt,
+deployment, traffic, or any other authority. PR4 introduces no network, API,
+browser, execution, evidence-admission, proofability, verdict, or receipt path.
+
+### 5. `ProofabilityReportV1`
 
 Proofability is evaluated before any external operation. For every frozen
 criterion the report records:
@@ -372,7 +466,7 @@ The first required negative case is the existing semantic/native TTFT boundary:
 a first-nonempty-content criterion must be `NOT_PROVABLE` when the selected
 producer profile exposes only native first-event TTFT.
 
-### 5. protocol-specific qualification receipt
+### 6. protocol-specific qualification receipt
 
 The first implementation is
 `InferencePerformanceQualificationReceiptV1`. It wraps but never replaces the
@@ -397,7 +491,7 @@ Protocol-specific receipts remain separate. v0.5 does not replace or silently
 generalize the frozen B12 routing receipt. A small common assessment layer may
 consume validated receipts only through an explicit typed protocol adapter.
 
-### 6. `QualificationAssessmentV1`
+### 7. `QualificationAssessmentV1`
 
 The assessment compares a fully validated receipt with the currently requested
 subject, scope, context, time, and use. It preserves three independent axes:
@@ -508,11 +602,14 @@ different context without ambiguous concatenation or legacy identity changes.
 
 ### PR4 — Producer capability descriptor
 
-Claim: a server-owned, versioned descriptor states exactly which observations
-and metric semantics a declared external-evidence profile can provide.
+Claim: a server-owned, versioned provider-neutral descriptor and registry state
+exactly which observations and metric semantics a declared external-evidence
+profile can provide.
 
-Exit gate: source text, provider output, or browser input cannot forge or expand
-capability.
+Exit gate: source text, provider output, browser input, aliases,
+caller-supplied overrides, cyclic mappings, and nested hidden-state or subclass
+bypasses cannot forge or expand capability; the descriptor has no execution,
+evidence, verdict, receipt, deployment, or traffic effect.
 
 ### PR5 — Proofability engine
 

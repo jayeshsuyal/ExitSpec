@@ -158,7 +158,7 @@ def test_v0_5_pr3_scope_and_context_contract_remains_zero_authority():
         assert prohibited not in scope_section
 
     context_section = plan.split("### 3. `QualificationContextV1`", 1)[1].split(
-        "### 4. `ProofabilityReportV1`", 1
+        "### 4. `ProducerCapabilityDescriptorV1`", 1
     )[0]
     for marker in (
         '"schema_version": "exitspec.qualification-context.v1"',
@@ -171,6 +171,34 @@ def test_v0_5_pr3_scope_and_context_contract_remains_zero_authority():
         "not proof of execution, authorship, chronology",
     ):
         assert marker in context_section
+
+
+def test_v0_5_pr4_capability_descriptor_contract_stays_provider_neutral():
+    plan = _read(PLAN)
+    descriptor_section = _normalise(
+        plan.split("### 4. `ProducerCapabilityDescriptorV1`", 1)[1].split(
+            "### 5. `ProofabilityReportV1`", 1
+        )[0]
+    )
+
+    for marker in (
+        '"exitspec.producer-capability-descriptor.v1"',
+        '"exitspec.producer-capability-request.v1"',
+        '"exitspec.producer-capability-registry.v1"',
+        "`exitspec.external-evidence.native-ttft-profile.v1`",
+        "`vllm_first_choices_event_v0_26`",
+        "`first_nonempty_choices_delta_content_v1`",
+        "absent and unsupported",
+        '"nearest_rank_v1"',
+        '"source_field": "request.outcome.status"',
+        "`exitspec-producer-capability-descriptor-v1\\x00`",
+        "sha256:1b8732d26a94dadfab984b43a4c67c1fc858ddf39f95ec496f5914f1c08e066b",
+        "There is no create, override, merge",
+        "exact declared class (no subclass)",
+        "PR4 introduces no network, API, browser, execution, evidence-admission, proofability",
+    ):
+        assert marker in descriptor_section
+    assert "Inferdrome" not in descriptor_section
 
 
 def test_v0_5_threat_model_covers_required_boundaries_and_limitations():
@@ -212,9 +240,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "PR14 | Adversarial closure and candidate checkpoint" in ledger
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
-    assert ledger.count("CHANGES_REQUIRED") >= 3
+    assert ledger.count("CHANGES_REQUIRED") >= 4
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "local PR3 superseding qualification-scope" in ledger
+    assert "superseding candidate is prepared for Mission Control review" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -223,7 +251,12 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "ca96e6e737402fe3fcbea990f5ac411e5cb6105c" in ledger
     assert "PR CI `33363876409`; main CI `33364429844`" in ledger
     assert "| PR2 | Serving-subject identity | PR1 | MERGED |" in ledger
-    assert "| PR3 | Qualification scope and context | PR2 | CANDIDATE |" in ledger
+    assert "| PR3 | Qualification scope and context | PR2 | MERGED |" in ledger
+    assert "| PR4 | Producer capability descriptor | PR3 | CANDIDATE |" in ledger
+    assert "101dabbadd1d986f38b56794633ec9e45cea9ac1" in ledger
+    assert "7da388ecfb83c2262a4f30d161a272f674839826" in ledger
+    assert "PR CI `33423877517`" in ledger
+    assert "main CI `33424573497`, all four jobs green" in ledger
     assert "6181bef889ccc99641e8a49784f4bbf31d05724d" in ledger
     assert "P2 — every material context identity leaf" in ledger
     assert "00b4f01c27eabac37a63adb1015d8e1434113009" in ledger
@@ -234,10 +267,19 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "P1 — runtime-config deny pairs" in ledger
     assert "b473b8bae5644aa8ef7ef5dcb02119230efe8c72" in ledger
     assert "compact fallback" in ledger
+    assert "5baa09e96075d94e730941cf3673f1047cb11818" in ledger
+    assert "nested strict-model bypass" in ledger
+    assert "cyclic mapping" in ledger
+    assert "request.outcome.status" in ledger
     assert "3,755 passed, 33 skipped" in ledger
     assert "3,768 passed, 23 skipped" in ledger
     assert "3,799 passed, 33 skipped" in ledger
     assert "3,812 passed, 23 skipped" in ledger
+    assert "3,840 passed, 33 skipped" in ledger
+    assert "3,853 passed, 23 skipped" in ledger
+    assert "3,866 passed, 33 skipped" in ledger
+    assert "3,879 passed, 23 skipped" in ledger
+    assert "295 passed" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():
