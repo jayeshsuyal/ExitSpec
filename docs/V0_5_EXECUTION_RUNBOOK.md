@@ -8,16 +8,23 @@ chat is not a source of truth.
 
 ## Operating boundary
 
-There are exactly 14 ExitSpec PR milestones. Work one milestone at a time; do
-not renumber, combine, or skip a milestone without a plan amendment reviewed as
-its own decision. PR1 freezes vocabulary and operating constraints before
-product feature code begins.
+The current train is exactly PR1–PR14. Work one milestone at a time.
+Renumbering, combining, skipping, or adding a milestone requires an explicit
+user-approved plan/goal amendment before implementation; the current milestones
+may not be split or combined. PR1 freezes vocabulary and operating constraints
+before product feature code begins.
 
 ExitSpec never authorizes deployment or traffic. This train does not perform or
 request provider integration, GPU execution, provider spend, external evidence
 capture, cross-repository work, deployment, release publication, or traffic
 changes. A prospective handoff and an externally supplied evidence package are
 local, provider-neutral contract boundaries only.
+
+PR12 is the one planned GitHub integration: a least-privilege required check
+that consumes local ExitSpec output and reports qualification state. Conserving
+GitHub usage confines that work to PR12; it does not remove the milestone or
+permit its implementation early. The check never receives deployment, traffic,
+provider, or authorization authority.
 
 ## Three independent axes
 
@@ -38,7 +45,8 @@ act.
 1. Read the plan, this runbook, and the current ledger before changing a
    milestone. Record the base revision and set only that PR to `IN_PROGRESS`.
 2. Keep the stated PR claim, non-goals, authority owner, and binary exit gate
-   intact. Amend the plan first if any of them needs to change.
+   intact. A milestone change requires the explicit user-approved plan/goal
+   amendment defined above before any implementation begins.
 3. Make the smallest scoped change. Preserve frozen contracts and historical
    evidence; do not alter artifacts merely to make a later implementation pass.
 4. Record changed files, focused checks, outcomes, and unresolved risks in the
@@ -67,6 +75,16 @@ evidence class, and allowed facts before deterministic recalculation. It does
 not fetch from, call, provision, authenticate to, or otherwise contact an
 external producer. Rejection issues no verdict or receipt; admitted
 insufficiency may become `NOT_PROVEN` only through the frozen verdict protocol.
+
+## PR12 GitHub required-check procedure
+
+PR12 may add only a documented GitHub required check that invokes local
+ExitSpec CLI or assessment validation and reports the qualification state. Its
+workflow declares `permissions: contents: read`, has no `id-token`, and receives
+no deployment, traffic, provider, or credential authority. It must not call a
+provider, mutate GitHub protection, dispatch deployment, change traffic, or
+convert `PASS` into authorization. Every non-current or non-`PASS` state, plus
+tampering and skipped evaluation, reports a non-passing check.
 
 ## Candidate review checklist
 

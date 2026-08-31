@@ -62,7 +62,7 @@ The most important v0.5 invariant is unchanged from the current product:
 | External evidence producer or custodian | Prepare an evidence package outside this train | Grade the customer contract, be invoked by ExitSpec, or authorize traffic |
 | ExitSpec verifier | Admit evidence, recalculate facts, and assign `PASS`, `FAIL`, or `NOT_PROVEN` | Trust a producer summary or change the frozen rule |
 | ExitSpec qualification assessment | Determine whether a receipt is current for an exact requested scope | Issue a deployment or canary grant |
-| External policy consumer | Consume the assessment under separately configured policy | Rewrite ExitSpec evidence, silently broaden its scope, or gain authority from ExitSpec |
+| GitHub required check | Consume local ExitSpec CLI or assessment output and report qualification state | Rewrite ExitSpec evidence, call a provider, deploy, alter traffic, or gain authority from `PASS` |
 
 Every ExitSpec qualification artifact must retain explicit zero-authority
 fields or limitations equivalent to:
@@ -79,6 +79,28 @@ fields or limitations equivalent to:
 ExitSpec may state that evidence supports consideration for a bounded purpose,
 such as a canary of at most 5%. That statement limits the qualification; it does
 not grant the canary. ExitSpec never authorizes deployment or traffic.
+
+## Threat model and trust boundaries
+
+The following threats are in scope for the ExitSpec-only train. Each boundary
+fails closed: an untrusted or incompatible input produces no `PASS`, receipt,
+deployment action, or traffic action.
+
+| Threat | Protected asset / trust boundary | Fail-closed control |
+| --- | --- | --- |
+| Untrusted local evidence input | Original evidence, admission boundary, and verifier | Treat every supplied package as untrusted; enforce versioned schema, canonical form, bounded size, exact context, and independently recomputed facts before admission. Reject before verdict or receipt. |
+| Producer overclaim or producer verdict injection | ExitSpec verdict authority | The producer supplies only declared observations and provenance. Reject producer verdict and authorization fields; the server-owned profile and deterministic verifier own capability and verdict. |
+| Subject, scope, or context substitution | Canonical qualification context | Domain-separated canonical digests bind subject, scope, contract, workload, and protocol. Any mismatch rejects admission or makes the assessment `INVALID`/`STALE`; no digest-only self-consistency establishes trust. |
+| Stale or replayed receipt | Receipt applicability for the requested use | Preserve immutable receipt facts, then recompute exact requested context, purpose, and time. Drift is `STALE`; expired, malformed, unsupported, or incompatible input is `EXPIRED` or `INVALID`, never current `PASS`. |
+| Unsafe file-tree input | Local filesystem and evidence-tree boundary | Reject symlinks, hard links, path escape, replacement races, extra files, and oversized trees before artifact reading or recalculation. |
+| Secret or private-content leakage | Receipts, checks, logs, errors, browser state, and review artifacts | Exclude raw source, prompts, response content, credentials, provider bodies, private paths, and deployment tokens; bound and sanitize error and status output. |
+| Status-axis collapse | Proofability, Verdict, and Validity semantics | Preserve typed three-axis output in schemas, CLI, UI, receipts, and assessment. `PROVABLE`, `PASS`, and `CURRENT` are independent and no non-`PASS` state can be rendered as success. |
+| Deployment-authority escalation | External deployment and traffic control boundary | Retain zero-authority fields on every qualification artifact. The GitHub required check is least-privilege and status-only; it receives no deployment, traffic, provider, or credential authority, and `PASS` never grants it. |
+
+These controls establish only the semantic and integrity boundaries stated
+above. They do not prove physical hardware truth, authorship, chronology, or
+facts the admitted evidence cannot establish; those limitations remain visible
+on the receipt and assessment.
 
 ## End-to-end product loop
 
@@ -115,7 +137,7 @@ Serving subject + qualification scope
                     CURRENT / STALE / EXPIRED
                               |
                               v
-                 local policy-consumer result
+                  GitHub required-check report
                               |
                               v
                 external human/deployment decision
@@ -319,7 +341,7 @@ qualification-receipt.json
 qualification-assessment.json
         |
         v
-CLI JSON + local policy-consumer result
+CLI JSON + GitHub required check
 ```
 
 Raw customer source, prompts, generated response content, secrets, credentials,
@@ -328,10 +350,10 @@ receipts, assessments, check output, logs, or errors.
 
 ## ExitSpec pull-request train
 
-The train is organized around independently reviewable invariants. The count is
-a planning estimate, not a target to inflate or compress. A pull request may be
-split when a trust boundary cannot be reviewed safely together; adjacent work
-may be combined only when the same exit gate proves it.
+The current train is exactly PR1–PR14. Renumbering, combining, skipping, or
+adding a milestone requires an explicit user-approved plan/goal amendment before
+implementation. Every current milestone is mandatory, and no implementation may
+split or combine the current milestones.
 
 ### PR1 — Architecture, vocabulary, and threat contract
 
@@ -441,16 +463,19 @@ Exit gate: exit code `0` is reserved for a current `PASS` covering the exact
 requested scope. `FAIL`, `NOT_PROVEN`, `STALE`, `EXPIRED`, `INVALID`, malformed
 input, and operational failure remain machine-distinguishable and nonzero.
 
-### PR12 — Policy-consumer compatibility contract
+### PR12 — GitHub required-check integration
 
-Claim: a minimal documented local policy-consumer contract can consume CLI
-output without receiving deployment credentials, calling an evidence producer,
-or taking a deployment action.
+Claim: a minimal documented GitHub required check consumes local ExitSpec CLI or
+assessment output and reports qualification state without deployment
+credentials, provider access, or deployment and traffic action. It uses least
+privilege: an explicit `permissions: contents: read` workflow declaration, no
+`id-token`, no deployment or provider secrets, and no action beyond checkout,
+local validation, and check reporting.
 
 Exit gate: current exact-scope `PASS` succeeds; failure, missing proof,
 staleness, expiry, tampering, or skipped required evaluation cannot silently
-produce a passing consumer result. A passing result remains evidence only, never
-a deployment or traffic grant.
+produce a passing required check. The check reports qualification state only:
+`PASS` remains evidence, never deployment or traffic authorization.
 
 ### PR13 — Guided four-screen product surface
 
@@ -491,8 +516,10 @@ Truth kernel
 External-evidence boundary
   PR3 -> PR7 -> PR8 -> PR9
 
-Product surface
-  PR6 -----------------> PR12 -> PR13
+GitHub required check and product surface
+  PR11 -> PR12 --+
+                 +-> PR13
+  PR6 ----------+
 
 All lanes
   -----------------------------> PR14
@@ -515,7 +542,8 @@ The v0.5 seeded demo has four screens and one primary action per screen:
    independently recalculated facts, verdict, limitations, and receipt.
 4. **Is the qualification current?** Show current exact-context status, then
    mutate one material engine or workload field and visibly require
-   requalification.
+   requalification; show the corresponding GitHub required-check state as
+   evidence only, never as authorization.
 
 The mutation is deterministic synthetic demonstration behavior and must be
 labeled as such. It may not alter an immutable historical receipt or imply that
@@ -540,8 +568,8 @@ At minimum, the release train must prove fail-closed behavior for:
   oversized evidence trees;
 - raw customer content, prompts, response content, credentials, private paths,
   or provider bodies entering receipts, errors, logs, browser state, or checks;
-- policy-consumer checks that skip a required qualification and accidentally
-  report success; and
+- GitHub required checks that skip a required qualification, exceed least
+  privilege, or accidentally report success; and
 - any UI, API, CLI, receipt, or assessment path implying deployment authority.
 
 ## Candidate-closure gate
@@ -605,7 +633,7 @@ The schedule is an estimate, not authority to skip gates:
 - days 4-7: capability descriptor, proofability, and workspace projection;
 - days 8-11: prospective handoff boundary, evidence admission, receipt, and
   validity;
-- days 12-14: CLI, policy-consumer contract, and guided UI; and
+- days 12-14: CLI, least-privilege GitHub required check, and guided UI; and
 - days 15-18: adversarial closure, documentation, and candidate readiness.
 
 A working local vertical slice should appear before the train reaches candidate
@@ -625,8 +653,8 @@ The v0.5 product is complete when a first-time tester can:
 6. obtain a current qualification assessment for the exact context;
 7. change one material subject or scope field and see the receipt become stale
    for the new context;
-8. observe the corresponding local policy-consumer result block without any
-   deployment action; and
+8. observe the corresponding GitHub required check report qualification state
+   without any deployment action; and
 9. explain that only an external human or deployment system may authorize
    traffic.
 
