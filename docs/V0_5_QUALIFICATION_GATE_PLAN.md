@@ -381,6 +381,7 @@ The descriptor is one fully explicit closed object:
     },
     "measured_attempt_reliability": {
       "observation_id": "native_measured_request_outcome",
+      "source_field": "request.outcome.status",
       "latency_population": "successful_measured_requests_with_observed_ttft",
       "reliability_numerator": "failed_or_anomalous_native_measured_requests",
       "reliability_denominator": "all_measured_requests"
@@ -411,14 +412,20 @@ aliased, malformed, duplicate, extra, oversized, unsupported-version, or
 noncanonical requests fail closed with stable content-safe reason classes. A
 descriptor parser admits only a byte-exact canonical descriptor identical to
 the package registry, so self-consistent replacement content cannot expand the
-declared capability.
+declared capability. Direct mapping input is bounded before canonicalization:
+cycles, excessive depth, nodes, object keys, array items, and strings reject
+with stable content-safe reason classes. At every public projection, digest,
+verify, and serialization boundary, ExitSpec recursively requires each model
+node to be its exact declared class (no subclass), have exactly its declared
+raw fields, have no extra raw state, and have an empty Pydantic extra state
+before any potentially lossy projection.
 
 `capability_digest` is domain-separated SHA-256 over RFC 8785 JCS bytes of the
 complete validated descriptor, excluding only the derived digest. The stable
 domain-separator bytes are
 `exitspec-producer-capability-descriptor-v1\x00`. The checked-in raw JCS vector
 at `tests/fixtures/producer_capability/v1/golden.json` independently derives
-`sha256:e599ce28eeadf9d1ce1aa65486547be636b17c911cd2a2e674905c52bf4b8435`
+`sha256:1b8732d26a94dadfab984b43a4c67c1fc858ddf39f95ec496f5914f1c08e066b`
 from that literal separator and unsigned projection. Raw parsing rejects
 duplicate keys and any representation that is not exactly canonical; typed
 models are strict, deeply immutable, bounded, and revalidated at every public
@@ -599,9 +606,10 @@ Claim: a server-owned, versioned provider-neutral descriptor and registry state
 exactly which observations and metric semantics a declared external-evidence
 profile can provide.
 
-Exit gate: source text, provider output, browser input, aliases, and
-caller-supplied overrides cannot forge or expand capability; the descriptor has
-no execution, evidence, verdict, receipt, deployment, or traffic effect.
+Exit gate: source text, provider output, browser input, aliases,
+caller-supplied overrides, cyclic mappings, and nested hidden-state or subclass
+bypasses cannot forge or expand capability; the descriptor has no execution,
+evidence, verdict, receipt, deployment, or traffic effect.
 
 ### PR5 — Proofability engine
 

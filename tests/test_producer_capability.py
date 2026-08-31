@@ -21,6 +21,7 @@ from exitspec.producer_capability import (
     PRODUCER_CAPABILITY_DESCRIPTOR_SCHEMA_VERSION,
     PRODUCER_CAPABILITY_DIGEST_DOMAIN,
     PRODUCER_CAPABILITY_REQUEST_SCHEMA_VERSION,
+    NativeTTFTObservationV1,
     ProducerCapabilityDescriptorV1,
     ProducerCapabilityRejected,
     ProducerCapabilityValidationCode,
@@ -37,7 +38,7 @@ from exitspec.producer_capability import (
 FIXTURE = (
     Path(__file__).parent / "fixtures" / "producer_capability" / "v1" / "golden.json"
 )
-GOLDEN_DIGEST = "sha256:e599ce28eeadf9d1ce1aa65486547be636b17c911cd2a2e674905c52bf4b8435"
+GOLDEN_DIGEST = "sha256:1b8732d26a94dadfab984b43a4c67c1fc858ddf39f95ec496f5914f1c08e066b"
 
 
 def _descriptor() -> ProducerCapabilityDescriptorV1:
@@ -83,6 +84,35 @@ def _assert_rejected(
     return raised.value
 
 
+def _descriptor_node(
+    descriptor: ProducerCapabilityDescriptorV1, node_name: str
+) -> object:
+    return {
+        "profile": descriptor.profile,
+        "engine_adapter": descriptor.engine_adapter,
+        "available_observations": descriptor.available_observations,
+        "native_ttft": descriptor.available_observations.native_ttft,
+        "measured_attempt_reliability": (
+            descriptor.available_observations.measured_attempt_reliability
+        ),
+    }[node_name]
+
+
+def _assert_typed_descriptor_boundary_rejection(
+    descriptor: ProducerCapabilityDescriptorV1,
+    code: ProducerCapabilityValidationCode,
+    attack_value: str,
+) -> None:
+    assert not verify_producer_capability_descriptor(descriptor)
+    for action in (
+        lambda: canonical_producer_capability_projection(descriptor),
+        lambda: producer_capability_digest(descriptor),
+        lambda: serialize_producer_capability_descriptor(descriptor),
+    ):
+        error = _assert_rejected(action, code)
+        assert attack_value not in str(error)
+
+
 def test_registered_descriptor_declares_only_the_frozen_native_observations():
     descriptor = _descriptor()
 
@@ -101,6 +131,11 @@ def test_registered_descriptor_declares_only_the_frozen_native_observations():
     )
     assert descriptor.available_observations.native_ttft.reducer_id == "nearest_rank_v1"
     assert descriptor.available_observations.native_ttft.supported_percentile == "p95"
+    assert (
+        descriptor.available_observations.measured_attempt_reliability
+        .source_field
+        == "request.outcome.status"
+    )
     assert (
         descriptor.available_observations.measured_attempt_reliability
         .reliability_numerator
@@ -186,6 +221,14 @@ def test_checked_in_golden_raw_bytes_are_canonical_and_independently_hashed():
             (
                 "available_observations",
                 "measured_attempt_reliability",
+                "source_field",
+            ),
+            "other.outcome",
+        ),
+        (
+            (
+                "available_observations",
+                "measured_attempt_reliability",
                 "latency_population",
             ),
             "other_population",
@@ -254,6 +297,82 @@ def test_public_descriptor_boundaries_revalidate_model_copy_and_construct_bypass
         ProducerCapabilityValidationCode.EXTRA_FIELD,
     )
     assert "ATTACK_VALUE" not in str(error)
+
+
+@pytest.mark.parametrize(
+    "node_name",
+    (
+        "profile",
+        "engine_adapter",
+        "available_observations",
+        "native_ttft",
+        "measured_attempt_reliability",
+    ),
+)
+def test_nested_hidden_raw_state_is_rejected_before_any_lossy_projection(
+    node_name: str,
+):
+    descriptor = _descriptor()
+    target = _descriptor_node(descriptor, node_name)
+    attack_value = "NESTED_RAW_ATTACK_VALUE"
+    object.__getattribute__(target, "__dict__")["semantic_ttft"] = attack_value
+
+    assert object.__getattribute__(target, "semantic_ttft") == attack_value
+    _assert_typed_descriptor_boundary_rejection(
+        descriptor,
+        ProducerCapabilityValidationCode.EXTRA_FIELD,
+        attack_value,
+    )
+
+
+@pytest.mark.parametrize(
+    "node_name",
+    (
+        "profile",
+        "engine_adapter",
+        "available_observations",
+        "native_ttft",
+        "measured_attempt_reliability",
+    ),
+)
+def test_nested_pydantic_extra_state_is_rejected_before_any_lossy_projection(
+    node_name: str,
+):
+    descriptor = _descriptor()
+    target = _descriptor_node(descriptor, node_name)
+    attack_value = "NESTED_EXTRA_ATTACK_VALUE"
+    object.__setattr__(target, "__pydantic_extra__", {"semantic_ttft": attack_value})
+
+    _assert_typed_descriptor_boundary_rejection(
+        descriptor,
+        ProducerCapabilityValidationCode.EXTRA_FIELD,
+        attack_value,
+    )
+
+
+def test_nested_exact_field_subclass_is_rejected_before_any_lossy_projection():
+    class NativeTTFTSubclass(NativeTTFTObservationV1):
+        @property
+        def semantic_ttft(self) -> str:
+            return "NESTED_SUBCLASS_ATTACK_VALUE"
+
+    descriptor = _descriptor()
+    forged_native = NativeTTFTSubclass(
+        **descriptor.available_observations.native_ttft.model_dump(mode="python")
+    )
+    forged_observations = descriptor.available_observations.model_copy(
+        update={"native_ttft": forged_native}
+    )
+    forged_descriptor = descriptor.model_copy(
+        update={"available_observations": forged_observations}
+    )
+
+    assert forged_native.semantic_ttft == "NESTED_SUBCLASS_ATTACK_VALUE"
+    _assert_typed_descriptor_boundary_rejection(
+        forged_descriptor,
+        ProducerCapabilityValidationCode.WRONG_TYPE,
+        "NESTED_SUBCLASS_ATTACK_VALUE",
+    )
 
 
 @pytest.mark.parametrize(
@@ -411,6 +530,108 @@ def test_request_raw_bytes_reject_duplicate_extra_noncanonical_and_bad_json():
     )
 
 
+def _deep_mapping() -> dict[str, Any]:
+    nested: dict[str, Any] = {}
+    current = nested
+    for _ in range(14):
+        child: dict[str, Any] = {}
+        current["nested"] = child
+        current = child
+    return nested
+
+
+def _cyclic_request() -> dict[str, Any]:
+    value: dict[str, Any] = _request()
+    value["profile_id"] = value
+    return value
+
+
+def _cyclic_descriptor() -> dict[str, Any]:
+    value = _payload()
+    value["profile"] = value
+    return value
+
+
+@pytest.mark.parametrize(
+    ("request_value", "code"),
+    [
+        (
+            _cyclic_request,
+            ProducerCapabilityValidationCode.INVALID_VALUE,
+        ),
+        (
+            lambda: {**_request(), "profile_id": _deep_mapping()},
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+        (
+            lambda: {**_request(), "profile_id": "x" * 513},
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+        (
+            lambda: {**_request(), "profile_id": list(range(17))},
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+        (
+            lambda: {**_request(), "untrusted_container": {str(index): index for index in range(25)}},
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+    ],
+)
+def test_request_mapping_boundary_rejects_cycles_and_nested_limits_before_canonicalization(
+    request_value: object,
+    code: ProducerCapabilityValidationCode,
+):
+    assert callable(request_value)
+    error = _assert_rejected(
+        lambda: parse_producer_capability_request(request_value()),
+        code,
+    )
+    assert "RecursionError" not in str(error)
+
+
+@pytest.mark.parametrize(
+    ("descriptor_value", "code"),
+    [
+        (
+            _cyclic_descriptor,
+            ProducerCapabilityValidationCode.INVALID_VALUE,
+        ),
+        (
+            lambda: {
+                **_payload(),
+                "profile": _deep_mapping(),
+            },
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+        (
+            lambda: {
+                **_payload(),
+                "profile": "PRIVATE_DESCRIPTOR_STRING" * 32,
+            },
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+        (
+            lambda: {
+                **_payload(),
+                "profile": list(range(17)),
+            },
+            ProducerCapabilityValidationCode.OVERSIZED,
+        ),
+    ],
+)
+def test_descriptor_mapping_boundary_rejects_cycles_and_nested_limits_before_canonicalization(
+    descriptor_value: object,
+    code: ProducerCapabilityValidationCode,
+):
+    assert callable(descriptor_value)
+    error = _assert_rejected(
+        lambda: parse_producer_capability_descriptor(descriptor_value()),
+        code,
+    )
+    assert "PRIVATE_DESCRIPTOR_STRING" not in str(error)
+    assert "RecursionError" not in str(error)
+
+
 @pytest.mark.parametrize(
     "bad_digest",
     [
@@ -429,6 +650,48 @@ def test_descriptor_digest_substitution_and_format_variants_fail_closed(
         lambda: parse_producer_capability_descriptor(payload),
         ProducerCapabilityValidationCode.INVALID_DIGEST,
     )
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (
+            ("available_observations", "native_ttft", "metric_definition_id"),
+            "first_nonempty_choices_delta_content_v1",
+        ),
+        (("available_observations", "native_ttft", "unit"), "ms"),
+        (("available_observations", "native_ttft", "reducer_id"), "alternate_reducer_v1"),
+        (
+            (
+                "available_observations",
+                "measured_attempt_reliability",
+                "source_field",
+            ),
+            "request.outcome.alternate",
+        ),
+        (
+            (
+                "available_observations",
+                "measured_attempt_reliability",
+                "reliability_numerator",
+            ),
+            "alternate_reliability_numerator",
+        ),
+    ],
+)
+def test_self_consistent_capability_replacements_fail_before_capability_use(
+    path: tuple[str, ...], replacement: str
+):
+    payload = _payload()
+    _set_path(payload, path, replacement)
+    unsigned = {key: value for key, value in payload.items() if key != "capability_digest"}
+    payload["capability_digest"] = _projection_digest(unsigned)
+
+    error = _assert_rejected(
+        lambda: parse_producer_capability_descriptor(payload),
+        ProducerCapabilityValidationCode.INVALID_VALUE,
+    )
+    assert replacement not in str(error)
 
 
 def test_descriptor_raw_bytes_reject_duplicate_missing_extra_noncanonical_and_oversized():

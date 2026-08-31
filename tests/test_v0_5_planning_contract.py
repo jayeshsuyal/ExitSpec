@@ -190,9 +190,11 @@ def test_v0_5_pr4_capability_descriptor_contract_stays_provider_neutral():
         "`first_nonempty_choices_delta_content_v1`",
         "absent and unsupported",
         '"nearest_rank_v1"',
+        '"source_field": "request.outcome.status"',
         "`exitspec-producer-capability-descriptor-v1\\x00`",
-        "sha256:e599ce28eeadf9d1ce1aa65486547be636b17c911cd2a2e674905c52bf4b8435",
+        "sha256:1b8732d26a94dadfab984b43a4c67c1fc858ddf39f95ec496f5914f1c08e066b",
         "There is no create, override, merge",
+        "exact declared class (no subclass)",
         "PR4 introduces no network, API, browser, execution, evidence-admission, proofability",
     ):
         assert marker in descriptor_section
@@ -238,9 +240,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "PR14 | Adversarial closure and candidate checkpoint" in ledger
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
-    assert ledger.count("CHANGES_REQUIRED") >= 3
+    assert ledger.count("CHANGES_REQUIRED") >= 4
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "local PR4 provider-neutral\nproducer-capability candidate" in ledger
+    assert "superseding candidate is prepared for Mission Control review" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -265,12 +267,19 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "P1 — runtime-config deny pairs" in ledger
     assert "b473b8bae5644aa8ef7ef5dcb02119230efe8c72" in ledger
     assert "compact fallback" in ledger
+    assert "5baa09e96075d94e730941cf3673f1047cb11818" in ledger
+    assert "nested strict-model bypass" in ledger
+    assert "cyclic mapping" in ledger
+    assert "request.outcome.status" in ledger
     assert "3,755 passed, 33 skipped" in ledger
     assert "3,768 passed, 23 skipped" in ledger
     assert "3,799 passed, 33 skipped" in ledger
     assert "3,812 passed, 23 skipped" in ledger
     assert "3,840 passed, 33 skipped" in ledger
     assert "3,853 passed, 23 skipped" in ledger
+    assert "3,866 passed, 33 skipped" in ledger
+    assert "3,879 passed, 23 skipped" in ledger
+    assert "295 passed" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():

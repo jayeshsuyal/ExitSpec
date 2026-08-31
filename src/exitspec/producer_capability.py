@@ -54,6 +54,7 @@ NATIVE_TTFT_POPULATION: Final = (
     "successful_measured_requests_with_observed_ttft"
 )
 NATIVE_TTFT_REDUCER_ID: Final = "nearest_rank_v1"
+MEASURED_ATTEMPT_RELIABILITY_SOURCE_FIELD: Final = "request.outcome.status"
 
 _MAX_DESCRIPTOR_BYTES: Final = 8 * 1024
 _MAX_REQUEST_BYTES: Final = 2 * 1024
@@ -154,6 +155,7 @@ class MeasuredAttemptReliabilityObservationV1(_StrictFrozenCapabilityModel):
     """Native measured-request outcome facts available for reliability analysis."""
 
     observation_id: Literal["native_measured_request_outcome"]
+    source_field: Literal[MEASURED_ATTEMPT_RELIABILITY_SOURCE_FIELD]
     latency_population: Literal[NATIVE_TTFT_POPULATION]
     reliability_numerator: Literal[
         "failed_or_anomalous_native_measured_requests"
@@ -181,7 +183,7 @@ class _ProducerCapabilityDescriptorUnsignedV1(_StrictFrozenCapabilityModel):
 def _descriptor_digest_from_projection(projection: Mapping[str, Any]) -> str:
     try:
         content = canonical_json_bytes(projection)
-    except (CanonicalizationError, TypeError, ValueError):
+    except (CanonicalizationError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             "Producer capability projection is outside the canonical JSON domain.",
@@ -225,6 +227,22 @@ class ProducerCapabilityRequestV1(_StrictFrozenCapabilityModel):
         return value
 
 
+_DECLARED_MODEL_CHILDREN: Final = {
+    ProducerCapabilityDescriptorV1: (
+        ("profile", DeclaredExternalEvidenceProfileV1),
+        ("engine_adapter", EngineAdapterIdentityV1),
+        ("available_observations", ProducerCapabilityObservationsV1),
+    ),
+    ProducerCapabilityObservationsV1: (
+        ("native_ttft", NativeTTFTObservationV1),
+        (
+            "measured_attempt_reliability",
+            MeasuredAttemptReliabilityObservationV1,
+        ),
+    ),
+}
+
+
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -251,7 +269,15 @@ def _reject_constant(_: str) -> None:
     raise _JsonBoundaryError(ProducerCapabilityValidationCode.INVALID_VALUE)
 
 
-def _walk_bounded_json(value: object, *, depth: int, node_count: list[int]) -> None:
+def _walk_bounded_json(
+    value: object,
+    *,
+    depth: int,
+    node_count: list[int],
+    active_container_ids: set[int] | None = None,
+) -> None:
+    if active_container_ids is None:
+        active_container_ids = set()
     node_count[0] += 1
     if node_count[0] > _MAX_JSON_NODES or depth > _MAX_JSON_DEPTH:
         raise _JsonBoundaryError(ProducerCapabilityValidationCode.OVERSIZED)
@@ -262,18 +288,42 @@ def _walk_bounded_json(value: object, *, depth: int, node_count: list[int]) -> N
     if value is None or type(value) in {bool, int}:
         return
     if type(value) is dict:
+        identity = id(value)
+        if identity in active_container_ids:
+            raise _JsonBoundaryError(ProducerCapabilityValidationCode.INVALID_VALUE)
         if len(value) > _MAX_JSON_OBJECT_KEYS:
             raise _JsonBoundaryError(ProducerCapabilityValidationCode.OVERSIZED)
-        for key, child in value.items():
-            if type(key) is not str or len(key) > _MAX_JSON_STRING_LENGTH:
-                raise _JsonBoundaryError(ProducerCapabilityValidationCode.OVERSIZED)
-            _walk_bounded_json(child, depth=depth + 1, node_count=node_count)
+        active_container_ids.add(identity)
+        try:
+            for key, child in value.items():
+                if type(key) is not str or len(key) > _MAX_JSON_STRING_LENGTH:
+                    raise _JsonBoundaryError(ProducerCapabilityValidationCode.OVERSIZED)
+                _walk_bounded_json(
+                    child,
+                    depth=depth + 1,
+                    node_count=node_count,
+                    active_container_ids=active_container_ids,
+                )
+        finally:
+            active_container_ids.remove(identity)
         return
     if type(value) is list:
+        identity = id(value)
+        if identity in active_container_ids:
+            raise _JsonBoundaryError(ProducerCapabilityValidationCode.INVALID_VALUE)
         if len(value) > _MAX_JSON_ARRAY_ITEMS:
             raise _JsonBoundaryError(ProducerCapabilityValidationCode.OVERSIZED)
-        for child in value:
-            _walk_bounded_json(child, depth=depth + 1, node_count=node_count)
+        active_container_ids.add(identity)
+        try:
+            for child in value:
+                _walk_bounded_json(
+                    child,
+                    depth=depth + 1,
+                    node_count=node_count,
+                    active_container_ids=active_container_ids,
+                )
+        finally:
+            active_container_ids.remove(identity)
         return
     raise _JsonBoundaryError(ProducerCapabilityValidationCode.WRONG_TYPE)
 
@@ -305,7 +355,7 @@ def _decode_object(
         )
     except _JsonBoundaryError as error:
         _reject(error.code, f"{label} failed its JSON boundary.")
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.WRONG_TYPE,
             f"{label} is not one valid JSON object.",
@@ -320,7 +370,7 @@ def _decode_object(
         canonical = canonical_json_bytes(payload)
     except _JsonBoundaryError as error:
         _reject(error.code, f"{label} failed its JSON boundary.")
-    except (CanonicalizationError, TypeError, ValueError):
+    except (CanonicalizationError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             f"{label} is outside the canonical JSON domain.",
@@ -349,8 +399,11 @@ def _load_object(
             f"{label} must be bytes or one JSON object.",
         )
     try:
+        _walk_bounded_json(value, depth=0, node_count=[0])
         content = canonical_json_bytes(value)
-    except (CanonicalizationError, TypeError, ValueError):
+    except _JsonBoundaryError as error:
+        _reject(error.code, f"{label} failed its JSON boundary.")
+    except (CanonicalizationError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             f"{label} is outside the canonical JSON domain.",
@@ -398,14 +451,21 @@ def _validate_model(model_type: type[Any], payload: dict[str, Any], *, label: st
         return model_type.model_validate_json(canonical_json_bytes(payload), strict=True)
     except ValidationError as error:
         _reject(_classify_validation_error(error), f"{label} failed strict validation.")
-    except (CanonicalizationError, TypeError, ValueError):
+    except (CanonicalizationError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             f"{label} failed strict validation.",
         )
 
 
-def _validated_typed_model(value: object, model_type: type[Any], *, label: str) -> Any:
+def _require_exact_model_graph(
+    value: object,
+    model_type: type[Any],
+    *,
+    label: str,
+) -> None:
+    """Reject hidden state and type confusion before any lossy model dump."""
+
     if type(value) is not model_type:
         _reject(
             ProducerCapabilityValidationCode.WRONG_TYPE,
@@ -425,7 +485,7 @@ def _validated_typed_model(value: object, model_type: type[Any], *, label: str) 
             ProducerCapabilityValidationCode.WRONG_TYPE,
             f"{label} raw state must be one object.",
         )
-    if set(raw_state) - expected_fields or extra_state:
+    if set(raw_state) - expected_fields:
         _reject(
             ProducerCapabilityValidationCode.EXTRA_FIELD,
             f"{label} contains undocumented raw fields.",
@@ -435,9 +495,26 @@ def _validated_typed_model(value: object, model_type: type[Any], *, label: str) 
             ProducerCapabilityValidationCode.MISSING_FIELD,
             f"{label} is missing a raw field.",
         )
+    if extra_state is not None and (
+        type(extra_state) is not dict or bool(extra_state)
+    ):
+        _reject(
+            ProducerCapabilityValidationCode.EXTRA_FIELD,
+            f"{label} contains undocumented raw fields.",
+        )
+    for field_name, child_type in _DECLARED_MODEL_CHILDREN.get(model_type, ()):
+        _require_exact_model_graph(
+            raw_state[field_name],
+            child_type,
+            label="Producer capability descriptor nested model",
+        )
+
+
+def _validated_typed_model(value: object, model_type: type[Any], *, label: str) -> Any:
+    _require_exact_model_graph(value, model_type, label=label)
     try:
         serialized_state = value.model_dump(mode="json", warnings="error")
-    except (TypeError, ValueError):
+    except (RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             f"{label} has an unsafe raw field value.",
@@ -479,6 +556,7 @@ def _registered_descriptor_payload() -> dict[str, Any]:
             },
             "measured_attempt_reliability": {
                 "observation_id": "native_measured_request_outcome",
+                "source_field": MEASURED_ATTEMPT_RELIABILITY_SOURCE_FIELD,
                 "latency_population": NATIVE_TTFT_POPULATION,
                 "reliability_numerator": (
                     "failed_or_anomalous_native_measured_requests"
@@ -546,7 +624,7 @@ def _validated_registered_descriptor(value: object) -> ProducerCapabilityDescrip
     )
     try:
         content = canonical_json_bytes(descriptor.model_dump(mode="json"))
-    except (CanonicalizationError, TypeError, ValueError):
+    except (CanonicalizationError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             "Producer capability descriptor is outside the canonical JSON domain.",
@@ -683,7 +761,7 @@ def serialize_producer_capability_descriptor(
     descriptor = _validated_registered_descriptor(value)
     try:
         content = canonical_json_bytes(descriptor.model_dump(mode="json"))
-    except (CanonicalizationError, TypeError, ValueError):
+    except (CanonicalizationError, RecursionError, TypeError, ValueError):
         _reject(
             ProducerCapabilityValidationCode.INVALID_VALUE,
             "Producer capability descriptor is outside the canonical JSON domain.",
@@ -699,6 +777,7 @@ def serialize_producer_capability_descriptor(
 __all__ = [
     "DECLARED_EXTERNAL_EVIDENCE_PROFILE_ID",
     "DECLARED_EXTERNAL_EVIDENCE_PROFILE_VERSION",
+    "MEASURED_ATTEMPT_RELIABILITY_SOURCE_FIELD",
     "NATIVE_TTFT_METRIC_DEFINITION_ID",
     "NATIVE_TTFT_POPULATION",
     "NATIVE_TTFT_REDUCER_ID",
