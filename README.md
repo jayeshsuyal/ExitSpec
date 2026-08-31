@@ -35,7 +35,7 @@ seeded demo. The sample data is synthetic.*
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev,browser]'
+.venv/bin/python -m pip install -e .
 .venv/bin/exitspec serve
 ```
 
@@ -135,8 +135,8 @@ action. A named human remains responsible for the final handoff or stop.
 
 See the [security boundary](docs/SECURITY.md), [redaction boundary](docs/REDACTION_SPEC.md),
 [provider boundary](docs/PROVIDER_SPEC.md), and [measurement specification](docs/MEASUREMENT_SPEC.md)
-for the detailed limits. Evidence gaps fail closed as `FAIL`, `BLOCKED`, or
-`NOT_PROVEN`; only sufficient valid evidence can produce `PASS`.
+for the detailed limits. Invalid or insufficient evidence yields `BLOCKED` or
+`NOT_PROVEN`; sufficient valid evidence can establish `PASS` or `FAIL`.
 
 ## For contributors
 
