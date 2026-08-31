@@ -1,6 +1,81 @@
 # ExitSpec
 
-**Turn POC claims into proof.**
+[![Tests](https://github.com/jayeshsuyal/ExitSpec/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/jayeshsuyal/ExitSpec/actions/workflows/tests.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2f6f9f)](LICENSE)
+
+**Turn a customer POC claim into a decision you can defend.**
+
+ExitSpec is a local, source-neutral acceptance workbench for solutions
+engineers, platform teams, and customer-facing AI infrastructure teams. It
+turns a request into an exact agreement, proves only that agreement, and
+packages the result as inspectable evidence. Missing, invalid, or insufficient
+evidence never passes.
+
+### Who it is for
+
+Use ExitSpec when a customer asks, “Can this system meet our requirement?” and
+you need a shared answer that survives review. The workbench keeps the customer
+request, measurable rule, confirmation, evidence, verdict, and named human
+handoff connected without pretending that a local demo is production
+authorization.
+
+![ExitSpec seeded workbench showing the Define → Confirm → Prove flow](docs/assets/exitspec-seeded-workbench.jpg)
+
+*Current v0.4 review-candidate product surface, captured from a clean local
+seeded demo. The sample data is synthetic.*
+
+> **Release status:** v0.4.0 is a review candidate. No v0.4.0 tag or GitHub
+> release has been created. The v0.3 Request-to-Proof contract remains the
+> historical compatibility reference; the current package and release gate are
+> v0.4.0.
+
+### 60-second quickstart
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/exitspec serve
+```
+
+Open [the local POC dashboard](http://127.0.0.1:8765/app), then choose **Guided
+demo**. For the clean seeded first-use path, open
+[`/app?mode=recording`](http://127.0.0.1:8765/app?mode=recording). It resets
+only the seeded support-agent POC and walks through the current product in
+about 75 seconds. Stop the server with `Ctrl-C`.
+
+### Define → Confirm → Prove
+
+1. **Define** — capture a bounded request, review the source-linked proposal,
+   and choose the measurable rule that belongs in the POC.
+2. **Confirm** — show the exact customer-facing version, record explicit
+   customer acknowledgement, and freeze the contract before measurement.
+3. **Prove** — run the approved evidence method, recalculate the typed verdict,
+   inspect the Evidence Pack, and record a human handoff or stop decision.
+
+The detailed source-neutral journey is **Capture → Review → Plan → Confirm →
+Prove → Decide**. Define, Confirm, and Prove are the product’s first-use frame;
+the underlying steps remain inspectable and server-owned.
+
+### Take the 75-second guided demo
+
+Start the server, then open the [75-second guided demo](http://127.0.0.1:8765/app?mode=recording).
+It is deterministic, provider-free, and uses synthetic data. The
+[three-minute product demo](docs/DEMO_RUNBOOK.md) explains the longer narrated
+take and the optional performance and external-evidence extensions.
+
+### Authority boundary
+
+ExitSpec can record a customer-confirmed contract, calculate a scoped evidence
+verdict, and package the inputs and limitations for review. A `PASS` is only a
+verdict for the frozen criterion: it does not authorize deployment, spending,
+procurement, production traffic, shipping, or any other external action. A
+named human remains responsible for the final POC handoff or stop decision.
+
+## Technical reference
+
+The complete technical surface, protocol history, and compatibility details
+follow the first-use path above.
 
 ExitSpec is an open-source acceptance and evidence layer for AI infrastructure
 proofs of concept. It turns a customer requirement into an exact, reviewable
@@ -54,7 +129,7 @@ Train A’s v0.3 work is governed by the
 The contract records the source-agnostic Request → Proof constitution, current
 characterization boundary, and ownership of gaps for Train A slices A2–A7.
 
-## What the current product does
+### What the current product does
 
 The v0.3 source-neutral browser product starts at `/app` and implements one
 guided **Capture → Review → Plan → Confirm → Prove → Decide** journey. Email
