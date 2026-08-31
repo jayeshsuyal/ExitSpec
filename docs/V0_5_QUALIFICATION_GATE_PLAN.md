@@ -95,7 +95,7 @@ deployment action, or traffic action.
 | Unsafe file-tree input | Local filesystem and evidence-tree boundary | Reject symlinks, hard links, path escape, replacement races, extra files, and oversized trees before artifact reading or recalculation. |
 | Secret or private-content leakage | Receipts, checks, logs, errors, browser state, and review artifacts | Exclude raw source, prompts, response content, credentials, provider bodies, private paths, and deployment tokens; bound and sanitize error and status output. |
 | Status-axis collapse | Proofability, Verdict, and Validity semantics | Preserve typed three-axis output in schemas, CLI, UI, receipts, and assessment. `PROVABLE`, `PASS`, and `CURRENT` are independent and no non-`PASS` state can be rendered as success. |
-| Deployment-authority escalation | External deployment and traffic control boundary | Retain zero-authority fields on every qualification artifact. The GitHub required check is least-privilege and status-only; it receives no deployment, traffic, provider, or credential authority, and `PASS` never grants it. |
+| Deployment-authority escalation | External deployment and traffic control boundary | Retain zero-authority fields on every qualification artifact. The GitHub required check is least-privilege and status-only; it receives no write permissions, deployment, traffic, provider, or credential authority; it must not use `pull_request_target` for untrusted contribution code; and `PASS` never grants it. |
 
 These controls establish only the semantic and integrity boundaries stated
 above. They do not prove physical hardware truth, authorship, chronology, or
@@ -468,9 +468,20 @@ input, and operational failure remain machine-distinguishable and nonzero.
 Claim: a minimal documented GitHub required check consumes local ExitSpec CLI or
 assessment output and reports qualification state without deployment
 credentials, provider access, or deployment and traffic action. It uses least
-privilege: an explicit `permissions: contents: read` workflow declaration, no
-`id-token`, no deployment or provider secrets, and no action beyond checkout,
-local validation, and check reporting.
+privilege with this exact workflow-level declaration:
+
+```yaml
+permissions:
+  contents: read
+```
+
+It has no `id-token`, secrets, deployment or provider credentials, or write
+permissions, and does no work beyond checkout, local validation, and check
+reporting. It must not use `pull_request_target` for untrusted contribution code.
+It must not combine privileged permissions, secrets, or an authenticated
+checkout with untrusted contribution code. Repository owners configure branch-protection
+required status separately outside ExitSpec; the workflow itself must not mutate
+branch protection.
 
 Exit gate: current exact-scope `PASS` succeeds; failure, missing proof,
 staleness, expiry, tampering, or skipped required evaluation cannot silently
@@ -569,7 +580,9 @@ At minimum, the release train must prove fail-closed behavior for:
 - raw customer content, prompts, response content, credentials, private paths,
   or provider bodies entering receipts, errors, logs, browser state, or checks;
 - GitHub required checks that skip a required qualification, exceed least
-  privilege, or accidentally report success; and
+  privilege, use `pull_request_target` for untrusted contribution code, combine
+  privileged or authenticated checkout with untrusted contribution code, mutate
+  branch protection, or accidentally report success; and
 - any UI, API, CLI, receipt, or assessment path implying deployment authority.
 
 ## Candidate-closure gate

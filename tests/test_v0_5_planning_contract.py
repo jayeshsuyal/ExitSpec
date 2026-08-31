@@ -9,11 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "V0_5_QUALIFICATION_GATE_PLAN.md"
 RUNBOOK = ROOT / "docs" / "V0_5_EXECUTION_RUNBOOK.md"
 LEDGER = ROOT / "docs" / "V0_5_EXECUTION_LEDGER.md"
+READ_ONLY_PERMISSIONS_BLOCK = "```yaml\npermissions:\n  contents: read\n```"
 
 
 def _read(path: Path) -> str:
     assert path.is_file(), f"Required v0.5 planning artifact is missing: {path}"
     return path.read_text(encoding="utf-8")
+
+
+def _normalise(markdown: str) -> str:
+    return " ".join(markdown.split())
 
 
 def test_v0_5_plan_keeps_exactly_fourteen_exitspec_pr_milestones():
@@ -55,9 +60,30 @@ def test_v0_5_contract_is_provider_neutral_and_zero_authority():
     assert "cross-repository" in combined
     assert "CLI JSON + GitHub required check" in plan
     assert "GitHub required-check integration" in plan
-    assert "`permissions: contents: read`" in combined
+    assert READ_ONLY_PERMISSIONS_BLOCK in plan
+    assert READ_ONLY_PERMISSIONS_BLOCK in runbook
+    assert "permissions: contents: read" not in plan
+    assert "permissions: contents: read" not in runbook
     assert "no `id-token`" in combined
     assert "never deployment or traffic authorization" in combined
+
+
+def test_v0_5_github_required_check_has_a_safe_untrusted_contribution_boundary():
+    plan = _normalise(_read(PLAN))
+    runbook = _normalise(_read(RUNBOOK))
+
+    for contract in (plan, runbook):
+        assert "must not use `pull_request_target` for untrusted contribution code" in contract
+        assert (
+            "must not combine privileged permissions, secrets, or an authenticated "
+            "checkout with untrusted contribution code" in contract
+        )
+        assert "no `id-token`, secrets, deployment or provider credentials, or write permissions" in contract
+        assert (
+            "Repository owners configure branch-protection required status separately "
+            "outside ExitSpec; the workflow itself must not mutate branch protection."
+            in contract
+        )
 
 
 def test_v0_5_contract_preserves_proofability_verdict_and_validity_axes():
@@ -109,13 +135,17 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     ledger = _read(LEDGER)
 
     assert "Base revision:" in ledger
-    assert "Rejected parent candidate:" in ledger
+    assert "Rejected candidate history:" in ledger
     assert "Superseding candidate selector:" in ledger
     assert "PR1 | Architecture, vocabulary, and threat contract" in ledger
     assert "PR14 | Adversarial closure and candidate checkpoint" in ledger
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
-    assert "CHANGES_REQUIRED" in ledger
+    assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
+    assert ledger.count("CHANGES_REQUIRED") == 2
+    assert "P1 — invalid permissions syntax:" in ledger
+    assert "prepared for Mission Control review" in ledger
     assert "GitHub required-check integration" in ledger
+    assert "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():

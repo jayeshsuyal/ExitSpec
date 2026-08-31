@@ -1,16 +1,18 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1 superseding candidate prepared for local commit.
+Last updated: PR1 superseding candidate prepared for Mission Control review.
 
 ## Train controls
 
 - **Authoritative plan:** [V0_5_QUALIFICATION_GATE_PLAN.md](V0_5_QUALIFICATION_GATE_PLAN.md)
 - **Operating procedure:** [V0_5_EXECUTION_RUNBOOK.md](V0_5_EXECUTION_RUNBOOK.md)
 - **Base revision:** `05e66208e9fdd98a04bde0bd3a4d83ee1ec71c3c`
-- **Rejected parent candidate:** `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a`
-- **Superseding candidate selector:** `HEAD` after the local corrective commit;
-  resolve its immutable SHA with `git rev-parse HEAD` during review.
+- **Rejected candidate history:**
+  `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
+  `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`
+- **Superseding candidate selector:** `HEAD` after the current local corrective
+  commit; resolve its immutable SHA with `git rev-parse HEAD` during review.
 - **Scope:** documentation/process only for PR1; no product feature code.
 - **Non-authority:** ExitSpec never authorizes deployment or traffic. Provider
   integration, GPU execution, spending, external capture, cross-repository
@@ -27,7 +29,7 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 
 | PR | Decision boundary | Depends on | State | Exit evidence / hold |
 | --- | --- | --- | --- | --- |
-| PR1 | Architecture, vocabulary, and threat contract | v0.4 baseline | CANDIDATE | Mission Control corrections, focused validation, link and scope scans, and clean superseding candidate passed. |
+| PR1 | Architecture, vocabulary, and threat contract | v0.4 baseline | CANDIDATE | GitHub Actions contract correction, focused validation, link and scope scans, and clean superseding candidate passed; Mission Control review is pending. |
 | PR2 | Serving-subject identity | PR1 | NOT_STARTED | Strict identity mutation and malformed-input coverage. |
 | PR3 | Qualification scope and context | PR2 | NOT_STARTED | Distinguishable subject/scope drift and canonical context. |
 | PR4 | Producer capability descriptor | PR3 | NOT_STARTED | Server-owned profile; no caller can expand capability. |
@@ -47,7 +49,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Candidate | Reviewer | Decision | Record |
 | --- | --- | --- | --- |
 | `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` | Mission Control | `CHANGES_REQUIRED` | Preserve this parent. Restore PR12 as a least-privilege GitHub required check, make PR1–PR14 exact, add an explicit threat model, strengthen contract tests, and do not send this candidate to MTS as approved. |
-| `HEAD` after the corrective local commit | Mission Control and independent MTS | PENDING | Superseding candidate must retain the rejection record and pass the focused validation before review. |
+| `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c` | Mission Control | `CHANGES_REQUIRED` | P1 — invalid permissions syntax: `permissions: contents: read` is not valid GitHub Actions YAML. Replace prose/test assertions with the exact valid least-privilege block; forbid `pull_request_target` for untrusted contribution code and privileged/untrusted checkout combinations; retain no `id-token`, secrets, deployment/provider credentials, or write permissions; and keep required-status branch protection owner-configured outside ExitSpec. |
+| `HEAD` after the current local corrective commit | Mission Control and independent MTS | PENDING | New candidate must retain both rejection records, use the valid YAML block, and pass the focused validation before Mission Control review. |
 
 ## PR1 evidence record
 
@@ -57,17 +60,20 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Changed files | `docs/V0_5_QUALIFICATION_GATE_PLAN.md`; `docs/V0_5_EXECUTION_RUNBOOK.md`; `docs/V0_5_EXECUTION_LEDGER.md`; `docs/ROADMAP.md`; planning-contract test. |
 | Required distinctions | Proofability is pre-admission capability; Verdict is ExitSpec's result from admitted evidence; Validity is present applicability of a validated receipt. |
 | Authority result | No authority owner changes. ExitSpec never authorizes deployment or traffic. |
-| Tests | `/private/tmp/exitspec-v05-docs-venv/bin/python -m pytest tests/test_v0_5_planning_contract.py tests/test_engineering_process.py tests/test_v0_4_release_checkpoint.py` — 15 passed; `/private/tmp/exitspec-v05-docs-venv/bin/ruff check tests/test_v0_5_planning_contract.py` — passed. Local link audit, 14-milestone scan, provider-specific dependency scan, retired permissive-language scan, and `git diff --check` passed. |
-| Remaining risks | The 14 milestones are a fixed execution contract, not an implementation claim. PR12 must stay a least-privilege, status-only GitHub required check; later PRs must keep provider and real-evidence operations outside this train. |
-| Reviewer handoff | Mission Control requested a superseding candidate. Do not submit the preserved parent to MTS as approved; after correction, reviewers inspect the new `HEAD` SHA and this ledger before any next milestone. |
+| Tests | `/private/tmp/exitspec-v05-docs-venv/bin/python -m pytest tests/test_v0_5_planning_contract.py tests/test_engineering_process.py tests/test_v0_4_release_checkpoint.py` — 16 passed; `/private/tmp/exitspec-v05-docs-venv/bin/ruff check tests/test_v0_5_planning_contract.py` — passed. Local link audit, 14-milestone scan, provider-specific dependency scan, invalid-inline-permissions scan, retired permissive-language scan, and `git diff --check` passed. |
+| Remaining risks | The 14 milestones are a fixed execution contract, not an implementation claim. PR12 must retain the exact valid read-only YAML block, a status-only GitHub boundary, and owner-configured branch protection; later PRs must keep provider and real-evidence operations outside this train. |
+| Reviewer handoff | Mission Control requested a second superseding candidate. Do not submit either preserved parent to MTS as approved; after correction, Mission Control inspects the new `HEAD` SHA and this ledger before any next milestone. |
 
 ## Proposed PR metadata
 
-- **Title:** `docs: correct v0.5 qualification-gate review findings`
-- **Body summary:** Supersedes the preserved PR1 candidate in response to
-  Mission Control: restores PR12 as the least-privilege, non-authoritative
-  GitHub required-check milestone; freezes exactly PR1–PR14 pending an explicit
-  user-approved plan/goal amendment; adds the explicit trust-boundary threat
-  model; and strengthens the planning contract tests. No product feature code,
-  external evidence operation, provider action, cross-repository change,
-  release publication, deployment, or traffic action is included.
+- **Title:** `docs: freeze v0.5 provider-neutral qualification execution contract`
+- **Body summary:** Freezes the ExitSpec-only v0.5 architecture and execution
+  contract: exactly PR1–PR14, provider-neutral PR7/PR8 boundaries, an explicit
+  threat model, and a least-privilege GitHub required check that reports
+  qualification state only. ExitSpec never authorizes deployment or traffic.
+  No product feature code, external evidence operation, provider action,
+  cross-repository change, release publication, deployment, or traffic action
+  is included.
+- **Evidence note:** This superseding candidate incorporates independent review
+  corrections, preserved in the review history above, including the valid
+  GitHub Actions permissions contract.

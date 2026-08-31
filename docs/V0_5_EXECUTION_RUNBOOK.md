@@ -80,11 +80,22 @@ insufficiency may become `NOT_PROVEN` only through the frozen verdict protocol.
 
 PR12 may add only a documented GitHub required check that invokes local
 ExitSpec CLI or assessment validation and reports the qualification state. Its
-workflow declares `permissions: contents: read`, has no `id-token`, and receives
-no deployment, traffic, provider, or credential authority. It must not call a
-provider, mutate GitHub protection, dispatch deployment, change traffic, or
-convert `PASS` into authorization. Every non-current or non-`PASS` state, plus
-tampering and skipped evaluation, reports a non-passing check.
+workflow uses this exact workflow-level declaration:
+
+```yaml
+permissions:
+  contents: read
+```
+
+It has no `id-token`, secrets, deployment or provider credentials, or write
+permissions, and receives no deployment, traffic, provider, or credential
+authority. It must not use `pull_request_target` for untrusted contribution code.
+It must not combine privileged permissions, secrets, or an authenticated
+checkout with untrusted contribution code. Repository owners configure branch-protection
+required status separately outside ExitSpec; the workflow itself must not mutate
+branch protection. It must not call a provider, dispatch deployment, change
+traffic, or convert `PASS` into authorization. Every non-current or non-`PASS`
+state, plus tampering and skipped evaluation, reports a non-passing check.
 
 ## Candidate review checklist
 
