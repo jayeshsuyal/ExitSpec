@@ -214,7 +214,7 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
     assert ledger.count("CHANGES_REQUIRED") >= 3
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "local PR3 qualification-scope candidate is" in ledger
+    assert "local PR3 superseding qualification-scope" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -224,6 +224,8 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "PR CI `33363876409`; main CI `33364429844`" in ledger
     assert "| PR2 | Serving-subject identity | PR1 | MERGED |" in ledger
     assert "| PR3 | Qualification scope and context | PR2 | CANDIDATE |" in ledger
+    assert "6181bef889ccc99641e8a49784f4bbf31d05724d" in ledger
+    assert "P2 — every material context identity leaf" in ledger
     assert "00b4f01c27eabac37a63adb1015d8e1434113009" in ledger
     assert "edb62a071d68a9281e6127ee8ade51f7f23daa02" in ledger
     assert "PR CI `33415971409`" in ledger
@@ -234,8 +236,8 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "compact fallback" in ledger
     assert "3,755 passed, 33 skipped" in ledger
     assert "3,768 passed, 23 skipped" in ledger
-    assert "3,798 passed, 33 skipped" in ledger
-    assert "3,811 passed, 23 skipped" in ledger
+    assert "3,799 passed, 33 skipped" in ledger
+    assert "3,812 passed, 23 skipped" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():

@@ -510,23 +510,42 @@ def test_subject_and_scope_drift_are_independent_and_both_change_context() -> No
     )
 
 
-def test_context_protocol_change_and_digest_substitution_fail_closed() -> None:
-    context = _context_payload()
-    context["protocol_version"] = "1.0.1"
-    context.pop("qualification_context_digest")
-    changed = parse_qualification_context(
-        canonical_json_bytes(
-            {
-                **context,
-                "qualification_context_digest": "sha256:"
-                + hashlib.sha256(
-                    b"exitspec-qualification-context-v1\x00"
-                    + canonical_json_bytes(context)
-                ).hexdigest(),
-            }
-        )
+def test_every_context_protocol_identity_leaf_changes_context_independently() -> None:
+    subject = _subject()
+    scope = _scope()
+    original = create_qualification_context(
+        subject,
+        scope,
+        protocol_id="inference-performance-qualification",
+        protocol_version="1.0.0",
     )
-    assert changed.qualification_context_digest != _context().qualification_context_digest
+    changed_protocol_id = create_qualification_context(
+        subject,
+        scope,
+        protocol_id="routing-performance-qualification",
+        protocol_version="1.0.0",
+    )
+    changed_protocol_version = create_qualification_context(
+        subject,
+        scope,
+        protocol_id="inference-performance-qualification",
+        protocol_version="1.0.1",
+    )
+
+    for changed in (changed_protocol_id, changed_protocol_version):
+        assert changed.subject_digest == original.subject_digest
+        assert changed.scope_digest == original.scope_digest
+        assert (
+            changed.qualification_context_digest
+            != original.qualification_context_digest
+        )
+    assert changed_protocol_id.protocol_version == original.protocol_version
+    assert changed_protocol_id.protocol_id != original.protocol_id
+    assert changed_protocol_version.protocol_id == original.protocol_id
+    assert changed_protocol_version.protocol_version != original.protocol_version
+
+
+def test_context_digest_substitution_fails_closed() -> None:
 
     substituted = _context_payload()
     substituted["qualification_context_digest"] = "sha256:" + "a" * 64

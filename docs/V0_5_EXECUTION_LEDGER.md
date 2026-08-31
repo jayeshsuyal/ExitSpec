@@ -1,8 +1,9 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR2 is merged; the local PR3 qualification-scope candidate is
-prepared for Mission Control review after all required local gates passed.
+Last updated: PR2 is merged; the local PR3 superseding qualification-scope
+candidate is prepared for Mission Control review after all required local gates
+passed.
 
 ## Train controls
 
@@ -14,9 +15,10 @@ prepared for Mission Control review after all required local gates passed.
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
   `426c792c35ed5ea212b9cdedcbb58612e3f581ab` and
-  `b473b8bae5644aa8ef7ef5dcb02119230efe8c72`
-- **Candidate selector:** `HEAD` after the local PR3 candidate commit; resolve
-  its immutable SHA with `git rev-parse HEAD` during review.
+  `b473b8bae5644aa8ef7ef5dcb02119230efe8c72`; PR3 candidate
+  `6181bef889ccc99641e8a49784f4bbf31d05724d`
+- **Candidate selector:** `HEAD` after the local PR3 superseding candidate
+  commit; resolve its immutable SHA with `git rev-parse HEAD` during review.
 - **Scope:** merged PR1 architecture/process contract and PR2 serving-subject
   identity plus PR3 qualification scope/context only. PR3 adds no proofability,
   evidence, verdict, provider execution, deployment, or traffic functionality.
@@ -37,7 +39,7 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | --- | --- | --- | --- | --- |
 | PR1 | Architecture, vocabulary, and threat contract | v0.4 baseline | MERGED | PR #157; branch head `ca96e6e737402fe3fcbea990f5ac411e5cb6105c`; merge `2a6ce7b681063b73450bf7a4573dea5dac8314b5`; PR CI `33363876409`; main CI `33364429844`. |
 | PR2 | Serving-subject identity | PR1 | MERGED | PR #158; reviewed head `00b4f01c27eabac37a63adb1015d8e1434113009`; merge `edb62a071d68a9281e6127ee8ade51f7f23daa02`; PR CI `33415971409`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/158#issuecomment-5481583707); post-merge main CI `33416637002`, all four jobs green. |
-| PR3 | Qualification scope and context | PR2 | CANDIDATE | Strict canonical scope/context, byte-exact golden vectors, and distinct subject/scope drift are verified locally. Mission Control exact-SHA review is pending. |
+| PR3 | Qualification scope and context | PR2 | CANDIDATE | Strict canonical scope/context, byte-exact golden vectors, subject/scope drift, and every material context identity leaf are verified locally. Mission Control exact-SHA review is pending. |
 | PR4 | Producer capability descriptor | PR3 | NOT_STARTED | Server-owned profile; no caller can expand capability. |
 | PR5 | Proofability engine | PR4 | NOT_STARTED | Unsupported semantics stop before any external operation. |
 | PR6 | Proofability service and workspace projection | PR5 | NOT_STARTED | Deterministic, redacted, zero-side-effect UI/API projection. |
@@ -60,6 +62,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | `426c792c35ed5ea212b9cdedcbb58612e3f581ab` | Mission Control | `CHANGES_REQUIRED` | P1 — runtime-config deny pairs were checked only within an individual key and did not reject accumulated nested paths such as `api`/`key`, `private`/`key`, or `gpu`/`reservation`. P2 — render the Markdown domain separator with one literal `\x00`, not a doubled slash. Preserve this candidate and supersede it locally. |
 | `b473b8bae5644aa8ef7ef5dcb02119230efe8c72` | Mission Control | `CHANGES_REQUIRED` | P1 — the compact fallback joined the entire accumulated path, incorrectly rejecting harmless multi-key split paths such as `a`/`pi`/`k`/`ey` and `gpu`/`re`/`servation`. Preserve real nested denied pairs, but scope compact matching to one key's segments. Preserve this candidate and supersede it locally. |
 | `00b4f01c27eabac37a63adb1015d8e1434113009` | Mission Control and independent MTS | MERGED | PR2 review accepted. Merged as PR #158 at `edb62a071d68a9281e6127ee8ade51f7f23daa02`; PR CI `33415971409`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/158#issuecomment-5481583707); post-merge main CI `33416637002`, all four jobs green. |
+| `6181bef889ccc99641e8a49784f4bbf31d05724d` | Mission Control | `CHANGES_REQUIRED` | P2 — every material context identity leaf needs a valid mutation vector. Subject/scope drift and protocol-version mutation were covered, but a distinct valid `protocol_id` with unchanged subject, scope, and protocol version was not shown to change `qualification_context_digest`. Preserve this candidate unchanged and supersede it locally. |
+| `HEAD` after the local PR3 superseding candidate commit | Mission Control | PENDING | Inspect the exact SHA, valid protocol-ID and protocol-version mutation vectors, canonical-object/no-concatenation invariant, and refreshed local gate evidence before PR4. |
 
 ## PR1 evidence record
 
@@ -97,11 +101,12 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Decision | Add only strict immutable qualification scope and context. Scope remains independent from serving-subject identity; context binds their digests and one exact protocol version. |
 | Base | `edb62a071d68a9281e6127ee8ade51f7f23daa02` (PR #158 merge). |
 | Schema review | Scope carries only a bounded qualification question: typed `CANARY_CONSIDERATION`, maximum traffic percent 1–5, typed contract/workload/environment/profile identity and digests, explicit-null optional freshness policy, and requirement-controlled optional reference subject. It has no authorization-shaped fields. The prospective freshness policy uses `EVIDENCE_CAPTURED_AT` plus a bounded maximum age and does not establish chronology, expiry, or currentness. |
+| Mission Control correction | Preserve `6181bef889ccc99641e8a49784f4bbf31d05724d` as `CHANGES_REQUIRED`. Add a direct valid `protocol_id` mutation vector with unchanged subject digest, scope digest, and protocol version; group it with the valid protocol-version vector so every material context identity leaf is explicit. Preserve canonical-object/no-concatenation coverage; do not alter the schema unless the test exposes a defect. |
 | Changed files | `src/exitspec/qualification_scope.py`; `tests/test_qualification_scope.py`; `tests/fixtures/qualification_scope/v1/golden-scope.json`; `tests/fixtures/qualification_scope/v1/golden-context.json`; `docs/V0_5_QUALIFICATION_GATE_PLAN.md`; this ledger; planning-contract test. |
 | Schema and identity | `exitspec.qualification-scope.v1` and `exitspec.qualification-context.v1`; RFC 8785 JCS; unsigned projections exclude only `scope_digest` or `qualification_context_digest`; domain separator bytes `exitspec-qualification-scope-v1\x00` and `exitspec-qualification-context-v1\x00`; every digest is `sha256:<64 lowercase hex>`. |
 | Golden vectors | Scope fixture raw bytes equal JCS and independently derive `sha256:5db651e8c2eae05147d2c5fc52bae0b4526ed84508f76d62d41471ac4ca677ab`; context fixture raw bytes equal JCS and independently derives `sha256:9159ac21169d0674b916053e6605a72f6f25e65cfe94b30b708a86f343d0193c`. |
 | Focused checks | `/private/tmp/exitspec-b13-venv/bin/python -m pytest -q tests/test_qualification_scope.py tests/test_serving_subject.py tests/test_canonical.py tests/test_source_models.py tests/test_performance_contract_models.py tests/test_distribution.py tests/test_engineering_process.py tests/test_v0_4_release_checkpoint.py tests/test_v0_5_planning_contract.py` — passed; Ruff on changed Python and `git diff --check` — passed. |
-| Required gates | `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=edb62a071d68a9281e6127ee8ade51f7f23daa02 ./scripts/engineering_gate.sh` — 3,798 passed, 33 skipped; `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,811 passed, 23 skipped, including 4 Chromium, 17 adversarial, and 4 artifact-reader checks. |
+| Required gates | `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=edb62a071d68a9281e6127ee8ade51f7f23daa02 ./scripts/engineering_gate.sh` — 3,799 passed, 33 skipped; `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,812 passed, 23 skipped, including 4 Chromium, 17 adversarial, and 4 artifact-reader checks. |
 | Remaining risks | Scope/context self-consistency proves deterministic identity/integrity only, not execution, authorship, chronology, physical hardware truth, authenticated identity, evidence admission, verdict, or validity. The prospective `EVIDENCE_CAPTURED_AT` age-policy basis establishes no capture time, expiry, or currentness before later protocol work. |
 | Reviewer handoff | CANDIDATE is local only. Do not push, open a PR, merge, tag, release, execute a GPU/provider, or authorize deployment/traffic. Mission Control reviews the immutable `HEAD` SHA before PR4. |
 
