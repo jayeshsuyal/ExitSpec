@@ -111,6 +111,18 @@ Post-implementation status is recorded separately in
 
 ## Next sequence
 
+### ExitSpec v0.5 — independent inference qualification gate
+
+The proposed v0.5 product and release train is defined in the
+[v0.5 inference qualification gate plan](V0_5_QUALIFICATION_GATE_PLAN.md).
+It separates serving-subject identity from qualification scope, determines
+proofability before any external operation, binds provider-neutral external
+evidence to one canonical qualification context, independently issues a
+purpose-bound zero-authority receipt, and invalidates qualification when the
+subject, scope, or freshness boundary changes. ExitSpec never authorizes
+deployment or traffic. No v0.5 implementation is claimed by this planning
+link.
+
 ### Train B — B9 routing qualification vocabulary
 
 The protocol-only B9 slice freezes the provider/orchestrator-agnostic
