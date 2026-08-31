@@ -162,10 +162,15 @@ The first version binds only fields demonstrated by an admitted profile:
 - tokenizer ID and pinned revision;
 - engine ID and exact version;
 - container, package, or runtime artifact digest where available;
-- canonical runtime configuration and launch-argument digest;
+- bounded canonical runtime configuration and launch-argument digest;
 - hardware class and topology required by the profile;
 - routing-policy identity and digest when the subject includes routing; and
 - the profile or adapter identity that defines material fields.
+
+Component revisions must be non-floating pinned references. Engine, profile,
+and adapter versions use an exact semantic-version grammar without an arbitrary
+minimum character length, so exact vLLM `0.26.0` is valid while floating labels
+such as `latest` or `main` fail closed.
 
 It does not contain the customer workload, threshold, use purpose, verdict,
 evidence, run ID, or deployment authorization.
@@ -174,6 +179,54 @@ Its `subject_digest` is domain-separated SHA-256 over RFC 8785 JCS canonical
 UTF-8 bytes of the complete validated identity object, excluding only the
 derived digest field. Unsupported, ambiguous, extra, duplicate, noncanonical,
 or unbounded fields fail closed.
+
+PR2 fixes the executable contract as
+`exitspec.serving-subject-manifest.v1`, RFC 8785 JCS canonicalization, and the
+stable byte domain separator `exitspec-serving-subject-manifest-v1\\x00` before
+SHA-256. The unsigned projection contains every field above and excludes only
+the derived `subject_digest`; no alternate projection, implicit defaults, or
+free-form metadata bag participates in identity.
+
+The one generic configuration boundary is `runtime_configuration_json`. It is
+itself exact JCS JSON for a bounded object tree: identifier-keyed objects,
+arrays, strings, booleans, null, and bounded integers only. Floats, non-finite
+numbers, duplicate keys, noncanonical representations, unsupported key/value
+types, excessive depth, nodes, keys, items, or bytes fail closed. Its recursive,
+case-insensitive path-segment deny vocabulary is precisely `credential`,
+`credentials`, `secret`, `secrets`, `token`, `tokens`, `password`, `passwords`,
+`provider`, `providers`, `run`, `runs`, `execution`, `executions`, `deploy`,
+`deployment`, `traffic`, `authorization`, and `authorisation`, plus the adjacent
+segment pairs `api`/`key`, `private`/`key`, and `gpu`/`reservation`. It does not
+reject harmless material keys such as `seed` or `gpu_memory_utilization`.
+
+`launch_arguments_digest` is a required `sha256:<64 lowercase hex>` material
+field. PR2 does not persist raw launch arguments: they can contain credentials,
+private paths, or provider-specific execution detail and are not part of the
+frozen schema. The caller that supplies the digest owns the separate bounded
+argument-capture policy; this manifest records only its digest. Every optional
+material field is still physically required in the canonical object: use an
+explicit `null` for an unavailable runtime artifact or absent routing-policy
+pair. A parser never default-fills omitted optional fields.
+
+Identifiers use the stated strict ASCII grammar and configuration strings use
+JCS code-point semantics. ExitSpec performs no Unicode normalization: composed
+and decomposed Unicode string values are distinct; a JSON escape form that does
+not equal the JCS byte serialization is rejected rather than normalized.
+
+The public PR2 API is deliberately small: create an unsigned projection,
+strictly parse a complete manifest, serialize canonical bytes, derive the
+digest, or verify a typed manifest. Byte parsing rejects duplicate JSON keys
+and bytes that differ from the canonical serialization. Public failures expose
+only stable reason classes, never field values or private input content. The
+checked-in vector at
+`tests/fixtures/serving_subject/v1/golden.json` asserts the exact subject
+digest `sha256:2921dd76c90a5dd4a6131ef8bb7a369f7b4b1a3a829744751e6b38e81dfb988a`.
+The fixture's checked-in raw bytes are themselves exact JCS bytes; tests do not
+normalize it before parsing or independently deriving that digest from the
+literal domain separator and unsigned projection.
+That self-consistent digest is identity and integrity only, not authorship,
+execution, hardware truth, chronology, proofability, verdict, validity, or
+authority.
 
 ### 2. `QualificationScopeV1`
 
