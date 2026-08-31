@@ -221,17 +221,18 @@ def _runtime_key_segments(key: str) -> tuple[str, ...]:
     )
 
 
-def _is_prohibited_runtime_key(key: str) -> bool:
-    segments = _runtime_key_segments(key)
-    if any(segment in _DENIED_RUNTIME_KEY_SEGMENTS for segment in segments):
+def _is_prohibited_runtime_path(path: tuple[str, ...]) -> bool:
+    """Return whether one accumulated runtime-configuration path is prohibited."""
+
+    if any(segment in _DENIED_RUNTIME_KEY_SEGMENTS for segment in path):
         return True
     if any(
-        pair == segments[index : index + 2]
+        pair == path[index : index + 2]
         for pair in _DENIED_RUNTIME_KEY_PAIRS
-        for index in range(len(segments) - 1)
+        for index in range(len(path) - 1)
     ):
         return True
-    return "".join(segments) in {"apikey", "gpureservation", "privatekey"}
+    return "".join(path) in {"apikey", "gpureservation", "privatekey"}
 
 
 def _parse_runtime_configuration(value: str) -> dict[str, Any]:
@@ -273,7 +274,7 @@ def _parse_runtime_configuration(value: str) -> dict[str, Any]:
 
     nodes = 0
 
-    def walk(current: object, depth: int) -> None:
+    def walk(current: object, depth: int, *, path: tuple[str, ...]) -> None:
         nonlocal nodes
         nodes += 1
         if nodes > _MAX_RUNTIME_CONFIGURATION_NODES:
@@ -298,19 +299,20 @@ def _parse_runtime_configuration(value: str) -> dict[str, Any]:
                     raise ValueError(
                         "Runtime configuration contains an unsupported key."
                     )
-                if _is_prohibited_runtime_key(key):
+                child_path = path + _runtime_key_segments(key)
+                if _is_prohibited_runtime_path(child_path):
                     raise ValueError("Runtime configuration contains a prohibited key.")
-                walk(child, depth + 1)
+                walk(child, depth + 1, path=child_path)
             return
         if type(current) is list:
             if len(current) > _MAX_RUNTIME_CONFIGURATION_ARRAY_ITEMS:
                 raise ValueError("Runtime configuration contains too many array items.")
             for child in current:
-                walk(child, depth + 1)
+                walk(child, depth + 1, path=path)
             return
         raise ValueError("Runtime configuration contains an unsupported value.")
 
-    walk(payload, 0)
+    walk(payload, 0, path=())
     try:
         canonical = canonical_json_bytes(payload)
     except CanonicalizationError as error:

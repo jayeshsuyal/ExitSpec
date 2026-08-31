@@ -119,12 +119,15 @@ def test_v0_5_pr2_subject_identity_contract_stays_digest_only_and_bounded():
         "PR2 does not persist raw launch arguments",
         "A parser never default-fills omitted optional fields.",
         "`api`/`key`, `private`/`key`, and `gpu`/`reservation`",
+        "Every nested object key extends one accumulated path",
+        "`exitspec-serving-subject-manifest-v1\\x00`",
         "JCS code-point semantics",
         "performs no Unicode normalization",
         "`tests/fixtures/serving_subject/v1/golden.json`",
         "sha256:2921dd76c90a5dd4a6131ef8bb7a369f7b4b1a3a829744751e6b38e81dfb988a",
     ):
         assert marker in plan
+    assert "`exitspec-serving-subject-manifest-v1\\\\x00`" not in plan
 
 
 def test_v0_5_threat_model_covers_required_boundaries_and_limitations():
@@ -165,9 +168,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "PR14 | Adversarial closure and candidate checkpoint" in ledger
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
-    assert ledger.count("CHANGES_REQUIRED") == 2
+    assert ledger.count("CHANGES_REQUIRED") >= 3
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "prepared for Mission Control review" in ledger
+    assert "superseding local candidate prepared for Mission Control" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -176,7 +179,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "ca96e6e737402fe3fcbea990f5ac411e5cb6105c" in ledger
     assert "PR CI `33363876409`; main CI `33364429844`" in ledger
     assert "| PR2 | Serving-subject identity | PR1 | CANDIDATE |" in ledger
-    assert "3,743 passed, 33 skipped" in ledger
+    assert "426c792c35ed5ea212b9cdedcbb58612e3f581ab" in ledger
+    assert "P1 — runtime-config deny pairs" in ledger
+    assert "3,752 passed, 33 skipped" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():

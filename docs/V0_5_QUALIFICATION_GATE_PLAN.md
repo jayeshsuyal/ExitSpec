@@ -182,7 +182,7 @@ or unbounded fields fail closed.
 
 PR2 fixes the executable contract as
 `exitspec.serving-subject-manifest.v1`, RFC 8785 JCS canonicalization, and the
-stable byte domain separator `exitspec-serving-subject-manifest-v1\\x00` before
+stable byte domain separator `exitspec-serving-subject-manifest-v1\x00` before
 SHA-256. The unsigned projection contains every field above and excludes only
 the derived `subject_digest`; no alternate projection, implicit defaults, or
 free-form metadata bag participates in identity.
@@ -198,6 +198,9 @@ case-insensitive path-segment deny vocabulary is precisely `credential`,
 `deployment`, `traffic`, `authorization`, and `authorisation`, plus the adjacent
 segment pairs `api`/`key`, `private`/`key`, and `gpu`/`reservation`. It does not
 reject harmless material keys such as `seed` or `gpu_memory_utilization`.
+Every nested object key extends one accumulated path before this policy is
+evaluated, so those pairs are rejected across object boundaries as well as
+within one dotted, dashed, underscored, or camel-case key.
 
 `launch_arguments_digest` is a required `sha256:<64 lowercase hex>` material
 field. PR2 does not persist raw launch arguments: they can contain credentials,

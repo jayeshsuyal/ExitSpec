@@ -317,6 +317,14 @@ def test_unsupported_schema_unpinned_revision_and_runtime_domain_fail_closed() -
         '{"deploy":{"enabled":false}}',
         '{"traffic":1}',
         '{"authorizationMode":"none"}',
+        '{"api":{"key":"DO-NOT-STORE"}}',
+        '{"private":{"key":"DO-NOT-STORE"}}',
+        '{"gpu":{"reservation":{"count":1}}}',
+        '{"outer":{"api":{"key":"DO-NOT-STORE"}}}',
+        '{"API":{"Key":"DO-NOT-STORE"}}',
+        '{"safe-api":{"key":"DO-NOT-STORE"}}',
+        '{"safe.api":{"key":"DO-NOT-STORE"}}',
+        '{"safeApi":{"key":"DO-NOT-STORE"}}',
     ),
 )
 def test_runtime_configuration_rejects_prohibited_key_semantics_recursively(
@@ -456,6 +464,17 @@ def test_public_errors_do_not_echo_attacker_supplied_content() -> None:
     payload["runtime_configuration_json"] = (
         '{"nested":{"Password":"' + attack_value + '"}}'
     )
+
+    rejected = _create_error(payload)
+
+    assert rejected.code == ServingSubjectValidationCode.INVALID_VALUE
+    assert attack_value not in str(rejected)
+
+
+def test_split_runtime_path_errors_do_not_echo_attacker_supplied_content() -> None:
+    attack_value = "DO-NOT-ECHO-SPLIT-PATH-CONTENT"
+    payload = _unsigned_payload()
+    payload["runtime_configuration_json"] = '{"safeApi":{"key":"' + attack_value + '"}}'
 
     rejected = _create_error(payload)
 
