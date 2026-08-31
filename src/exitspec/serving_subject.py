@@ -221,8 +221,15 @@ def _runtime_key_segments(key: str) -> tuple[str, ...]:
     )
 
 
-def _is_prohibited_runtime_path(path: tuple[str, ...]) -> bool:
-    """Return whether one accumulated runtime-configuration path is prohibited."""
+def _is_prohibited_runtime_path(
+    path: tuple[str, ...], *, key_segments: tuple[str, ...]
+) -> bool:
+    """Return whether an accumulated path or one key's compact form is prohibited.
+
+    Accumulated paths express only exact segments and exact adjacent pairs. The
+    compact spellings catch one unseparated key such as ``apiKey``; they must not
+    join segments that originated from different nested object keys.
+    """
 
     if any(segment in _DENIED_RUNTIME_KEY_SEGMENTS for segment in path):
         return True
@@ -232,7 +239,7 @@ def _is_prohibited_runtime_path(path: tuple[str, ...]) -> bool:
         for index in range(len(path) - 1)
     ):
         return True
-    return "".join(path) in {"apikey", "gpureservation", "privatekey"}
+    return "".join(key_segments) in {"apikey", "gpureservation", "privatekey"}
 
 
 def _parse_runtime_configuration(value: str) -> dict[str, Any]:
@@ -299,8 +306,11 @@ def _parse_runtime_configuration(value: str) -> dict[str, Any]:
                     raise ValueError(
                         "Runtime configuration contains an unsupported key."
                     )
-                child_path = path + _runtime_key_segments(key)
-                if _is_prohibited_runtime_path(child_path):
+                key_segments = _runtime_key_segments(key)
+                child_path = path + key_segments
+                if _is_prohibited_runtime_path(
+                    child_path, key_segments=key_segments
+                ):
                     raise ValueError("Runtime configuration contains a prohibited key.")
                 walk(child, depth + 1, path=child_path)
             return

@@ -120,6 +120,7 @@ def test_v0_5_pr2_subject_identity_contract_stays_digest_only_and_bounded():
         "A parser never default-fills omitted optional fields.",
         "`api`/`key`, `private`/`key`, and `gpu`/`reservation`",
         "Every nested object key extends one accumulated path",
+        "one key's segments only",
         "`exitspec-serving-subject-manifest-v1\\x00`",
         "JCS code-point semantics",
         "performs no Unicode normalization",
@@ -170,7 +171,7 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
     assert ledger.count("CHANGES_REQUIRED") >= 3
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "superseding local candidate prepared for Mission Control" in ledger
+    assert "second PR2 superseding local candidate prepared for Mission" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -181,7 +182,10 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "| PR2 | Serving-subject identity | PR1 | CANDIDATE |" in ledger
     assert "426c792c35ed5ea212b9cdedcbb58612e3f581ab" in ledger
     assert "P1 — runtime-config deny pairs" in ledger
-    assert "3,752 passed, 33 skipped" in ledger
+    assert "b473b8bae5644aa8ef7ef5dcb02119230efe8c72" in ledger
+    assert "compact fallback" in ledger
+    assert "3,755 passed, 33 skipped" in ledger
+    assert "3,768 passed, 23 skipped" in ledger
 
 
 def test_v0_5_planning_documents_have_resolvable_local_links():

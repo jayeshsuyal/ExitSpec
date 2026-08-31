@@ -201,6 +201,9 @@ reject harmless material keys such as `seed` or `gpu_memory_utilization`.
 Every nested object key extends one accumulated path before this policy is
 evaluated, so those pairs are rejected across object boundaries as well as
 within one dotted, dashed, underscored, or camel-case key.
+The compact fallback for unseparated `apikey`, `privatekey`, and
+`gpureservation` is evaluated from one key's segments only; it never
+concatenates segments across nested object boundaries.
 
 `launch_arguments_digest` is a required `sha256:<64 lowercase hex>` material
 field. PR2 does not persist raw launch arguments: they can contain credentials,

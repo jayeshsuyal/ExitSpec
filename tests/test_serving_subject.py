@@ -347,6 +347,25 @@ def test_runtime_configuration_allows_harmless_gpu_and_seed_keys() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "runtime_configuration_json",
+    (
+        '{"a":{"pi":{"k":{"ey":1}}}}',
+        '{"gpu":{"re":{"servation":{"count":1}}}}',
+        '{"private":{"k":{"ey":1}}}',
+    ),
+)
+def test_runtime_configuration_allows_nonadjacent_split_key_paths(
+    runtime_configuration_json: str,
+) -> None:
+    payload = _unsigned_payload()
+    payload["runtime_configuration_json"] = runtime_configuration_json
+
+    manifest = create_serving_subject_manifest(payload)
+
+    assert manifest.runtime_configuration_json == runtime_configuration_json
+
+
 def test_jcs_preserves_unicode_code_points_without_normalization() -> None:
     literal = _unsigned_payload()
     literal["runtime_configuration_json"] = '{"label":"é"}'
