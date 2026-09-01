@@ -201,6 +201,57 @@ def test_v0_5_pr4_capability_descriptor_contract_stays_provider_neutral():
     assert "Inferdrome" not in descriptor_section
 
 
+def test_v0_5_pr5_proofability_contract_is_closed_and_input_bound():
+    plan = _read(PLAN)
+    report_section = _normalise(
+        plan.split("### 5. `ProofabilityReportV1`", 1)[1].split(
+            "### 6. protocol-specific qualification receipt", 1
+        )[0]
+    )
+
+    for marker in (
+        "`inference_qualification_v1`",
+        "`exitspec.inference-qualification-criterion.v1`",
+        "`NATIVE_TTFT_P95`",
+        "`SEMANTIC_FIRST_NONEMPTY_TTFT_P95`",
+        "`native_ttft_sample`",
+        "`semantic_first_nonempty_ttft_sample`",
+        "`request.timing.ttft_ns`",
+        "`request.outcome.status`",
+        "`MISSING_OBSERVATION`",
+        "`UNMAPPABLE_FROZEN_CRITERION_SCHEMA`",
+        "`ALL_REQUIRED_OBSERVATIONS_AVAILABLE` / `NO_REMEDIATION_REQUIRED`",
+        "`FREEZE_PROVIDER_NEUTRAL_CRITERION_SCHEMA`",
+        "every full required observation model, exactly one",
+        "complete, mutually exclusive partition",
+        "reduced observation-kind/ID keys do not define exact availability",
+        "complete canonical set returned by the closed semantic-leaf mismatch mapping",
+        "both metric-definition and source-field mismatch reasons",
+        "contradictory reports fail parsing before capability use",
+        "`exitspec-proofability-report-v1\\x00`",
+        "sha256:28c49bba2dd3791905a201a74777c9994e6ecc083cc3b9de083095f4c626d81e",
+        "self-consistent replacement report never becomes a trusted evaluation",
+        "seven ordinary criterion arms use `^[A-Z][A-Z0-9-]{2,63}$`",
+        "`routing_qualification_v1`, `routing_slo_attainment_v1`, and `routing_campaign_reduction_v1`",
+        "No other lowercase, mixed-case, punctuation, prefix, suffix",
+        "1,048,576 bytes",
+        "16,384 nodes",
+        "3,349 counted JSON nodes",
+        "evaluator serializes, parses, and strictly normalizes",
+        "`__pydantic_private__`",
+        "`__pydantic_fields_set__`",
+        "value-equal `str` subclass",
+        "`engine_id` and `engine_version` must equal",
+        "`CAPABILITY_BINDING_MISMATCH`",
+        "registered evidence profile or adapter with the subject's serving-profile adapter",
+        "does not derive scope workload identity",
+        "compare the scope measurement profile to the descriptor profile",
+        "never execution, evidence admission, Verdict, Validity, deployment, traffic, or authorization",
+    ):
+        assert marker in report_section
+    assert "Inferdrome" not in report_section
+
+
 def test_v0_5_threat_model_covers_required_boundaries_and_limitations():
     plan = _read(PLAN)
 
@@ -241,8 +292,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
     assert ledger.count("CHANGES_REQUIRED") >= 4
+    assert ledger.count("MTS_FAIL") >= 3
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "superseding candidate is prepared for Mission Control review" in ledger
+    assert "one local-only PR5 r4 candidate is immutable\n  `HEAD`" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -252,11 +304,43 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "PR CI `33363876409`; main CI `33364429844`" in ledger
     assert "| PR2 | Serving-subject identity | PR1 | MERGED |" in ledger
     assert "| PR3 | Qualification scope and context | PR2 | MERGED |" in ledger
-    assert "| PR4 | Producer capability descriptor | PR3 | CANDIDATE |" in ledger
+    assert "| PR4 | Producer capability descriptor | PR3 | MERGED |" in ledger
+    assert "| PR5 | Proofability engine | PR4 | CANDIDATE |" in ledger
+    assert "3,919 passed, 33 skipped" in ledger
+    assert "3,932 passed, 23 skipped" in ledger
+    assert "3,924 passed, 33 skipped" in ledger
+    assert "3,937 passed, 23 skipped" in ledger
+    assert "/private/tmp/exitspec-pr5-r2-engineering-gate.log" in ledger
+    assert "/private/tmp/exitspec-pr5-r2-v0_4-release-gate.log" in ledger
     assert "101dabbadd1d986f38b56794633ec9e45cea9ac1" in ledger
     assert "7da388ecfb83c2262a4f30d161a272f674839826" in ledger
     assert "PR CI `33423877517`" in ledger
     assert "main CI `33424573497`, all four jobs green" in ledger
+    assert "1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c" in ledger
+    assert "7e1268373da3fea8cf441b7ad7d515df8af8f2f5" in ledger
+    assert "PR CI `33435286412`" in ledger
+    assert "main CI `33436107791`, all four jobs green" in ledger
+    assert "a36c09450776c13342200aadd34a891bd4502c06" in ledger
+    assert "4a4decd69f613c302d77280debc6c2b746f0df1b" in ledger
+    assert "5c63ab581e497c64bdce8e8e44f8212fa7d2f922" in ledger
+    assert "63bdec2dd7454132bf9c66fadde2f854dccc15f8b7b040b5b18431ddffc5a039" in ledger
+    assert "/private/tmp/exitspec-pr5-r3-mts-report.txt" in ledger
+    assert "552/552 tests" in ledger
+    assert "3,966 passed, 33 skipped" in ledger
+    assert "3,979 passed, 23 skipped" in ledger
+    assert "06d13e92592d16fbb1b07f2bb01a2a3b5308cc85b7e3557d34ed2ec904c9f9eb" in ledger
+    assert "/private/tmp/exitspec-pr5-r2-mts-report.txt" in ledger
+    assert "exact subject/descriptor engine non-applicability" in ledger
+    assert "private/field-set/primitive-subclass raw state" in ledger
+    assert "1,048,576 bytes and 16,384 JSON nodes" in ledger
+    assert "No registered evidence-profile/adapter equality" in ledger
+    assert "does not claim MTS pass" in ledger
+    assert "omitted accounting" in ledger
+    assert "double classification" in ledger
+    assert "complete, mutually exclusive partition" in ledger
+    assert "Reduced kind/ID keys do not define availability" in ledger
+    assert "complete canonical set returned by `_incompatibility_reason_codes`" in ledger
+    assert "sha256:afd6ef64a481f78a99c25135470acc2aa0ba5cee5a9055c3b34a20c73876babf" in ledger
     assert "6181bef889ccc99641e8a49784f4bbf31d05724d" in ledger
     assert "P2 — every material context identity leaf" in ledger
     assert "00b4f01c27eabac37a63adb1015d8e1434113009" in ledger

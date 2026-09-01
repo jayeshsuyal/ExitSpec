@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import sysconfig
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -23,7 +23,6 @@ from exitspec.demo_data import (
     support_agent_email_paths,
     support_agent_source_web_contract,
 )
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUPPORT_AGENT_EXAMPLES = PROJECT_ROOT / "examples" / "support-agent"
@@ -581,6 +580,7 @@ import hashlib
 import json
 from pathlib import Path
 import exitspec
+import exitspec.proofability as proofability
 from exitspec.authoring import load_contract_seed, load_discovery_pack, load_review_plan
 from exitspec.demo_data import (
     support_agent_demo_paths,
@@ -606,6 +606,7 @@ with support_agent_demo_paths() as data:
     workspace = session.state_payload()["workspace"]
     payload = {
         "module": str(Path(exitspec.__file__).resolve()),
+        "proofability_module": str(Path(proofability.__file__).resolve()),
         "inferdrome_receipt_schema": INFERDROME_RECEIPT_SCHEMA_VERSION,
         "inferdrome_verifier_version": INFERDROME_VERIFIER_VERSION,
         "resource_root": str(data.root),
@@ -672,6 +673,7 @@ print(json.dumps(payload))
     )
     probe = json.loads(probe_stdout)
     assert Path(probe["module"]).is_relative_to(installed_site_packages)
+    assert Path(probe["proofability_module"]).is_relative_to(installed_site_packages)
     assert probe["inferdrome_receipt_schema"] == "exitspec.inferdrome-receipt.v1"
     assert probe["inferdrome_verifier_version"] == "1.0.0"
     assert Path(probe["resource_root"]).is_relative_to(installed_site_packages)

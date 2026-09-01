@@ -15,9 +15,67 @@ from exitspec.models import (
     Criterion,
     InferencePerformanceCriterion,
     InferencePerformanceCriterionV2,
+    InferenceQualificationCriterionV1,
     MeasurementPopulationPolicyV1,
     POCContract,
 )
+
+
+def inference_qualification_criterion_payload(
+    *, semantic: bool = False
+) -> dict:
+    latency: dict[str, object] = {
+        "requirement_kind": (
+            "SEMANTIC_FIRST_NONEMPTY_TTFT_P95" if semantic else "NATIVE_TTFT_P95"
+        ),
+        "observation_id": (
+            "semantic_first_nonempty_ttft_sample" if semantic else "native_ttft_sample"
+        ),
+        "metric_definition_id": (
+            "first_nonempty_choices_delta_content_v1"
+            if semantic
+            else "vllm_first_choices_event_v0_26"
+        ),
+        "source_field": (
+            "response.choices[].delta.content"
+            if semantic
+            else "request.timing.ttft_ns"
+        ),
+        "unit": "ns",
+        "population": "successful_measured_requests_with_observed_ttft",
+        "reducer_id": "nearest_rank_v1",
+        "percentile": "p95",
+        "operator": "lt",
+        "threshold_ns": 20_000_000,
+        "minimum_successful_samples": 100,
+        "equality_outcome": "FAIL",
+        "must_pass": True,
+    }
+    return {
+        "criterion_type": "inference_qualification_v1",
+        "schema_version": "exitspec.inference-qualification-criterion.v1",
+        "protocol_id": "inference-performance-qualification",
+        "protocol_version": "1.0.0",
+        "id": "QUAL-TTFT-01",
+        "title": "Native TTFT qualification question",
+        "must_have": True,
+        "source": None,
+        "human_added": True,
+        "normalized_claim": "The frozen question requires bounded native TTFT and reliability.",
+        "latency_requirement": latency,
+        "reliability_requirement": {
+            "observation_id": "native_measured_request_outcome",
+            "source_field": "request.outcome.status",
+            "latency_population": "successful_measured_requests_with_observed_ttft",
+            "reliability_numerator": "failed_or_anomalous_native_measured_requests",
+            "reliability_denominator": "all_measured_requests",
+            "operator": "lt",
+            "threshold_basis_points": 100,
+            "exact_attempts": 100,
+            "must_pass": True,
+        },
+        "approved": True,
+    }
 
 
 def performance_criterion_payload() -> dict:
@@ -127,6 +185,28 @@ def test_inference_performance_criterion_is_a_strict_tagged_composite():
     assert criterion.ttft_p95.must_pass is True
     assert criterion.error_rate.must_pass is True
     assert criterion.model_dump(mode="json") == payload
+
+
+def test_inference_qualification_criterion_uses_a_discriminated_latency_union():
+    native = InferenceQualificationCriterionV1.model_validate(
+        inference_qualification_criterion_payload()
+    )
+    semantic = InferenceQualificationCriterionV1.model_validate(
+        inference_qualification_criterion_payload(semantic=True)
+    )
+
+    assert native.latency_requirement.requirement_kind == "NATIVE_TTFT_P95"
+    assert (
+        semantic.latency_requirement.requirement_kind
+        == "SEMANTIC_FIRST_NONEMPTY_TTFT_P95"
+    )
+    malformed = inference_qualification_criterion_payload()
+    malformed["latency_requirement"] = {
+        "observation_id": "native_ttft_sample",
+        "metric_definition_id": "vllm_first_choices_event_v0_26",
+    }
+    with pytest.raises(ValidationError):
+        InferenceQualificationCriterionV1.model_validate(malformed)
 
 
 def test_contract_accepts_an_unambiguous_mix_of_legacy_and_performance_criteria(
