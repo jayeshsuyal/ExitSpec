@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-import hashlib
-import re
-from typing import List, Literal, Optional, Tuple, Union
+from typing import Annotated, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .canonical import canonical_json_bytes
-
 
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
@@ -1740,12 +1739,114 @@ class RoutingCampaignReductionCriterionV1(FrozenExitSpecModel):
         return self
 
 
+class NativeTTFTP95RequirementV1(FrozenExitSpecModel):
+    """One prospective native first-event TTFT acceptance requirement."""
+
+    requirement_kind: Literal["NATIVE_TTFT_P95"]
+    observation_id: Literal["native_ttft_sample"]
+    metric_definition_id: Literal["vllm_first_choices_event_v0_26"]
+    source_field: Literal["request.timing.ttft_ns"]
+    unit: Literal["ns"]
+    population: Literal["successful_measured_requests_with_observed_ttft"]
+    reducer_id: Literal["nearest_rank_v1"]
+    percentile: Literal["p95"]
+    operator: Literal["lt"]
+    threshold_ns: int = Field(gt=0, le=60_000_000_000)
+    minimum_successful_samples: int = Field(gt=0, le=1_000)
+    equality_outcome: Literal["FAIL"]
+    must_pass: Literal[True]
+
+
+class SemanticFirstNonemptyTTFTP95RequirementV1(FrozenExitSpecModel):
+    """One prospective semantic first-nonempty TTFT acceptance requirement."""
+
+    requirement_kind: Literal["SEMANTIC_FIRST_NONEMPTY_TTFT_P95"]
+    observation_id: Literal["semantic_first_nonempty_ttft_sample"]
+    metric_definition_id: Literal["first_nonempty_choices_delta_content_v1"]
+    source_field: Literal["response.choices[].delta.content"]
+    unit: Literal["ns"]
+    population: Literal["successful_measured_requests_with_observed_ttft"]
+    reducer_id: Literal["nearest_rank_v1"]
+    percentile: Literal["p95"]
+    operator: Literal["lt"]
+    threshold_ns: int = Field(gt=0, le=60_000_000_000)
+    minimum_successful_samples: int = Field(gt=0, le=1_000)
+    equality_outcome: Literal["FAIL"]
+    must_pass: Literal[True]
+
+
+LatencyRequirementV1 = Annotated[
+    Union[
+        NativeTTFTP95RequirementV1,
+        SemanticFirstNonemptyTTFTP95RequirementV1,
+    ],
+    Field(discriminator="requirement_kind"),
+]
+
+
+class MeasuredAttemptReliabilityRequirementV1(FrozenExitSpecModel):
+    """One prospective measured-attempt reliability acceptance requirement."""
+
+    observation_id: Literal["native_measured_request_outcome"]
+    source_field: Literal["request.outcome.status"]
+    latency_population: Literal[
+        "successful_measured_requests_with_observed_ttft"
+    ]
+    reliability_numerator: Literal["failed_or_anomalous_native_measured_requests"]
+    reliability_denominator: Literal["all_measured_requests"]
+    operator: Literal["lt"]
+    threshold_basis_points: int = Field(gt=0, lt=10_000)
+    exact_attempts: int = Field(gt=0, le=1_000)
+    must_pass: Literal[True]
+
+
+class InferenceQualificationCriterionV1(FrozenExitSpecModel):
+    """One provider-neutral prospective inference qualification question.
+
+    Its thresholds and counts are requested decision rules.  They describe no
+    observed result, provider execution, evidence, verdict, receipt, validity,
+    deployment, traffic, or authority.
+    """
+
+    criterion_type: Literal["inference_qualification_v1"]
+    schema_version: Literal["exitspec.inference-qualification-criterion.v1"]
+    protocol_id: Literal["inference-performance-qualification"]
+    protocol_version: Literal["1.0.0"]
+    id: str = Field(pattern=r"^[A-Z][A-Z0-9-]{2,63}$")
+    title: str = Field(min_length=1, max_length=256)
+    must_have: Literal[True] = True
+    source: Optional[SourceReference] = None
+    human_added: bool = False
+    normalized_claim: str = Field(min_length=1, max_length=2_000)
+    latency_requirement: LatencyRequirementV1
+    reliability_requirement: MeasuredAttemptReliabilityRequirementV1
+    approved: bool = False
+
+    @model_validator(mode="after")
+    def require_traceable_origin_and_shared_population(
+        self,
+    ) -> "InferenceQualificationCriterionV1":
+        if self.source is None and not self.human_added:
+            raise ValueError(
+                "A criterion needs a source reference or must be explicitly human-added."
+            )
+        if (
+            self.latency_requirement.minimum_successful_samples
+            > self.reliability_requirement.exact_attempts
+        ):
+            raise ValueError(
+                "Latency samples cannot exceed exact measured attempts."
+            )
+        return self
+
+
 ContractCriterion = Union[
     Criterion,
     InferencePerformanceCriterion,
     InferencePerformanceCriterionV2,
     InferencePerformanceCriterionV3,
     InferencePerformanceCriterionV4,
+    InferenceQualificationCriterionV1,
     CapabilityCriterion,
     RoutingQualificationCriterionV1,
     RoutingSLOAttainmentCriterionV1,

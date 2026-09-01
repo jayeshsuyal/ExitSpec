@@ -466,6 +466,155 @@ The first required negative case is the existing semantic/native TTFT boundary:
 a first-nonempty-content criterion must be `NOT_PROVABLE` when the selected
 producer profile exposes only native first-event TTFT.
 
+PR5 freezes the provider-neutral `InferenceQualificationCriterionV1` contract
+arm: `criterion_type` is `inference_qualification_v1`, `schema_version` is
+`exitspec.inference-qualification-criterion.v1`, and the protocol is exactly
+`inference-performance-qualification` / `1.0.0`. It carries bounded source or
+human-origin metadata, one closed discriminated latency requirement, and one
+closed measured-attempt reliability requirement. Requested thresholds and
+counts are material prospective decision rules in the frozen contract hash;
+they are not observed values, outcomes, evidence, a run, a verdict, a receipt,
+or authorization.
+
+The latency discriminator is exact, never a structural fallback:
+
+- `NATIVE_TTFT_P95` requires observation `native_ttft_sample`, metric
+  `vllm_first_choices_event_v0_26`, source `request.timing.ttft_ns`, `ns`,
+  `successful_measured_requests_with_observed_ttft`, `nearest_rank_v1`, `p95`,
+  `lt`, a bounded positive `threshold_ns`, bounded positive
+  `minimum_successful_samples`, `equality_outcome` `FAIL`, and `must_pass`
+  `true`.
+- `SEMANTIC_FIRST_NONEMPTY_TTFT_P95` requires the distinct observation
+  `semantic_first_nonempty_ttft_sample`, metric
+  `first_nonempty_choices_delta_content_v1`, and source
+  `response.choices[].delta.content` with the same frozen `ns`, population,
+  reducer, percentile, operator, threshold, sample, equality, and must-pass
+  fields. Native first-event availability is not a conversion or substitute.
+- Reliability requires `native_measured_request_outcome`, source
+  `request.outcome.status`, that same latency population,
+  `failed_or_anomalous_native_measured_requests` over
+  `all_measured_requests`, `lt`, bounded positive basis points, bounded exact
+  attempts, and `must_pass` `true`.
+
+`ProofabilityReportV1` is a closed immutable planning artifact. It binds the
+literal report schema, canonicalization and hash versions; exact subject,
+scope, and qualification-context digests; exact protocol; frozen contract ID
+and `sha256:<canonical_hash>`; registered capability digest; declared profile,
+engine, and adapter identities; contract-order criterion results; required,
+available, missing, and incompatible observation references; closed reason and
+remediation codes; and the deterministic overall disposition. It deliberately
+does not duplicate contract thresholds, title, source, claim, workload path,
+endpoint, credential, request, observed measurement, run, evidence, verdict,
+receipt, time, authority, or free-form diagnostic text.
+
+Every criterion result is internally self-consistent before it is serialized:
+`PROVABLE` has a nonempty required tuple exactly equal to its available tuple,
+no missing or incompatible tuple, and exactly
+`ALL_REQUIRED_OBSERVATIONS_AVAILABLE` / `NO_REMEDIATION_REQUIRED`.
+`CLARIFICATION_REQUIRED` has no required, missing, or incompatible tuple and
+exactly `UNMAPPABLE_FROZEN_CRITERION_SCHEMA` /
+`FREEZE_PROVIDER_NEUTRAL_CRITERION_SCHEMA`. `NOT_PROVABLE` has a nonempty
+required tuple and at least one missing or incompatible member. For every full
+required observation model, exactly one of these facts is true: that exact
+model is present in `available_observations`, that exact model is present in
+`missing_observations`, or an incompatible row has that full model as its
+`required_observation`. These three categories are a complete, mutually
+exclusive partition of the required tuple; reduced observation-kind/ID keys do
+not define exact availability. Extra descriptor-available observations remain
+visible without entering the required-observation partition.
+
+Missing members are canonical, unique required members that are not exactly
+available. Incompatible rows are canonical and unique; their full required
+model is required, their full available model is available, and the two models
+differ materially. For each required/available pair, the rows must enumerate
+the complete canonical set returned by the closed semantic-leaf mismatch
+mapping, never a selected subset. A semantic/native latency pair may therefore
+be structurally coherent only with both metric-definition and source-field
+mismatch reasons. Its closed aggregate reason/remediation tuple must exactly
+describe the represented deficiency. In particular, the registered-profile
+evaluation of the first semantic-TTFT case is exactly one missing semantic
+observation, no incompatible pair, `MISSING_OBSERVATION`, and
+`DECLARE_REQUIRED_OBSERVATION`. A self-consistent digest does not waive these
+invariants: contradictory reports fail parsing before capability use, while a
+structurally coherent replacement still fails input-bound verification after
+the same frozen semantic contract and context are independently re-evaluated.
+
+Its unsigned projection excludes only `proofability_report_digest`, is RFC
+8785 JCS, and uses the literal byte domain separator
+`exitspec-proofability-report-v1\x00` to produce
+`sha256:<64 lowercase hex>`. Raw report bytes must already equal JCS; parsing
+proves syntax and self-consistency only. Verification requires the original
+subject, scope, context, frozen contract, and registered descriptor; it
+independently re-evaluates and compares exact canonical bytes. A
+self-consistent replacement report never becomes a trusted evaluation.
+The checked-in test-only vector
+`tests/fixtures/proofability/v1/golden.json` has no terminal newline and
+independently derives
+`sha256:28c49bba2dd3791905a201a74777c9994e6ecc083cc3b9de083095f4c626d81e`
+from that literal separator and its unsigned projection.
+
+Every result `criterion_id` accepts exactly the complete bounded language of
+the existing `POCContract` criterion union: the seven ordinary criterion arms
+use `^[A-Z][A-Z0-9-]{2,63}$`, while the routing arms use only the three exact
+literals `routing_qualification_v1`, `routing_slo_attainment_v1`, and
+`routing_campaign_reduction_v1`. No other lowercase, mixed-case, punctuation,
+prefix, suffix, or over-64-character alias is admitted. This report grammar
+does not make a routing criterion provable: every legacy arm remains opaque
+and `CLARIFICATION_REQUIRED`.
+
+The raw report boundary is finite and closed over the declared evaluator
+domain. Canonical report bytes may contain at most 1,048,576 bytes and the
+decoded graph may contain at most 16,384 nodes; existing depth, object-key,
+array-item, string, and integer bounds remain enforced. The report model and
+evaluator both retain the public maximum of 64 criterion results. Worst-case
+ordinary evaluator outputs were measured independently across all-native,
+all-semantic, all-legacy, and mixed 64-result contracts: the largest is the
+all-semantic output at 3,349 counted JSON nodes and 127,286 bytes when criterion
+IDs use their maximum ordinary width. The frozen limits therefore retain more
+than four times node headroom and eight times byte headroom. Bytes or mappings
+over any bound reject before trusted use. As a defense-in-depth invariant, the
+evaluator serializes, parses, and strictly normalizes its constructed report
+before returning it; every supported evaluator result must then serialize,
+parse, and verify against the same exact inputs.
+
+PR5 validates all five inputs before any result: strict recursive raw model
+graphs, derived PR2/PR3 digests, exact context links and protocol, a `FROZEN`
+contract with a valid canonical hash, exact scope contract ID/hash linkage, and
+the package-registered descriptor. The trusted typed boundary covers the report
+and every input and nested model before any potentially lossy dump. It requires
+the exact declared model and tuple classes; exact primitive, enum, and
+`datetime` node types; exact documented `__dict__` fields; no cycle or mutable
+raw container; no Pydantic extra state; no nonempty or malformed
+`__pydantic_private__`; and exact `__pydantic_fields_set__` state relative to an
+independently strict canonical round-trip. The original raw graph and that
+normalized graph are compared recursively by exact node type and value, not
+equality alone, so a value-equal `str` subclass or other type-confused primitive
+cannot disappear through serialization.
+
+Only after those five independent validations, the subject's exact
+`engine_id` and `engine_version` must equal the descriptor
+`engine_adapter.engine_id` and `engine_adapter.engine_version`. A mismatch is a
+content-safe `CAPABILITY_BINDING_MISMATCH`, never a proofability disposition,
+and no criterion is mapped. This applicability link does not compare the
+registered evidence profile or adapter with the subject's serving-profile
+adapter. PR5 also deliberately does not derive scope workload identity from
+`POCContract.workload.fixture_path` or compare the scope measurement profile to
+the descriptor profile: those separately valid identities remain material
+through their existing digests, and no unestablished profile/adapter link is
+fabricated.
+
+The deterministic mapping preserves frozen contract order. A new native
+criterion with the declared native observations is `PROVABLE`. A new semantic
+first-nonempty criterion is `NOT_PROVABLE` with
+`MISSING_OBSERVATION`; available native observations remain separately listed.
+Every legacy union arm is opaque and returns `CLARIFICATION_REQUIRED` with
+`UNMAPPABLE_FROZEN_CRITERION_SCHEMA` without exposing its fields. Overall
+precedence is all provable => `PROVABLE`; a mix containing a provable result =>
+`PARTIALLY_PROVABLE`; no provable result with any not-provable result =>
+`NOT_PROVABLE`; otherwise `CLARIFICATION_REQUIRED`. This is planning only and
+never execution, evidence admission, Verdict, Validity, deployment, traffic,
+or authorization.
+
 ### 6. protocol-specific qualification receipt
 
 The first implementation is
@@ -617,7 +766,11 @@ Claim: ExitSpec deterministically maps each frozen criterion to required,
 available, missing, and incompatible observations before execution.
 
 Exit gate: native TTFT is provable under the admitted profile, while unsupported
-semantic first-nonempty TTFT stops before any external operation.
+semantic first-nonempty TTFT stops before any external operation. The strict
+frozen criterion/report schemas, byte-exact JCS golden vector, independent
+literal-domain digest calculation, recursive typed-boundary defenses, and
+input-bound re-evaluation all pass; no workload-path or profile-equality link
+is invented.
 
 ### PR6 — Proofability service and workspace projection
 

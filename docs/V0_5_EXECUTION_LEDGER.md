@@ -1,10 +1,13 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1–PR3 are merged; Mission Control's rejected PR4 candidate
-`5baa09e96075d94e730941cf3673f1047cb11818` is preserved, and the local
-provider-neutral superseding candidate is prepared for Mission Control review
-after all required local gates passed.
+Last updated: PR1–PR4 are merged. Rejected PR5 r1
+`a36c09450776c13342200aadd34a891bd4502c06` and r2
+`4a4decd69f613c302d77280debc6c2b746f0df1b`, plus rejected r3
+`5c63ab581e497c64bdce8e8e44f8212fa7d2f922`, are immutable
+`CHANGES_REQUIRED` / `MTS_FAIL` history and remain preserved unchanged. PR5 r4
+is a local-only corrected `CANDIDATE`; reviewers resolve its immutable SHA from
+`HEAD` only after the one candidate commit exists.
 
 ## Train controls
 
@@ -13,6 +16,7 @@ after all required local gates passed.
 - **PR1 base revision:** `2a6ce7b681063b73450bf7a4573dea5dac8314b5` (PR #157 merge)
 - **PR3 base revision:** `edb62a071d68a9281e6127ee8ade51f7f23daa02` (PR #158 merge)
 - **PR4 base revision:** `101dabbadd1d986f38b56794633ec9e45cea9ac1` (PR #159 merge)
+- **PR5 base revision:** `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c` (PR #160 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
@@ -20,13 +24,21 @@ after all required local gates passed.
   `b473b8bae5644aa8ef7ef5dcb02119230efe8c72`; PR3 candidate
   `6181bef889ccc99641e8a49784f4bbf31d05724d`; PR4 candidate
   `5baa09e96075d94e730941cf3673f1047cb11818` (Mission Control
-  `CHANGES_REQUIRED`, preserved unchanged).
-- **Candidate selector:** `HEAD` after the local PR4 superseding candidate
-  commit; resolve its immutable SHA with `git rev-parse HEAD` during review.
-- **Scope:** merged PR1 architecture/process contract and PR2 serving-subject
-  identity plus PR3 qualification scope/context. PR4 adds only the server-owned
-  provider-neutral capability descriptor/registry; it adds no proofability,
-  evidence, verdict, execution, deployment, or traffic functionality.
+  `CHANGES_REQUIRED`); PR5 candidate
+  `a36c09450776c13342200aadd34a891bd4502c06` (independent MTS
+  `CHANGES_REQUIRED` / `MTS_FAIL`) and
+  `4a4decd69f613c302d77280debc6c2b746f0df1b` (independent MTS
+  `CHANGES_REQUIRED` / `MTS_FAIL`), plus
+  `5c63ab581e497c64bdce8e8e44f8212fa7d2f922` (independent MTS
+  `CHANGES_REQUIRED` / `MTS_FAIL`), all preserved unchanged.
+- **Candidate selector:** the one local-only PR5 r4 candidate is immutable
+  `HEAD` after its candidate commit; reviewers resolve its SHA with `git
+  rev-parse HEAD`. No remote action is implied by this selector.
+- **Scope:** merged PR1 architecture/process contract, PR2 serving-subject
+  identity, PR3 qualification scope/context, and PR4 provider-neutral
+  capability descriptor/registry. PR5 adds only deterministic proofability
+  planning; it adds no execution, evidence, verdict, validity, deployment, or
+  traffic functionality.
 - **Non-authority:** ExitSpec never authorizes deployment or traffic. Provider
   integration, GPU execution, spending, external capture, cross-repository
   work, deployment, release publication, and traffic changes are out of scope.
@@ -45,8 +57,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR1 | Architecture, vocabulary, and threat contract | v0.4 baseline | MERGED | PR #157; branch head `ca96e6e737402fe3fcbea990f5ac411e5cb6105c`; merge `2a6ce7b681063b73450bf7a4573dea5dac8314b5`; PR CI `33363876409`; main CI `33364429844`. |
 | PR2 | Serving-subject identity | PR1 | MERGED | PR #158; reviewed head `00b4f01c27eabac37a63adb1015d8e1434113009`; merge `edb62a071d68a9281e6127ee8ade51f7f23daa02`; PR CI `33415971409`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/158#issuecomment-5481583707); post-merge main CI `33416637002`, all four jobs green. |
 | PR3 | Qualification scope and context | PR2 | MERGED | PR #159; reviewed head `7da388ecfb83c2262a4f30d161a272f674839826`; merge `101dabbadd1d986f38b56794633ec9e45cea9ac1`; PR CI `33423877517`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/159#issuecomment-5482615994); post-merge main CI `33424573497`, all four jobs green. |
-| PR4 | Producer capability descriptor | PR3 | CANDIDATE | `5baa09e96075d94e730941cf3673f1047cb11818` is preserved as Mission Control `CHANGES_REQUIRED`; the superseding local candidate has recursive exact-model-graph, bounded-mapping, reliability-source, and self-consistent-replacement protections. Mission Control exact-SHA review is pending. |
-| PR5 | Proofability engine | PR4 | NOT_STARTED | Unsupported semantics stop before any external operation. |
+| PR4 | Producer capability descriptor | PR3 | MERGED | PR #160; reviewed head `7e1268373da3fea8cf441b7ad7d515df8af8f2f5`; merge `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c`; PR CI `33435286412`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/160#issuecomment-5484101232); post-merge main CI `33436107791`, all four jobs green. |
+| PR5 | Proofability engine | PR4 | CANDIDATE | Local-only r4 candidate supersedes immutable rejected r1 `a36c09450776c13342200aadd34a891bd4502c06`, r2 `4a4decd69f613c302d77280debc6c2b746f0df1b`, and r3 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`; `HEAD` retains every prior correction and closes the report criterion-ID language over all existing `POCContract` arms. |
 | PR6 | Proofability service and workspace projection | PR5 | NOT_STARTED | Deterministic, redacted, zero-side-effect UI/API projection. |
 | PR7 | Provider-neutral prospective handoff boundary | PR3, PR5 | NOT_STARTED | Context mismatch rejects; valid artifact has no dispatch or external effect. |
 | PR8 | Provider-neutral external-evidence admission boundary | PR7 | NOT_STARTED | Untrusted local package is validated and recalculated without producer contact. |
@@ -69,6 +81,9 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | `00b4f01c27eabac37a63adb1015d8e1434113009` | Mission Control and independent MTS | MERGED | PR2 review accepted. Merged as PR #158 at `edb62a071d68a9281e6127ee8ade51f7f23daa02`; PR CI `33415971409`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/158#issuecomment-5481583707); post-merge main CI `33416637002`, all four jobs green. |
 | `6181bef889ccc99641e8a49784f4bbf31d05724d` | Mission Control | `CHANGES_REQUIRED` | P2 — every material context identity leaf needs a valid mutation vector. Subject/scope drift and protocol-version mutation were covered, but a distinct valid `protocol_id` with unchanged subject, scope, and protocol version was not shown to change `qualification_context_digest`. Preserve this candidate unchanged and supersede it locally. |
 | `7da388ecfb83c2262a4f30d161a272f674839826` | Mission Control and independent MTS | MERGED | PR3 review accepted and merged as PR #159 at `101dabbadd1d986f38b56794633ec9e45cea9ac1`; PR CI `33423877517`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/159#issuecomment-5482615994); post-merge main CI `33424573497`, all four jobs green. |
+| `7e1268373da3fea8cf441b7ad7d515df8af8f2f5` | Mission Control and independent MTS | MERGED | PR4 recursive-model-graph, bounded-mapping, exact reliability-source, and hostile self-consistent replacement corrections were accepted and merged as PR #160 at `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c`; PR CI `33435286412`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/160#issuecomment-5484101232); post-merge main CI `33436107791`, all four jobs green. |
+| `a36c09450776c13342200aadd34a891bd4502c06` | independent MTS | `CHANGES_REQUIRED` / `MTS_FAIL` | Immutable r1 history. P1 — a digest-valid `NOT_PROVABLE` result could omit an unavailable required observation from both missing and incompatible accounting; P1 — one required observation could be classified as both missing and incompatible. The same boundary also accepted a cherry-picked subset of the actual closed incompatibility reasons. Preserve this candidate unchanged and replace it with one new commit whose sole parent is the exact PR5 base. |
+| `4a4decd69f613c302d77280debc6c2b746f0df1b` | independent MTS | `CHANGES_REQUIRED` / `MTS_FAIL` | Immutable r2 history. The exact-subject engine was not bound to the registered descriptor engine; nonempty Pydantic private state, altered field-set state, and primitive subclasses survived lossy dumps; and a valid 12-result evaluator output exceeded the 512-node parser bound. Authoritative report: `/private/tmp/exitspec-pr5-r2-mts-report.txt`, SHA-256 `06d13e92592d16fbb1b07f2bb01a2a3b5308cc85b7e3557d34ed2ec904c9f9eb`. Preserve r2 unchanged and supersede it from the exact PR5 base. |
 
 ## PR1 evidence record
 
@@ -136,7 +151,42 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Superseding validation | `PYTHONPATH=src /private/tmp/exitspec-b13-venv/bin/python -m pytest -q tests/test_producer_capability.py tests/test_canonical.py tests/test_serving_subject.py tests/test_qualification_scope.py tests/test_source_models.py tests/test_performance_contract_models.py tests/test_distribution.py tests/test_engineering_process.py tests/test_v0_4_release_checkpoint.py tests/test_v0_5_planning_contract.py` — 295 passed; Ruff on changed Python/tests and `git diff --check` — passed. Exact-base engineering and v0.4 release gates also passed on the replacement bytes before the new local candidate was created. |
 | Superseding required gates | `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=101dabbadd1d986f38b56794633ec9e45cea9ac1 ./scripts/engineering_gate.sh` — 3,866 passed, 33 skipped, including built-wheel distribution 16 passed; `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,879 passed, 23 skipped, including 4 mandatory Chromium, 4 B13 Chromium, 17 adversarial, and 4 artifact-reader checks. |
 | Remaining risks | A self-consistent descriptor proves only ExitSpec's declared planning capability, not producer execution, hardware truth, evidence, chronology, authorship, provider identity, verdict, receipt, or authority. |
-| Reviewer handoff | CANDIDATE is local only. Do not push, open a PR, merge, tag, release, execute a GPU/provider, or authorize deployment/traffic. Mission Control reviews the immutable `HEAD` SHA before PR5. |
+| PR4 merge evidence | PR #160 closed the reviewed head `7e1268373da3fea8cf441b7ad7d515df8af8f2f5` at merge `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c`; PR CI `33435286412`; MTS attestation `https://github.com/jayeshsuyal/ExitSpec/pull/160#issuecomment-5484101232`; post-merge main CI `33436107791`, all four jobs green. |
+| Reviewer handoff | PR4 is closed. PR5 remains local-only until a later green candidate; do not push, open a PR, merge, tag, release, execute a GPU/provider, or authorize deployment/traffic. |
+
+## PR5 evidence record
+
+| Item | Record |
+| --- | --- |
+| Decision | Add only deterministic provider-neutral proofability planning for exact frozen subject, scope, context, contract, and registered descriptor inputs. |
+| Base | `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c` (PR #160 merge). |
+| State | `CANDIDATE` local-only. Rejected r1 `a36c09450776c13342200aadd34a891bd4502c06`, r2 `4a4decd69f613c302d77280debc6c2b746f0df1b`, and r3 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922` remain separately reachable, byte-identical `CHANGES_REQUIRED` / `MTS_FAIL` history. Reviewers resolve the corrected r4 candidate from immutable `HEAD`; no MTS pass is claimed. |
+| Frozen criterion | `InferenceQualificationCriterionV1`: exact `inference_qualification_v1`, `exitspec.inference-qualification-criterion.v1`, and `inference-performance-qualification` / `1.0.0`; discriminated native or semantic TTFT requirement plus exact measured-attempt reliability requirement. Thresholds/counts are prospective and hash-material only. |
+| Report identity | `ProofabilityReportV1`; RFC 8785 JCS; unsigned projection excludes only `proofability_report_digest`; literal domain separator `exitspec-proofability-report-v1\x00`; output `sha256:<64 lowercase hex>`. Test-only raw vector `tests/fixtures/proofability/v1/golden.json` must exactly equal JCS and independently derive `sha256:28c49bba2dd3791905a201a74777c9994e6ecc083cc3b9de083095f4c626d81e`. |
+| Pre-candidate semantic correction | Before the rejected candidate was created, self-consistent but internally contradictory criterion results were made parse failures. `PROVABLE`, `CLARIFICATION_REQUIRED`, and `NOT_PROVABLE` received tuple/reason/remediation invariants, but the first version did not make the required-observation accounting exhaustive and disjoint. |
+| Rejected-candidate focused checks | Candidate `a36c09450776c13342200aadd34a891bd4502c06`: the required 16-file focused PR5 suite — 505 passed in 7.18s. Changed-file Ruff, narrow `models.py` import-order Ruff, `git diff --check`, provider-neutral scans, and raw-golden-byte check passed. This evidence does not approve the rejected candidate. |
+| Rejected-candidate required gates | Candidate `a36c09450776c13342200aadd34a891bd4502c06`: exact-base engineering — 3,919 passed, 33 skipped, log `/private/tmp/exitspec-pr5-engineering-gate-final.log`; mandatory v0.4 release gate — 3,932 passed, 23 skipped, log `/private/tmp/exitspec-pr5-v0_4-release-gate-final.log`. These green gates were superseded by the independent MTS P1 decision. |
+| Independent MTS rejection | Exact stdlib-rehashed attacks demonstrated omitted accounting (`sha256:c01606ff8770340309ad7a74d06e9018ba344ee920cbe24d910307e1384ec44f`) and missing-plus-incompatible double classification (`sha256:1116305d43582e265bee40079de622f3892b2b95a4b74109ac9a2b0b1b2b6b03`). The r2 suite also fixes complete-reason double classification (`sha256:5337d34f3973add09ab8213fe6ab9ed29edf5ffe564418bb857122bba058bd65`), exact-available-plus-incompatible (`sha256:577846e372ff2ade7c05a3472c308c96b7c6157aaae9bae16db0fe39077bb28c`), and incomplete actual reasons (`sha256:5401528ac536f3cf064f28d69d1e129d79ebd8a48861c45e86aae1772baa751e`). |
+| r2 partition correction | For each full required observation model, exact availability, exact missing membership, and any incompatible row with that full required model form a complete, mutually exclusive partition. Reduced kind/ID keys do not define availability. Every incompatible pair must enumerate the complete canonical set returned by `_incompatibility_reason_codes`. A coherent semantic/native replacement with both actual reasons (`sha256:afd6ef64a481f78a99c25135470acc2aa0ba5cee5a9055c3b34a20c73876babf`) remains parseable but fails verification against the same frozen semantic contract/context. Extra descriptor-available observations remain visible. |
+| r2 focused checks | The complete 16-file PR5 suite passed 510 tests in 7.22s; log `/private/tmp/exitspec-pr5-r2-focused.log`. The byte-exact golden test independently recomputed the digest with stdlib JSON plus `hashlib` and the literal domain. Changed-file Ruff, narrow `models.py`/distribution import and fatal checks, `git diff --check`, provider-neutral document/module scans, and the independent read-only invariant audit passed. |
+| r2 required gates | Exact-base engineering: `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c ./scripts/engineering_gate.sh` — 3,924 passed, 33 skipped, including built-wheel distribution 16 passed; log `/private/tmp/exitspec-pr5-r2-engineering-gate.log`. Mandatory v0.4 release gate: `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,937 passed, 23 skipped, including 4 mandatory Chromium, 4 B13 Chromium, 17 adversarial, and 4 direct artifact-reader checks; log `/private/tmp/exitspec-pr5-r2-v0_4-release-gate.log`. |
+| r2 independent MTS rejection | The authoritative report `/private/tmp/exitspec-pr5-r2-mts-report.txt` has SHA-256 `06d13e92592d16fbb1b07f2bb01a2a3b5308cc85b7e3557d34ed2ec904c9f9eb` and records `MTS_FAIL` despite the full green gates above. Its reproduced findings are exact subject/descriptor engine non-applicability, lossy acceptance of private/field-set/primitive-subclass raw state, and evaluator/parser non-closure beginning at 12 ordinary native results. |
+| r2 ledger finalization | The full-gate logs cover the corrected product, plan, regression-test, and provisional ledger bytes. Afterward, only this truthful ledger candidate/evidence text and its planning-contract assertions changed; the exact planning/process/document, Ruff, whitespace, and provider-neutral checks are rerun before commit. |
+| r3 subject-engine applicability | After independently validating all five inputs, require exact subject `engine_id` and `engine_version` equality with the descriptor engine adapter before mapping. A valid regenerated `tgi` / `1.2.3` subject and context reject with content-safe `CAPABILITY_BINDING_MISMATCH` against the registered `vllm` / `0.26.0` descriptor, and verification is false. No registered evidence-profile/adapter equality with the subject serving-profile adapter is invented. |
+| r3 raw typed-graph closure | The report and all five inputs plus every nested typed model now reject noncanonical `__pydantic_private__`, `__pydantic_fields_set__`, Pydantic extra state, extra/missing raw fields, model/container/primitive/enum/`datetime` type confusion, subclasses, mutable raw containers, and cycles before lossy projection. The exact original graph is compared recursively with an independently strict canonical round-trip by node type and value; attack content is not echoed. |
+| r3 64-result closure | The frozen raw limits are 1,048,576 bytes and 16,384 JSON nodes. Independently counted maximum-ID-width 64-result evaluator outputs are 2,773 nodes / 102,194 bytes native, 3,349 / 127,286 semantic, 1,749 / 63,936 legacy, and 2,626 / 97,878 mixed; all serialize, parse, and verify. Evaluation enforces serialization and parsing before return. Raw bytes at 1,048,577 and graphs above 16,384 nodes reject `OVERSIZED`. |
+| r3 focused checks | The complete historical 16-file PR5 suite collected 538 tests and passed 538/538. The first sandboxed run reproduced the known infrastructure-only `PermissionError` on an ephemeral `127.0.0.1` bind in the built-wheel distribution test; the identical command passed with local-loopback test permission and no external endpoint. Logs: `/private/tmp/exitspec-pr5-r3-focused.log`, `/private/tmp/exitspec-pr5-r3-focused-rerun.log`, and `/private/tmp/exitspec-pr5-r3-focused-collect.log`. Full configured Ruff passed on the four PR5-clean files; narrow `I,E9,F63,F7,F82` passed on `models.py` and distribution; exact-path, whitespace, golden, provider-neutral, authority, and import scans passed. |
+| r3 required gates | Exact-base engineering: `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c ./scripts/engineering_gate.sh` — 3,952 passed, 33 skipped, including built-wheel distribution 16 passed; log `/private/tmp/exitspec-pr5-r3-engineering-gate.log`. Mandatory v0.4 release gate: `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,965 passed, 23 skipped, including mandatory Chromium 4/4, B13 Chromium 4/4, adversarial 17/17, and direct artifact-reader 4/4; log `/private/tmp/exitspec-pr5-r3-v0_4-release-gate.log`. Known post-success Playwright `TargetClosedError` shutdown warnings were non-fatal; all enforced sets and both gate exits were green. |
+| r3 ledger finalization | The full gates cover the corrected product, plan, regression tests, and provisional r3 ledger. Afterward only this truthful focused/full-gate evidence text changed; exact planning/process/release-checkpoint tests, scoped Ruff, `git diff --check`, independent golden recomputation, and provider-neutral/authority/import scans are rerun before the one candidate commit. |
+| r3 independent MTS rejection | Exact candidate `5c63ab581e497c64bdce8e8e44f8212fa7d2f922` remained local-only and was rejected because the valid frozen `examples/routing-qualification/contracts/routing-qualification-v1.json` contract raised an uncaught Pydantic `ValidationError`: its legitimate `routing_qualification_v1` criterion ID was outside the uppercase-only report grammar. The authoritative report `/private/tmp/exitspec-pr5-r3-mts-report.txt` has SHA-256 `63bdec2dd7454132bf9c66fadde2f854dccc15f8b7b040b5b18431ddffc5a039` and records `MTS_FAIL`. Preserve r3 unchanged and supersede it from the exact PR5 base. |
+| r4 finite criterion-ID correction | `CriterionProofabilityV1.criterion_id` now equals the complete existing contract-union language: bounded uppercase `^[A-Z][A-Z0-9-]{2,63}$` for seven arms plus only `routing_qualification_v1`, `routing_slo_attainment_v1`, and `routing_campaign_reduction_v1`. The exact B9 fixture and the B10/B11 frozen synthetic contracts evaluate, serialize, parse, and verify as opaque `CLARIFICATION_REQUIRED` results with unchanged accounting/reason/remediation semantics. Arbitrary lowercase, mixed case, punctuation aliases, near literals, and overlength IDs remain rejected. The uppercase golden bytes and report digest remain unchanged. |
+| r4 focused checks | The complete 16-file PR5 suite collected and passed 552/552 tests after the known sandbox-only ephemeral-loopback denial was rerun with local-loopback permission. The exact MTS fixture reproduction passed. The inherited r3 correction probe passed all four 64-result closure cases and bounds, and the independent harness passed 897 assertions with all six historical digest outcomes unchanged. |
+| r4 required gates | Exact-base engineering: `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python EXITSPEC_DIFF_BASE=1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c ./scripts/engineering_gate.sh` — 3,966 passed, 33 skipped, including built-wheel distribution 16 passed. Mandatory v0.4 release gate: `EXITSPEC_PYTHON=/private/tmp/exitspec-b13-venv/bin/python ./scripts/v0_4_release_gate.sh` — 3,979 passed, 23 skipped, including mandatory Chromium 4/4, B13 Chromium 4/4, adversarial 17/17, and direct artifact-reader 4/4. Known post-success Playwright `TargetClosedError` shutdown warnings were non-fatal; all enforced sets and both gate exits were green. |
+| r4 ledger finalization | The full gates cover the r4 product and regression bytes plus the pre-final ledger. After this truthful MTS/focused/full-gate evidence update, exact planning/process/release-checkpoint tests, scoped Ruff, whitespace, independent golden recomputation, provider-neutral/authority/import scans, full base-diff inspection, and topology checks are rerun before the one candidate commit. |
+| Binding and mapping | Revalidate exact raw graphs and PR2/PR3 digests, exact context protocol/links, frozen contract ID/hash and scope link, package-registered descriptor, and exact subject-engine applicability before mapping. Native is `PROVABLE`; semantic first-nonempty is `NOT_PROVABLE`/`MISSING_OBSERVATION`; legacy union arms remain opaque `CLARIFICATION_REQUIRED`/`UNMAPPABLE_FROZEN_CRITERION_SCHEMA`; report order follows frozen contract order. |
+| Explicit non-links | PR5 does not read or derive `POCContract.workload.fixture_path` into scope workload and does not assert scope measurement-profile equality with the descriptor. Correctly regenerated valid scope/context variants remain material. |
+| Authority and limits | Report identity/self-consistency proves planning integrity only, not execution, hardware truth, authorship, chronology, authenticated identity, evidence, Verdict, Validity, deployment, traffic, or authority. Parsing is not trusted evaluation; verification re-evaluates original bound inputs. |
+| Reviewer handoff | r4 `CANDIDATE` is local-only. Do not push, open a PR, merge, tag, release, execute a GPU/provider, or authorize deployment/traffic. Mission Control and a fresh independent MTS lane must review the final exact r4 `HEAD` SHA before PR6; this ledger does not claim MTS pass. |
 
 ## Proposed PR metadata
 
@@ -167,6 +217,15 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
   JCS, a domain-separated digest, and a closed registry request boundary. It
   adds no execution, evidence admission, proofability, verdict, receipt,
   provider integration, deployment, or traffic authority.
+- **PR5 title:** `feat: add v0.5 proofability engine`
+- **PR5 body summary:** Adds the strict provider-neutral
+  `InferenceQualificationCriterionV1` and a pure, input-bound
+  `ProofabilityReportV1` with canonical JCS parsing/serialization,
+  domain-separated digesting, exact subject-engine applicability,
+  deterministic native/semantic/legacy mapping, 1 MiB/64-result closure,
+  byte-exact golden coverage, and complete recursive raw-graph normalization.
+  The report has no execution, evidence, verdict, receipt, validity,
+  deployment, traffic, or authorization capability.
 - **Historical PR1 title:** `docs: freeze v0.5 provider-neutral qualification execution contract`
 - **Historical PR1 evidence note:** The merged PR1 candidate incorporated
   independent review corrections, preserved above, including the valid GitHub
