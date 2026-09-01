@@ -184,8 +184,20 @@ run_gate \
   node --check src/exitspec/static/closure.js
 
 run_gate \
-  "Zoom fixture operator JavaScript syntax" \
-  npm run check --prefix tools/zoom_fixture_operator
+  "Proofability workspace JavaScript syntax" \
+  node --check src/exitspec/static/proofability_workspace.js
+
+run_gate \
+  "Zoom fixture capture harness JavaScript syntax" \
+  node --check tools/zoom_fixture_operator/capture-harness.mjs
+
+run_gate \
+  "Zoom fixture operator library JavaScript syntax" \
+  node --check tools/zoom_fixture_operator/operator-capture-lib.mjs
+
+run_gate \
+  "Zoom fixture operator test JavaScript syntax" \
+  node --check tools/zoom_fixture_operator/operator-capture-lib.test.mjs
 
 run_gate \
   "Python dependency vulnerability audit" \

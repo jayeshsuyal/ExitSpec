@@ -90,6 +90,8 @@ from .poc_sources import (
     POCSourceStaleRevision,
     SourceKind,
 )
+from .proofability_workspace import create_production_proofability_workspace
+from .proofability_workspace_web import handle_proofability_workspace_http
 from .review_links import ReviewInvitationError
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
@@ -173,6 +175,8 @@ _ASSET_NAMES = frozenset(
         "generic_evidence.html",
         "generic_evidence.css",
         "generic_evidence.js",
+        "proofability_workspace.css",
+        "proofability_workspace.js",
         "workbench.css",
     }
 )
@@ -194,6 +198,10 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         evidence_artifact_root: Path | None = None,
     ) -> None:
         self.draft_poc_service = ProcessLocalDraftPOCService()
+        self.proofability_workspace = create_production_proofability_workspace(
+            draft_lookup=self.draft_poc_service.get,
+            draft_commit_guard=self.draft_poc_service.authoring_commit_guard,
+        )
         self.poc_source_intake = ProcessLocalPOCSourceIntake(
             draft_lookup=self.draft_poc_service.get,
         )
@@ -345,6 +353,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
     def do_GET(self) -> None:
+        if handle_proofability_workspace_http(self):
+            return
         parsed = urlparse(self.path)
         if parsed.path != "/api/workspace" and (
             parsed.params or parsed.query or parsed.fragment
@@ -509,6 +519,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
 
     def do_POST(self) -> None:
+        if handle_proofability_workspace_http(self):
+            return
         parsed = urlparse(self.path)
         if parsed.params or parsed.query or parsed.fragment:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Route parameters are not accepted."})
@@ -680,6 +692,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(response.status, response.payload)
 
     def do_PUT(self) -> None:
+        if handle_proofability_workspace_http(self):
+            return
         if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
             response = handle_poc_capability_planner_web_api_request(
                 method="PUT",
@@ -691,6 +705,27 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(response.status, response.payload)
                 return
         self.send_error(HTTPStatus.NOT_IMPLEMENTED)
+
+    def do_HEAD(self) -> None:
+        if handle_proofability_workspace_http(self):
+            return
+        self.send_error(
+            HTTPStatus.NOT_IMPLEMENTED,
+            f"Unsupported method ({self.command!r})",
+        )
+
+    def __getattr__(self, name: str):
+        if name.startswith("do_"):
+            def dispatch_unknown_method() -> None:
+                if handle_proofability_workspace_http(self):
+                    return
+                self.send_error(
+                    HTTPStatus.NOT_IMPLEMENTED,
+                    f"Unsupported method ({self.command!r})",
+                )
+
+            return dispatch_unknown_method
+        raise AttributeError(name)
 
     def _create(self, payload: Any) -> None:
         allowed = {
@@ -1016,7 +1051,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         data = target.read_bytes()
         self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+        proofability_media = {
+            "proofability_workspace.css": "text/css; charset=utf-8",
+            "proofability_workspace.js": "text/javascript; charset=utf-8",
+        }
+        self.send_header(
+            "Content-Type",
+            proofability_media.get(relative)
+            or mimetypes.guess_type(str(target))[0]
+            or "application/octet-stream",
+        )
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()

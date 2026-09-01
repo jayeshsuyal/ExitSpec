@@ -457,6 +457,7 @@ node --check src/exitspec/static/review.js
 node --check src/exitspec/static/evidence_library.js
 node --check src/exitspec/static/closure.js
 node --check src/exitspec/static/generic_evidence.js
+node --check src/exitspec/static/proofability_workspace.js
 git diff --check
 ```
 

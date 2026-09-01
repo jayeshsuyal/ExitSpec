@@ -774,12 +774,34 @@ is invented.
 
 ### PR6 — Proofability service and workspace projection
 
-Claim: the current capability-planning lifecycle can create, retrieve, and
-present a context-bound proofability report without creating an agreement,
-execution, verdict, or authority side effect.
+Claim: the source-neutral local host can create, retrieve, and present one
+bounded proofability planning preflight for an active POC. The report is
+reconstructed only from exactly one immutable package-owned synthetic fixture;
+it is not derived from that POC, customer/source content, live input, a
+provider, or a clock.
 
-Exit gate: API, replay, stale-plan, cross-POC, redaction, and browser behavior
-are deterministic and preserve all v0.4 routes.
+The process-local workspace eagerly allocates exactly 128 deterministic write
+stripes and retains immutable operations, a global idempotency relation, and a
+latest-by-POC relation within fixed operation, key, latest, pending, per-report,
+and aggregate-byte limits. Fresh publication is atomic only after PR5 verifier
+and golden-root validation; accepted replay precedes capacity; reservations own
+future slots and bytes; there is no eviction. Process-local state is lost on
+restart and is not shared across workers.
+
+Exit gate: the exact source-neutral API and page namespaces enforce origin-form
+raw-target classification, closed method/framing/JSON/scalar/profile grammar,
+code-only canonical errors, exact fresh/replay/GET semantics, and no leak. The
+narrow browser projection gates the serialized URL before fetch or dynamic
+render, uses the server-fixed profile and one in-memory idempotent create
+action, renders through `textContent`, and uses no browser storage. It visibly
+states synthetic/process-local limitations and zero deployment, production
+traffic, or traffic-expansion authority. The PR6 product workspace initiates no
+provider, external-network, or GPU call. Adversarial concurrency, corruption,
+raw-socket, Chromium, installed-wheel, and v0.4 regression gates have no
+provider, GPU, evidence, verdict, validity, agreement, deployment, or traffic
+effect. Those composite gates are not a no-egress attestation: their dependency
+audit may access or revalidate public vulnerability metadata under the explicit
+command-level runner trust boundary, even when a seeded cache is available.
 
 ### PR7 — Provider-neutral prospective handoff boundary
 
