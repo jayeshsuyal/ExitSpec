@@ -42,7 +42,7 @@ def test_final_checkpoint_closes_exactly_fourteen_merged_milestones():
 def test_release_checkpoint_is_explicitly_not_an_authority_grant():
     combined = "\n".join(_read(path) for path in (PLAN, LEDGER, CHECKPOINT))
 
-    assert "v0.5.0 tag and GitHub release are publication records only" in combined
+    assert "`v0.5.0` tag and GitHub release are publication records only" in combined
     assert "authorized to send production traffic" in combined
     assert "local, synthetic" in combined
     assert "process-local" in combined
