@@ -25,4 +25,3 @@ def test_qualification_workflow_is_read_only_and_status_only():
     assert "provider" not in content.casefold()
     assert "traffic" not in content.casefold()
     assert "python -m pytest -q tests/test_qualification_cli.py" in content
-
