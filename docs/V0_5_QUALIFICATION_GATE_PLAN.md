@@ -1,7 +1,7 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: frozen product and release contract. PR1–PR3 are merged; PR4 defines
-only the provider-neutral producer-capability descriptor and registry.
+Status: frozen product and release contract. PR1–PR6 are merged; PR7 is the
+current provider-neutral prospective-handoff candidate.
 ExitSpec v0.4.0 remains the immutable released baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.
