@@ -99,7 +99,7 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR11 | Qualification CLI | PR10 | MERGED | PR #167; merge `a099c1a498baf1ad9a7c9b75d28fca8bc213287a`; PR workflow `33619950235` and post-merge main workflow `33620609135` green. |
 | PR12 | GitHub required-check integration | PR11 | MERGED | PR #168; merge `f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4`; PR workflows `33621615623` and `33621615646`; post-merge main workflows `33622265613` and `33622265549`, all green. |
 | PR13 | Guided four-screen product surface | PR6, PR12 | MERGED | PR #169; merge `9c6c63753299fa2769de6e97eb5a090b6e9e6d42`; PR workflow `33627144898` and post-merge main workflow `33627911152`, plus qualification workflow `33627911191`, all green. |
-| PR14 | Adversarial closure and candidate checkpoint | PR2–PR13 | MERGED | Final closure checkpoint; candidate remains untagged, unreleased, undeployed, unauthorized, provider-free, GPU-free, and traffic-free. |
+| PR14 | Adversarial closure and release checkpoint | PR2–PR13 | MERGED | Final closure checkpoint; v0.5.0 publication remains a record only and does not authorize deployment, traffic, provider/GPU execution, spending, or production activity. |
 
 ## Mission Control review history
 

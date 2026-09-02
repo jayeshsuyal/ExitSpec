@@ -1,11 +1,10 @@
-# ExitSpec v0.5 candidate checkpoint
+# ExitSpec v0.5.0 release checkpoint
 
-Status: final engineering candidate only. ExitSpec v0.5 is not tagged,
-published as a GitHub release, deployed, connected to a provider or GPU,
-used to spend money, or authorized to send production traffic.
-
-This checkpoint closes the frozen PR1–PR14 train after the green PR13 main
-baseline. It records a reviewable candidate, not a release claim.
+Status: released as v0.5.0 from the exact green main commit; the annotated
+`v0.5.0` tag and public GitHub release point to this commit. This checkpoint
+closes the frozen PR1–PR14 train. It records the verified release boundary;
+it does not grant deployment, provider, GPU, spending, or production-traffic
+authority.
 
 ## What is included
 
@@ -20,10 +19,10 @@ baseline. It records a reviewable candidate, not a release claim.
 
 ## Verification boundary
 
-The repository’s required PR and main workflows are the evidence for this
+The release's required PR and main workflows are the evidence for this
 checkpoint. The engineering workflow runs the built-wheel distribution proof,
 Python behavior suite, static JavaScript checks, security scans, and the
-repository’s established local gates. The browser workflow runs the mandatory
+repository's established local gates. The browser workflow runs the mandatory
 v0.4 no-skip Chromium, adversarial, and artifact-reader gates. The qualification
 workflow runs the local CLI and assessment contracts under:
 
@@ -36,6 +35,15 @@ No workflow in this train has deployment credentials, provider credentials,
 `id-token`, write permissions, or a `pull_request_target` path for untrusted
 contribution code.
 
+## Publication boundary
+
+The `v0.5.0` tag and GitHub release are publication records only. They do not
+authorize deployment, provider or GPU execution, spending money, changing
+traffic, sending production traffic, or any other production activity. `PASS`
+and `CURRENT` remain bounded evidence states; an external human or deployment
+system must make any operational decision.
+ExitSpec is not authorized to send production traffic.
+
 ## Honest limitations
 
 All v0.5 qualification demonstrations and fixtures are local, synthetic,
@@ -43,5 +51,3 @@ process-local, non-durable, and unauthenticated. They do not prove producer
 authorship, physical hardware truth, chronology, or facts absent from admitted
 evidence. ExitSpec does not capture real external evidence, run a provider or
 GPU, deploy, change traffic, spend money, or authorize production activity.
-`PASS` and `CURRENT` remain bounded evidence states; an external human or
-deployment system must make any operational decision.

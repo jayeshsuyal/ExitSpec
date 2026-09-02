@@ -1,12 +1,12 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: frozen product and release contract. PR1–PR13 are merged; PR14 is the
-final adversarial closure and candidate-checkpoint review.
-ExitSpec v0.4.0 remains the immutable released baseline. This document grants
+Status: frozen product and release contract. PR1–PR14 are merged; the v0.5.0
+release checkpoint records the final adversarial closure.
+ExitSpec v0.4.0 remains the immutable previous baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.
 
-Final checkpoint: [V0_5_CANDIDATE_CHECKPOINT.md](V0_5_CANDIDATE_CHECKPOINT.md).
+Final checkpoint: [RELEASE_V0_5.md](RELEASE_V0_5.md).
 
 ## Product decision
 
@@ -905,15 +905,15 @@ Exit gate: a first-time tester can explain the product and the authority
 boundary after a two-minute guided run at 1280x720 and accessible narrower
 layouts.
 
-### PR14 — Adversarial closure and v0.5 candidate checkpoint
+### PR14 — Adversarial closure and v0.5 release checkpoint
 
 Claim: the complete train is packaged, documented, reproducible, and honest
 under the v0.5 engineering and browser gates, ready for independent review.
 
 Exit gate: all focused, engineering, installed-wheel, browser, adversarial,
-documentation, and candidate-state checks are green locally. Tagging, release
-publication, deployment, traffic, real capture, and cross-repository conformance
-are not v0.5 train work.
+documentation, and release-state checks are green. The v0.5.0 tag and GitHub
+release are publication records only; deployment, traffic, real capture, and
+cross-repository conformance remain outside the v0.5 train.
 
 ## Parallel execution lanes
 
@@ -985,11 +985,11 @@ At minimum, the release train must prove fail-closed behavior for:
   branch protection, or accidentally report success; and
 - any UI, API, CLI, receipt, or assessment path implying deployment authority.
 
-## Candidate-closure gate
+## Release-closure gate
 
-### Engineering candidate gate
+### Engineering release gate
 
-The ExitSpec-only v0.5 candidate is ready for independent review when:
+The ExitSpec-only v0.5 release is complete when:
 
 - all 14 ExitSpec PR invariants are merged and green;
 - required provider-neutral synthetic fixtures are immutable and independently
@@ -1001,9 +1001,9 @@ The ExitSpec-only v0.5 candidate is ready for independent review when:
   gates remain green;
 - the public README and demo label synthetic, local, process-local,
   unauthenticated, non-durable, and non-authorizing behavior accurately; and
-- the local candidate commit is available for Mission Control and independent
-  MTS review. This gate neither publishes a release nor grants authority to
-  conduct a real capture or external conformance activity.
+- the exact green main commit is available for Mission Control and independent
+  MTS review. The release records do not grant authority to conduct a real
+  capture or external conformance activity.
 
 ## Business validation running in parallel
 

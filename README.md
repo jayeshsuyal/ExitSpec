@@ -23,13 +23,13 @@ named human handoff without presenting a local demo as production authorization.
 
 ![ExitSpec seeded workbench showing the Define → Confirm → Prove flow](docs/assets/exitspec-seeded-workbench.jpg)
 
-*Current v0.4 product surface, captured from a clean local
+*Current product surface, captured from a clean local
 seeded demo. The sample data is synthetic.*
 
-> **Release status:** v0.4.0 is the current release. The annotated `v0.4.0`
-> tag and public GitHub release point to the exact green main commit. The v0.3
-> Request-to-Proof contract remains the historical compatibility reference; the
-> current package and release gate are v0.4.0.
+> **Release status:** v0.5.0 is the current release. The annotated `v0.5.0`
+> tag and public GitHub release point to the exact green main commit. The v0.4
+> Routing Evidence Pack remains the previous release checkpoint, and the v0.3
+> Request-to-Proof contract remains the historical compatibility reference.
 
 ## 60-second quickstart
 
@@ -45,8 +45,9 @@ demo](http://127.0.0.1:8765/app?mode=recording). It resets only the seeded
 support-agent POC and walks through the product in about 75 seconds. Stop the
 server with `Ctrl-C`.
 
-The v0.3 source-neutral browser product starts at `/app`; the current package
-and release gate are v0.4.0.
+The source-neutral browser product starts at `/app`; the v0.3 and v0.4
+checkpoint docs preserve earlier contracts, while the current package and
+release gate are v0.5.0.
 
 ## Define → Confirm → Prove
 
@@ -101,7 +102,9 @@ importer verifies structure and exact-byte hashes, rejects synthetic customer
 evidence, recalculates summaries, and binds an admitted bundle to a frozen
 context. See the [Inferdrome import boundary](docs/INFERDROME_IMPORT.md).
 The v0.4 routing Evidence Pack and its B9–B13 contracts are maintained in the
-[v0.4 checkpoint](docs/RELEASE_V0_4.md), not duplicated here.
+[v0.4 checkpoint](docs/RELEASE_V0_4.md), not duplicated here. The [v0.5
+release checkpoint](docs/RELEASE_V0_5.md) records the provider-neutral
+qualification train and its verification boundary.
 
 ## Authority boundary
 
@@ -174,6 +177,7 @@ describes the one-bounded-decision release discipline.
 - [Security and privacy](docs/SECURITY.md)
 - [v0.3 release checkpoint](docs/RELEASE_V0_3.md)
 - [v0.4 release checkpoint](docs/RELEASE_V0_4.md)
+- [v0.5 release checkpoint](docs/RELEASE_V0_5.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security reporting](SECURITY.md)
 
