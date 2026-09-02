@@ -1,10 +1,12 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: frozen product and release contract. PR1–PR12 are merged; PR13 is the
-current guided qualification-surface candidate.
+Status: frozen product and release contract. PR1–PR13 are merged; PR14 is the
+final adversarial closure and candidate-checkpoint review.
 ExitSpec v0.4.0 remains the immutable released baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.
+
+Final checkpoint: [V0_5_CANDIDATE_CHECKPOINT.md](V0_5_CANDIDATE_CHECKPOINT.md).
 
 ## Product decision
 
