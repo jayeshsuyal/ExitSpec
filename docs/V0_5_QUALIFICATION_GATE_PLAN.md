@@ -1,7 +1,7 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: frozen product and release contract. PR1–PR6 are merged; PR7 is the
-current provider-neutral prospective-handoff candidate.
+Status: frozen product and release contract. PR1–PR7 are merged; PR8 is the
+current provider-neutral external-evidence admission candidate.
 ExitSpec v0.4.0 remains the immutable released baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.

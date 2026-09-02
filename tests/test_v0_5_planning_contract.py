@@ -374,6 +374,11 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
         "MERGED |" in ledger
     )
     assert "475b965309b77b1cab55fdf29d391b02851a695f" in ledger
+    assert "8b1ac77f6d56a60ffe1df3fa8034302357f4511d" in ledger
+    assert (
+        "| PR7 | Provider-neutral prospective handoff boundary | PR3, PR5 | "
+        "MERGED |" in ledger
+    )
     assert "PR6 base revision:" in ledger
     assert "424aeae8a959f4249a35375141fd2c365bc68b71" in ledger
     assert "867f4ac9d29376ab5130864f5a2d39bb946bb447" in ledger
