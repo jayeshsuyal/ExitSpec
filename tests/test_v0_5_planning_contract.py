@@ -371,8 +371,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "| PR5 | Proofability engine | PR4 | MERGED |" in ledger
     assert (
         "| PR6 | Proofability service and workspace projection | PR5 | "
-        "CANDIDATE |" in ledger
+        "MERGED |" in ledger
     )
+    assert "475b965309b77b1cab55fdf29d391b02851a695f" in ledger
     assert "PR6 base revision:" in ledger
     assert "424aeae8a959f4249a35375141fd2c365bc68b71" in ledger
     assert "867f4ac9d29376ab5130864f5a2d39bb946bb447" in ledger

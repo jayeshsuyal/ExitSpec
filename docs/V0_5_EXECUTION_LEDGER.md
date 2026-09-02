@@ -1,15 +1,16 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1–PR5 are merged. Rejected PR5 r1
+Last updated: PR1–PR6 are merged. Rejected PR5 r1
 `a36c09450776c13342200aadd34a891bd4502c06` and r2
 `4a4decd69f613c302d77280debc6c2b746f0df1b`, plus rejected r3
 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`, are immutable
 `CHANGES_REQUIRED` / `MTS_FAIL` history and remain preserved unchanged. PR5 r4
 was accepted and merged as PR #161 at
-`867f4ac9d29376ab5130864f5a2d39bb946bb447`. PR6 is an exact-base,
-local-only Builder work item; this ledger does not claim Mission Control, MTS,
-push, PR, merge, release, deployment, or traffic approval for it.
+`867f4ac9d29376ab5130864f5a2d39bb946bb447`. PR6 was accepted and merged as
+PR #162 at `475b965309b77b1cab55fdf29d391b02851a695f`; its post-merge main
+workflow was green. PR7 is the current isolated candidate and has not been
+pushed, reviewed, merged, released, deployed, or authorized.
 
 ## Train controls
 
@@ -20,6 +21,7 @@ push, PR, merge, release, deployment, or traffic approval for it.
 - **PR4 base revision:** `101dabbadd1d986f38b56794633ec9e45cea9ac1` (PR #159 merge)
 - **PR5 base revision:** `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c` (PR #160 merge)
 - **PR6 base revision:** `867f4ac9d29376ab5130864f5a2d39bb946bb447` (PR #161 merge)
+- **PR7 base revision:** `475b965309b77b1cab55fdf29d391b02851a695f` (PR #162 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
@@ -63,8 +65,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR3 | Qualification scope and context | PR2 | MERGED | PR #159; reviewed head `7da388ecfb83c2262a4f30d161a272f674839826`; merge `101dabbadd1d986f38b56794633ec9e45cea9ac1`; PR CI `33423877517`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/159#issuecomment-5482615994); post-merge main CI `33424573497`, all four jobs green. |
 | PR4 | Producer capability descriptor | PR3 | MERGED | PR #160; reviewed head `7e1268373da3fea8cf441b7ad7d515df8af8f2f5`; merge `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c`; PR CI `33435286412`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/160#issuecomment-5484101232); post-merge main CI `33436107791`, all four jobs green. |
 | PR5 | Proofability engine | PR4 | MERGED | PR #161; accepted r4 head `424aeae8a959f4249a35375141fd2c365bc68b71`; merge `867f4ac9d29376ab5130864f5a2d39bb946bb447`. Immutable rejected r1–r3 history remains preserved below. |
-| PR6 | Proofability service and workspace projection | PR5 | CANDIDATE | One local-only Builder candidate contains the exact 16-path packet from the PR5 merge. Rejected r2 and freeze-review history is preserved below; the corrected candidate requires a fresh exact-byte freeze, Builder, Mission Control, and MTS review before any push, PR, or merge claim. |
-| PR7 | Provider-neutral prospective handoff boundary | PR3, PR5 | NOT_STARTED | Context mismatch rejects; valid artifact has no dispatch or external effect. |
+| PR6 | Proofability service and workspace projection | PR5 | MERGED | PR #162; merge `475b965309b77b1cab55fdf29d391b02851a695f`; post-merge main workflow `33588525253` green. |
+| PR7 | Provider-neutral prospective handoff boundary | PR3, PR5 | CANDIDATE | Isolated candidate adds a canonical, fully proofability-bound handoff with deterministic rejection of context mismatch, unsupported outcome/runtime fields, noncanonical JSON, and unpinned profiles. It has no dispatch, provider, evidence, verdict, or authority effect. |
 | PR8 | Provider-neutral external-evidence admission boundary | PR7 | NOT_STARTED | Untrusted local package is validated and recalculated without producer contact. |
 | PR9 | Inference-performance qualification receipt | PR8 | NOT_STARTED | Only original admitted context/evidence can issue typed receipt. |
 | PR10 | Qualification validity and staleness | PR9 | NOT_STARTED | Context drift and time boundaries fail closed without rewriting history. |
