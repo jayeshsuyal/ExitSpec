@@ -1,7 +1,7 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1–PR12 are merged. Rejected PR5 r1
+Last updated: PR1–PR13 are merged. Rejected PR5 r1
 `a36c09450776c13342200aadd34a891bd4502c06` and r2
 `4a4decd69f613c302d77280debc6c2b746f0df1b`, plus rejected r3
 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`, are immutable
@@ -24,6 +24,11 @@ workflows were green. PR12 was accepted and merged as PR #168 at
 `33621615623` and `33621615646`, plus post-merge main workflows
 `33622265613` and `33622265549`, were green. PR13 is the current isolated
 candidate and has not been pushed, reviewed, merged, released, deployed, or
+authorized. PR13 was accepted and merged as PR #169 at
+`9c6c63753299fa2769de6e97eb5a090b6e9e6d42`; its PR workflow
+`33627144898` and post-merge main workflow `33627911152`, plus qualification
+workflow `33627911191`, were green. PR14 is the final isolated closure
+candidate and has not been pushed, reviewed, merged, released, deployed, or
 authorized.
 
 ## Train controls
@@ -42,6 +47,7 @@ authorized.
 - **PR11 base revision:** `9ddc0daa3bb405c54411041cf9e52dead8340104` (PR #166 merge)
 - **PR12 base revision:** `a099c1a498baf1ad9a7c9b75d28fca8bc213287a` (PR #167 merge)
 - **PR13 base revision:** `f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4` (PR #168 merge)
+- **PR14 base revision:** `9c6c63753299fa2769de6e97eb5a090b6e9e6d42` (PR #169 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
@@ -92,8 +98,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR10 | Qualification validity and staleness | PR9 | MERGED | PR #166; merge `9ddc0daa3bb405c54411041cf9e52dead8340104`; PR workflow `33618484672` and post-merge main workflow `33619175562` green. |
 | PR11 | Qualification CLI | PR10 | MERGED | PR #167; merge `a099c1a498baf1ad9a7c9b75d28fca8bc213287a`; PR workflow `33619950235` and post-merge main workflow `33620609135` green. |
 | PR12 | GitHub required-check integration | PR11 | MERGED | PR #168; merge `f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4`; PR workflows `33621615623` and `33621615646`; post-merge main workflows `33622265613` and `33622265549`, all green. |
-| PR13 | Guided four-screen product surface | PR6, PR12 | CANDIDATE | Exact `/app?mode=qualification` surface covers subject/scope, proofability, admitted evidence/verdict, and current-to-stale mutation with no provider, storage, or authority side effect. |
-| PR14 | Adversarial closure and candidate checkpoint | PR2–PR13 | NOT_STARTED | Local deterministic, adversarial, documentation, and candidate-state gates. |
+| PR13 | Guided four-screen product surface | PR6, PR12 | MERGED | PR #169; merge `9c6c63753299fa2769de6e97eb5a090b6e9e6d42`; PR workflow `33627144898` and post-merge main workflow `33627911152`, plus qualification workflow `33627911191`, all green. |
+| PR14 | Adversarial closure and candidate checkpoint | PR2–PR13 | MERGED | Final closure checkpoint; candidate remains untagged, unreleased, undeployed, unauthorized, provider-free, GPU-free, and traffic-free. |
 
 ## Mission Control review history
 
