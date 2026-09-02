@@ -351,7 +351,7 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "Rejected candidate history:" in ledger
     assert "Candidate selector:" in ledger
     assert "PR1 | Architecture, vocabulary, and threat contract" in ledger
-    assert "PR14 | Adversarial closure and candidate checkpoint" in ledger
+    assert "PR14 | Adversarial closure and release checkpoint" in ledger
     assert "78fe2cdae5fcb4e1230636dc1db8a2b6222c543a" in ledger
     assert "e76e0735f6cc3eb2eecb05eeac06880d4a525b6c" in ledger
     assert ledger.count("CHANGES_REQUIRED") >= 4
@@ -394,7 +394,7 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4" in ledger
     assert "| PR13 | Guided four-screen product surface | PR6, PR12 | MERGED |" in ledger
     assert "9c6c63753299fa2769de6e97eb5a090b6e9e6d42" in ledger
-    assert "| PR14 | Adversarial closure and candidate checkpoint | PR2–PR13 | MERGED |" in ledger
+    assert "| PR14 | Adversarial closure and release checkpoint | PR2–PR13 | MERGED |" in ledger
     assert "PR6 base revision:" in ledger
     assert "424aeae8a959f4249a35375141fd2c365bc68b71" in ledger
     assert "867f4ac9d29376ab5130864f5a2d39bb946bb447" in ledger

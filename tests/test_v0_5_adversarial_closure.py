@@ -1,4 +1,4 @@
-"""Final v0.5 candidate-state, workflow, and train-closure contracts."""
+"""Final v0.5 release-state, workflow, and train-closure contracts."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "V0_5_QUALIFICATION_GATE_PLAN.md"
 LEDGER = ROOT / "docs" / "V0_5_EXECUTION_LEDGER.md"
-CHECKPOINT = ROOT / "docs" / "V0_5_CANDIDATE_CHECKPOINT.md"
+CHECKPOINT = ROOT / "docs" / "RELEASE_V0_5.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "v0_5_qualification_check.yml"
 
 
@@ -36,14 +36,13 @@ def test_final_checkpoint_closes_exactly_fourteen_merged_milestones():
     ):
         assert marker in ledger
     assert "Final checkpoint" in plan
-    assert "final engineering candidate only" in checkpoint
+    assert "released as v0.5.0" in checkpoint
 
 
-def test_candidate_checkpoint_is_explicitly_not_a_release_or_authority_grant():
+def test_release_checkpoint_is_explicitly_not_an_authority_grant():
     combined = "\n".join(_read(path) for path in (PLAN, LEDGER, CHECKPOINT))
 
-    assert "v0.5 is not tagged" in combined
-    assert "not a release claim" in combined
+    assert "v0.5.0 tag and GitHub release are publication records only" in combined
     assert "authorized to send production traffic" in combined
     assert "local, synthetic" in combined
     assert "process-local" in combined
