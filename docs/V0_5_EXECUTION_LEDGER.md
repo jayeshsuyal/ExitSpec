@@ -1,7 +1,7 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1–PR10 are merged. Rejected PR5 r1
+Last updated: PR1–PR11 are merged. Rejected PR5 r1
 `a36c09450776c13342200aadd34a891bd4502c06` and r2
 `4a4decd69f613c302d77280debc6c2b746f0df1b`, plus rejected r3
 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`, are immutable
@@ -17,7 +17,9 @@ workflows were green. PR9 was accepted and merged as PR #165 at
 `050fe4407337d4b443e577c795a37ec2bd1f51b0`; its PR and post-merge main
 workflows were green. PR10 was accepted and merged as PR #166 at
 `9ddc0daa3bb405c54411041cf9e52dead8340104`; its PR and post-merge main
-workflows were green. PR11 is the current isolated candidate and has not been
+workflows were green. PR11 was accepted and merged as PR #167 at
+`a099c1a498baf1ad9a7c9b75d28fca8bc213287a`; its PR and post-merge main
+workflows were green. PR12 is the current isolated candidate and has not been
 pushed, reviewed, merged, released, deployed, or authorized.
 
 ## Train controls
@@ -34,6 +36,7 @@ pushed, reviewed, merged, released, deployed, or authorized.
 - **PR9 base revision:** `52b7fad3815099f67cf585c565f5d380f852a384` (PR #164 merge)
 - **PR10 base revision:** `050fe4407337d4b443e577c795a37ec2bd1f51b0` (PR #165 merge)
 - **PR11 base revision:** `9ddc0daa3bb405c54411041cf9e52dead8340104` (PR #166 merge)
+- **PR12 base revision:** `a099c1a498baf1ad9a7c9b75d28fca8bc213287a` (PR #167 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
@@ -82,8 +85,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR8 | Provider-neutral external-evidence admission boundary | PR7 | MERGED | PR #164; merge `52b7fad3815099f67cf585c565f5d380f852a384`; PR workflow `33614338612` green; post-merge main workflow `33615038495` green. |
 | PR9 | Inference-performance qualification receipt | PR8 | MERGED | PR #165; merge `050fe4407337d4b443e577c795a37ec2bd1f51b0`; PR workflow `33617012138` green; post-merge main workflow `33617659852` pending verification. |
 | PR10 | Qualification validity and staleness | PR9 | MERGED | PR #166; merge `9ddc0daa3bb405c54411041cf9e52dead8340104`; PR workflow `33618484672` and post-merge main workflow `33619175562` green. |
-| PR11 | Qualification CLI | PR10 | CANDIDATE | Isolated noninteractive `qualification check` emits stable JSON and reserves exit code 0 for a current exact-scope `PASS`; malformed and non-passing states remain nonzero. |
-| PR12 | GitHub required-check integration | PR11 | NOT_STARTED | Least-privilege GitHub check reports qualification state only; `PASS` never grants authority. |
+| PR11 | Qualification CLI | PR10 | MERGED | PR #167; merge `a099c1a498baf1ad9a7c9b75d28fca8bc213287a`; PR workflow `33619950235` and post-merge main workflow `33620609135` green. |
+| PR12 | GitHub required-check integration | PR11 | CANDIDATE | Isolated read-only workflow validates the local CLI/assessment boundary with exact `contents: read` permissions and no privileged contribution path. |
 | PR13 | Guided four-screen product surface | PR6, PR12 | NOT_STARTED | Four states preserve proofability, verdict, validity, and zero authority. |
 | PR14 | Adversarial closure and candidate checkpoint | PR2–PR13 | NOT_STARTED | Local deterministic, adversarial, documentation, and candidate-state gates. |
 
