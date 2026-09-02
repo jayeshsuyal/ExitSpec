@@ -1,7 +1,7 @@
 # ExitSpec v0.5 qualification-gate plan
 
-Status: frozen product and release contract. PR1–PR9 are merged; PR10 is the
-current qualification-validity assessment candidate.
+Status: frozen product and release contract. PR1–PR10 are merged; PR11 is the
+current qualification CLI candidate.
 ExitSpec v0.4.0 remains the immutable released baseline. This document grants
 no provider, GPU, deployment, traffic, spending, release-publication, or
 production authority. ExitSpec never authorizes deployment or traffic.

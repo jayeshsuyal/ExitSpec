@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -12,9 +14,30 @@ from .authoring import run_define_demo
 from .demo_data import support_agent_demo_paths
 from .performance_operations import PerformanceOperationStatus
 from .performance_runner import run_performance_proof
+from .qualification_assessment import (
+    QUALIFICATION_PROTOCOL_ID,
+    QUALIFICATION_PROTOCOL_VERSION,
+    QualificationAssessmentRejected,
+    QualificationValidity,
+    assess_inference_qualification,
+)
+from .qualification_scope import (
+    create_qualification_context,
+    parse_qualification_scope,
+)
 from .runner import run_demo
 from .poc_source_demo import serve_source_neutral_demo
+from .serving_subject import parse_serving_subject_manifest
 from .web import serve_demo
+
+
+QUALIFICATION_EXIT_CURRENT_PASS = 0
+QUALIFICATION_EXIT_CURRENT_FAIL = 2
+QUALIFICATION_EXIT_NOT_PROVEN = 3
+QUALIFICATION_EXIT_STALE = 4
+QUALIFICATION_EXIT_EXPIRED = 5
+QUALIFICATION_EXIT_INVALID = 6
+QUALIFICATION_EXIT_OPERATIONAL = 7
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -73,6 +96,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     define.add_argument("--output-dir", type=Path, default=Path("runs"))
     define.add_argument("--session-id", type=str, default=None)
+
+    qualification = subparsers.add_parser(
+        "qualification", help="Assess one exact qualification receipt locally."
+    )
+    qualification_subparsers = qualification.add_subparsers(
+        dest="qualification_command", required=True
+    )
+    check = qualification_subparsers.add_parser(
+        "check", help="Check receipt applicability for one subject and scope."
+    )
+    check.add_argument("--subject", type=Path, required=True, metavar="PATH")
+    check.add_argument("--scope", type=Path, required=True, metavar="PATH")
+    check.add_argument("--receipt", type=Path, required=True, metavar="PATH")
+    check.add_argument(
+        "--assessed-at",
+        type=str,
+        default=None,
+        metavar="ISO8601",
+        help="Assessment time (default: current UTC time).",
+    )
+    check.add_argument("--json", action="store_true", dest="json_output")
 
     performance = subparsers.add_parser(
         "performance",
@@ -231,6 +275,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
         return 0
+    if args.command == "qualification":
+        if args.qualification_command != "check":
+            return QUALIFICATION_EXIT_OPERATIONAL
+        return _run_qualification_check(args)
     if args.command == "performance":
         api_key = (
             os.environ.get(args.api_key_env)
@@ -383,6 +431,88 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             server.server_close()
         return 0
     return 1
+
+
+def _parse_assessed_at(raw: str | None) -> datetime:
+    if raw is None:
+        return datetime.now(UTC)
+    candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    value = datetime.fromisoformat(candidate)
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("assessed-at must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+def _qualification_payload(
+    *,
+    validity: str,
+    reason: str,
+    verdict: str | None = None,
+    proofability: str | None = None,
+) -> dict[str, str | None]:
+    return {
+        "proofability": proofability,
+        "verdict": verdict,
+        "validity": validity,
+        "reason": reason,
+    }
+
+
+def _emit_qualification_payload(
+    payload: dict[str, object], *, json_output: bool
+) -> None:
+    if json_output:
+        print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+        return
+    print(
+        "Qualification: {validity} ({reason})".format(
+            validity=payload["validity"], reason=payload["reason"]
+        )
+    )
+    if payload.get("verdict") is not None:
+        print("Verdict: {0}".format(payload["verdict"]))
+
+
+def _run_qualification_check(args: argparse.Namespace) -> int:
+    try:
+        subject = parse_serving_subject_manifest(args.subject.read_bytes())
+        scope = parse_qualification_scope(args.scope.read_bytes())
+        receipt = args.receipt.read_bytes()
+        assessed_at = _parse_assessed_at(args.assessed_at)
+        context = create_qualification_context(
+            subject,
+            scope,
+            protocol_id=QUALIFICATION_PROTOCOL_ID,
+            protocol_version=QUALIFICATION_PROTOCOL_VERSION,
+        )
+    except (OSError, TypeError, ValueError, QualificationAssessmentRejected):
+        payload = _qualification_payload(
+            validity=QualificationValidity.INVALID.value,
+            reason="INVALID_INPUT",
+        )
+        _emit_qualification_payload(payload, json_output=args.json_output)
+        return QUALIFICATION_EXIT_INVALID
+
+    assessment = assess_inference_qualification(
+        receipt,
+        subject,
+        scope,
+        context,
+        assessed_at=assessed_at,
+    )
+    payload = assessment.model_dump(mode="json")
+    _emit_qualification_payload(payload, json_output=args.json_output)
+    if assessment.validity == QualificationValidity.CURRENT.value:
+        if assessment.verdict == "PASS":
+            return QUALIFICATION_EXIT_CURRENT_PASS
+        if assessment.verdict == "FAIL":
+            return QUALIFICATION_EXIT_CURRENT_FAIL
+        return QUALIFICATION_EXIT_NOT_PROVEN
+    if assessment.validity == QualificationValidity.STALE.value:
+        return QUALIFICATION_EXIT_STALE
+    if assessment.validity == QualificationValidity.EXPIRED.value:
+        return QUALIFICATION_EXIT_EXPIRED
+    return QUALIFICATION_EXIT_INVALID
 
 
 if __name__ == "__main__":
