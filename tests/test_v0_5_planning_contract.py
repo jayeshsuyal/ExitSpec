@@ -384,7 +384,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
         "MERGED |" in ledger
     )
     assert "52b7fad3815099f67cf585c565f5d380f852a384" in ledger
-    assert "| PR9 | Inference-performance qualification receipt | PR8 | CANDIDATE |" in ledger
+    assert "| PR9 | Inference-performance qualification receipt | PR8 | MERGED |" in ledger
+    assert "050fe4407337d4b443e577c795a37ec2bd1f51b0" in ledger
+    assert "| PR10 | Qualification validity and staleness | PR9 | CANDIDATE |" in ledger
     assert "PR6 base revision:" in ledger
     assert "424aeae8a959f4249a35375141fd2c365bc68b71" in ledger
     assert "867f4ac9d29376ab5130864f5a2d39bb946bb447" in ledger
