@@ -42,6 +42,7 @@ authorize deployment, provider or GPU execution, spending money, changing
 traffic, sending production traffic, or any other production activity. `PASS`
 and `CURRENT` remain bounded evidence states; an external human or deployment
 system must make any operational decision.
+ExitSpec is not authorized to send production traffic.
 
 ## Honest limitations
 
