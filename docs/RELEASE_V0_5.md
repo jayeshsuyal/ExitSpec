@@ -39,9 +39,9 @@ contribution code.
 
 The `v0.5.0` tag and GitHub release are publication records only. They do not
 authorize deployment, provider or GPU execution, spending money, changing
-traffic, or any other production activity. `PASS` and `CURRENT` remain bounded
-evidence states; an external human or deployment system must make any
-operational decision.
+traffic, sending production traffic, or any other production activity. `PASS`
+and `CURRENT` remain bounded evidence states; an external human or deployment
+system must make any operational decision.
 
 ## Honest limitations
 
