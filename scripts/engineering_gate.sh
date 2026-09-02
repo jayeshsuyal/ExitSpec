@@ -128,6 +128,10 @@ run_gate \
   node --check src/exitspec/static/new_poc.js
 
 run_gate \
+  "Qualification walkthrough JavaScript syntax" \
+  node --check src/exitspec/static/qualification.js
+
+run_gate \
   "POC source intake JavaScript syntax" \
   node --check src/exitspec/static/source_intake.js
 
