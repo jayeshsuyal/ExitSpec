@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -119,6 +120,9 @@ EXPECTED_STATIC_RESOURCES = {
     "proof.css",
     "proof.html",
     "proof.js",
+    "proofability_workspace.css",
+    "proofability_workspace.html",
+    "proofability_workspace.js",
     "review.css",
     "review.html",
     "review.js",
@@ -211,7 +215,7 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
         text=True,
     )
     assert completed.returncode == 0, (
-        "Command failed: {0}\nstdout:\n{1}\nstderr:\n{2}".format(
+        "Command failed: {}\nstdout:\n{}\nstderr:\n{}".format(
             " ".join(command), completed.stdout, completed.stderr
         )
     )
@@ -420,6 +424,25 @@ def test_email_resource_map_rejects_invalid_states_without_content(
 
 
 def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path):
+    source_archive = tmp_path / "source.tar"
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    _run(
+        [
+            "git",
+            "archive",
+            "--format=tar",
+            f"--output={source_archive}",
+            "HEAD",
+        ],
+        cwd=PROJECT_ROOT,
+    )
+    with tarfile.open(source_archive, mode="r:") as archive:
+        archive.extractall(source_root, filter="data")
+    assert (source_root / "pyproject.toml").is_file()
+    assert not (source_root / "build").exists()
+    assert not (source_root / "src" / "exitspec.egg-info").exists()
+
     wheelhouse = tmp_path / "wheelhouse"
     wheelhouse.mkdir()
     outside_checkout = tmp_path / "outside-checkout"
@@ -436,7 +459,7 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
             "--no-build-isolation",
             "--wheel-dir",
             str(wheelhouse),
-            str(PROJECT_ROOT),
+            str(source_root),
         ],
         cwd=outside_checkout,
     )
@@ -447,7 +470,7 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
     with zipfile.ZipFile(wheel) as archive:
         members = set(archive.namelist())
         for filename, expected_sha256 in EXPECTED_INFERDROME_SCHEMAS.items():
-            member = "exitspec/schemas/inferdrome/v1/{0}".format(filename)
+            member = f"exitspec/schemas/inferdrome/v1/{filename}"
             assert member in members
             archived_schema = archive.read(member)
             assert archived_schema == (INFERDROME_SCHEMA_ROOT / filename).read_bytes()
@@ -455,7 +478,7 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
         for filename, expected_sha256 in (
             EXPECTED_INFERDROME_PROFILE_RESOURCES.items()
         ):
-            member = "exitspec/profiles/inferdrome/v1/{0}".format(filename)
+            member = f"exitspec/profiles/inferdrome/v1/{filename}"
             assert member in members
             archived_profile = archive.read(member)
             assert archived_profile == (
@@ -463,21 +486,19 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
             ).read_bytes()
             assert _sha256(archived_profile) == expected_sha256
         for filename in EXPECTED_STATIC_RESOURCES:
-            member = "exitspec/static/{0}".format(filename)
+            member = f"exitspec/static/{filename}"
             assert member in members
             assert archive.read(member) == (STATIC_ROOT / filename).read_bytes()
         for relative_path, expected_sha256 in EXPECTED_RESOURCES.items():
-            member = "exitspec/demo_data/support_agent/{0}".format(relative_path)
+            member = f"exitspec/demo_data/support_agent/{relative_path}"
             assert member in members
             assert _sha256(archive.read(member)) == expected_sha256
         for relative_path, authoritative_path in ROUTING_FIXTURE_EXAMPLES.items():
-            member = "exitspec/demo_data/routing_qualification/{0}".format(
-                relative_path
-            )
+            member = f"exitspec/demo_data/routing_qualification/{relative_path}"
             assert member in members
             assert archive.read(member) == authoritative_path.read_bytes()
         expected_email_members = {
-            "exitspec/demo_data/support_agent/email/{0}".format(filename)
+            f"exitspec/demo_data/support_agent/email/{filename}"
             for filename in EXPECTED_EMAIL_RESOURCES
         }
         actual_email_members = {
@@ -487,18 +508,14 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
         }
         assert actual_email_members == expected_email_members
         evidence_member = (
-            "exitspec/demo_data/support_agent/evidence/{0}".format(
-                IMPLEMENTATION_EVIDENCE_NAME
-            )
+            f"exitspec/demo_data/support_agent/evidence/{IMPLEMENTATION_EVIDENCE_NAME}"
         )
         assert evidence_member in members
         assert _sha256(archive.read(evidence_member)) == (
             EXPECTED_IMPLEMENTATION_EVIDENCE_SHA256
         )
         for filename, expected_sha256 in EXPECTED_EMAIL_RESOURCES.items():
-            member = "exitspec/demo_data/support_agent/email/{0}".format(
-                filename
-            )
+            member = f"exitspec/demo_data/support_agent/email/{filename}"
             archived_payload = archive.read(member)
             authoritative_payload = (
                 SUPPORT_AGENT_EMAIL_EXAMPLES / filename
@@ -577,11 +594,18 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
 
     session_probe = """
 import hashlib
+import http.client
+import inspect
 import json
+import threading
 from pathlib import Path
 import exitspec
 import exitspec.proofability as proofability
+import exitspec.proofability_workspace as proofability_workspace
+import exitspec.proofability_workspace_fixture as proofability_workspace_fixture
+import exitspec.proofability_workspace_web as proofability_workspace_web
 from exitspec.authoring import load_contract_seed, load_discovery_pack, load_review_plan
+from exitspec.canonical import canonical_json_bytes
 from exitspec.demo_data import (
     support_agent_demo_paths,
     support_agent_email_paths,
@@ -590,6 +614,8 @@ from exitspec.demo_data import (
 from exitspec.inferdrome_bundle import INFERDROME_VERIFIER_VERSION
 from exitspec.inferdrome_import import INFERDROME_RECEIPT_SCHEMA_VERSION
 from exitspec.routing_evidence_pack import load_routing_evidence_demo_context
+from exitspec.poc_creation import DraftPOCCreateRequest
+from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
 from exitspec.web import DemoSession, ExitSpecDemoServer
 from exitspec.workspace import DashboardFilter
 from exitspec.performance_workspace import load_performance_demo_bundle
@@ -664,6 +690,119 @@ with support_agent_source_web_contract() as source_web:
     payload["source_web_contract_sha256"] = hashlib.sha256(
         source_web.payload
     ).hexdigest()
+source_server = SourceNeutralPOCDemoServer(("127.0.0.1", 0))
+source_server.draft_poc_service.create(
+    DraftPOCCreateRequest(
+        display_name="Installed proofability POC",
+        customer_label="Synthetic label",
+        use_case="Installed-wheel planning projection.",
+        owner="owner",
+        first_source_choice="DOCUMENT",
+        poc_id="poc_wheel",
+    ),
+    idempotency_key="wheel-draft",
+)
+source_worker = threading.Thread(target=source_server.serve_forever, daemon=True)
+source_worker.start()
+try:
+    connection = http.client.HTTPConnection(
+        "127.0.0.1", source_server.server_port, timeout=5
+    )
+    api = "/api/pocs/poc_wheel/qualification/proofability"
+    connection.request("GET", api)
+    no_latest_response = connection.getresponse()
+    no_latest = json.loads(no_latest_response.read())
+    request_body = canonical_json_bytes(
+        {
+            "profile_id": "exitspec.external-evidence.native-ttft-profile.v1",
+            "profile_version": "v1",
+            "idempotency_key": "wheel-proofability",
+        }
+    )
+    request_headers = {
+        "Content-Type": "application/json",
+        "Origin": "http://127.0.0.1:{0}".format(source_server.server_port),
+    }
+    connection.request("POST", api, body=request_body, headers=request_headers)
+    fresh_response = connection.getresponse()
+    fresh = json.loads(fresh_response.read())
+    connection.request("POST", api, body=request_body, headers=request_headers)
+    replay_response = connection.getresponse()
+    replay = json.loads(replay_response.read())
+    connection.request("GET", api)
+    applicable_response = connection.getresponse()
+    applicable = json.loads(applicable_response.read())
+
+    class InstalledDriftProjection:
+        def __init__(self, delegate):
+            self.delegate = delegate
+
+        def get(self, *, poc_id):
+            value = dict(self.delegate.get(poc_id=poc_id))
+            report = value["report"]
+            value["report"] = None
+            value["needs_replan"] = True
+            value["reported_context_digest"] = report[
+                "qualification_context_digest"
+            ]
+            value["resolved_context_digest"] = "sha256:" + "f" * 64
+            return value
+
+    installed_workspace = source_server.proofability_workspace
+    source_server.proofability_workspace = InstalledDriftProjection(
+        installed_workspace
+    )
+    connection.request("GET", api)
+    drift_response = connection.getresponse()
+    drift = json.loads(drift_response.read())
+    source_server.proofability_workspace = installed_workspace
+    connection.request(
+        "GET", "/app/pocs/poc_wheel/qualification/proofability"
+    )
+    page_response = connection.getresponse()
+    page_bytes = page_response.read()
+    connection.request("GET", "/proofability_workspace.html")
+    alias_response = connection.getresponse()
+    alias_bytes = alias_response.read()
+    connection.close()
+    payload["proofability_workspace"] = {
+        "fixture_module": str(
+            Path(proofability_workspace_fixture.__file__).resolve()
+        ),
+        "workspace_module": str(Path(proofability_workspace.__file__).resolve()),
+        "web_module": str(Path(proofability_workspace_web.__file__).resolve()),
+        "factory_parameters": sorted(
+            inspect.signature(
+                proofability_workspace.create_production_proofability_workspace
+            ).parameters
+        ),
+        "has_test_helper": hasattr(
+            proofability_workspace, "make_test_only_proofability_workspace"
+        ),
+        "no_latest_status": no_latest_response.status,
+        "no_latest_report": no_latest["report"],
+        "fresh_status": fresh_response.status,
+        "fresh_replay": fresh["idempotent_replay"],
+        "fresh_report_bytes": len(canonical_json_bytes(fresh["report"])),
+        "replay_status": replay_response.status,
+        "replay": replay["idempotent_replay"],
+        "applicable_status": applicable_response.status,
+        "applicable_report": applicable["report"] is not None,
+        "drift_status": drift_response.status,
+        "drift_report": drift["report"],
+        "drift_needs_replan": drift["needs_replan"],
+        "page_status": page_response.status,
+        "page_has_synthetic_notice": b"package synthetic fixture" in page_bytes,
+        "alias_status": alias_response.status,
+        "alias_body": alias_bytes.decode("utf-8"),
+        "context_source": fresh["context_source"],
+        "storage": fresh["storage"],
+        "authority": fresh["authority"],
+    }
+finally:
+    source_server.shutdown()
+    source_worker.join(timeout=5)
+    source_server.server_close()
 print(json.dumps(payload))
 """
     probe_stdout = _run(
@@ -710,3 +849,46 @@ print(json.dumps(payload))
         probe["source_web_contract_sha256"]
         == EXPECTED_SOURCE_WEB_CONTRACT_SHA256
     )
+    proofability_probe = probe["proofability_workspace"]
+    for module_key in ("fixture_module", "workspace_module", "web_module"):
+        assert Path(proofability_probe[module_key]).is_relative_to(
+            installed_site_packages
+        )
+    assert proofability_probe["factory_parameters"] == [
+        "draft_commit_guard",
+        "draft_lookup",
+    ]
+    assert proofability_probe["has_test_helper"] is False
+    assert proofability_probe["no_latest_status"] == 200
+    assert proofability_probe["no_latest_report"] is None
+    assert proofability_probe["fresh_status"] == 201
+    assert proofability_probe["fresh_replay"] is False
+    assert proofability_probe["fresh_report_bytes"] == 2_602
+    assert proofability_probe["replay_status"] == 200
+    assert proofability_probe["replay"] is True
+    assert proofability_probe["applicable_status"] == 200
+    assert proofability_probe["applicable_report"] is True
+    assert proofability_probe["drift_status"] == 200
+    assert proofability_probe["drift_report"] is None
+    assert proofability_probe["drift_needs_replan"] is True
+    assert proofability_probe["page_status"] == 200
+    assert proofability_probe["page_has_synthetic_notice"] is True
+    assert proofability_probe["alias_status"] == 404
+    assert proofability_probe["alias_body"] == '{"error":"Page not found."}'
+    assert proofability_probe["context_source"] == {
+        "kind": "PACKAGE_SYNTHETIC_FIXTURE",
+        "fixture_id": "exitspec.synthetic-proofability-preflight.native-v1",
+        "fixture_version": "v1",
+        "poc_derived": False,
+    }
+    assert proofability_probe["storage"] == {
+        "scope": "PROCESS_LOCAL",
+        "survives_process_restart": False,
+        "shared_across_workers": False,
+    }
+    assert proofability_probe["authority"] == {
+        "deployment_authorized": False,
+        "production_traffic_authorized": False,
+        "traffic_expansion_authorized": False,
+        "external_authorization_required": True,
+    }

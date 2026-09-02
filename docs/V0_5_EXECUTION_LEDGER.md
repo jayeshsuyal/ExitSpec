@@ -1,13 +1,15 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1–PR4 are merged. Rejected PR5 r1
+Last updated: PR1–PR5 are merged. Rejected PR5 r1
 `a36c09450776c13342200aadd34a891bd4502c06` and r2
 `4a4decd69f613c302d77280debc6c2b746f0df1b`, plus rejected r3
 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`, are immutable
 `CHANGES_REQUIRED` / `MTS_FAIL` history and remain preserved unchanged. PR5 r4
-is a local-only corrected `CANDIDATE`; reviewers resolve its immutable SHA from
-`HEAD` only after the one candidate commit exists.
+was accepted and merged as PR #161 at
+`867f4ac9d29376ab5130864f5a2d39bb946bb447`. PR6 is an exact-base,
+local-only Builder work item; this ledger does not claim Mission Control, MTS,
+push, PR, merge, release, deployment, or traffic approval for it.
 
 ## Train controls
 
@@ -17,6 +19,7 @@ is a local-only corrected `CANDIDATE`; reviewers resolve its immutable SHA from
 - **PR3 base revision:** `edb62a071d68a9281e6127ee8ade51f7f23daa02` (PR #158 merge)
 - **PR4 base revision:** `101dabbadd1d986f38b56794633ec9e45cea9ac1` (PR #159 merge)
 - **PR5 base revision:** `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c` (PR #160 merge)
+- **PR6 base revision:** `867f4ac9d29376ab5130864f5a2d39bb946bb447` (PR #161 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
@@ -31,14 +34,15 @@ is a local-only corrected `CANDIDATE`; reviewers resolve its immutable SHA from
   `CHANGES_REQUIRED` / `MTS_FAIL`), plus
   `5c63ab581e497c64bdce8e8e44f8212fa7d2f922` (independent MTS
   `CHANGES_REQUIRED` / `MTS_FAIL`), all preserved unchanged.
-- **Candidate selector:** the one local-only PR5 r4 candidate is immutable
-  `HEAD` after its candidate commit; reviewers resolve its SHA with `git
+- **Candidate selector:** the one local-only PR6 candidate becomes immutable
+  `HEAD` after its single candidate commit; reviewers resolve its SHA with `git
   rev-parse HEAD`. No remote action is implied by this selector.
 - **Scope:** merged PR1 architecture/process contract, PR2 serving-subject
   identity, PR3 qualification scope/context, and PR4 provider-neutral
-  capability descriptor/registry. PR5 adds only deterministic proofability
-  planning; it adds no execution, evidence, verdict, validity, deployment, or
-  traffic functionality.
+  capability descriptor/registry, and merged PR5 deterministic proofability
+  planning. PR6 adds only a bounded process-local package-synthetic preflight
+  API/browser projection; it adds no agreement, execution, evidence, verdict,
+  validity, deployment, or traffic functionality.
 - **Non-authority:** ExitSpec never authorizes deployment or traffic. Provider
   integration, GPU execution, spending, external capture, cross-repository
   work, deployment, release publication, and traffic changes are out of scope.
@@ -58,8 +62,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR2 | Serving-subject identity | PR1 | MERGED | PR #158; reviewed head `00b4f01c27eabac37a63adb1015d8e1434113009`; merge `edb62a071d68a9281e6127ee8ade51f7f23daa02`; PR CI `33415971409`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/158#issuecomment-5481583707); post-merge main CI `33416637002`, all four jobs green. |
 | PR3 | Qualification scope and context | PR2 | MERGED | PR #159; reviewed head `7da388ecfb83c2262a4f30d161a272f674839826`; merge `101dabbadd1d986f38b56794633ec9e45cea9ac1`; PR CI `33423877517`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/159#issuecomment-5482615994); post-merge main CI `33424573497`, all four jobs green. |
 | PR4 | Producer capability descriptor | PR3 | MERGED | PR #160; reviewed head `7e1268373da3fea8cf441b7ad7d515df8af8f2f5`; merge `1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c`; PR CI `33435286412`; [MTS attestation](https://github.com/jayeshsuyal/ExitSpec/pull/160#issuecomment-5484101232); post-merge main CI `33436107791`, all four jobs green. |
-| PR5 | Proofability engine | PR4 | CANDIDATE | Local-only r4 candidate supersedes immutable rejected r1 `a36c09450776c13342200aadd34a891bd4502c06`, r2 `4a4decd69f613c302d77280debc6c2b746f0df1b`, and r3 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`; `HEAD` retains every prior correction and closes the report criterion-ID language over all existing `POCContract` arms. |
-| PR6 | Proofability service and workspace projection | PR5 | NOT_STARTED | Deterministic, redacted, zero-side-effect UI/API projection. |
+| PR5 | Proofability engine | PR4 | MERGED | PR #161; accepted r4 head `424aeae8a959f4249a35375141fd2c365bc68b71`; merge `867f4ac9d29376ab5130864f5a2d39bb946bb447`. Immutable rejected r1–r3 history remains preserved below. |
+| PR6 | Proofability service and workspace projection | PR5 | CANDIDATE | One local-only Builder candidate contains the exact 16-path packet from the PR5 merge. Rejected r2 and freeze-review history is preserved below; the corrected candidate requires a fresh exact-byte freeze, Builder, Mission Control, and MTS review before any push, PR, or merge claim. |
 | PR7 | Provider-neutral prospective handoff boundary | PR3, PR5 | NOT_STARTED | Context mismatch rejects; valid artifact has no dispatch or external effect. |
 | PR8 | Provider-neutral external-evidence admission boundary | PR7 | NOT_STARTED | Untrusted local package is validated and recalculated without producer contact. |
 | PR9 | Inference-performance qualification receipt | PR8 | NOT_STARTED | Only original admitted context/evidence can issue typed receipt. |
@@ -188,6 +192,25 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Authority and limits | Report identity/self-consistency proves planning integrity only, not execution, hardware truth, authorship, chronology, authenticated identity, evidence, Verdict, Validity, deployment, traffic, or authority. Parsing is not trusted evaluation; verification re-evaluates original bound inputs. |
 | Reviewer handoff | r4 `CANDIDATE` is local-only. Do not push, open a PR, merge, tag, release, execute a GPU/provider, or authorize deployment/traffic. Mission Control and a fresh independent MTS lane must review the final exact r4 `HEAD` SHA before PR6; this ledger does not claim MTS pass. |
 
+## PR6 evidence record
+
+| Item | Record |
+| --- | --- |
+| Decision | Add only one bounded process-local proofability planning workspace and narrow source-neutral browser projection over the accepted PR5 boundary. |
+| Superseded freeze history | Sole parent/base remains `867f4ac9d29376ab5130864f5a2d39bb946bb447`. The former `/private/tmp/exitspec-pr6-mission-control-freeze-v5-final.txt` record and its 14-path packet are rejected historical evidence only; they do not describe or authorize the current candidate. |
+| Rejected r2 review | Exact r2 candidate `c1364e86f7ed1b6b25a8ebe30767102cc4431f26` remained local-only. Mission Control rejected it in `/private/tmp/exitspec-pr6-mission-control-review-v10.txt` (SHA-256 `94fd30827369ffa14898495c0672943e703d2ecc4a2e3a6b7b8783ebe6bc862e`) and independent MTS rejected it in `/private/tmp/exitspec-pr6-mts-review-v10.txt` (SHA-256 `58de8e8d0f1c7753e0462ca4a691461f717b797f7e34e904e94b60d07e96c542`) because this ledger described the wrong packet/evidence and the plan overclaimed no-network gate behavior. Preserve r2 and supersede it; it has no push authority. |
+| Rejected v11 freeze review | Candidate `ffbebd9f7f9b3736eeb36fe9025aa6df11ad02d3` remained local-only and unchanged while `/private/tmp/exitspec-pr6-mission-control-freeze-v11-final.txt` (SHA-256 `67b23874a008fdee38932badb92dbc8020a4981a9168248745beba28eb0b938d`) was rejected by `/private/tmp/exitspec-pr6-freeze-v11-final-review.txt` (SHA-256 `a9265b7122855026100be5e2663d9d46416d3f8a6d0c9920acef10d78dbadfac`). The freeze failed before formal evidence because it did not disclose or separately authorize the unconstrained-egress-capable runner used by focused loopback/browser checks. It grants no authority. |
+| Rejected r5 review | Exact r5 candidate `7d4f3c36fc97a1927774423c8baaaaf0aa083f8d` remained local-only. Its Builder report `/private/tmp/exitspec-pr6-builder-r5-green-report.txt` (SHA-256 `fa0d76770bc03be938030929292e19a8a48ad6a418dde46abbd59fc060239a22`) and independent MTS report `/private/tmp/exitspec-pr6-mts-r5-v17-review.txt` (SHA-256 `70feb42eae29a2728bfccc70b17a4d0f8a5d6a88b33cfeb768e02034540eb280`) were green, but Mission Control rejected it in `/private/tmp/exitspec-pr6-mission-control-r5-v17-review.txt` (SHA-256 `e2ce37c0ef7fb68f57c77e5590e0c705ce97c6a1dddab1c0b114b7d9be5c7e49`) because the exact-packet row incorrectly called the inherited dependency audit newly added and omitted the npm-to-direct-Node correction. Preserve r5 and supersede it from the accepted base; it has no push authority. |
+| Controlling correction train | The corrected one-commit candidate must be governed by one fresh immutable exact-byte external freeze plus a separate exact-byte review. The repository does not predict a transient freeze filename or self-embed a future freeze hash. Exact candidate, tree, freeze, review, command, and output paths/hashes belong in `/private/tmp/exitspec-pr6-builder-r6-green-report.txt`. |
+| Exact packet | Four production source modules, three static assets, three feature-test files, two regression-test files, three documentation files, and `scripts/engineering_gate.sh`: exactly 16 repository paths. There is no dependency, workflow, package-config, PR5 model, or v0.4 semantic change; the engineering-gate edit adds the proofability-workspace JavaScript syntax check, replaces the Zoom fixture operator npm wrapper with its three equivalent direct `node --check` commands, and retains the existing dependency-audit stage required by the frozen train. |
+| Fixture authority | Exactly one immutable package-owned synthetic fixture reconstructs the accepted subject/scope/context/contract/descriptor roots and pins a 2,602-byte canonical report with digest `sha256:28c49bba2dd3791905a201a74777c9994e6ecc083cc3b9de083095f4c626d81e`. It accepts no runtime fixture choice, POC/customer/source/provider content, clock, network, or external side effect. |
+| Workspace boundary | Exactly 128 eager deterministic write stripes; bounded immutable operation, global-idempotency, latest, pending, and byte state; replay before capacity; owned reservations; atomic publish after verifier/golden checks; no eviction. Storage is process-local, lost on restart, and not shared across workers. |
+| HTTP and browser boundary | Exact source-neutral API/page namespaces use raw origin-form classification, closed method/framing/JSON/Unicode/profile grammar, canonical code-only errors, and exact fresh/replay/GET behavior. The narrow page gates the serialized URL before fetch/render, uses one server-fixed profile and one in-memory retry identity, renders only with text nodes, uses no browser storage, and exposes no agreement, execute, evidence, verdict, validity, deployment, release, or traffic action. |
+| Superseded r2 checks | The complete r2 focused suite passed 257/257 and its touched A2–A7 regressions passed 178/178, but those results bind only rejected candidate `c1364e86f7ed1b6b25a8ebe30767102cc4431f26`. They cannot waive or substitute for fresh corrected-candidate checks or either complete gate. |
+| Corrected-candidate gate rule | Focused checks, Ruff, direct `node --check`, HTML validation, source scans, `git diff --check`, complete engineering, and complete v0.4 release gates must run against the immutable corrected commit. Exact results and all disclosed runner-egress boundaries are recorded only in the current Builder report, never claimed here in advance. |
+| Authority result | Fixed response fields keep deployment, production traffic, and traffic expansion false and external authorization required true. The PR6 product workspace initiates no provider, external-network, or GPU call and performs no spend, execution, evidence admission, verdict/receipt/validity action, deployment, release, or traffic change. Local HTTP/browser verification and release-gate dependency auditing are separate test-runner trust surfaces and are not no-egress attestations. |
+| Reviewer handoff | The corrected one-commit Builder candidate remains local-only `CANDIDATE` until the current Builder report, Mission Control, and fresh independent MTS all approve its exact SHA and evidence. No approval is claimed here; do not push, open a PR, merge, tag, release, execute a GPU/provider, deploy, or change traffic from this record. |
+
 ## Proposed PR metadata
 
 - **PR2 title:** `feat: add v0.5 serving-subject identity manifest`
@@ -226,6 +249,14 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
   byte-exact golden coverage, and complete recursive raw-graph normalization.
   The report has no execution, evidence, verdict, receipt, validity,
   deployment, traffic, or authorization capability.
+- **PR6 title:** `feat: add v0.5 proofability workspace`
+- **PR6 body summary:** Adds one bounded process-local source-neutral
+  proofability preflight over an immutable package-owned synthetic fixture,
+  with exact fresh/replay/GET semantics, 128 eager write stripes, atomic
+  immutable publication, a strict raw HTTP boundary, and a narrow text-only
+  browser projection. It adds no agreement, provider/network/GPU execution,
+  evidence, verdict, receipt, validity, deployment, release, traffic, or
+  authorization capability.
 - **Historical PR1 title:** `docs: freeze v0.5 provider-neutral qualification execution contract`
 - **Historical PR1 evidence note:** The merged PR1 candidate incorporated
   independent review corrections, preserved above, including the valid GitHub

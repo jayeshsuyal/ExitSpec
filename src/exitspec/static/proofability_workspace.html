@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ExitSpec proofability preflight</title>
+    <link rel="stylesheet" href="/proofability_workspace.css">
+  </head>
+  <body>
+    <header class="global-header">
+      <a class="brand" href="/app">ExitSpec</a>
+      <span class="section-label">Qualification / Proofability preflight</span>
+    </header>
+    <main class="workspace-shell">
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">Planning preflight</p>
+        <h1 id="page-title">Can the frozen question be proven?</h1>
+        <p class="summary">
+          Compare required observations with one fixed package capability profile
+          before any external operation.
+        </p>
+      </section>
+
+      <aside class="limitations" aria-label="Workspace limitations">
+        <p>Context: package synthetic fixture, not this POC or live inputs.</p>
+        <p>Storage: process-local, lost on restart, not shared across workers.</p>
+        <p>
+          No deployment, production traffic, or traffic expansion is authorized.
+          External authorization remains required.
+        </p>
+      </aside>
+
+      <section id="workspace" class="workspace" aria-live="polite">
+        <p id="workspace-status" class="workspace-status">
+          Waiting for an exact local workspace route.
+        </p>
+        <div id="workspace-content"></div>
+        <div id="workspace-action" class="workspace-action"></div>
+      </section>
+    </main>
+    <script src="/proofability_workspace.js" defer></script>
+  </body>
+</html>

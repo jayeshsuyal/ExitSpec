@@ -252,6 +252,69 @@ def test_v0_5_pr5_proofability_contract_is_closed_and_input_bound():
     assert "Inferdrome" not in report_section
 
 
+def test_v0_5_pr6_workspace_contract_is_bounded_synthetic_and_zero_authority():
+    plan = _normalise(_read(PLAN))
+    pr6 = plan.split("### PR6 — Proofability service and workspace projection", 1)[
+        1
+    ].split("### PR7 — Provider-neutral prospective handoff boundary", 1)[0]
+
+    for marker in (
+        "exactly one immutable package-owned synthetic fixture",
+        "not derived from that POC, customer/source content, live input",
+        "exactly 128 deterministic write stripes",
+        "accepted replay precedes capacity",
+        "there is no eviction",
+        "Process-local state is lost on restart and is not shared across workers",
+        "origin-form raw-target classification",
+        "gates the serialized URL before fetch or dynamic render",
+        "uses no browser storage",
+        "zero deployment, production traffic, or traffic-expansion authority",
+        "product workspace initiates no provider, external-network, or GPU call",
+        "not a no-egress attestation",
+        "may access or revalidate public vulnerability metadata",
+        "explicit command-level runner trust boundary",
+    ):
+        assert marker in pr6
+    assert "pass without network" not in pr6
+    assert "Inferdrome" not in pr6
+
+
+def test_v0_5_pr6_ledger_binds_the_current_packet_and_review_train():
+    ledger = _normalise(_read(LEDGER))
+    pr6 = ledger.split("## PR6 evidence record", 1)[1].split(
+        "## Proposed PR metadata", 1
+    )[0]
+
+    for marker in (
+        "exactly 16 repository paths",
+        "scripts/engineering_gate.sh",
+        "one fresh immutable exact-byte external freeze",
+        "separate exact-byte review",
+        "/private/tmp/exitspec-pr6-builder-r6-green-report.txt",
+        "c1364e86f7ed1b6b25a8ebe30767102cc4431f26",
+        "94fd30827369ffa14898495c0672943e703d2ecc4a2e3a6b7b8783ebe6bc862e",
+        "58de8e8d0f1c7753e0462ca4a691461f717b797f7e34e904e94b60d07e96c542",
+        "ffbebd9f7f9b3736eeb36fe9025aa6df11ad02d3",
+        "67b23874a008fdee38932badb92dbc8020a4981a9168248745beba28eb0b938d",
+        "a9265b7122855026100be5e2663d9d46416d3f8a6d0c9920acef10d78dbadfac",
+        "7d4f3c36fc97a1927774423c8baaaaf0aa083f8d",
+        "fa0d76770bc03be938030929292e19a8a48ad6a418dde46abbd59fc060239a22",
+        "70feb42eae29a2728bfccc70b17a4d0f8a5d6a88b33cfeb768e02034540eb280",
+        "e2ce37c0ef7fb68f57c77e5590e0c705ce97c6a1dddab1c0b114b7d9be5c7e49",
+        "replaces the Zoom fixture operator npm wrapper",
+        "three equivalent direct `node --check` commands",
+        "retains the existing dependency-audit stage",
+        "not no-egress attestations",
+    ):
+        assert marker in pr6
+    assert "exactly 14 repository paths" not in pr6
+    assert "/private/tmp/exitspec-pr6-builder-report.txt" not in pr6
+    assert (
+        "adds the proofability-workspace JavaScript syntax check and "
+        "dependency-audit stage"
+    ) not in pr6
+
+
 def test_v0_5_threat_model_covers_required_boundaries_and_limitations():
     plan = _read(PLAN)
 
@@ -294,7 +357,7 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert ledger.count("CHANGES_REQUIRED") >= 4
     assert ledger.count("MTS_FAIL") >= 3
     assert "P1 — invalid permissions syntax:" in ledger
-    assert "one local-only PR5 r4 candidate is immutable\n  `HEAD`" in ledger
+    assert "one local-only PR6 candidate becomes immutable\n  `HEAD`" in ledger
     assert "GitHub required-check integration" in ledger
     assert (
         "docs: freeze v0.5 provider-neutral qualification execution contract" in ledger
@@ -305,7 +368,20 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "| PR2 | Serving-subject identity | PR1 | MERGED |" in ledger
     assert "| PR3 | Qualification scope and context | PR2 | MERGED |" in ledger
     assert "| PR4 | Producer capability descriptor | PR3 | MERGED |" in ledger
-    assert "| PR5 | Proofability engine | PR4 | CANDIDATE |" in ledger
+    assert "| PR5 | Proofability engine | PR4 | MERGED |" in ledger
+    assert (
+        "| PR6 | Proofability service and workspace projection | PR5 | "
+        "CANDIDATE |" in ledger
+    )
+    assert "PR6 base revision:" in ledger
+    assert "424aeae8a959f4249a35375141fd2c365bc68b71" in ledger
+    assert "867f4ac9d29376ab5130864f5a2d39bb946bb447" in ledger
+    assert "## PR6 evidence record" in ledger
+    assert "Exactly 128 eager deterministic write stripes" in ledger
+    assert "complete r2 focused suite passed 257/257" in ledger
+    assert "touched A2–A7 regressions passed 178/178" in ledger
+    assert "those results bind only rejected candidate" in ledger
+    assert "No approval is claimed here" in ledger
     assert "3,919 passed, 33 skipped" in ledger
     assert "3,932 passed, 23 skipped" in ledger
     assert "3,924 passed, 33 skipped" in ledger
