@@ -390,7 +390,9 @@ def test_v0_5_ledger_captures_pr1_state_and_all_follow_on_milestones():
     assert "9ddc0daa3bb405c54411041cf9e52dead8340104" in ledger
     assert "| PR11 | Qualification CLI | PR10 | MERGED |" in ledger
     assert "a099c1a498baf1ad9a7c9b75d28fca8bc213287a" in ledger
-    assert "| PR12 | GitHub required-check integration | PR11 | CANDIDATE |" in ledger
+    assert "| PR12 | GitHub required-check integration | PR11 | MERGED |" in ledger
+    assert "f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4" in ledger
+    assert "| PR13 | Guided four-screen product surface | PR6, PR12 | CANDIDATE |" in ledger
     assert "PR6 base revision:" in ledger
     assert "424aeae8a959f4249a35375141fd2c365bc68b71" in ledger
     assert "867f4ac9d29376ab5130864f5a2d39bb946bb447" in ledger

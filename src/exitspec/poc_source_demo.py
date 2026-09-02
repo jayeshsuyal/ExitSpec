@@ -177,6 +177,9 @@ _ASSET_NAMES = frozenset(
         "generic_evidence.js",
         "proofability_workspace.css",
         "proofability_workspace.js",
+        "qualification.html",
+        "qualification.css",
+        "qualification.js",
         "workbench.css",
     }
 )

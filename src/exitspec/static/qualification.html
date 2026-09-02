@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A synthetic local walkthrough of ExitSpec qualification.">
+    <title>ExitSpec — Qualification walkthrough</title>
+    <link rel="stylesheet" href="/qualification.css">
+  </head>
+  <body>
+    <div class="qualification-app">
+      <header class="global-header">
+        <a class="brand" href="/app" aria-label="ExitSpec home">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>ExitSpec</span>
+        </a>
+        <span class="section-label">Qualification walkthrough</span>
+        <span class="local-identity"><span class="identity-dot" aria-hidden="true"></span> Synthetic local demo</span>
+      </header>
+
+      <main class="qualification-main" id="qualification-main">
+        <div class="qualification-frame">
+          <section class="qualification-hero" aria-labelledby="page-title">
+            <div>
+              <p class="eyebrow">v0.5 product preview</p>
+              <h1 id="page-title">Qualify one exact change before it receives traffic.</h1>
+              <p class="hero-copy">
+                Follow one serving subject from a frozen question to independently
+                checked evidence, then see why a material change makes the result stale.
+              </p>
+            </div>
+            <aside class="boundary-card" aria-label="Authority boundary">
+              <span class="boundary-label">Authority boundary</span>
+              <strong>Evidence supports a decision. It never authorizes deployment or traffic.</strong>
+              <span>Local, synthetic, process-local, and non-durable.</span>
+            </aside>
+          </section>
+
+          <ol class="stepper" aria-label="Qualification walkthrough progress">
+            <li class="stepper-item is-active" data-step="1"><span>1</span><strong>Define</strong><small>Exact target</small></li>
+            <li class="stepper-item" data-step="2"><span>2</span><strong>Confirm</strong><small>Proofability</small></li>
+            <li class="stepper-item" data-step="3"><span>3</span><strong>Prove</strong><small>Evidence</small></li>
+            <li class="stepper-item" data-step="4"><span>4</span><strong>Recheck</strong><small>Currency</small></li>
+          </ol>
+
+          <section class="screen is-visible" data-screen="1" aria-labelledby="screen-1-title">
+            <header class="screen-heading">
+              <p class="screen-kicker">Screen 1 of 4 · Define</p>
+              <h2 id="screen-1-title">What is being qualified?</h2>
+              <p>Bind the question to one exact serving subject, workload, and intended use.</p>
+            </header>
+            <div class="artifact-grid">
+              <article class="artifact-card"><span>Serving subject</span><strong>support-model / revision-2026-08</strong><small>engine 0.26.0 · pinned runtime digest</small></article>
+              <article class="artifact-card"><span>Frozen workload</span><strong>support-chat / concurrency 4</strong><small>successful measured requests · p95 native TTFT</small></article>
+              <article class="artifact-card"><span>Requirement</span><strong>p95 native TTFT &lt; 800 ms</strong><small>minimum 20 measured attempts · reliability bound included</small></article>
+              <article class="artifact-card"><span>Intended use</span><strong>Consideration for up to 5% canary</strong><small>purpose-bound scope, not a grant</small></article>
+            </div>
+            <footer class="screen-footer"><span class="status-note">Exact subject + scope are now bound.</span><button type="button" class="primary-action" data-next="2">Check proofability <span aria-hidden="true">→</span></button></footer>
+          </section>
+
+          <section class="screen" data-screen="2" aria-labelledby="screen-2-title" hidden>
+            <header class="screen-heading">
+              <p class="screen-kicker">Screen 2 of 4 · Confirm</p>
+              <h2 id="screen-2-title">Can the frozen question be proven?</h2>
+              <p>ExitSpec maps required observations before any external operation or spend.</p>
+            </header>
+            <div class="proof-grid">
+              <article class="proof-card proof-card--ready"><span class="state-pill">PROVABLE</span><strong>Native first-event TTFT</strong><small>Available: <code>request.timing.ttft_ns</code> · p95 · nearest-rank</small></article>
+              <article class="proof-card proof-card--ready"><span class="state-pill">AVAILABLE</span><strong>Measured reliability</strong><small>Available: successful requests and all measured attempts</small></article>
+              <article class="proof-card proof-card--missing"><span class="state-pill">MISSING</span><strong>Semantic first-nonempty TTFT</strong><small>Not required by this frozen native criterion; a mismatch would stop the claim.</small></article>
+            </div>
+            <div class="stop-note"><strong>Fail-closed checkpoint</strong><span>Unsupported or missing observations cannot become a passing verdict.</span></div>
+            <footer class="screen-footer"><span class="status-note">No provider or GPU operation was started.</span><button type="button" class="primary-action" data-next="3">Review admitted evidence <span aria-hidden="true">→</span></button></footer>
+          </section>
+
+          <section class="screen" data-screen="3" aria-labelledby="screen-3-title" hidden>
+            <header class="screen-heading">
+              <p class="screen-kicker">Screen 3 of 4 · Prove</p>
+              <h2 id="screen-3-title">What does the evidence establish?</h2>
+              <p>Admitted observations are recalculated against the frozen contract; producer summaries do not decide the result.</p>
+            </header>
+            <div class="verdict-layout">
+              <div class="verdict-card"><span class="state-pill state-pill--pass">PASS</span><strong>Exact scope satisfied</strong><small>p95 native TTFT 642 ms · reliability 100% · 20/20 attempts</small></div>
+              <dl class="receipt-list">
+                <div><dt>Evidence Pack</dt><dd>synthetic-inferdrome-v1</dd></div>
+                <div><dt>Receipt</dt><dd>receipt:sha256:…7a91</dd></div>
+                <div><dt>Verifier</dt><dd>ExitSpec deterministic verifier</dd></div>
+              </dl>
+            </div>
+            <div class="stop-note"><strong>Receipt limitation</strong><span>Integrity and arithmetic are checked here; authorship, hardware truth, chronology, deployment, and traffic remain outside this demo.</span></div>
+            <footer class="screen-footer"><span class="status-note">Verdict: PASS · validity is checked next.</span><button type="button" class="primary-action" data-next="4">Check qualification currency <span aria-hidden="true">→</span></button></footer>
+          </section>
+
+          <section class="screen" data-screen="4" aria-labelledby="screen-4-title" hidden>
+            <header class="screen-heading">
+              <p class="screen-kicker">Screen 4 of 4 · Recheck</p>
+              <h2 id="screen-4-title">Is the qualification still current?</h2>
+              <p>Current means the receipt still covers this exact subject, scope, context, and freshness policy.</p>
+            </header>
+            <div class="currency-layout">
+              <div class="currency-card" id="currency-card"><span class="state-pill state-pill--current" id="currency-state">CURRENT</span><strong id="currency-title">Exact context is covered</strong><small id="currency-detail">Receipt matches the subject, workload, protocol, and freshness policy.</small></div>
+              <div class="mutation-card"><span>Deterministic demo mutation</span><strong>Change engine version 0.26.0 → 0.26.1</strong><small>This changes the serving subject digest. The old immutable receipt stays unchanged.</small></div>
+            </div>
+            <div class="stop-note boundary-note"><strong id="final-boundary-title">Required next step: external decision</strong><span id="final-boundary-copy">CURRENT is evidence for review, not approval. ExitSpec never authorizes deployment or traffic.</span></div>
+            <footer class="screen-footer"><span class="status-note" id="mutation-status">Synthetic state only · no system was changed.</span><button type="button" class="primary-action" id="mutate-button">Mutate engine version → show STALE</button></footer>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="/qualification.js" defer></script>
+  </body>
+</html>

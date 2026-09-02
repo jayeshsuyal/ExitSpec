@@ -6407,9 +6407,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
     def _serve_static(self, request_path: str, query: str = "") -> None:
         if request_path in ("", "/", "/app", "/app/"):
             relative = (
-                "index.html"
-                if _is_compatibility_workbench_query(query)
-                else "dashboard.html"
+                "qualification.html"
+                if _is_qualification_demo_query(query)
+                else (
+                    "index.html"
+                    if _is_compatibility_workbench_query(query)
+                    else "dashboard.html"
+                )
             )
         elif request_path == EVIDENCE_LIBRARY_PAGE_PATH:
             relative = "evidence_library.html"
@@ -6627,6 +6631,14 @@ def _is_compatibility_workbench_query(query: str) -> bool:
         (key, value) in {("intake", "email"), ("mode", "recording")}
         for key, value in fields
     )
+
+
+def _is_qualification_demo_query(query: str) -> bool:
+    try:
+        fields = parse_qsl(query, keep_blank_values=True)
+    except ValueError:
+        return False
+    return fields == [("mode", "qualification")]
 
 
 def _is_customer_review_page(request_path: str) -> bool:

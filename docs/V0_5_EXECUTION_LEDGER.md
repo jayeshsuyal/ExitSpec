@@ -1,7 +1,7 @@
 # ExitSpec v0.5 execution ledger
 
 Status: durable PR-train state for the ExitSpec-only qualification-gate train.
-Last updated: PR1–PR11 are merged. Rejected PR5 r1
+Last updated: PR1–PR12 are merged. Rejected PR5 r1
 `a36c09450776c13342200aadd34a891bd4502c06` and r2
 `4a4decd69f613c302d77280debc6c2b746f0df1b`, plus rejected r3
 `5c63ab581e497c64bdce8e8e44f8212fa7d2f922`, are immutable
@@ -19,8 +19,12 @@ workflows were green. PR10 was accepted and merged as PR #166 at
 `9ddc0daa3bb405c54411041cf9e52dead8340104`; its PR and post-merge main
 workflows were green. PR11 was accepted and merged as PR #167 at
 `a099c1a498baf1ad9a7c9b75d28fca8bc213287a`; its PR and post-merge main
-workflows were green. PR12 is the current isolated candidate and has not been
-pushed, reviewed, merged, released, deployed, or authorized.
+workflows were green. PR12 was accepted and merged as PR #168 at
+`f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4`; its PR workflows
+`33621615623` and `33621615646`, plus post-merge main workflows
+`33622265613` and `33622265549`, were green. PR13 is the current isolated
+candidate and has not been pushed, reviewed, merged, released, deployed, or
+authorized.
 
 ## Train controls
 
@@ -37,6 +41,7 @@ pushed, reviewed, merged, released, deployed, or authorized.
 - **PR10 base revision:** `050fe4407337d4b443e577c795a37ec2bd1f51b0` (PR #165 merge)
 - **PR11 base revision:** `9ddc0daa3bb405c54411041cf9e52dead8340104` (PR #166 merge)
 - **PR12 base revision:** `a099c1a498baf1ad9a7c9b75d28fca8bc213287a` (PR #167 merge)
+- **PR13 base revision:** `f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4` (PR #168 merge)
 - **Rejected candidate history:**
   `78fe2cdae5fcb4e1230636dc1db8a2b6222c543a` and
   `e76e0735f6cc3eb2eecb05eeac06880d4a525b6c`; PR2 candidate
@@ -86,8 +91,8 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | PR9 | Inference-performance qualification receipt | PR8 | MERGED | PR #165; merge `050fe4407337d4b443e577c795a37ec2bd1f51b0`; PR workflow `33617012138` green; post-merge main workflow `33617659852` pending verification. |
 | PR10 | Qualification validity and staleness | PR9 | MERGED | PR #166; merge `9ddc0daa3bb405c54411041cf9e52dead8340104`; PR workflow `33618484672` and post-merge main workflow `33619175562` green. |
 | PR11 | Qualification CLI | PR10 | MERGED | PR #167; merge `a099c1a498baf1ad9a7c9b75d28fca8bc213287a`; PR workflow `33619950235` and post-merge main workflow `33620609135` green. |
-| PR12 | GitHub required-check integration | PR11 | CANDIDATE | Isolated read-only workflow validates the local CLI/assessment boundary with exact `contents: read` permissions and no privileged contribution path. |
-| PR13 | Guided four-screen product surface | PR6, PR12 | NOT_STARTED | Four states preserve proofability, verdict, validity, and zero authority. |
+| PR12 | GitHub required-check integration | PR11 | MERGED | PR #168; merge `f2030a5e9d7286c5d28e56ccdd6c86fc904d5db4`; PR workflows `33621615623` and `33621615646`; post-merge main workflows `33622265613` and `33622265549`, all green. |
+| PR13 | Guided four-screen product surface | PR6, PR12 | CANDIDATE | Exact `/app?mode=qualification` surface covers subject/scope, proofability, admitted evidence/verdict, and current-to-stale mutation with no provider, storage, or authority side effect. |
 | PR14 | Adversarial closure and candidate checkpoint | PR2–PR13 | NOT_STARTED | Local deterministic, adversarial, documentation, and candidate-state gates. |
 
 ## Mission Control review history
@@ -115,7 +120,7 @@ and `MERGED`. A candidate is not merged, released, deployed, or authorized.
 | Required distinctions | Proofability is pre-admission capability; Verdict is ExitSpec's result from admitted evidence; Validity is present applicability of a validated receipt. |
 | Authority result | No authority owner changes. ExitSpec never authorizes deployment or traffic. |
 | Tests | `/private/tmp/exitspec-v05-docs-venv/bin/python -m pytest tests/test_v0_5_planning_contract.py tests/test_engineering_process.py tests/test_v0_4_release_checkpoint.py` — 16 passed; `/private/tmp/exitspec-v05-docs-venv/bin/ruff check tests/test_v0_5_planning_contract.py` — passed. Local link audit, 14-milestone scan, provider-specific dependency scan, invalid-inline-permissions scan, retired permissive-language scan, and `git diff --check` passed. |
-| Remaining risks | The 14 milestones are a fixed execution contract, not an implementation claim. PR12 must retain the exact valid read-only YAML block, a status-only GitHub boundary, and owner-configured branch protection; later PRs must keep provider and real-evidence operations outside this train. |
+| Remaining risks | The 14 milestones are a fixed execution contract, not an implementation claim. PR12 retains the exact valid read-only YAML block, a status-only GitHub boundary, and owner-configured branch protection; PR13 must keep the guided surface deterministic and product-only; later PRs must keep provider and real-evidence operations outside this train. |
 | Reviewer handoff | Mission Control requested a second superseding candidate. Do not submit either preserved parent to MTS as approved; after correction, Mission Control inspects the new `HEAD` SHA and this ledger before any next milestone. |
 
 ## PR2 evidence record
