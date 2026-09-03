@@ -140,6 +140,7 @@
   let actionPending = false;
   let pollCount = 0;
   let pollTimer = null;
+  let pocLifecycleClosed = document.body.dataset.pocLifecycle === "closed";
 
   class TrustedRequestError extends Error {
     constructor(status) {
@@ -1196,6 +1197,18 @@
     acknowledgement.disabled = true;
     acknowledgementLabel.hidden = false;
 
+    if (pocLifecycleClosed) {
+      heading.textContent = "The final POC decision is recorded";
+      kicker.textContent = "Current task · Closed";
+      guidance.textContent =
+        "Starting another proof run is unavailable after the POC lifecycle closes.";
+      runReason.textContent =
+        "Inspect the exact recorded evidence or terminal receipt instead.";
+      runButton.hidden = true;
+      acknowledgementLabel.hidden = true;
+      return;
+    }
+
     if (actionPending || isActiveStatus(run.status)) {
       heading.textContent = isExternalEvidence()
         ? "Evidence verification in progress"
@@ -1451,6 +1464,7 @@
   async function startProof() {
     if (
       actionPending ||
+      pocLifecycleClosed ||
       !acknowledgement.checked ||
       isActiveStatus(run.status) ||
       run.status === "COMPLETED" ||
@@ -1603,6 +1617,16 @@
   });
   runButton.addEventListener("click", () => {
     void startProof();
+  });
+  window.addEventListener("exitspec:closure-state", (event) => {
+    const closed = event.detail?.closed;
+    if (typeof closed !== "boolean" || pocLifecycleClosed === closed) {
+      return;
+    }
+    pocLifecycleClosed = closed;
+    if (draft && agreement && run) {
+      renderAll();
+    }
   });
   window.addEventListener("pagehide", stopPolling);
   void loadProof();

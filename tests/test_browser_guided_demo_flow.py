@@ -157,6 +157,30 @@ def test_guided_demo_confirms_freezes_and_proves_seeded_contract(tmp_path):
                 finally:
                     evidence_page.close()
 
+                expect(employee_page.locator("#closure-panel")).to_be_visible()
+                expect(employee_page.locator("#rerun-proof")).to_be_visible()
+                employee_page.locator("#closure-decision").select_option(
+                    "HANDOFF_COMPLETED"
+                )
+                employee_page.locator("#closure-rationale").fill(
+                    "Reviewed the exact Evidence Pack with the support-agent POC owner."
+                )
+                employee_page.locator("#record-closure").click()
+                expect(employee_page.locator("#closure-receipt")).to_be_visible()
+                closure_destination = employee_page.locator(
+                    ".closure-dashboard-link"
+                )
+                expect(closure_destination).to_have_text("Evidence Packs")
+                expect(closure_destination).to_have_attribute(
+                    "href", "/app/evidence"
+                )
+                expect(employee_page.locator("#rerun-proof")).to_be_hidden()
+                closure_destination.click()
+                expect(employee_page).to_have_url(f"{base_url}/app/evidence")
+                expect(employee_page.locator("#evidence-pack-list")).to_contain_text(
+                    "Support-agent POC"
+                )
+
                 _assert_bounded_employee_shell(employee_page)
                 assert employee_errors == []
                 assert customer_errors == []
