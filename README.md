@@ -33,10 +33,10 @@ need one shared answer for customer, engineering, or leadership review.
 *Current product surface from a clean local seeded demo. The sample data is
 synthetic.*
 
-> **Release status:** v0.5.0 is the current release. The annotated `v0.5.0`
-> tag and public GitHub release point to the exact green main commit. The v0.4
-> Routing Evidence Pack remains the previous release checkpoint, and v0.3
-> remains the historical compatibility reference.
+> **Release status:** v0.5.1 is the current patch release. Its annotated
+> `v0.5.1` tag and public GitHub release point to the exact green main commit.
+> v0.5.0 remains the prior published release checkpoint; the v0.4 Routing
+> Evidence Pack and v0.3 remain historical compatibility references.
 
 ## 60-second quickstart
 
@@ -151,7 +151,8 @@ stop.
 - **Evidence and release:** [Inferdrome import](docs/INFERDROME_IMPORT.md) ·
   [v0.3 checkpoint](docs/RELEASE_V0_3.md) ·
   [v0.4 checkpoint](docs/RELEASE_V0_4.md) ·
-  [v0.5 checkpoint](docs/RELEASE_V0_5.md)
+  [v0.5 checkpoint](docs/RELEASE_V0_5.md) ·
+  [v0.5.1 patch checkpoint](docs/RELEASE_V0_5_1.md)
 - **Project:** [Contributing](CONTRIBUTING.md) ·
   [Security reporting](SECURITY.md) · [License](LICENSE)
 
