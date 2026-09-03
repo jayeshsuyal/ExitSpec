@@ -105,6 +105,13 @@ dd { margin: 0; overflow-wrap: anywhere; color: var(--secondary); font-family: u
   .screen { min-height: 0; }
 }
 
+/* Preserve the bounded desktop shell at 100%, while allowing zoomed views to scroll. */
+@media (min-width: 801px) and (max-height: 700px) {
+  body { overflow: auto; }
+  .qualification-app { overflow: visible; }
+  .qualification-main { overflow: visible; }
+}
+
 @media (max-width: 480px) {
   .local-identity { font-size: 11px; }
   .stepper { gap: 3px; }

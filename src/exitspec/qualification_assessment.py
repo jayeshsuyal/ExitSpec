@@ -84,6 +84,7 @@ class QualificationAssessmentReason(str, Enum):
     EXPIRED = "EXPIRED"
     INVALID_RECEIPT = "INVALID_RECEIPT"
     INVALID_CONTEXT = "INVALID_CONTEXT"
+    INVALID_EXPIRY = "INVALID_EXPIRY"
     UNSUPPORTED_PROTOCOL = "UNSUPPORTED_PROTOCOL"
 
 
@@ -125,6 +126,7 @@ class QualificationAssessmentV1(_StrictFrozenAssessmentModel):
         "EXPIRED",
         "INVALID_RECEIPT",
         "INVALID_CONTEXT",
+        "INVALID_EXPIRY",
         "UNSUPPORTED_PROTOCOL",
     ]
     evidence_captured_at: datetime | None = None
@@ -361,9 +363,15 @@ def assess_inference_qualification(
 
     expires_at: datetime | None = None
     if validity is QualificationValidity.CURRENT and scope.freshness_policy is not None:
-        expires_at = validated_receipt.evidence_captured_at + timedelta(
-            seconds=scope.freshness_policy.maximum_evidence_age_seconds
-        )
+        try:
+            expires_at = validated_receipt.evidence_captured_at + timedelta(
+                seconds=scope.freshness_policy.maximum_evidence_age_seconds
+            )
+        except OverflowError:
+            return _invalid_assessment(
+                assessed_at=normalized_assessed_at,
+                reason=QualificationAssessmentReason.INVALID_EXPIRY,
+            )
         if normalized_assessed_at >= expires_at:
             validity = QualificationValidity.EXPIRED
             reason = QualificationAssessmentReason.EXPIRED
