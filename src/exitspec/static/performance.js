@@ -62,6 +62,7 @@
       status: "NOT_STARTED",
       reasonCode: null,
     },
+    pocLifecycleClosed: document.body.dataset.pocLifecycle === "closed",
     requestGeneration: 0,
   };
 
@@ -407,6 +408,16 @@
     runButton.hidden = true;
     state.actionMode = "none";
 
+    if (state.pocLifecycleClosed) {
+      heading.textContent = "The final POC decision is recorded";
+      guidance.textContent =
+        "Starting another proof run is unavailable after the POC lifecycle closes.";
+      $("#run-reason").textContent =
+        "Inspect the exact recorded evidence or terminal receipt instead.";
+      renderRunState();
+      return;
+    }
+
     if (!state.contractRunnable) {
       heading.textContent = "Review the frozen agreement";
       guidance.textContent =
@@ -587,7 +598,7 @@
   }
 
   async function refreshReadiness() {
-    if (state.actionPending) {
+    if (state.actionPending || state.pocLifecycleClosed) {
       return;
     }
     state.actionPending = true;
@@ -614,7 +625,11 @@
   }
 
   async function startProof() {
-    if (state.actionPending || state.readiness.status !== "COMPLETED") {
+    if (
+      state.actionPending ||
+      state.pocLifecycleClosed ||
+      state.readiness.status !== "COMPLETED"
+    ) {
       return;
     }
     state.actionPending = true;
@@ -714,6 +729,15 @@
     if (state.actionMode === "run") {
       void startProof();
     }
+  });
+
+  window.addEventListener("exitspec:closure-state", (event) => {
+    const closed = event.detail?.closed;
+    if (typeof closed !== "boolean" || state.pocLifecycleClosed === closed) {
+      return;
+    }
+    state.pocLifecycleClosed = closed;
+    renderAction();
   });
 
   renderAction();

@@ -1,6 +1,11 @@
 (() => {
   "use strict";
 
+  const SEEDED_POC_IDS = new Set([
+    "poc_support_agent_demo",
+    "poc_inference_latency_demo",
+  ]);
+
   function installCompatibilityClosurePanel() {
     const current = document.querySelector("#closure-panel");
     if (current) {
@@ -149,6 +154,7 @@
   const receiptTime = document.querySelector("#closure-receipt-time");
   const receiptRationale = document.querySelector("#closure-receipt-rationale");
   const evidenceLink = document.querySelector("#closure-evidence-link");
+  const dashboardLink = document.querySelector(".closure-dashboard-link");
   let eligibleEvidenceBinding = null;
   let eligibleTerminalRunBinding = null;
   let inFlight = false;
@@ -225,6 +231,32 @@
     status.dataset.tone = tone;
   }
 
+  function setLifecycleClosed(closed) {
+    const lifecycle = closed ? "closed" : "open";
+    if (document.body.dataset.pocLifecycle === lifecycle) {
+      return;
+    }
+    document.body.dataset.pocLifecycle = lifecycle;
+    window.dispatchEvent(
+      new CustomEvent("exitspec:closure-state", {
+        detail: { pocId, closed },
+      })
+    );
+  }
+
+  function renderPostClosureDestination() {
+    if (!dashboardLink) {
+      return;
+    }
+    if (SEEDED_POC_IDS.has(pocId)) {
+      dashboardLink.href = "/app/evidence";
+      dashboardLink.textContent = "Evidence Packs";
+      return;
+    }
+    dashboardLink.href = "/app?filter=Completed";
+    dashboardLink.textContent = "Completed POCs";
+  }
+
   function renderReceipt(closure) {
     if (!closure || typeof closure !== "object") {
       receipt.hidden = true;
@@ -233,6 +265,8 @@
     }
     form.hidden = true;
     receipt.hidden = false;
+    setLifecycleClosed(true);
+    renderPostClosureDestination();
     receiptDecision.textContent =
       closure.decision === "HANDOFF_COMPLETED"
         ? "Handoff completed"
@@ -270,6 +304,7 @@
       renderReceipt(closure);
       return;
     }
+    setLifecycleClosed(false);
     receipt.hidden = true;
     form.hidden = false;
     panel.hidden = !(payload?.closeable && eligibleBinding());

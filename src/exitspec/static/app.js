@@ -48,6 +48,7 @@
   let sourceImportRequestPromise = null;
   let sourceOperationVersion = 0;
   let resetRunning = false;
+  let pocLifecycleClosed = document.body.dataset.pocLifecycle === "closed";
   let sourceLastReceipt = null;
   let sourceTimingEvidence = null;
   let sourceStatusMessage = "";
@@ -1003,6 +1004,17 @@
     if (hasProof) {
       const verdict = state.proof_pack.overall_verdict;
       const isPass = verdict === "PASS";
+      if (pocLifecycleClosed) {
+        return {
+          stage: "decide",
+          eyebrow: "Prove · POC closed",
+          title: "The final POC decision is recorded",
+          copy: compactProofReason(state.proof_pack),
+          nextTitle: "Open evidence pack",
+          nextCopy: "Inspect the exact recorded evidence. Starting another reference set is unavailable.",
+          blockers: ["POC lifecycle closed. Shipping remains a separate human decision."],
+        };
+      }
       return {
         stage: "decide",
         eyebrow: "Prove · Evidence recorded",
@@ -1542,13 +1554,13 @@
     sourceButton.hidden = emailIntakeMode || !noApprovedRule;
 
     const runButton = $("#run-proof");
-    runButton.disabled = !readyToProve;
-    runButton.hidden = !readyToProve || (hasProof && !rerunMode);
+    runButton.disabled = !readyToProve || pocLifecycleClosed;
+    runButton.hidden = pocLifecycleClosed || !readyToProve || (hasProof && !rerunMode);
     runButton.textContent = rerunMode ? "Run selected reference set" : "Run this POC";
     runButton.title = readyToProve ? "" : "Customer confirmation and an explicit freeze are required before running proof.";
 
     const rerunButton = $("#rerun-proof");
-    rerunButton.hidden = !hasProof || rerunMode;
+    rerunButton.hidden = pocLifecycleClosed || !hasProof || rerunMode;
     rerunButton.className = proofVerdict === "PASS"
       ? "button secondary"
       : "button primary";
@@ -1984,6 +1996,9 @@
   }
 
   function beginRerun() {
+    if (pocLifecycleClosed) {
+      return;
+    }
     rerunMode = true;
     setStatus(proveStatus, "");
     render();
@@ -2041,6 +2056,9 @@
   }
 
   async function runProof() {
+    if (pocLifecycleClosed) {
+      return;
+    }
     const selected = document.querySelector('input[name="scenario"]:checked');
     selectedScenario = selected ? selected.value : "pass";
     setStatus(proveStatus, "Running POC…");
@@ -2126,6 +2144,20 @@
   }
   $("#run-proof").addEventListener("click", runProof);
   $("#rerun-proof").addEventListener("click", beginRerun);
+  window.addEventListener("exitspec:closure-state", (event) => {
+    const closed = event.detail?.closed;
+    if (typeof closed !== "boolean" || pocLifecycleClosed === closed) {
+      return;
+    }
+    pocLifecycleClosed = closed;
+    if (closed) {
+      rerunMode = false;
+      setStatus(proveStatus, "");
+    }
+    if (state) {
+      render();
+    }
+  });
   document.querySelectorAll('input[name="scenario"]').forEach((input) => {
     input.addEventListener("change", () => { selectedScenario = input.value; });
   });

@@ -83,6 +83,30 @@ def test_closure_browser_echoes_only_the_exact_evidence_binding():
     assert "shipping remains a separate human decision" in javascript.lower()
 
 
+def test_closed_poc_ui_routes_seeded_fixtures_to_evidence_and_hides_reruns():
+    closure = _read("closure.js")
+    app = _read("app.js")
+    proof = _read("proof.js")
+    performance = _read("performance.js")
+
+    assert '"poc_support_agent_demo"' in closure
+    assert '"poc_inference_latency_demo"' in closure
+    assert 'dashboardLink.href = "/app/evidence"' in closure
+    assert 'dashboardLink.textContent = "Evidence Packs"' in closure
+    assert 'dashboardLink.href = "/app?filter=Completed"' in closure
+    assert 'dashboardLink.textContent = "Completed POCs"' in closure
+    assert 'new CustomEvent("exitspec:closure-state"' in closure
+    assert 'document.body.dataset.pocLifecycle = lifecycle' in closure
+
+    assert 'rerunButton.hidden = pocLifecycleClosed || !hasProof || rerunMode;' in app
+    assert 'if (pocLifecycleClosed) {' in app
+    assert 'window.addEventListener("exitspec:closure-state"' in app
+    assert 'pocLifecycleClosed ||' in proof
+    assert 'window.addEventListener("exitspec:closure-state"' in proof
+    assert 'state.pocLifecycleClosed ||' in performance
+    assert 'window.addEventListener("exitspec:closure-state"' in performance
+
+
 def test_dashboard_routes_terminal_and_completed_pocs_to_handoff():
     javascript = _read("dashboard.js")
 
