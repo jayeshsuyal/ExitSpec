@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 WORKFLOW = (
     Path(__file__).resolve().parents[1]
     / ".github"
@@ -24,6 +23,10 @@ def test_qualification_workflow_is_read_only_and_status_only():
     assert "deploy" not in content.casefold()
     assert "provider" not in content.casefold()
     assert "traffic" not in content.casefold()
+    assert "ref: ${{ github.event.pull_request.base.sha || github.sha }}" in content
+    assert "path: control" in content
+    assert "path: candidate" in content
+    assert "run_qualification_control_harness.py candidate/src" in content
     assert "python -m pytest -q tests/test_qualification_cli.py" in content
 
 
