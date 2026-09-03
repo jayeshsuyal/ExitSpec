@@ -78,6 +78,8 @@ def test_walkthrough_has_compact_desktop_shell_and_narrow_layout():
     assert ".qualification-main { min-height: 0; overflow: auto; }" in css
     assert "@media (max-width: 800px)" in css
     assert "@media (max-width: 480px)" in css
+    assert "@media (min-width: 801px) and (max-height: 700px)" in css
+    assert "allowing zoomed views to scroll" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
 
 

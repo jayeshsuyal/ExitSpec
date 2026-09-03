@@ -116,7 +116,15 @@ def _admitted(
     )
 
 
-def _issue(monkeypatch, *, failed: int = 0, attempted: int = 100, p95=12_000_000):
+def _issue(
+    monkeypatch,
+    *,
+    failed: int = 0,
+    attempted: int = 100,
+    p95=12_000_000,
+    evidence_captured_at=FIXED_TIME,
+    issued_at=FIXED_TIME,
+):
     authority, descriptor, report, handoff, package = _inputs()
     monkeypatch.setattr(
         receipts_module,
@@ -139,8 +147,8 @@ def _issue(monkeypatch, *, failed: int = 0, attempted: int = 100, p95=12_000_000
         authority.contract,
         descriptor,
         report,
-        evidence_captured_at=FIXED_TIME,
-        issued_at=FIXED_TIME,
+        evidence_captured_at=evidence_captured_at,
+        issued_at=issued_at,
     )
     return receipt
 

@@ -174,6 +174,28 @@ def test_assessment_parser_rejects_duplicate_fields_and_tampering():
         parse_qualification_assessment(canonical_json_bytes({"schema_version": "x"}))
 
 
+def test_expiry_overflow_fails_closed_without_escaping_raw_exception(monkeypatch):
+    authority, _, _, _, _ = _inputs()
+    receipt = _issue(
+        monkeypatch,
+        evidence_captured_at=datetime.max.replace(tzinfo=UTC),
+        issued_at=datetime.max.replace(tzinfo=UTC),
+    )
+
+    assessment = assess_inference_qualification(
+        receipt,
+        authority.subject,
+        authority.scope,
+        authority.context,
+        assessed_at=FIXED_TIME,
+    )
+
+    assert assessment.validity == QualificationValidity.INVALID
+    assert assessment.reason == QualificationAssessmentReason.INVALID_EXPIRY
+    assert assessment.verdict is None
+    assert assessment.expires_at is None
+
+
 def test_module_has_no_network_or_execution_import_surface():
     source = Path(assessment_module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)

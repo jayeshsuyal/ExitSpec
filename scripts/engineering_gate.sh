@@ -47,6 +47,21 @@ fi
 
 printf 'ExitSpec engineering gate revision: %s\n' "${current_revision}"
 
+assert_candidate_binding() {
+  local observed_revision
+  observed_revision="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+  if [[ "${observed_revision}" != "${current_revision}" ]]; then
+    printf 'Candidate revision changed during the engineering gate: %s -> %s\n' \
+      "${current_revision}" "${observed_revision}" >&2
+    exit 2
+  fi
+  if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+    printf 'Candidate worktree changed during the engineering gate.\n' >&2
+    git status --short >&2
+    exit 2
+  fi
+}
+
 untracked_files="$(git ls-files --others --exclude-standard)"
 if [[ -n "${untracked_files}" ]]; then
   printf 'Untracked files are outside the proposed-change checks:\n' >&2
@@ -208,3 +223,4 @@ run_gate \
   "${python_command}" -m pip_audit --local --skip-editable --format columns
 
 printf '\nExitSpec engineering gate passed.\n'
+assert_candidate_binding
