@@ -91,6 +91,12 @@ owner state and expiry after clock callbacks, and retains terminal invalidation
 receipts with cleared source/body references. It never starts a worker. Reentrant
 clock regressions cover revoke, archive and shutdown at both preview checks.
 
+The real-clock integration also verifies expiry against the exact `issued + TTL`
+value used at preparation. Subtracting two floating-point timestamps can produce
+a value just above or below 300 seconds and incorrectly refuse valid consent.
+There is no tolerance or lifetime extension: one representable step of drift in
+either expiry is rejected, and the existing monotonic expiry guards still apply.
+
 The main app now composes the same A3 source/draft/review owners already used by
 the source-neutral demo. Its review lookup substitutes validated A3 material for
 the matching A2 source through the existing proposal-review service. Unrelated

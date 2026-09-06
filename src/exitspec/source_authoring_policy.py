@@ -287,8 +287,8 @@ class SourceBoundAuthoringIntent(_Immutable):
                 or self.redaction_configuration_digest != self.policy.redaction_configuration_digest
                 or self.token_proof.body_sha256 != self.body_sha256
                 or self.token_proof.input_tokens != self.synthetic_input_tokens
-                or self.expires_at - self.issued_at != self.policy.consent_ttl_seconds
-                or self.expires_monotonic - self.issued_monotonic != self.policy.consent_ttl_seconds
+                or self.expires_at != self.issued_at + self.policy.consent_ttl_seconds
+                or self.expires_monotonic != self.issued_monotonic + self.policy.consent_ttl_seconds
                 or not self.issued_at <= self.acknowledged_at < self.expires_at):
             raise ValueError("Inconsistent authorization binding.")
         return self

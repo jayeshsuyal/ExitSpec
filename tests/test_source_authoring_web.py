@@ -168,6 +168,21 @@ def wait(rig, capability, operation):
     raise AssertionError("Synthetic operation did not finish within test bound")
 
 
+def test_fractional_monotonic_clock_reaches_review_only_publication(rig):
+    rig.runtime.operations._now = lambda: 1000.1
+    capability = bootstrap(rig)
+    operation = prepare(rig, capability)["operation_id"]
+    authorize(rig, capability, operation)
+    status, body, _ = call(
+        rig, "run", {"operation_id": operation}, capability=capability
+    )
+    assert status == 200, body
+    result = wait(rig, capability, operation)
+    assert result["state"] == "SUCCEEDED" and result["attempts"] == 1
+    proposals = rig.server.proposal_review_service.list_proposals(POC)
+    assert proposals and all(row.review_state.value == "NEEDS_REVIEW" for row in proposals)
+
+
 def test_api_journey_exact_preview_separate_ack_run_and_human_review(rig, monkeypatch):
     starts = []
     original = SyntheticSourceAuthoringSupervisor.prepare

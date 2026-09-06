@@ -1,6 +1,7 @@
 """No-network proofs for the separately pinned source-authoring contract."""
 
 import json
+import math
 from datetime import UTC, datetime
 
 import pytest
@@ -127,6 +128,35 @@ def test_intent_detaches_roundtrips_and_binds_every_owner_field():
     assert intent.token_proof.body_sha256 == body_digest(wire)
     with pytest.raises(ValidationError):
         intent.policy.network_enabled = True
+
+
+@pytest.mark.parametrize("clock", ["at", "monotonic"])
+def test_fractional_clock_expiry_uses_the_exact_issued_plus_ttl_binding(clock):
+    supplied = bindings()
+    issued = 1000.1
+    expires = issued + 300.0
+    assert expires - issued != 300.0  # IEEE-754 subtraction is not its inverse.
+    supplied.update({f"issued_{clock}": issued, f"expires_{clock}": expires})
+    if clock == "at":
+        supplied["acknowledged_at"] = issued + 1.0
+    intent = build_intent(source(), body=build_body(source()), **supplied)
+    validate_intent(intent, source(), build_body(source()))
+    assert getattr(intent, f"expires_{clock}") == expires
+
+
+@pytest.mark.parametrize("clock", ["at", "monotonic"])
+@pytest.mark.parametrize("direction", [-math.inf, math.inf])
+def test_even_one_float_step_of_expiry_drift_is_refused(clock, direction):
+    supplied = bindings()
+    issued = 1000.1
+    supplied.update({
+        f"issued_{clock}": issued,
+        f"expires_{clock}": math.nextafter(issued + 300.0, direction),
+    })
+    if clock == "at":
+        supplied["acknowledged_at"] = issued + 1.0
+    with pytest.raises(SourceAuthoringPolicyError):
+        build_intent(source(), body=build_body(source()), **supplied)
 
 
 @pytest.mark.parametrize("field,value", [
