@@ -62,6 +62,10 @@ Origin, unknown fields, duplicate JSON keys, unexpected encodings, ambiguous
 lengths, transfer encoding, nonfinite numbers and parameterized routes fail
 closed. Requests are capped at 4 KiB with a two-second body-read bound. Responses
 are capped at 256 KiB, including browser-side streaming enforcement.
+The body reader uses a monotonic absolute deadline and single raw reads through
+the buffered stream, so continuously arriving bytes cannot renew the bound.
+The deadline is checked again after JSON validation, before runtime admission;
+expiry returns a content-free timeout without minting a session or operation.
 
 Every API response is `no-store`; no CORS permission is returned. Capabilities
 exist only in page memory and the fixed request header, never URLs, operation
@@ -69,6 +73,9 @@ receipts, logs, cookies or persistent browser storage. On page hide the page
 requests revocation with its header, aborts pending reads, clears source text,
 capability and acknowledgment, and stops polling. Refresh/back restoration issues
 a fresh page capability and requires fresh inspection and acknowledgment. An
+async disclosure digest or source-list response rechecks its captured page
+generation and operation before changing content. Status/cancellation failures
+from superseded operations cannot clear or disable a newer disclosure. An
 untrusted or failed current-status response disables consent and Run controls
 and clears the displayed source until the page is reloaded. An
 unobserved page-hide request is not a guarantee of cancellation: core expiry and
@@ -111,10 +118,12 @@ behavior is unchanged.
 
 API tests exercise both app compositions, all four source kinds, one ledger
 across POCs, capability misuse, source/review/archive/closure/expiry invalidation,
-duplicate Run/replay, mid-flight cancellation and request/response limits. Nine
+duplicate Run/replay, mid-flight cancellation and request/response limits. Nineteen
 Chromium cases cover both app compositions, desktop/mobile layout, page
 refresh/back restoration, untrusted responses and native Zoom text with separate
-authoring consent. The v0.4 release gate explicitly requires all nine with zero
+authoring consent, deferred digests across page lifecycle changes, obsolete
+status failures and delayed source lists. The v0.4 release gate explicitly
+requires all nineteen with zero
 skips, failures or errors. The engineering gate includes the new code lint and
 JavaScript syntax checks. Optional browser skips in ordinary engineering runs
 are distinct from the mandatory release collections.

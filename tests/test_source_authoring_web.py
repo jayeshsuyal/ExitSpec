@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from exitspec import source_authoring_web as web_module
 from exitspec.poc_creation import DraftPOCCreateRequest, FirstSourceChoice
 from exitspec.poc_proposal_review import ProposalDecision
 from exitspec.poc_source_demo import SourceNeutralPOCDemoServer
@@ -282,6 +283,85 @@ def test_bad_origin_host_cannot_consume_bootstrap_capacity(rig, origin, host, he
 def test_bad_json_and_framing_cannot_mint_capability(rig, raw, headers):
     assert call(rig, "bootstrap", raw=raw, headers=headers)[0] in {400, 413}
     assert rig.runtime._browsers == [] and rig.runtime.operations._sessions == {}
+
+
+@pytest.mark.parametrize("action", ["bootstrap", "prepare"])
+def test_continuously_trickled_body_expires_without_minting_authority(rig, action):
+    capability = bootstrap(rig) if action == "prepare" else None
+    initial_sessions = len(rig.runtime.operations._sessions)
+    payload = (
+        {"source_receipt_id": rig.receipt.source_receipt_id}
+        if action == "prepare"
+        else {}
+    )
+    body = json.dumps(payload).encode() + b"  \n"
+    connection = HTTPConnection("127.0.0.1", rig.server.server_port, timeout=5)
+    origin = f"http://127.0.0.1:{rig.server.server_port}"
+    connection.putrequest("POST", rig.prefix + action)
+    connection.putheader("Origin", origin)
+    connection.putheader("Content-Type", "application/json")
+    connection.putheader("Content-Length", str(len(body)))
+    if capability is not None:
+        connection.putheader(CAPABILITY_HEADER, capability)
+    connection.endheaders(body[:-3])
+    sent = []
+    stopped = threading.Event()
+
+    def trickle():
+        for byte in body[-3:]:
+            if stopped.wait(0.75):
+                return
+            try:
+                connection.send(bytes([byte]))
+                sent.append(byte)
+            except OSError:
+                return
+
+    sender = threading.Thread(target=trickle)
+    sender.start()
+    try:
+        response = connection.getresponse()
+        result = json.loads(response.read())
+        assert response.status == 408, result
+        assert result == {
+            "code": "REQUEST_TIMEOUT",
+            "error": "Source authoring request was refused.",
+        }
+        assert response.getheader("Cache-Control") == "no-store"
+        assert len(sent) >= 2  # Continued activity cannot renew the total bound.
+        assert len(rig.runtime.operations._sessions) == initial_sessions
+        assert len(rig.runtime._browsers) == initial_sessions
+        assert rig.runtime.operations._records == {}
+        assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._thread is None
+    finally:
+        stopped.set()
+        sender.join(timeout=5)
+        connection.close()
+
+
+@pytest.mark.parametrize("elapsed,status", [(1.999, 200), (2.0, 408), (2.001, 408)])
+def test_body_deadline_boundary_precedes_runtime_admission(rig, monkeypatch, elapsed, status):
+    # Complete the actual socket read, then model the final admission boundary
+    # exactly, without wall-clock scheduling tolerance near the two-second limit.
+    clock = [100.0]
+    original = web_module._read_request_body
+
+    def completed(handler, size, deadline):
+        body = original(handler, size, deadline)
+        clock[0] += elapsed
+        return body
+
+    monkeypatch.setattr(web_module, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(web_module, "_read_request_body", completed)
+    actual, result, _ = call(rig, "bootstrap", raw=b"{}" + b" " * 4094)
+    assert actual == status, result
+    expected_sessions = int(status == 200)
+    assert len(rig.runtime.operations._sessions) == expected_sessions
+    assert len(rig.runtime._browsers) == expected_sessions
+    assert rig.runtime.operations._records == {}
+    assert rig.runtime.operations.ledger[0] == 0
+    if status == 408:
+        assert "capability" not in result and result["code"] == "REQUEST_TIMEOUT"
 
 
 def test_capability_is_required_for_every_read_and_mutation_and_bound_to_session(rig):

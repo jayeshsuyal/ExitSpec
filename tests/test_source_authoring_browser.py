@@ -190,6 +190,157 @@ def test_browser_refresh_and_back_restore_require_fresh_inspection_and_ack(rig):
             browser.close()
 
 
+@pytest.mark.parametrize("restoration", ["hidden", "fresh-page", "new-disclosure"])
+def test_browser_deferred_digest_never_restores_superseded_source(rig, restoration):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            open_page(page, rig)
+            page.evaluate("""() => {
+              const digest = crypto.subtle.digest.bind(crypto.subtle);
+              crypto.subtle.digest = async (...args) => {
+                const result = await digest(...args);
+                crypto.subtle.digest = digest;
+                await new Promise(resolve => { window.releaseDigest = resolve; });
+                return result;
+              };
+            }""")
+            page.locator("#source-preview").click()
+            page.wait_for_function("typeof window.releaseDigest === 'function'")
+            page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide'))")
+            if restoration != "hidden":
+                page.evaluate(
+                    "window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}))"
+                )
+                expect(page.locator("#source-choice")).to_be_enabled()
+            expected = ""
+            if restoration == "new-disclosure":
+                receipt = rig.server.poc_source_intake.capture_source(
+                    poc_id=POC,
+                    source=web_tests.POCSourceInput(
+                        source_kind=web_tests.SourceKind.DOCUMENT,
+                        content="The budget must stay below 95 dollars.",
+                    ),
+                    idempotency_key="new-disclosure",
+                )
+                page.locator("#source-refresh").click()
+                expect(page.locator("#source-choice")).to_be_enabled()
+                page.locator("#source-choice").select_option(receipt.source_receipt_id)
+                preview_and_acknowledge(page)
+                expected = page.locator("#source-redacted-text").inner_text()
+                assert "95 dollars" in expected
+            page.evaluate("window.releaseDigest()")
+            # Drain the resolved digest and its caller through the next task.
+            page.evaluate("() => new Promise(resolve => setTimeout(resolve, 0))")
+            expect(page.locator("#source-redacted-text")).to_have_text(expected)
+            if restoration == "new-disclosure":
+                expect(page.locator("#source-run")).to_be_enabled()
+                expect(page.locator("#source-business-text")).to_be_checked()
+                expect(page.locator("#source-acknowledged")).to_be_checked()
+            else:
+                expect(page.locator("#source-disclosure")).to_be_hidden()
+                expect(page.locator("#source-run")).to_be_disabled()
+                expect(page.locator("#source-authorize")).to_be_disabled()
+                expect(page.locator("#source-business-text")).not_to_be_checked()
+                expect(page.locator("#source-acknowledged")).not_to_be_checked()
+            assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._thread is None
+        finally:
+            browser.close()
+
+
+def test_browser_delayed_status_failure_cannot_clear_new_operation(rig):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            open_page(page, rig)
+            page.evaluate("""() => {
+              const fetch = window.fetch;
+              let held = false;
+              window.fetch = (url, options) => {
+                if (!held && url.endsWith('/status')) {
+                  held = true;
+                  return new Promise((resolve, reject) => { window.rejectStatus = reject; });
+                }
+                return fetch(url, options);
+              };
+            }""")
+            preview_and_acknowledge(page)
+            page.wait_for_function("typeof window.rejectStatus === 'function'")
+            page.locator("#source-cancel").click()
+            expect(page.locator("#source-status")).to_contain_text("Consent revoked")
+            preview_and_acknowledge(page)
+            expected = page.locator("#source-redacted-text").inner_text()
+            page.evaluate("window.rejectStatus(new Error('superseded status'))")
+            page.evaluate("() => new Promise(resolve => setTimeout(resolve, 0))")
+            expect(page.locator("#source-redacted-text")).to_have_text(expected)
+            expect(page.locator("#source-disclosure")).to_be_visible()
+            expect(page.locator("#source-run")).to_be_enabled()
+            expect(page.locator("#source-business-text")).to_be_checked()
+            expect(page.locator("#source-acknowledged")).to_be_checked()
+            expect(page.locator("#source-authoring-error")).to_be_hidden()
+            assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._thread is None
+        finally:
+            browser.close()
+
+
+def test_browser_delayed_source_list_cannot_replace_restored_page_choices(rig):
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.add_init_script("""(() => {
+          const fetch = window.fetch;
+          let held = false;
+          window.fetch = async (url, options) => {
+            const response = await fetch(url, options);
+            if (!held && url.endsWith('/sources')) {
+              held = true;
+              const body = await response.text();
+              const detached = new Response(body, {status: response.status, headers: response.headers});
+              await new Promise(resolve => { window.releaseSources = resolve; });
+              return detached;
+            }
+            return response;
+          };
+        })();""")
+        try:
+            page.goto(
+                f"http://127.0.0.1:{rig.server.server_port}/app/pocs/{POC}/source-authoring"
+            )
+            page.wait_for_function("typeof window.releaseSources === 'function'")
+            receipt = rig.server.poc_source_intake.capture_source(
+                poc_id=POC,
+                source=web_tests.POCSourceInput(
+                    source_kind=web_tests.SourceKind.DOCUMENT,
+                    content="The budget must stay below 95 dollars.",
+                ),
+                idempotency_key="new-list-source",
+            )
+            page.evaluate("""() => {
+              window.dispatchEvent(new PageTransitionEvent('pagehide'));
+              window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}));
+            }""")
+            expect(page.locator("#source-choice")).to_be_enabled()
+            page.locator("#source-choice").select_option(receipt.source_receipt_id)
+            page.evaluate("window.releaseSources()")
+            page.evaluate("() => new Promise(resolve => setTimeout(resolve, 0))")
+            expect(page.locator("#source-choice")).to_have_value(receipt.source_receipt_id)
+            expect(page.locator("#source-preview")).to_be_enabled()
+            expect(page.locator("#source-run")).to_be_disabled()
+            preview_and_acknowledge(page)
+            expect(page.locator("#source-redacted-text")).to_contain_text("95 dollars")
+            assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._thread is None
+        finally:
+            browser.close()
+
+
 def test_browser_midflight_cancel_and_changed_draft_clear_authority(rig):
     from playwright.sync_api import expect, sync_playwright
 

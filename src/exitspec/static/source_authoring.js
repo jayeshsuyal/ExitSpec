@@ -15,6 +15,7 @@
   let capability = null, operation = null, state = null, processing = false;
   let busy = false, ready = false, serial = 0, timer = null, displayed = null, key = null;
   const pending = new Set();
+  const isCurrent = (epoch, current) => epoch === serial && current === operation;
 
   function sameKeys(value, keys) {
     return value !== null && typeof value === "object" && !Array.isArray(value) &&
@@ -95,7 +96,10 @@
       integer(value.expires_in_seconds, 300) && (value.code === null || /^[A-Za-z_]{1,60}$/.test(value.code)) &&
       (value.authoring_receipt_id === null || /^arcp_[a-f0-9]{32}$/.test(value.authoring_receipt_id));
   }
-  async function showDisclosure(value) {
+  async function showDisclosure(value, epoch) {
+    const current = value.operation_id;
+    const canDisplay = () => isCurrent(epoch, current) && ready && !TERMINAL.has(state);
+    if (!canDisplay()) return false;
     const d = value.disclosure;
     const keys = ["disclosure_sha256", "source_receipt_id", "source_kind", "source_revision", "source_sha256", "redacted_text", "classification", "provider", "model", "purpose", "custody", "limits"];
     const expectedLimits = {source_bytes: 16384, body_bytes: 65536, response_bytes: 262144,
@@ -110,7 +114,11 @@
         !sameKeys(d.limits, Object.keys(expectedLimits)) || Object.entries(expectedLimits).some(([k, v]) => d.limits[k] !== v)) throw new Error("UNTRUSTED_RESPONSE");
     const text = new TextEncoder().encode(d.redacted_text);
     if (!text.length || text.length > 16384) throw new Error("RESPONSE_LIMIT");
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", text))).map((n) => n.toString(16).padStart(2, "0")).join("");
+    let hash;
+    try { hash = await crypto.subtle.digest("SHA-256", text); }
+    catch (error) { if (!canDisplay()) return false; throw error; }
+    if (!canDisplay()) return false;
+    const digest = Array.from(new Uint8Array(hash)).map((n) => n.toString(16).padStart(2, "0")).join("");
     if (digest !== d.source_sha256) throw new Error("UNTRUSTED_RESPONSE");
     displayed = value.operation_id;
     $("source-description").textContent = `${KINDS[d.source_kind]} · revision ${d.source_revision} · ${d.source_receipt_id}`;
@@ -120,6 +128,7 @@
     $("source-custody").textContent = d.custody;
     $("source-disclosure").hidden = false;
     $("source-empty").hidden = true;
+    return true;
   }
   function render(value) {
     if (!trustedOperation(value) || value.operation_id !== operation) throw new Error("UNTRUSTED_RESPONSE");
@@ -141,19 +150,23 @@
     timer = setTimeout(async () => {
       try {
         const value = await api("status", {operation_id: current});
-        if (epoch === serial && operation === current) render(value);
+        if (isCurrent(epoch, current)) render(value);
       } catch (error) {
-        if (epoch === serial) {
+        if (isCurrent(epoch, current) && !TERMINAL.has(state)) {
           failure(error.message); ready = false; clearSource();
           $("source-status").textContent = "Current consent could not be verified. Reload before continuing.";
           controls();
         }
       }
-      if (epoch === serial) poll();
+      if (isCurrent(epoch, current)) poll();
     }, 750);
   }
-  async function sources() {
-    const value = await api("sources");
+  async function sources(epoch) {
+    const current = operation;
+    let value;
+    try { value = await api("sources"); }
+    catch (error) { if (!isCurrent(epoch, current)) return false; throw error; }
+    if (!isCurrent(epoch, current)) return false;
     if (!sameKeys(value, ["mode", "poc_id", "sources"]) || value.mode !== MODE || value.poc_id !== poc ||
         !Array.isArray(value.sources) || value.sources.length > 256 || value.sources.some((s) =>
           !sameKeys(s, ["source_receipt_id", "source_kind", "eligible"]) || !RECEIPT.test(s.source_receipt_id) ||
@@ -164,6 +177,7 @@
       option.disabled = !source.eligible; choice.append(option);
     }
     if (!value.sources.some((s) => s.eligible)) $("source-status").textContent = "No current source is eligible. Capture new source text or return to human review.";
+    return true;
   }
   async function action(task) {
     if (busy || !ready) return;
@@ -190,42 +204,45 @@
       capability = value.capability;
       $("source-poc-title").textContent = value.display_name;
       $("source-status").textContent = "Select and inspect one current source. Nothing runs on page load.";
-      await sources();
-      if (epoch === serial) ready = true;
+      const loaded = await sources(epoch);
+      if (loaded && isCurrent(epoch, null)) ready = true;
     } catch (error) { if (epoch === serial) failure(error.message); }
     finally { if (epoch === serial) { busy = false; controls(); } }
   }
   choice.addEventListener("change", controls);
   business.addEventListener("change", controls); acknowledged.addEventListener("change", controls);
-  $("source-refresh").addEventListener("click", () => action(async () => {
-    operation = state = key = null; clearSource(); await sources();
+  $("source-refresh").addEventListener("click", () => action(async (epoch) => {
+    operation = state = key = null; clearSource(); await sources(epoch);
   }));
   $("source-preview").addEventListener("click", () => action(async (epoch) => {
     clearSource(); key = crypto.randomUUID();
+    const current = operation;
     const value = await api("prepare", {source_receipt_id: choice.value});
-    if (epoch !== serial) return;
+    if (!isCurrent(epoch, current)) return;
     if (!trustedOperation(value) || value.state !== "PREPARED") throw new Error("CONSENT_REFUSED");
     operation = value.operation_id;
     state = null;
-    await showDisclosure(value);
-    if (epoch !== serial) return;
+    const shown = await showDisclosure(value, epoch);
+    if (!shown || !isCurrent(epoch, value.operation_id)) return;
     render(value); $("source-redacted-text").focus();
   }));
   $("source-authorize").addEventListener("click", () => action(async (epoch) => {
     if (!business.checked || !acknowledged.checked || displayed !== operation) return;
-    const value = await api("authorize", {operation_id: operation, business_text: true, acknowledged: true, idempotency_key: key});
-    if (epoch === serial) render(value);
+    const current = operation;
+    const value = await api("authorize", {operation_id: current, business_text: true, acknowledged: true, idempotency_key: key});
+    if (isCurrent(epoch, current)) render(value);
   }));
   $("source-run").addEventListener("click", () => action(async (epoch) => {
-    const value = await api("run", {operation_id: operation});
-    if (epoch === serial) render(value);
+    const current = operation;
+    const value = await api("run", {operation_id: current});
+    if (isCurrent(epoch, current)) render(value);
   }));
   $("source-cancel").addEventListener("click", async () => {
     const epoch = serial, current = operation;
     try {
       const value = await api("revoke", {operation_id: current});
-      if (epoch === serial && current === operation) render(value);
-    } catch (error) { if (epoch === serial) failure(error.message); }
+      if (isCurrent(epoch, current)) render(value);
+    } catch (error) { if (isCurrent(epoch, current) && !TERMINAL.has(state)) failure(error.message); }
   });
   window.addEventListener("pagehide", () => {
     if (capability && operation && !TERMINAL.has(state)) {

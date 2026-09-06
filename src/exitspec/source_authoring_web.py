@@ -10,6 +10,7 @@ import secrets
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from threading import RLock, Thread
+from time import monotonic
 from urllib.parse import urlparse
 
 from .assisted_authoring import ASSISTED_AUTHORING_SCHEMA_VERSION
@@ -358,6 +359,24 @@ def source_authoring_page_poc(path):
     return match[1] if match else None
 
 
+def _read_request_body(handler, size, deadline):
+    body = bytearray()
+    while len(body) < size:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError()
+        handler.connection.settimeout(remaining)
+        # read1 consumes buffered bytes or performs one raw read. read(size)
+        # can repeatedly renew an idle socket timeout while a body trickles in.
+        chunk = handler.rfile.read1(size - len(body))
+        if monotonic() >= deadline:
+            raise TimeoutError()
+        if not chunk:
+            raise ValueError()
+        body.extend(chunk)
+    return bytes(body)
+
+
 def handle_source_authoring_http(handler):
     """Validate every byte/header before bootstrapping or using UI authority.
 
@@ -438,10 +457,9 @@ def handle_source_authoring_http(handler):
         return result
 
     try:
+        deadline = monotonic() + 2
+        body = _read_request_body(handler, size, deadline)
         handler.connection.settimeout(2)
-        body = handler.rfile.read(size)
-        if len(body) != size:
-            return refuse()
         payload = json.loads(
             body.decode("utf-8"),
             object_pairs_hook=pairs,
@@ -452,6 +470,8 @@ def handle_source_authoring_http(handler):
         # All fields are flat scalar values; reject containers before minting.
         if any(type(value) not in {str, bool} for value in payload.values()):
             return refuse()
+        if monotonic() >= deadline:
+            raise TimeoutError()
         result = handler.server.source_authoring_web.request(
             match[1], match[2], payload, caps[0] if caps else None
         )
@@ -472,7 +492,10 @@ def handle_source_authoring_http(handler):
         return refuse(code, HTTPStatus.CONFLICT)
     except (SourceAuthoringOwnersError, SourceAuthoringPolicyError):
         return refuse("SOURCE_UNAVAILABLE", HTTPStatus.CONFLICT)
-    except (ValueError, UnicodeError, RecursionError, TimeoutError):
+    except TimeoutError:
+        handler.connection.settimeout(2)
+        return refuse("REQUEST_TIMEOUT", HTTPStatus.REQUEST_TIMEOUT)
+    except (ValueError, UnicodeError, RecursionError):
         return refuse()
     except Exception:  # noqa: BLE001 - no source, adapter, or credential details in errors
         return refuse("SOURCE_UNAVAILABLE", HTTPStatus.CONFLICT)
