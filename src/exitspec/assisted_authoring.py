@@ -13,7 +13,7 @@ import json
 import math
 import re
 import time
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -1299,6 +1299,105 @@ def _source_neutral_provider_request(
     )
 
 
+def _materialize_source_neutral_attempt(
+    *, poc_id: str, source_receipt_id: str, source: POCSourceSnapshot,
+    batch: SourceNeutralProposalBatch, request_sha256: str,
+    generated_at: datetime, provider: str, model: str, endpoint: str,
+    adapter_name: str, adapter_version: str,
+) -> _StoredAssistedAttempt:
+    """Build the shared A3 review-only projection without publishing any state."""
+
+    result_digest = _authoring_result_digest(batch)
+    authoring_result_id = "ares_{0}".format(result_digest[:32])
+    if (
+        type(generated_at) is not datetime
+        or generated_at.tzinfo is None
+        or generated_at.utcoffset() is None
+    ):
+        raise AssistedAuthoringError(
+            "The assisted-authoring clock is unavailable.",
+            code="service_unavailable",
+        )
+    provenance = json.dumps(
+        {
+            "endpoint": endpoint,
+            "model": model,
+            "provider": provider,
+        },
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    provenance_digest = hashlib.sha256(
+        b"exitspec-assisted-authoring-provider-v1\x00" + provenance
+    ).hexdigest()
+    receipt_digest = hashlib.sha256(
+        b"exitspec-assisted-authoring-receipt-v1\x00"
+        + request_sha256.encode("ascii")
+        + result_digest.encode("ascii")
+        + provenance_digest.encode("ascii")
+        + generated_at.isoformat().encode("ascii")
+    ).hexdigest()
+    authoring_receipt_id = "arcp_{0}".format(receipt_digest[:32])
+    proposal_values: list[AssistedDraftProposal] = []
+    for proposal in batch.proposals:
+        proposal_id = derive_proposal_id(
+            poc_id,
+            source_receipt_id,
+            "{0}:{1}".format(authoring_result_id, proposal.proposal_key),
+        )
+        proposal_values.append(
+            AssistedDraftProposal(
+                schema_version=ASSISTED_PROPOSAL_SCHEMA_VERSION,
+                poc_id=poc_id,
+                proposal_id=proposal_id,
+                authoring_receipt_id=authoring_receipt_id,
+                authoring_result_id=authoring_result_id,
+                source_receipt_id=source_receipt_id,
+                source_id=source.source_id,
+                source_kind=source.kind,
+                source_content_sha256=source.content_sha256,
+                source_revision=source.source_revision,
+                source_adapter_name=source.adapter_name,
+                source_adapter_version=source.adapter_version,
+                redaction_policy_version=source.redaction_policy_version,
+                proposal_key=proposal.proposal_key,
+                source_quote=proposal.source_quote,
+                normalized_claim=proposal.normalized_claim,
+                numeric_facts=proposal.numeric_facts,
+            )
+        )
+    result_receipt = AssistedAuthoringReceipt(
+        schema_version=ASSISTED_AUTHORING_RECEIPT_SCHEMA_VERSION,
+        authoring_receipt_id=authoring_receipt_id,
+        authoring_result_id=authoring_result_id,
+        poc_id=poc_id,
+        source_receipt_id=source_receipt_id,
+        source_id=source.source_id,
+        source_kind=source.kind,
+        source_content_sha256=source.content_sha256,
+        source_revision=source.source_revision,
+        source_adapter_name=source.adapter_name,
+        source_adapter_version=source.adapter_version,
+        redaction_policy_version=source.redaction_policy_version,
+        authoring_adapter_name=adapter_name,
+        authoring_adapter_version=adapter_version,
+        generated_at=generated_at,
+        provider=provider,
+        model=model,
+        endpoint=endpoint,
+        proposal_ids=tuple(item.proposal_id for item in proposal_values),
+        proposal_count=len(proposal_values),
+        idempotent_replay=False,
+    )
+    return _StoredAssistedAttempt(
+        request_sha256=request_sha256,
+        receipt=result_receipt,
+        proposals=tuple(proposal_values),
+    )
+
+
 class ProcessLocalAssistedAuthoringService:
     """One explicit source-scoped A3 action with no downstream authority."""
 
@@ -1435,6 +1534,29 @@ class ProcessLocalAssistedAuthoringService:
             if self._decision_lookup is not None:
                 raise ValueError("decision_lookup is already bound.")
             self._decision_lookup = decision_lookup
+
+    @contextmanager
+    def source_authoring_publication_guard(self, poc_id: str, source_id: str):
+        """Reserve the final A3 store after source/draft/review owner locks.
+
+        The separate source-authoring operation owner consumes its own attempts;
+        this lock does not execute a provider or grant an A3 retry. Existing A3
+        results and in-flight reservations retain their source ownership.
+        """
+
+        with self._condition:
+            if (poc_id, source_id) in self._source_attempts or (
+                poc_id, source_id
+            ) in self._inflight_sources:
+                raise AssistedAuthoringError(
+                    "The source already belongs to an assisted attempt.",
+                    code="attempt_conflict",
+                )
+            if len(self._results_by_request) + len(self._inflight) >= self._max_attempts:
+                raise AssistedAuthoringError(
+                    "The assisted store is at capacity.", code="capacity_exceeded"
+                )
+            yield
 
     def bind_review_commit_guard(
         self,
@@ -1984,96 +2106,15 @@ class ProcessLocalAssistedAuthoringService:
                     code="service_unavailable",
                 ) from None
 
-            result_digest = _authoring_result_digest(batch)
-            authoring_result_id = "ares_{0}".format(result_digest[:32])
-            generated_at = self._clock()
-            if (
-                type(generated_at) is not datetime
-                or generated_at.tzinfo is None
-                or generated_at.utcoffset() is None
-            ):
-                raise AssistedAuthoringError(
-                    "The assisted-authoring clock is unavailable.",
-                    code="service_unavailable",
-                )
-            provenance = json.dumps(
-                {
-                    "endpoint": receipt.endpoint,
-                    "model": receipt.model,
-                    "provider": receipt.provider,
-                },
-                ensure_ascii=False,
-                allow_nan=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-            provenance_digest = hashlib.sha256(
-                b"exitspec-assisted-authoring-provider-v1\x00" + provenance
-            ).hexdigest()
-            receipt_digest = hashlib.sha256(
-                b"exitspec-assisted-authoring-receipt-v1\x00"
-                + request_sha256.encode("ascii")
-                + result_digest.encode("ascii")
-                + provenance_digest.encode("ascii")
-                + generated_at.isoformat().encode("ascii")
-            ).hexdigest()
-            authoring_receipt_id = "arcp_{0}".format(receipt_digest[:32])
-            proposal_values: list[AssistedDraftProposal] = []
-            for proposal in batch.proposals:
-                proposal_id = derive_proposal_id(
-                    poc_id,
-                    source_receipt_id,
-                    "{0}:{1}".format(authoring_result_id, proposal.proposal_key),
-                )
-                proposal_values.append(
-                    AssistedDraftProposal(
-                        schema_version=ASSISTED_PROPOSAL_SCHEMA_VERSION,
-                        poc_id=poc_id,
-                        proposal_id=proposal_id,
-                        authoring_receipt_id=authoring_receipt_id,
-                        authoring_result_id=authoring_result_id,
-                        source_receipt_id=source_receipt_id,
-                        source_id=source.source_id,
-                        source_kind=source.kind,
-                        source_content_sha256=source.content_sha256,
-                        source_revision=source.source_revision,
-                        source_adapter_name=source.adapter_name,
-                        source_adapter_version=source.adapter_version,
-                        redaction_policy_version=source.redaction_policy_version,
-                        proposal_key=proposal.proposal_key,
-                        source_quote=proposal.source_quote,
-                        normalized_claim=proposal.normalized_claim,
-                        numeric_facts=proposal.numeric_facts,
-                    )
-                )
-            result_receipt = AssistedAuthoringReceipt(
-                schema_version=ASSISTED_AUTHORING_RECEIPT_SCHEMA_VERSION,
-                authoring_receipt_id=authoring_receipt_id,
-                authoring_result_id=authoring_result_id,
-                poc_id=poc_id,
-                source_receipt_id=source_receipt_id,
-                source_id=source.source_id,
-                source_kind=source.kind,
-                source_content_sha256=source.content_sha256,
-                source_revision=source.source_revision,
-                source_adapter_name=source.adapter_name,
-                source_adapter_version=source.adapter_version,
-                redaction_policy_version=source.redaction_policy_version,
-                authoring_adapter_name=self._adapter_name,
-                authoring_adapter_version=self._adapter_version,
-                generated_at=generated_at,
-                provider=receipt.provider,
-                model=receipt.model,
-                endpoint=receipt.endpoint,
-                proposal_ids=tuple(item.proposal_id for item in proposal_values),
-                proposal_count=len(proposal_values),
-                idempotent_replay=False,
+            stored = _materialize_source_neutral_attempt(
+                poc_id=poc_id, source_receipt_id=source_receipt_id, source=source,
+                batch=batch, request_sha256=request_sha256, generated_at=self._clock(),
+                provider=receipt.provider, model=receipt.model, endpoint=receipt.endpoint,
+                adapter_name=self._adapter_name, adapter_version=self._adapter_version,
             )
-            stored = _StoredAssistedAttempt(
-                request_sha256=request_sha256,
-                receipt=result_receipt,
-                proposals=tuple(proposal_values),
-            )
+            result_receipt = stored.receipt
+            authoring_receipt_id = result_receipt.authoring_receipt_id
+            proposal_values = stored.proposals
             # Executor metadata is an independently mutable boundary. This check is
             # deliberately outside the review guard: a decision injected by a
             # metadata accessor must be observed by the atomic guard below.
