@@ -8,11 +8,14 @@
   },
   "scripts": {
     "start": "node capture-harness.mjs",
-    "check": "node --check capture-harness.mjs && node --check operator-capture-lib.mjs && node --check operator-capture-lib.test.mjs",
-    "test": "node --test operator-capture-lib.test.mjs"
+    "check": "node --check capture-harness.mjs && node --check operator-capture-lib.mjs && node --check rtms-transport.mjs && node --check live-child.mjs && node --check operator-capture-lib.test.mjs && node --check rtms-transport.test.mjs && node --check live-child.test.mjs",
+    "test": "node --test *.test.mjs"
   },
   "dependencies": {
     "express": "4.22.2",
     "ws": "8.21.3"
+  },
+  "overrides": {
+    "qs": "6.16.0"
   }
 }

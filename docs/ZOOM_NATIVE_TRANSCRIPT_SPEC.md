@@ -1,7 +1,8 @@
 # Native Zoom transcript adapter — staged contract
 
 This adapter is a parsing component for the bounded local live integration.
-It is not wired into `/app` yet and does not establish live readiness. It opens
+The [operator runtime](ZOOM_LIVE_OPERATOR_SPEC.md) consumes it after local pairing
+and capture consent. This does not establish live readiness. The parser opens
 no network connection, records no packets, and cannot authorize capture or
 provider egress. Existing fixture decoder and digest semantics are unchanged.
 
@@ -52,16 +53,16 @@ and decoder refusals retain no parser/validation exception chain. It is not a
 browser receipt; the runtime must use content-free projections. Attachment must
 still pass the common source redaction and atomic closure/attachment guards.
 
-## Runtime integration still required
+## Runtime consumer requirements
 
-The intended bootstrap uses operator-local authority unavailable to web pages.
+The bootstrap uses operator-local authority unavailable to web pages.
 No unauthenticated HTTP endpoint may mint a capability or bind a POC/stream.
 Pairing must bind an explicitly consented active POC/session to an authenticated
 operator and stream, with expiry and invalidation on reset, closure, revocation,
 or replacement. Credentials and capabilities must not enter URLs, command
 arguments, logs, exceptions, browser receipts or evidence.
 
-Future transport integration must separate normal memory-only operation from
+Transport integration must separate normal memory-only operation from
 explicit diagnostic recording/chaos. It must enforce Host/Origin defenses plus
 operator authentication, aggregate byte/text/event/retry/idempotency bounds,
 replay suppression and authenticated participant mapping. No network call may
@@ -71,5 +72,5 @@ Stop request, provider acknowledgement, local drain and finalization need separa
 states. A transcript packet is not a finality signal; cross-socket drain ordering
 is not specified by the retrieved reference. Timeouts, overflow and incomplete
 drain must fail explicitly. Late/stale events must not attach to a replacement
-session. The existing synthetic UI remains synthetic until that integration and
-its adversarial/browser coverage are complete.
+session. The existing fixture UI remains synthetic. The separate native panel
+reports live, simulated and disconnected transport states independently.

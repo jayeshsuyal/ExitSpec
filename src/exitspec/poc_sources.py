@@ -719,6 +719,14 @@ class ProcessLocalPOCSourceService:
                 )
             yield _AuthoringCommitGuard()
 
+    @contextmanager
+    def attachment_guard(self, poc_id: str):
+        """Reserve source ownership before a caller takes the draft owner lock."""
+        validated = _validate_poc_id(poc_id)
+        with self._lock:
+            self._require_active_draft(validated)
+            yield
+
     def attach(
         self,
         poc_id: str,

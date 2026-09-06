@@ -159,6 +159,46 @@
               </div>
 
               <div class="source-entry" id="meeting-entry" hidden>
+                <section class="meeting-session" id="zoom-live-panel" aria-labelledby="zoom-live-heading">
+                  <header class="meeting-session-header">
+                    <div>
+                      <p class="eyebrow">Operator-connected capture</p>
+                      <h4 id="zoom-live-heading">Live Zoom · bounded requirements capture</h4>
+                    </div>
+                  </header>
+                  <span class="meeting-connection-badge" id="zoom-live-mode">Connection unverified</span>
+                  <p class="meeting-session-disclosure">
+                    Capture a bounded window of fresh synthetic requirements with
+                    every participant's consent. This is not a complete meeting
+                    transcript. A local operator must pair this POC before capture.
+                  </p>
+                  <label class="zoom-guided-consent-label">
+                    <input id="zoom-live-consent" type="checkbox" disabled />
+                    <span>All participants consent to this fresh Zoom capture of synthetic requirements only.</span>
+                  </label>
+                  <p class="meeting-session-status" id="zoom-live-status" role="status" aria-live="polite">
+                    Checking the local operator connection…
+                  </p>
+                  <p id="zoom-live-counts">No capture verified.</p>
+                  <div class="capture-actions">
+                    <button class="record-action" id="zoom-live-refresh" type="button">Refresh connection</button>
+                    <button class="record-action" id="zoom-live-start" type="button" disabled>Start bounded capture</button>
+                    <button class="record-action" id="zoom-live-stop" type="button" disabled>Request transport stop</button>
+                    <button class="record-action" id="zoom-live-process" type="button" disabled>Create review proposals</button>
+                    <button class="record-action" id="zoom-live-reset" type="button" disabled>Revoke capture session</button>
+                    <a id="zoom-live-review" hidden>Review requirements</a>
+                  </div>
+                  <details class="meeting-session-details">
+                    <summary>Capture and review boundary</summary>
+                    <p>
+                      Stop requests must be acknowledged and the local buffer
+                      drained before processing. Delivery across Zoom connections
+                      may be incomplete. Proposals require human review, customer
+                      confirmation and contract freeze. Capture grants no Fireworks
+                      permission, measurement validity, approval or execution authority.
+                    </p>
+                  </details>
+                </section>
                 <fieldset
                   class="meeting-mode-chooser"
                   id="meeting-mode-chooser"
@@ -584,5 +624,6 @@
     </div>
 
     <script src="/source_intake.js"></script>
+    <script src="/zoom_live.js" defer></script>
   </body>
 </html>
