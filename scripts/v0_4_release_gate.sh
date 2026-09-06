@@ -76,5 +76,5 @@ printf 'ExitSpec native Zoom fake-network Chromium acceptance gate.\n'
   tests/test_zoom_live_browser.py
 
 "${python_command}" -c \
-  'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=2; print(f"Native Zoom Chromium cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
+  'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=3; print(f"Native Zoom Chromium cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
   "${native_zoom_report}"

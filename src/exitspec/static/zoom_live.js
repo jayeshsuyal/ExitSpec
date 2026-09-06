@@ -119,6 +119,20 @@
     status.textContent = "The connection status could not be verified. No action will be retried automatically. Refresh to recover the current state.";
   }
 
+  function discardPageState() {
+    ++generation;
+    request?.abort();
+    request = null;
+    busy = false;
+    snapshot = null;
+    consent.checked = false;
+    clearTimer();
+    render();
+    mode.textContent = "Connection unverified";
+    counts.textContent = "No current capture status verified.";
+    status.textContent = "The page must refresh the operator connection before capture actions are available.";
+  }
+
   async function load(action = null) {
     if (closed || busy || entry.hidden || (action && !allowed(action))) return;
     clearTimer();
@@ -175,9 +189,15 @@
   }).observe(entry, { attributes: true, attributeFilter: ["hidden"] });
   window.addEventListener("pagehide", () => {
     closed = true;
-    ++generation;
-    request?.abort();
-    clearTimer();
+    discardPageState();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    // A restored page retains JS memory. Revalidate independently of its old
+    // requests; their catch/finally paths must not affect this generation.
+    discardPageState();
+    closed = false;
+    if (!entry.hidden) load();
   });
   if (!entry.hidden) load();
 })();

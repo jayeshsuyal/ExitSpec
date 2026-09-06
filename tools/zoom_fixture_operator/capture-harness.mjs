@@ -208,6 +208,7 @@ function generatedObservation(event, detail = {}) {
 function createStream(meetingUuid, streamId, serverUrl) {
   return createRtmsTransport({
     clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, meetingUuid, streamId, serverUrl,
+    networkAuthorized: NETWORK_AUTHORIZED,
     observe: (kind, metadata, bytes) => recorder.record(kind, metadata, bytes),
     chaosDelayMs: CHAOS_AFTER_TRANSCRIPT_SECONDS * 1000,
     onEvent: ({ event }) => log("RTMS", event),

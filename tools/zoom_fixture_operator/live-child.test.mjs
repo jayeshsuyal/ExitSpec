@@ -23,7 +23,7 @@ function fixture(){
 test('trusted init alone listens loopback; signed exact offer still requires parent bind',()=>{
   const f=fixture();f.child.command(init);assert.deepEqual(f.calls,[['listen',32145,'127.0.0.1']]);
   assert.equal(f.deliver().status,200);assert.equal(f.calls.length,1);assert.deepEqual(f.emitted[0],{event:'offer',generation:init.generation,seq:1,stream_id:'stream-test'});
-  f.bind();assert.equal(f.calls.at(-1),'start');assert.equal(f.options.observe,undefined);assert.equal(f.options.chaosDelayMs,undefined);
+  f.bind();assert.equal(f.calls.at(-1),'start');assert.equal(f.options.networkAuthorized,true);assert.equal(f.options.observe,undefined);assert.equal(f.options.chaosDelayMs,undefined);
   f.options.onEvent({event:'listening'});assert.equal(f.emitted.at(-1).seq,2);assert.equal(f.emitted.at(-1).stream_id,'stream-test');
   f.child.command({command:'stop',generation:init.generation,stream_id:'stream-test'});assert.equal(f.calls.at(-1),'stop');f.child.close();
 });

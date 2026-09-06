@@ -90,7 +90,7 @@ export function createLiveChild({emit, transportFactory=createRtmsTransport, ser
     if (!offer || m.stream_id!==offer.streamId) return fail('invalid_command');
     if (m.command==='bind' && !transport) {
       try {
-        transport=transportFactory({clientId:config.clientId,clientSecret:config.clientSecret,
+        transport=transportFactory({clientId:config.clientId,clientSecret:config.clientSecret,networkAuthorized:true,
           meetingUuid:config.expectedMeetingUuid,streamId:offer.streamId,serverUrl:offer.serverUrl,onEvent:event});
         transport.start();
       } catch { fail('transport_failed'); }

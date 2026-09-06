@@ -25,11 +25,12 @@ export function exactFrame(value) {
 }
 export function createRtmsTransport({clientId, clientSecret, meetingUuid, streamId, serverUrl,
   onEvent = () => {}, observe = () => {}, socketFactory = (url, options) => new WebSocket(url, options),
-  timers = {setTimeout, clearTimeout}, chaosDelayMs = null}) {
+  timers = {setTimeout, clearTimeout}, chaosDelayMs = null, networkAuthorized = false}) {
   const stream = {meetingUuid, streamId, serverUrl: safeZoomWebSocketUrl(serverUrl), mediaUrl: null,
     signalingSocket: null, mediaSocket: null, transcriptCount: 0, stopped: false,
     reconnectPending: false, chaosInjected: false};
   let epoch = 0, mediaEpoch = 0, retries = 0, packets = 0, bytes = 0;
+  let reconnectScheduled = null;
   let stopping = false, acknowledged = false, listening = false, closedNormally = false;
   const pendingTimers = new Set();
   const arm = (fn, ms) => { const timer = timers.setTimeout(() => { pendingTimers.delete(timer); fn(); }, ms); pendingTimers.add(timer); return timer; };
@@ -65,7 +66,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     revoke(); event('drained'); // Local socket drain only; never a completeness assertion.
   }
   function connectSignaling() {
-    if (stream.stopped || stopping) return;
+    if (networkAuthorized !== true || stream.stopped || stopping || stream.signalingSocket || reconnectScheduled !== null) return;
     const ownEpoch = ++epoch;
     let socket;
     try { socket = socketFactory(stream.serverUrl, {maxPayload: MAX_PACKET_BYTES, perMessageDeflate: false, handshakeTimeout: 10000, followRedirects:false}); }
@@ -81,7 +82,9 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('open', () => {
       if (!current()) return;
       const request = {msg_type:1, protocol_version:1, meeting_uuid:meetingUuid, rtms_stream_id:streamId,
-        sequence:crypto.randomInt(1, 1000000000), signature:signature(), buffer_data:false};
+        // The documented handshake sequence starts at 1. A replacement signaling
+        // socket establishes a fresh connection; no separate reconnect counter is documented.
+        sequence:1, signature:signature(), buffer_data:false};
       observe('signaling_websocket_handshake', {direction:'OUTBOUND', channel:'signaling'}, Buffer.from(JSON.stringify(request)));
       send(socket, request);
     });
@@ -128,7 +131,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('error', () => { if (current()) fail('socket_error'); });
   }
   function connectMedia() {
-    if (stream.stopped || stopping || !stream.mediaUrl || stream.mediaSocket) return;
+    if (networkAuthorized !== true || stream.stopped || stopping || !stream.mediaUrl || stream.mediaSocket || reconnectScheduled !== null) return;
     const ownEpoch = epoch, ownMediaEpoch = ++mediaEpoch;
     let socket;
     try { socket = socketFactory(stream.mediaUrl, {maxPayload:MAX_PACKET_BYTES,perMessageDeflate:false,handshakeTimeout:10000,followRedirects:false}); }
@@ -181,25 +184,37 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('error', () => { if (current()) fail('socket_error'); });
   }
   function reconnectMedia() {
-    if (stream.stopped || stream.reconnectPending) return;
+    if (networkAuthorized !== true || stream.stopped || reconnectScheduled !== null) return;
     if (stopping) return fail('drain_uncertain');
     if (++retries > 3) return fail('reconnect_limit');
+    reconnectScheduled = 'media';
     stream.reconnectPending = true; listening = false; mediaEpoch++;
     close(stream.mediaSocket); stream.mediaSocket = null;
     event('interrupted'); event('reconnecting');
     const scheduledEpoch = epoch, scheduledMediaEpoch = mediaEpoch;
-    arm(() => { if (!stream.stopped && !stopping && epoch === scheduledEpoch && mediaEpoch === scheduledMediaEpoch) connectMedia(); },3000);
+    arm(() => {
+      if (!stream.stopped && !stopping && epoch === scheduledEpoch && mediaEpoch === scheduledMediaEpoch) {
+        reconnectScheduled = null;
+        connectMedia();
+      }
+    },3000);
   }
   function reconnect(url = stream.serverUrl) {
-    if (stream.stopped) return;
+    if (networkAuthorized !== true || stream.stopped || reconnectScheduled === 'signaling') return;
     if (stopping) return fail('drain_uncertain');
     if (++retries > 3) return fail('reconnect_limit');
     try { stream.serverUrl = safeZoomWebSocketUrl(url); } catch { return fail('invalid_endpoint'); }
+    reconnectScheduled = 'signaling';
     epoch++; mediaEpoch++; close(stream.mediaSocket); close(stream.signalingSocket);
     stream.mediaSocket = stream.signalingSocket = null; stream.reconnectPending = true; listening = false;
     event('interrupted'); event('reconnecting');
     const scheduledEpoch = epoch;
-    arm(() => { if (epoch === scheduledEpoch) connectSignaling(); },3000);
+    arm(() => {
+      if (epoch === scheduledEpoch) {
+        reconnectScheduled = null;
+        connectSignaling();
+      }
+    },3000);
   }
   function stop() {
     if (stream.stopped || stopping) return;
@@ -208,7 +223,12 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     if (!send(stream.signalingSocket,{msg_type:21,rtms_stream_id:streamId})) return;
     arm(() => fail(acknowledged ? 'drain_timeout' : 'stop_timeout'),15000);
   }
-  function providerStopped() { if (!acknowledged) fail('stop_unacknowledged'); }
+  function providerStopped() {
+    // Signed HTTP and signaling/media sockets have no cross-channel ordering
+    // guarantee. A requested stop keeps its original deadline and pending text.
+    // The webhook neither acknowledges stop nor proves local socket drain.
+    if (!stopping) fail('stop_unacknowledged');
+  }
   arm(() => fail('capture_timeout'),15 * 60 * 1000);
   return Object.assign(stream,{start:connectSignaling,reconnect,reconnectMedia,stop,revoke,providerStopped});
 }

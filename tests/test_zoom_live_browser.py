@@ -217,3 +217,91 @@ def test_native_browser_stop_failure_and_reset_never_create_proposals(tmp_path):
         child.emit("listening")
         assert server.zoom_live_runtime.current(poc_id)["state"] == "REVOKED"
         browser.close()
+
+
+def test_native_browser_persisted_lifecycle_revalidates_operator_session(tmp_path):
+    """Native browser event dispatch proves restoration logic, not BFCache admission."""
+    from playwright.sync_api import expect, sync_playwright
+
+    with _running_server(tmp_path) as server, sync_playwright() as p:
+        children, launched = install_fake(server)
+        poc_id = _create_draft(server)
+        original = server.zoom_live_runtime.pair(poc_id, settings())["session_id"]
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        base = f"http://127.0.0.1:{server.server_port}"
+        endpoint = f"{base}/api/pocs/{poc_id}/zoom-live"
+        page.goto(f"{base}/app/pocs/{poc_id}/sources/new")
+        page.locator("#zoom-live-consent").check()
+        expect(page.locator("#zoom-live-start")).to_be_enabled()
+
+        def leave():
+            page.evaluate(
+                "window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}))"
+            )
+            expect(page.locator("#zoom-live-consent")).not_to_be_checked()
+            expect(page.locator("#zoom-live-start")).to_be_disabled()
+            expect(page.locator("#zoom-live-stop")).to_be_disabled()
+            expect(page.locator("#zoom-live-mode")).to_have_text("Connection unverified")
+
+        def restore():
+            with page.expect_response(
+                lambda response: response.url == endpoint
+                and response.request.method == "GET"
+            ) as response:
+                page.evaluate(
+                    "window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}))"
+                )
+            assert response.value.status == 200
+            return response.value.json()
+
+        leave()
+        replacement = server.zoom_live_runtime.pair(poc_id, settings())["session_id"]
+        assert replacement != original
+        assert restore()["session_id"] == replacement
+        expect(page.locator("#zoom-live-status")).to_contain_text("Operator paired")
+        expect(page.locator("#zoom-live-consent")).not_to_be_checked()
+        expect(page.locator("#zoom-live-start")).to_be_disabled()
+
+        page.locator("#zoom-live-consent").check()
+        with page.expect_request(
+            lambda request: request.url == endpoint and request.method == "POST"
+        ) as start:
+            page.locator("#zoom-live-start").click()
+        assert start.value.post_data_json["session_id"] == replacement
+        assert launched.wait(2)
+        child = children[-1]
+        child.emit("offer")
+        child.emit("listening")
+        expect(page.locator("#zoom-live-stop")).to_be_enabled()
+
+        leave()
+        assert restore()["state"] == "LISTENING"
+        expect(page.locator("#zoom-live-stop")).to_be_enabled()
+        # Confirm restored polling continues, independent of the immediate GET.
+        child.emit("interrupted")
+        expect(page.locator("#zoom-live-status")).to_contain_text("interrupted")
+        page.locator("#zoom-live-stop").click()
+        expect(page.locator("#zoom-live-status")).to_contain_text("Transport stop requested")
+        assert server.zoom_live_runtime.current(poc_id)["state"] == "STOP_REQUESTED"
+
+        leave()
+        expires = server.zoom_live_runtime._record.expires
+        server.zoom_live_runtime._clock = lambda: expires + 1
+        server.zoom_live_runtime.tick()
+        assert restore()["state"] == "REVOKED"
+        expect(page.locator("#zoom-live-status")).to_contain_text("revoked")
+        expect(page.locator("#zoom-live-consent")).not_to_be_checked()
+        for action in ("start", "stop", "process"):
+            expect(page.locator(f"#zoom-live-{action}")).to_be_disabled()
+        expect(page.locator("#zoom-live-review")).to_be_hidden()
+        with page.expect_response(
+            lambda response: response.url == endpoint and response.request.method == "GET"
+        ) as refreshed:
+            page.locator("#zoom-live-refresh").click()
+        assert refreshed.value.json()["failure_code"] == "TIMEOUT"
+        assert not server.poc_source_intake.list_receipts(poc_id)
+        assert not errors
+        browser.close()

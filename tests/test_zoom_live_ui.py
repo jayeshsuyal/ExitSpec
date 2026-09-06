@@ -219,3 +219,102 @@ assert.equal(a.poll().length, 0);
 a.entry.hidden=false; a.replies.push(state()); a.changed(); await flush();
 a.events.pagehide(); assert.equal(a.poll().length, 0);
 """)
+
+
+@pytest.mark.parametrize("restored", ["LISTENING", "REVOKED", "PAIRED"])
+def test_persisted_pageshow_revalidates_listening_expired_and_replaced_sessions(restored):
+    _run("const restored = " + repr(restored) + ";" + r"""
+const a = app(state()); await flush(); a.consent();
+a.events.pagehide();
+assert.equal(a.element('consent').checked, false);
+assert.equal(a.element('start').disabled, true);
+assert.match(a.element('mode').textContent, /unverified/);
+const replacement = restored === 'PAIRED' ? 'zoomsess_'+'b'.repeat(64) : session;
+a.replies.push(state(restored, {session_id:replacement,
+  failure_code:restored === 'REVOKED' ? 'TIMEOUT' : null}));
+a.events.pageshow({persisted:true}); await flush();
+assert.equal(a.calls.length, 2);
+assert.equal(a.calls[1].options.method, 'GET');
+assert.equal(a.element('consent').checked, false);
+assert.equal(a.element('start').disabled, true);
+assert.equal(a.element('stop').disabled, restored !== 'LISTENING');
+assert.equal(a.element('consent').disabled, restored !== 'PAIRED');
+assert.equal(a.poll().length, restored === 'REVOKED' ? 0 : 1);
+assert.match(a.element('status').textContent,
+  restored === 'REVOKED' ? /revoked/ : restored === 'PAIRED' ? /Operator paired/ : /Receiving/);
+if (restored === 'PAIRED') {
+  a.consent(); a.replies.push(state('WAITING', {session_id:replacement}));
+  await a.click('start');
+  assert.equal(JSON.parse(a.calls[2].options.body).session_id, replacement);
+}
+""")
+
+
+@pytest.mark.parametrize("reject_old", [False, True])
+@pytest.mark.parametrize("old_finishes_first", [False, True])
+def test_restored_request_survives_stale_aborted_completion(reject_old, old_finishes_first):
+    flags = f"const rejectOld={str(reject_old).lower()}, oldFirst={str(old_finishes_first).lower()};"
+    _run(flags + r"""
+const a = app(state()); await flush(); a.consent();
+let oldResolve, oldReject, freshResolve;
+a.replies.push(()=>new Promise((resolve,reject)=>{oldResolve=resolve;oldReject=reject;}));
+await a.click('start');
+assert.equal(a.calls.length, 2);
+a.events.pagehide();
+assert.equal(a.calls[1].options.signal.aborted, true);
+a.replies.push(()=>new Promise(resolve=>{freshResolve=resolve;}));
+a.events.pageshow({persisted:true}); await flush();
+assert.equal(a.calls.length, 3);
+assert.equal(a.calls[2].options.method, 'GET');
+assert.equal(a.element('refresh').disabled, true);
+const completeOld = () => rejectOld
+  ? oldReject(new Error('late abort')) : oldResolve(state('WAITING'));
+if (oldFirst) {
+  completeOld(); await flush();
+  assert.equal(a.element('refresh').disabled, true);
+  assert.equal(a.calls[2].options.signal.aborted, false);
+}
+freshResolve(state('LISTENING')); await flush();
+if (!oldFirst) { completeOld(); await flush(); }
+assert.match(a.element('status').textContent, /Receiving/);
+assert.equal(a.element('stop').disabled, false);
+assert.equal(a.element('refresh').disabled, false);
+assert.equal(a.element('consent').checked, false);
+assert.equal(a.poll().length, 1);
+assert.equal(a.calls.length, 3); // An interrupted POST is never replayed.
+""")
+
+
+def test_pageshow_ignores_initial_load_and_defers_hidden_meeting_until_visible():
+    _run(r"""
+const a = app(state()); await flush();
+a.events.pageshow({persisted:false}); await flush();
+assert.equal(a.calls.length, 1);
+a.events.pagehide(); a.entry.hidden=true;
+a.events.pageshow({persisted:true}); await flush();
+assert.equal(a.calls.length, 1);
+assert.equal(a.poll().length, 0);
+a.replies.push(state()); a.entry.hidden=false; a.changed(); await flush();
+assert.equal(a.calls.length, 2);
+assert.equal(a.element('consent').disabled, false);
+""")
+
+
+def test_restoration_hides_old_draft_review_until_fresh_status_is_verified():
+    _run(r"""
+const receipt = {segment_count:2, proposal_count:2,
+  source_receipt_id:'srcpt_abcdefgh', review_url:'/app/pocs/poc_demo/review'};
+const a = app(state('DRAFT_READY', receipt)); await flush();
+assert.equal(a.element('review').hidden, false);
+a.events.pagehide();
+assert.equal(a.element('review').hidden, true);
+assert.equal(a.element('review').attrs.href, undefined);
+let resolve; a.replies.push(()=>new Promise(r=>{resolve=r}));
+a.events.pageshow({persisted:true}); await flush();
+assert.equal(a.element('review').hidden, true);
+assert.match(a.element('mode').textContent, /unverified/);
+resolve(state('REVOKED', {...receipt, failure_code:'CLOSED'})); await flush();
+assert.equal(a.element('review').hidden, true);
+assert.equal(a.element('review').attrs.href, undefined);
+assert.equal(a.poll().length, 0);
+""")

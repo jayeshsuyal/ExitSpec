@@ -241,6 +241,8 @@ class ZoomLiveRuntime:
         if type(payload) is not dict:
             raise ZoomLiveError()
         action = payload.get("action")
+        if type(action) is not str:
+            raise ZoomLiveError()
         required = {"action", "session_id", "idempotency_key"}
         if action == "start":
             required.add("consent_acknowledged")

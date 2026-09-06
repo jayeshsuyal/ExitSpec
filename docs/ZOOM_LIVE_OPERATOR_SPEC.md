@@ -47,9 +47,14 @@ and transcript handshakes. Interruptions/reconnects are visible. Injected test
 transport is explicitly simulated (`FAKE_ZOOM_RTMS`); no synthetic fallback can
 represent live success.
 
+Restored browser pages discard cached capture state and consent, invalidate old
+requests, and fetch current operator state before enabling controls again.
+
 Stop separates `STOP_REQUESTED`, matching provider acknowledgement, `DRAINING`,
 normal media socket close and `CAPTURE_READY`. Packets pending before close are
 admitted in arrival order. Webhook stop or silence alone cannot finalize capture.
+During a requested stop, an early stop webhook preserves the original acknowledgement
+deadline and pending packets; HTTP and WebSocket ordering is not assumed.
 Ambiguous close, empty capture, overflow and deadlines fail without a source.
 The result is **BOUNDED_WINDOW_NOT_COMPLETE_MEETING**: the protocol does not
 establish cross-socket meeting completeness. Late transcript after the drain
@@ -71,6 +76,15 @@ source/proposal attachment. The common redaction spine prepares storage; raw tex
 is cleared after publication, failure or revocation. Only the redacted source
 remains in process-local intake. Diagnostic recording/chaos hooks belong only to
 the diagnostic harness; normal `live-child.mjs` supplies neither.
+Every diagnostic connect/reconnect path also checks explicit network authorization;
+disabled networking still permits authenticated diagnostic webhook recording.
+
+Each fresh signaling connection sends handshake sequence `1`, following the
+[signaling handshake reference](https://developers.zoom.us/docs/rtms/event-reference/#signaling-handshake-request).
+Reconnects establish a fresh connection with that same starting sequence; no
+random-nonce semantics are inferred. A replacement media connection that closes
+before its handshake consumes the same bounded retry budget, with a fresh handshake
+deadline on each attempt.
 
 ## Receipts and evidence
 
@@ -86,7 +100,7 @@ remain the existing workflow. Native fake-network Chromium tests carry different
 spoken thresholds through that path into a deterministic reference Evidence Pack.
 PASS concerns those valid local reference measurements, not live Zoom completeness
 or production infrastructure. Existing BLOCKED/NOT_PROVEN evidence rules remain.
-The v0.4 release gate now separately requires both native Chromium cases with zero
+The v0.4 release gate now separately requires all three native Chromium cases with zero
 failures/errors/skips, in addition to the historical mandatory groups.
 
 ## Supporting repairs
