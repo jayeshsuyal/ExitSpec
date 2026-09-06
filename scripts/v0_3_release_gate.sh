@@ -21,11 +21,14 @@ if ! "${python_command}" -c 'import playwright.sync_api' >/dev/null 2>&1; then
 fi
 
 if ! "${python_command}" -c \
-  'from pathlib import Path
-from playwright.sync_api import sync_playwright
-with sync_playwright() as playwright:
-    available = Path(playwright.chromium.executable_path).is_file()
-raise SystemExit(0 if available else 1)'
+  'import asyncio
+from pathlib import Path
+from playwright.async_api import async_playwright
+async def installed():
+    async with async_playwright() as playwright:
+        return Path(playwright.chromium.executable_path).is_file()
+# asyncio.run drains pending driver tasks before closing the probe event loop.
+raise SystemExit(0 if asyncio.run(installed()) else 1)'
 then
   printf 'The v0.3 release gate requires an installed Playwright Chromium binary.\n' >&2
   printf 'Install it with: %s -m playwright install chromium\n' "${python_command}" >&2

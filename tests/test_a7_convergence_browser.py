@@ -77,6 +77,10 @@ def _assert_no_page_overflow(page, *, bounded_height: bool) -> None:
 
 
 def _complete_plan(page) -> None:
+    # Navigation can finish before the planner's asynchronous inputs are ready.
+    playwright_sync.expect(page.locator("#capability-current-task")).to_have_attribute(
+        "aria-busy", "false"
+    )
     assert page.locator(".planning-row").count() == 3
     first = page.locator(".planning-row").nth(0)
     first.locator('[name="scope"]').select_option("ADVISORY")
@@ -166,6 +170,8 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             )
             poc_id = re.search(r"/pocs/(poc_[a-z0-9_-]+)/", page.url).group(1)
             assert poc_id not in {"poc_support_agent_demo", "poc_inference_latency_demo"}
+            # This shared-template server has no native Zoom runtime.
+            assert page.locator("#zoom-live-panel").is_hidden()
 
             page.locator(input_selector).fill(source_text)
             page.locator("#capture-source").click()

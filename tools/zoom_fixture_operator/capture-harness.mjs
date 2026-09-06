@@ -4,7 +4,7 @@ import http from "node:http";
 import process from "node:process";
 
 import express from "express";
-import WebSocket from "ws";
+import { createRtmsTransport, exactFrame } from "./rtms-transport.mjs";
 
 import {
   assertCredentialRotationGate,
@@ -195,28 +195,6 @@ function optionalParticipantUserId(value) {
   return value;
 }
 
-function safeZoomWebSocketUrl(value) {
-  const url = new URL(value);
-  const host = url.hostname.toLowerCase();
-  if (url.protocol !== "wss:" || !(host.endsWith(".zoom.us") || host.endsWith(".zoomgov.com"))) {
-    throw new Error("Zoom supplied an unsupported WebSocket endpoint.");
-  }
-  return url.toString();
-}
-
-function exactFrame(value) {
-  if (Buffer.isBuffer(value)) {
-    return value;
-  }
-  if (value instanceof ArrayBuffer) {
-    return Buffer.from(value);
-  }
-  if (Array.isArray(value)) {
-    return Buffer.concat(value.map((part) => Buffer.from(part)));
-  }
-  return Buffer.from(value);
-}
-
 function generatedObservation(event, detail = {}) {
   return Buffer.from(JSON.stringify({
     schema_version: "exitspec.zoom-operator-event.v1",
@@ -226,281 +204,19 @@ function generatedObservation(event, detail = {}) {
   }), "utf8");
 }
 
-function generateRtmsSignature(meetingUuid, streamId) {
-  return crypto
-    .createHmac("sha256", CLIENT_SECRET)
-    .update(`${CLIENT_ID},${meetingUuid},${streamId}`)
-    .digest("hex");
-}
-
+// Diagnostic entry point alone supplies persistence and explicitly configured chaos.
 function createStream(meetingUuid, streamId, serverUrl) {
-  return {
-    meetingUuid,
-    streamId,
-    serverUrl: safeZoomWebSocketUrl(serverUrl),
-    mediaUrl: null,
-    signalingSocket: null,
-    mediaSocket: null,
-    transcriptCount: 0,
-    chaosInjected: false,
-    reconnectPending: false,
-    stopped: false,
-  };
-}
-
-function closeSocket(socket) {
-  if (!socket) return;
-  try {
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-      socket.close();
-    }
-  } catch {
-    // The operator trace records the close path; cleanup is best effort.
-  }
-}
-
-function connectSignaling(stream) {
-  if (!NETWORK_AUTHORIZED || stream.stopped) return;
-  const socket = new WebSocket(stream.serverUrl);
-  stream.signalingSocket = socket;
-  recorder.record(
-    "disconnect_reconnect_trace",
-    { direction: "LOCAL_EVENT", channel: "signaling" },
-    generatedObservation("SIGNALING_CONNECT_ATTEMPT", { reconnect: stream.reconnectPending }),
-  );
-
-  socket.on("open", () => {
-    const payload = Buffer.from(JSON.stringify({
-      msg_type: 1,
-      protocol_version: 1,
-      meeting_uuid: stream.meetingUuid,
-      rtms_stream_id: stream.streamId,
-      sequence: crypto.randomInt(1, 1_000_000_000),
-      signature: generateRtmsSignature(stream.meetingUuid, stream.streamId),
-      buffer_data: false,
-    }), "utf8");
-    recorder.record(
-      "signaling_websocket_handshake",
-      { direction: "OUTBOUND", channel: "signaling" },
-      payload,
-    );
-    socket.send(payload);
-    log("SIGNALING", "Connection opened and exact handshake request captured.");
-  });
-
-  socket.on("message", (data) => {
-    const raw = exactFrame(data);
-    let message;
-    try {
-      message = parseBoundedJsonObject(raw);
-    } catch {
-      recorder.record(
-        "disconnect_reconnect_trace",
-        { direction: "INBOUND", channel: "signaling", parse_state: "REJECTED" },
-        raw,
-      );
-      return;
-    }
-
-    if (message.msg_type === 2) {
-      recorder.record(
-        "signaling_websocket_handshake",
-        { direction: "INBOUND", channel: "signaling" },
-        raw,
-      );
-      if (message.status_code !== 0) {
-        log("SIGNALING", "Zoom rejected the signaling handshake; no media connection opened.");
-        return;
-      }
-      const suppliedMediaUrl = message.media_server?.server_urls?.transcript
-        ?? message.media_server?.server_urls?.all;
-      stream.mediaUrl = safeZoomWebSocketUrl(suppliedMediaUrl);
-      stream.reconnectPending = false;
-      connectMedia(stream);
-      return;
-    }
-
-    if (message.msg_type === 12 && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ msg_type: 13, timestamp: message.timestamp }));
-      return;
-    }
-
-    if (message.msg_type === 6) {
-      const eventType = message.event?.event_type;
-      if (eventType === 3 || eventType === 4) {
-        recorder.record(
-          "participant_lifecycle_events",
-          { direction: "INBOUND", channel: "signaling", event_type: eventType },
-          raw,
-        );
-      }
-      if (eventType === 7) {
-        recorder.record(
-          "disconnect_reconnect_trace",
-          { direction: "INBOUND", channel: "signaling", event_type: eventType },
-          raw,
-        );
-        reconnectMedia(stream);
-      }
-      return;
-    }
-
-    if (message.msg_type === 8 && message.state === 2) {
-      recorder.record(
-        "disconnect_reconnect_trace",
-        { direction: "INBOUND", channel: "signaling", stream_state: message.state },
-        raw,
-      );
-      if (message.reason === 14) reconnectMedia(stream);
-      return;
-    }
-
-    if (message.msg_type === 9) {
-      recorder.record(
-        "participant_lifecycle_events",
-        { direction: "INBOUND", channel: "signaling", message_type: 9 },
-        raw,
-      );
-    }
-  });
-
-  socket.on("close", (code) => {
-    recorder.record(
-      "disconnect_reconnect_trace",
-      { direction: "LOCAL_EVENT", channel: "signaling", close_code: code },
-      generatedObservation("SIGNALING_CLOSED", { close_code: code }),
-    );
-    stream.signalingSocket = null;
-    log("SIGNALING", "Connection closed; waiting for Zoom's explicit reconnect signal.");
-  });
-
-  socket.on("error", () => {
-    recorder.record(
-      "disconnect_reconnect_trace",
-      { direction: "LOCAL_EVENT", channel: "signaling" },
-      generatedObservation("SIGNALING_ERROR"),
-    );
+  return createRtmsTransport({
+    clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, meetingUuid, streamId, serverUrl,
+    networkAuthorized: NETWORK_AUTHORIZED,
+    observe: (kind, metadata, bytes) => recorder.record(kind, metadata, bytes),
+    chaosDelayMs: CHAOS_AFTER_TRANSCRIPT_SECONDS * 1000,
+    onEvent: ({ event }) => log("RTMS", event),
   });
 }
-
-function connectMedia(stream) {
-  if (!NETWORK_AUTHORIZED || stream.stopped || !stream.mediaUrl || stream.mediaSocket) return;
-  const socket = new WebSocket(stream.mediaUrl);
-  stream.mediaSocket = socket;
-
-  socket.on("open", () => {
-    const payload = Buffer.from(JSON.stringify({
-      msg_type: 3,
-      protocol_version: 1,
-      meeting_uuid: stream.meetingUuid,
-      rtms_stream_id: stream.streamId,
-      signature: generateRtmsSignature(stream.meetingUuid, stream.streamId),
-      media_type: 8,
-      payload_encryption: false,
-    }), "utf8");
-    recorder.record(
-      "transcript_websocket_handshake",
-      { direction: "OUTBOUND", channel: "transcript" },
-      payload,
-    );
-    socket.send(payload);
-    log("TRANSCRIPT", "Connection opened and transcript-only handshake request captured.");
-  });
-
-  socket.on("message", (data) => {
-    const raw = exactFrame(data);
-    let message;
-    try {
-      message = parseBoundedJsonObject(raw);
-    } catch {
-      recorder.record(
-        "disconnect_reconnect_trace",
-        { direction: "INBOUND", channel: "transcript", parse_state: "REJECTED" },
-        raw,
-      );
-      return;
-    }
-
-    if (message.msg_type === 4) {
-      recorder.record(
-        "transcript_websocket_handshake",
-        { direction: "INBOUND", channel: "transcript" },
-        raw,
-      );
-      if (message.status_code === 0 && stream.signalingSocket?.readyState === WebSocket.OPEN) {
-        stream.signalingSocket.send(JSON.stringify({ msg_type: 7, rtms_stream_id: stream.streamId }));
-        stream.reconnectPending = false;
-        log("TRANSCRIPT", "Handshake accepted; CLIENT_READY_ACK sent on signaling channel.");
-      }
-      return;
-    }
-
-    if (message.msg_type === 12 && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ msg_type: 13, timestamp: message.timestamp }));
-      return;
-    }
-
-    if (message.msg_type === 17) {
-      stream.transcriptCount += 1;
-      recorder.record(
-        "transcript_packets",
-        { direction: "INBOUND", channel: "transcript", ordinal: stream.transcriptCount },
-        raw,
-      );
-      log("TRANSCRIPT", `Captured opaque transcript packet ${stream.transcriptCount}; content was not logged.`);
-      if (!stream.chaosInjected) {
-        stream.chaosInjected = true;
-        setTimeout(() => {
-          if (socket.readyState !== WebSocket.OPEN || stream.stopped) return;
-          recorder.record(
-            "disconnect_reconnect_trace",
-            { direction: "LOCAL_EVENT", channel: "transcript" },
-            generatedObservation("CONTROLLED_MEDIA_DISCONNECT_AFTER_FIRST_TRANSCRIPT"),
-          );
-          socket.terminate();
-          log("CHAOS", "Injected the one approved media disconnect after transcript delivery.");
-        }, CHAOS_AFTER_TRANSCRIPT_SECONDS * 1000);
-      }
-    }
-  });
-
-  socket.on("close", (code) => {
-    recorder.record(
-      "disconnect_reconnect_trace",
-      { direction: "LOCAL_EVENT", channel: "transcript", close_code: code },
-      generatedObservation("TRANSCRIPT_SOCKET_CLOSED", { close_code: code }),
-    );
-    if (stream.mediaSocket === socket) stream.mediaSocket = null;
-  });
-
-  socket.on("error", () => {
-    recorder.record(
-      "disconnect_reconnect_trace",
-      { direction: "LOCAL_EVENT", channel: "transcript" },
-      generatedObservation("TRANSCRIPT_SOCKET_ERROR"),
-    );
-  });
-}
-
-function reconnectMedia(stream) {
-  if (stream.stopped || stream.reconnectPending) return;
-  stream.reconnectPending = true;
-  closeSocket(stream.mediaSocket);
-  stream.mediaSocket = null;
-  recorder.record(
-    "disconnect_reconnect_trace",
-    { direction: "LOCAL_EVENT", channel: "transcript" },
-    generatedObservation("MEDIA_RECONNECT_SCHEDULED", { delay_ms: 3000 }),
-  );
-  setTimeout(() => connectMedia(stream), 3000);
-}
-
+function connectSignaling(stream) { if (NETWORK_AUTHORIZED) stream.start(); }
 function stopAndRemoveStream(streamId) {
-  const stream = activeStreams.get(streamId);
-  if (!stream) return;
-  stream.stopped = true;
-  closeSocket(stream.mediaSocket);
-  closeSocket(stream.signalingSocket);
+  activeStreams.get(streamId)?.revoke();
   activeStreams.delete(streamId);
 }
 
@@ -598,11 +314,7 @@ async function processWebhook(rawBody, headers, { controlledReplay = false } = {
     const streamId = payload.payload?.rtms_stream_id;
     const stream = activeStreams.get(streamId);
     if (stream) {
-      closeSocket(stream.mediaSocket);
-      closeSocket(stream.signalingSocket);
-      stream.serverUrl = safeZoomWebSocketUrl(payload.payload?.server_urls ?? stream.serverUrl);
-      stream.reconnectPending = true;
-      setTimeout(() => connectSignaling(stream), 3000);
+      stream.reconnect(payload.payload?.server_urls ?? stream.serverUrl);
     }
   } else if (event === "meeting.rtms_stopped") {
     recorder.record(
@@ -868,9 +580,7 @@ function closeServer(server) {
 async function shutdown() {
   clearTimeout(captureStopTimer);
   for (const stream of activeStreams.values()) {
-    stream.stopped = true;
-    closeSocket(stream.mediaSocket);
-    closeSocket(stream.signalingSocket);
+    stream.revoke();
   }
   await Promise.all([
     closeServer(publicServer),

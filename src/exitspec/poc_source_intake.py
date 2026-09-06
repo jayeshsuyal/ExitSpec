@@ -896,6 +896,30 @@ class ProcessLocalPOCSourceIntake:
             expected_content_sha256=expected_content_sha256,
         )
 
+    @contextmanager
+    def native_attachment_guard(self, poc_id: str):
+        """Keep the shared source -> draft lock order for native publication."""
+        with self._source_service.attachment_guard(poc_id):
+            yield
+
+    def capture_zoom_native_transcript(
+        self, *, poc_id: str, transcript_text: str,
+        source_binding_sha256: str, idempotency_key: str,
+    ) -> POCSourceReceipt:
+        """Redact parent-decoded native text before attaching its source.
+
+        The native binding describes unredacted packet provenance, so it is not
+        compared with the redacted storage digest. Both are retained separately
+        by the parent runtime. This method grants no capture/egress authority.
+        """
+        if type(source_binding_sha256) is not str or _SHA256.fullmatch(source_binding_sha256) is None:
+            raise POCSourceIntakeInvalid("The native Zoom source binding is invalid.")
+        return self._capture_meeting_text(
+            poc_id=poc_id, transcript_text=transcript_text,
+            idempotency_key=idempotency_key, adapter_name="zoom_rtms",
+            adapter_version="zoom-native-1.0", external_id="zoom.native." + source_binding_sha256[:32],
+        )
+
     def capture_zoom_rtms_transcript(
         self,
         *,

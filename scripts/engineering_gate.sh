@@ -131,6 +131,20 @@ run_gate \
   tests/test_a7_evidence_response_trust_browser.py
 
 run_gate \
+  "Native Zoom runtime lint" \
+  ruff check \
+  src/exitspec/zoom_live_runtime.py \
+  src/exitspec/zoom_live_ipc.py \
+  src/exitspec/zoom_live_operator.py \
+  tests/test_zoom_live_runtime.py \
+  tests/test_zoom_live_web.py \
+  tests/test_zoom_live_browser.py
+
+run_gate \
+  "Native Zoom browser JavaScript syntax" \
+  node --check src/exitspec/static/zoom_live.js
+
+run_gate \
   "Employee workbench JavaScript syntax" \
   node --check src/exitspec/static/app.js
 
