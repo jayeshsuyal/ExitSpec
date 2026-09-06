@@ -6498,6 +6498,14 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if target is None or not target.is_file():
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
             return
+        if relative == "source_intake.html":
+            # The shared template also serves demos without the native runtime.
+            # This is only a UI capability hint; pairing remains local-only.
+            data = target.read_bytes().replace(
+                b'data-zoom-live-enabled="false"', b'data-zoom-live-enabled="true"'
+            )
+            self._send_bytes(target, data)
+            return
         self._send_file(target)
 
     def _serve_artifact(self, request_path: str) -> None:

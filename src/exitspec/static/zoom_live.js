@@ -3,7 +3,8 @@
 
   const route = /^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/(?:capture|sources\/new)$/.exec(window.location.pathname);
   const panel = document.getElementById("zoom-live-panel");
-  if (!route || !panel) return;
+  if (!route || !panel || panel.dataset.zoomLiveEnabled !== "true") return;
+  panel.hidden = false;
   const pocId = route[1];
   const endpoint = `/api/pocs/${pocId}/zoom-live`;
   const reviewPath = `/app/pocs/${pocId}/review`;

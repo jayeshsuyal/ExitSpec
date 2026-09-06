@@ -166,6 +166,8 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             )
             poc_id = re.search(r"/pocs/(poc_[a-z0-9_-]+)/", page.url).group(1)
             assert poc_id not in {"poc_support_agent_demo", "poc_inference_latency_demo"}
+            # This shared-template server has no native Zoom runtime.
+            assert page.locator("#zoom-live-panel").is_hidden()
 
             page.locator(input_selector).fill(source_text)
             page.locator("#capture-source").click()

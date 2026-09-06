@@ -23,10 +23,10 @@ function state(name = 'PAIRED', extra = {}) {
     segment_count:0, proposal_count:0, source_receipt_id:null,
     review_url:null, failure_code:null, ...extra};
 }
-function app(first, hidden = false) {
+function app(first, hidden = false, enabled = true) {
   const elements = new Map();
   function element(id) {
-    if (!elements.has(id)) elements.set(id, {hidden:false, disabled:false,
+    if (!elements.has(id)) elements.set(id, {hidden:false, disabled:false, dataset:{},
       checked:false, textContent:'', attrs:{}, listeners:{},
       addEventListener(event, listener) { this.listeners[event] = listener; },
       removeAttribute(name) { delete this.attrs[name]; },
@@ -34,6 +34,8 @@ function app(first, hidden = false) {
     return elements.get(id);
   }
   element('meeting-entry').hidden = hidden;
+  element('zoom-live-panel').hidden = true;
+  element('zoom-live-panel').dataset.zoomLiveEnabled = enabled ? 'true' : 'false';
   const timers = new Map(), calls = [], replies = [first], events = {};
   let sequence = 0, changed;
   const window = {location:{pathname:'/app/pocs/poc_demo/capture'},
@@ -80,6 +82,7 @@ def test_panel_is_independent_of_synthetic_modes_and_discloses_scope():
     html = (STATIC / "source_intake.html").read_text()
     section = html.split('id="meeting-entry"', 1)[1].split('id="meeting-mode-chooser"', 1)[0]
     assert 'id="zoom-live-panel"' in section
+    assert 'data-zoom-live-enabled="false" hidden' in section
     assert 'id="zoom-live-consent" type="checkbox" disabled' in section
     assert "not a complete meeting" in section
     assert "fresh synthetic requirements" in section
@@ -90,10 +93,22 @@ def test_panel_is_independent_of_synthetic_modes_and_discloses_scope():
         assert forbidden not in javascript
 
 
+def test_disabled_server_capability_keeps_panel_hidden_and_never_fetches():
+    _run(r"""
+const a = app(state(), false, false); await flush();
+assert.equal(a.element('panel').hidden, true);
+assert.equal(a.calls.length, 0);
+assert.equal(a.timers.size, 0);
+assert.equal(a.changed, undefined);
+assert.equal(a.element('start').listeners.click, undefined);
+""")
+
+
 def test_unpaired_requires_operator_and_does_not_poll_or_allow_actions():
     _run(r"""
 const a = app(state('UNPAIRED', {session_id:null, transport_mode:'DISABLED'}));
 await flush();
+assert.equal(a.element('panel').hidden, false);
 assert.match(a.element('status').textContent, /local operator/);
 assert.equal(a.poll().length, 0);
 for (const name of ['start','stop','process','reset']) {

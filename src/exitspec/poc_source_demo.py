@@ -157,6 +157,7 @@ _ASSET_NAMES = frozenset(
         "source_intake.html",
         "source_intake.css",
         "source_intake.js",
+        "zoom_live.js",
         "proposal_review.html",
         "proposal_review.css",
         "proposal_review.js",
