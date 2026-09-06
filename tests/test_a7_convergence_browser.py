@@ -77,6 +77,10 @@ def _assert_no_page_overflow(page, *, bounded_height: bool) -> None:
 
 
 def _complete_plan(page) -> None:
+    # Navigation can finish before the planner's asynchronous inputs are ready.
+    playwright_sync.expect(page.locator("#capability-current-task")).to_have_attribute(
+        "aria-busy", "false"
+    )
     assert page.locator(".planning-row").count() == 3
     first = page.locator(".planning-row").nth(0)
     first.locator('[name="scope"]').select_option("ADVISORY")
