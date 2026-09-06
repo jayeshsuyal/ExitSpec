@@ -34,6 +34,14 @@ import yaml
 from pydantic import ValidationError
 
 from .canonical import canonical_json_bytes
+from .assisted_authoring import ProcessLocalAssistedAuthoringService
+from .source_authoring_web import (
+    SourceAuthoringWebRuntime,
+    handle_source_authoring_http,
+    review_inputs,
+    source_authoring_page_poc,
+)
+from .synthetic_assisted_authoring import SyntheticSourceNeutralAssistedAuthoringExecutor
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import (
     approve_draft,
@@ -3106,9 +3114,22 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             source_intake=self.poc_source_intake,
             fireworks_transport=stt_fireworks_transport,
         )
-        self.proposal_review_service = ProcessLocalProposalReviewService(
-            proposal_lookup=self.poc_source_intake.proposal_inputs,
+        self.assisted_authoring_service = ProcessLocalAssistedAuthoringService(
+            source_lookup=self.poc_source_intake.source_snapshot,
+            draft_lookup=self.draft_poc_service.get,
+            executor=SyntheticSourceNeutralAssistedAuthoringExecutor(),
+            provider="synthetic",
+            endpoint="local://exitspec/source-neutral-assisted-authoring",
         )
+        self.proposal_review_service = ProcessLocalProposalReviewService(
+            proposal_lookup=lambda poc_id: review_inputs(
+                self.poc_source_intake, self.assisted_authoring_service, poc_id
+            ),
+        )
+        self.assisted_authoring_service.bind_decision_lookup(self.proposal_review_service.source_has_decision)
+        self.assisted_authoring_service.bind_review_commit_guard(self.proposal_review_service.authoring_commit_guard)
+        self.assisted_authoring_service.bind_source_commit_guard(self.poc_source_intake.authoring_commit_guard)
+        self.assisted_authoring_service.bind_draft_commit_guard(self.draft_poc_service.authoring_commit_guard)
         self.contract_definition_service = (
             ProcessLocalContractDefinitionService(
                 proposal_lookup=self.proposal_review_service.list_proposals,
@@ -3205,6 +3226,11 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         self.session = session
         self.poc_closure_service = ProcessLocalPOCClosureService(
             evidence_resolver=self._terminal_evidence_binding,
+        )
+        self.source_authoring_web = SourceAuthoringWebRuntime(
+            drafts=self.draft_poc_service, intake=self.poc_source_intake,
+            assisted=self.assisted_authoring_service, review=self.proposal_review_service,
+            closure=self.poc_closure_service,
         )
         self.zoom_live_runtime = ZoomLiveRuntime(
             drafts=self.draft_poc_service, intake=self.poc_source_intake,
@@ -3840,6 +3866,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             live = getattr(self, "zoom_live_runtime", None)
             if live is not None:
                 live.close()
+            source_authoring = getattr(self, "source_authoring_web", None)
+            if source_authoring is not None:
+                source_authoring.close()
             super().server_close()
         finally:
             resource_stack = getattr(self, "_resource_stack", None)
@@ -5166,6 +5195,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         super().send_error(code, message, explain)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+        if handle_source_authoring_http(self):
+            return
         if self._dispatch_zoom_live():
             return
         if self._dispatch_reference_inference():
@@ -5193,6 +5224,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_inferdrome_import_read():
             return
         parsed = urlparse(self.path)
+        source_authoring_poc = source_authoring_page_poc(parsed.path)
+        if source_authoring_poc is not None:
+            if self.path != parsed.path or source_authoring_poc not in self.server.draft_poc_service.ids():
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Draft POC is unavailable."})
+            else:
+                self._serve_static("/source_authoring.html")
+            return
         if parsed.path == EVIDENCE_LIBRARY_PAGE_PATH:
             if parsed.params or parsed.query or parsed.fragment:
                 self._send_json(
@@ -5552,6 +5590,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._serve_static(parsed.path, parsed.query)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+        if handle_source_authoring_http(self):
+            return
         if self._dispatch_zoom_live():
             return
         if self._dispatch_reference_inference():
@@ -6214,6 +6254,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _unsupported_method(self) -> None:
+        if handle_source_authoring_http(self):
+            return
         if self._dispatch_reference_inference():
             return
         if self._dispatch_source_request():

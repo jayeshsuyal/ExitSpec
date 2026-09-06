@@ -445,6 +445,7 @@ node --check src/exitspec/static/dashboard.js
 node --check src/exitspec/static/new_poc.js
 node --check src/exitspec/static/source_intake.js
 node --check src/exitspec/static/zoom_live.js
+node --check src/exitspec/static/source_authoring.js
 node --check src/exitspec/static/proposal_review.js
 node --check src/exitspec/static/assisted_authoring.js
 node --check src/exitspec/static/capability_plan.js
