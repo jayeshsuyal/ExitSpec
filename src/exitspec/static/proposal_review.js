@@ -1013,6 +1013,11 @@
       ) {
         throw new SafeRequestError(200, true);
       }
+      const sourceAuthoringLink = document.querySelector("#source-authoring-link");
+      if (sourceAuthoringLink) {
+        sourceAuthoringLink.href = `/app/pocs/${pocId}/source-authoring`;
+        sourceAuthoringLink.hidden = false;
+      }
       let capability = null;
       try {
         capability = await requestJson(stateApi);

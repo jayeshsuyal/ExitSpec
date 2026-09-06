@@ -145,6 +145,14 @@ run_gate \
   node --check src/exitspec/static/zoom_live.js
 
 run_gate \
+  "Source authoring core, API and browser lint" \
+  ruff check src/exitspec/source_authoring_*.py tests/test_source_authoring_*.py
+
+run_gate \
+  "Source authoring browser JavaScript syntax" \
+  node --check src/exitspec/static/source_authoring.js
+
+run_gate \
   "Employee workbench JavaScript syntax" \
   node --check src/exitspec/static/app.js
 

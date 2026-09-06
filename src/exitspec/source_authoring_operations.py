@@ -409,6 +409,64 @@ class ProcessLocalSourceAuthoringOperations:
         with self._lock:
             return self._record(session, permit).receipt
 
+    def inspect_disclosure(
+        self, session: SyntheticBrowserSession, disclosure: SourceAuthoringDisclosure
+    ) -> tuple[SourceAuthoringOperationReceipt, SourceAuthoringSnapshot | None, float]:
+        """Refresh consent and return only its exact current source for local preview.
+
+        This never claims a permit or starts a worker. Invalid owner/expiry state
+        becomes a retained terminal receipt, including before authorization.
+        """
+        with self._lock:
+            identity = self._session(session)
+            if type(disclosure) is not SourceAuthoringDisclosure:
+                raise SourceAuthoringOperationError("disclosure_refused")
+            record = self._records.get(disclosure.operation_id)
+            if record is None or record.session != identity or record.disclosure != disclosure:
+                raise SourceAuthoringOperationError("disclosure_refused")
+            if record.receipt.state in _TERMINAL:
+                return record.receipt, None, 0.0
+            snapshot = record.source
+
+        def inspect(guard):
+            with self._lock:
+                self._session(session)
+                current = self._records[disclosure.operation_id]
+                if current.receipt.state in _TERMINAL:
+                    return current.receipt, None, 0.0
+                self._check_pending(current, current.receipt.state)
+                # Sample first, then revalidate after the last clock callback.
+                now = self._now()
+                remaining = disclosure.expires_monotonic - now
+                self._session(session)
+                if self._records[disclosure.operation_id] is not current:
+                    raise SourceAuthoringOperationError("operation_invalidated")
+                if remaining <= 0:
+                    raise SourceAuthoringOperationError("consent_expired")
+                if current.deadline is not None and now >= current.deadline:
+                    raise SourceAuthoringOperationError("operation_timeout")
+                guard.check_current_locked()
+                return current.receipt, current.source, remaining
+
+        try:
+            return self._owners.run_guarded(snapshot, inspect)
+        except (SourceAuthoringOwnersError, SourceAuthoringOperationError) as error:
+            with self._lock:
+                if type(error) is SourceAuthoringOwnersError:
+                    state, code = "STALE", "owner_refused"
+                elif error.code == "consent_expired":
+                    state, code = "EXPIRED", "consent_expired"
+                elif error.code == "operation_timeout":
+                    state, code = "OUTCOME_UNKNOWN", "operation_timeout"
+                else:
+                    state, code = "REVOKED", "operation_invalidated"
+                self._terminal(disclosure.operation_id, state, code)
+                worker = self._worker if self._active == disclosure.operation_id else None
+                receipt = self._records[disclosure.operation_id].receipt
+            if worker is not None:
+                worker.cancel()
+            return receipt, None, 0.0
+
     def _terminal(self, operation: str, state: str, code: str | None) -> None:
         record = self._records[operation]
         if record.receipt.state in _TERMINAL:

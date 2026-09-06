@@ -2,8 +2,9 @@
 
 This checkpoint implements the accepted r2 core contract against main
 `102b521e2f9a8b9c04d52c5fc77d06abe76aa006`. It is a synthetic-only library and
-worker composition. No HTTP endpoint, browser capability bootstrap, UI action,
-operator launch grant, credential configuration or live provider execution is
+worker composition, accepted at `168d435b41f74eff6c56c2ec3aeec8634fa92ec2`.
+The next milestone wires the core to a [synthetic-only UI and HTTP adapter](FIREWORKS_SOURCE_AUTHORING_UI.md).
+No operator launch grant, credential configuration or live provider execution is
 wired. Both real activation entry points reject unconditionally. Synthetic
 token declarations and response fixtures cannot enable networking.
 
@@ -113,7 +114,7 @@ connect, headers, body stalls and slow trickles without DNS or network traffic.
 
 The early checkpoint covers strict policy/intent values, issuer-owned permits,
 ledger, D/F ownership, synthetic worker/IPC and deterministic verification.
-It does not implement browser/product wiring. Later bootstrap issuance is
+Its browser/product wiring is documented separately. Bootstrap issuance is
 itself a mutation: exact same-origin/Host validation must run before minting any
 capability or consuming session capacity; missing, foreign, null and duplicate
 Origin values must fail. Capabilities must remain out of URLs, logs, receipts
@@ -128,6 +129,7 @@ a US requirement blocks it rather than widening the allowlist. A reservation
 is not proof of token or invoice bounds. Provider schema acceptance never
 weakens local schema, numeric or exact-source-anchor validation.
 
-The coordinator must accept this exact core candidate before browser or
-launcher integration. Full engineering/release/qualification gates and mandatory
-browser coverage remain required for the later integrated candidate before merge.
+The coordinator accepted this core before browser integration. The integrated
+synthetic candidate requires its own exact-head review before the next live
+worker/operator-launcher implementation milestone or merge. Full engineering,
+release, qualification and mandatory browser gates remain required.

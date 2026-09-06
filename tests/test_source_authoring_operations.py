@@ -642,3 +642,30 @@ def test_session_secret_is_bound_to_issuer_record_and_uninitialized_handles_fail
     good = ops.new_synthetic_session()
     with pytest.raises(SourceAuthoringOperationError, match="permit_refused"):
         ops.status(good, object.__new__(AuthorizedSourceAuthoringRequest))
+
+
+@pytest.mark.parametrize("clock_call", [1, 2])
+@pytest.mark.parametrize("invalidation", ["revoke", "archive", "shutdown"])
+def test_local_preview_final_clock_never_returns_invalidated_source(clock_call, invalidation):
+    ops, session, permit, clock, context = setup()
+    remaining = clock_call
+
+    def now():
+        nonlocal remaining
+        remaining -= 1
+        if remaining == 0:
+            if invalidation == "revoke":
+                ops.revoke(session, permit)
+            elif invalidation == "archive":
+                context[1].archive(context[0])
+            else:
+                ops.shutdown()
+        return clock.value
+
+    ops._clock = now
+    receipt, source, ttl = ops.inspect_disclosure(session, context[-1])
+    assert receipt.state == ("STALE" if invalidation == "archive" else "REVOKED")
+    assert source is None and ttl == 0
+    assert ops.ledger[0] == 0 and ops._worker is None
+    assert ops._records[permit._operation].source is None
+    assert ops._records[permit._operation].body is None
