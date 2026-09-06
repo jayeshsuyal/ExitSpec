@@ -73,6 +73,9 @@ class PreparedSourceAuthoringPublication:
     __slots__ = (
         "_assisted",
         "_attempts",
+        "_expected_attempts",
+        "_expected_registration",
+        "_expected_results",
         "_guard",
         "_registration",
         "_results",
@@ -81,13 +84,27 @@ class PreparedSourceAuthoringPublication:
         "result",
     )
 
-    def __init__(self, guard, registration, results, attempts, result) -> None:
+    def __init__(
+        self,
+        guard,
+        registration,
+        results,
+        attempts,
+        result,
+        *,
+        expected_registration,
+        expected_results,
+        expected_attempts,
+    ) -> None:
         self._guard = guard
         self._review = guard._owners._review
         self._assisted = guard._owners._assisted
         self._registration = registration
         self._results = results
         self._attempts = attempts
+        self._expected_registration = expected_registration
+        self._expected_results = expected_results
+        self._expected_attempts = expected_attempts
         self._used = False
         self.result = result
 
@@ -107,6 +124,15 @@ class PreparedSourceAuthoringPublication:
             or guard._prepared_token is not self
         ):
             raise SourceAuthoringOwnersError("PUBLICATION_UNAVAILABLE")
+        # These three stores use copy-on-write publication. A same-thread
+        # reentrant action can replace them despite the held RLocks; never erase
+        # that action with an older prepared copy. Check all before any swap.
+        if (
+            self._review._authoring_current_proposals is not self._expected_registration
+            or self._assisted._results_by_request is not self._expected_results
+            or self._assisted._source_attempts is not self._expected_attempts
+        ):
+            raise SourceAuthoringOwnersError("PUBLICATION_CONFLICT")
         self._used = True
         # No fallible owner hooks after this first visible swap. Review and A3
         # readers cannot observe these replacements until their locks release.
@@ -195,6 +221,12 @@ class _OwnerGuard:
             raise SourceAuthoringOwnersError("INVALID_RESULT")
         if type(batch) is not SourceNeutralProposalBatch:
             raise SourceAuthoringOwnersError("INVALID_RESULT")
+        # Capture originals before validation/materialization/review preparation:
+        # a fallible integration boundary can reenter an independent A3 action.
+        service = self._owners._assisted
+        expected_registration = self._owners._review._authoring_current_proposals
+        expected_results = service._results_by_request
+        expected_attempts = service._source_attempts
         try:
             # Reparse even an already-typed batch: model_construct/model_copy
             # and freely constructed provider objects are not validation proof.
@@ -219,14 +251,20 @@ class _OwnerGuard:
             registration = self._review_guard._authoring_current_proposals
             if type(registration) is not dict:
                 raise SourceAuthoringOwnersError("PUBLICATION_UNAVAILABLE")
-            service = self._owners._assisted
-            results = dict(service._results_by_request)
+            results = dict(expected_results)
             results[stored.receipt.authoring_receipt_id] = stored
-            attempts = dict(service._source_attempts)
+            attempts = dict(expected_attempts)
             attempts[(self._snapshot.poc_id, self._snapshot.source.source_id)] = stored
             result = AssistedDraftResult(stored.receipt, stored.proposals)
             prepared = PreparedSourceAuthoringPublication(
-                self, registration, results, attempts, result
+                self,
+                registration,
+                results,
+                attempts,
+                result,
+                expected_registration=expected_registration,
+                expected_results=expected_results,
+                expected_attempts=expected_attempts,
             )
             self._prepared_token = prepared
             return prepared

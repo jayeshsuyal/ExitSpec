@@ -424,6 +424,108 @@ def test_reentrant_clock_revocation_cannot_publish_stale_record():
     assert context[3]._results_by_request == {}
 
 
+@pytest.mark.parametrize("invalidation", ["permit", "disclosure", "shutdown", "session"])
+def test_claim_clock_invalidation_never_consumes_or_starts_worker(invalidation):
+    ops, session, permit, clock, context = setup()
+    armed = True
+
+    def now():
+        nonlocal armed
+        if armed:
+            armed = False
+            if invalidation == "permit":
+                assert ops.revoke(session, permit).state == "REVOKED"
+            elif invalidation == "disclosure":
+                assert ops.revoke_disclosure(session, context[-1]).state == "REVOKED"
+            elif invalidation == "shutdown":
+                ops.shutdown()
+            else:
+                session._secret = b"invalidated-session"
+        return clock.value
+
+    ops._clock = now
+    unused = worker()
+    if invalidation in {"shutdown", "session"}:
+        code = "grant_closed" if invalidation == "shutdown" else "session_refused"
+        with pytest.raises(SourceAuthoringOperationError, match=code):
+            ops.execute_synthetic(session, permit, worker=unused)
+    else:
+        result = ops.execute_synthetic(session, permit, worker=unused)
+        assert result.state == "REVOKED"
+        assert ops.execute_synthetic(session, permit, worker=unused) is result
+    record = ops._records[permit._operation]
+    assert record.receipt.attempts == 0
+    assert record.receipt.reserved_usd == Decimal("0.00")
+    assert ops.ledger == (0, Decimal("0.00"))
+    assert unused.state == "NEW"
+    assert ops._active is None and ops._worker is None
+    assert context[3]._results_by_request == {}
+    assert context[4].list_proposals(context[0]) == ()
+    if invalidation != "session":
+        assert record.receipt.state == "REVOKED"
+        assert record.source is None and record.body is None
+
+
+@pytest.mark.parametrize("other_session", [False, True])
+@pytest.mark.parametrize("revocation", ["permit", "disclosure"])
+def test_final_clock_preserves_another_operations_revocation(other_session, revocation):
+    countdown = 0
+
+    def schedule(where):
+        nonlocal countdown
+        if where == "pre_commit":
+            # The second commit clock runs after the operation map was copied.
+            countdown = 2
+
+    ops, session, permit, clock, context = setup(schedule)
+    second_session = ops.new_synthetic_session() if other_session else session
+    second_source = _attach_document(
+        context[2],
+        context[0],
+        "The second requirement is an error rate below 1%.",
+        "capture-second",
+    )
+    disclosure = ops.prepare(second_session, context[0], second_source)
+    second_permit = ops.authorize(
+        second_session, disclosure, acknowledged=True, idempotency_key="second"
+    )
+    tombstone = None
+
+    def now():
+        nonlocal countdown, tombstone
+        if countdown:
+            countdown -= 1
+            if countdown == 0:
+                if revocation == "permit":
+                    ops.revoke(second_session, second_permit)
+                else:
+                    ops.revoke_disclosure(second_session, disclosure)
+                tombstone = ops._records[second_permit._operation]
+        return clock.value
+
+    ops._clock = now
+    result = ops.execute_synthetic(session, permit, worker=worker())
+    assert tombstone is not None
+    assert ops._records[second_permit._operation] is tombstone
+    assert tombstone.receipt.state == "REVOKED"
+    assert tombstone.source is None and tombstone.body is None
+    assert tombstone.receipt.attempts == 0
+    # The outer operation fails closed before any of its owner maps publish.
+    assert result.state == "FAILED"
+    assert result.authoring_receipt_id is None
+    assert context[3]._results_by_request == {}
+    assert context[3]._source_attempts == {}
+    assert context[4].list_proposals(context[0]) == ()
+    clock.value += 10
+    unused = worker()
+    assert (
+        ops.execute_synthetic(second_session, second_permit, worker=unused)
+        is tombstone.receipt
+    )
+    assert unused.state == "NEW"
+    assert ops.ledger == (1, Decimal("0.01"))
+
+
 def test_bad_clock_exception_is_content_free():
     ops, session, permit, _, _ = setup()
 

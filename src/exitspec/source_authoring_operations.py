@@ -162,6 +162,7 @@ class ProcessLocalSourceAuthoringOperations:
         self._sessions: dict[str, SyntheticBrowserSession] = {}
         self._session_secrets: dict[str, bytes] = {}
         self._records: dict[str, _Record] = {}
+        self._records_generation = 0
         self._aliases: dict[tuple[str, str], str] = {}
         self._claims = 0
         self._last_claim: float | None = None
@@ -274,6 +275,7 @@ class ProcessLocalSourceAuthoringOperations:
                     time.time(),
                     SourceAuthoringOperationReceipt(operation, "PREPARED"),
                 )
+                self._records_generation += 1
                 return disclosure
 
         return self._owners.run_guarded(snapshot, publish_disclosure)
@@ -343,6 +345,7 @@ class ProcessLocalSourceAuthoringOperations:
                         current.receipt, state="AUTHORIZED", intent_sha256=intent.digest
                     ),
                 )
+                self._records_generation += 1
                 return permit
 
         return self._owners.run_guarded(snapshot, issue)
@@ -416,6 +419,7 @@ class ProcessLocalSourceAuthoringOperations:
             body=None,
             receipt=replace(record.receipt, state=state, code=code),
         )
+        self._records_generation += 1
 
     def revoke_disclosure(
         self, session: SyntheticBrowserSession, disclosure: SourceAuthoringDisclosure
@@ -478,6 +482,12 @@ class ProcessLocalSourceAuthoringOperations:
             if record.receipt.state != "AUTHORIZED":
                 return record.receipt
             now = self._now()
+            # The clock seam may revoke this permit, close the grant, or
+            # invalidate the session while the RLock is held. Revalidate before
+            # preparing or consuming a claim; terminal tombstones stay intact.
+            record = self._record(session, permit)
+            if record.receipt.state != "AUTHORIZED":
+                return record.receipt
             if now >= record.disclosure.expires_monotonic:
                 self._terminal(operation, "EXPIRED", "consent_expired")
                 return self._records[operation].receipt
@@ -497,8 +507,14 @@ class ProcessLocalSourceAuthoringOperations:
                     reserved_usd=Decimal("0.01"),
                 ),
             )
+            next_claims = self._claims + 1
+            next_generation = self._records_generation + 1
+            current = self._record(session, permit)
+            if current is not record:
+                return current.receipt
             self._records[operation] = claimed
-            self._claims += 1
+            self._records_generation = next_generation
+            self._claims = next_claims
             self._last_claim = now
             self._active, self._worker = operation, worker
         try:
@@ -541,10 +557,12 @@ class ProcessLocalSourceAuthoringOperations:
                     )
                     with worker.dispatch_guard(ticket) as handoff:
                         self._check_pending(current, "CLAIMED")
+                        next_generation = self._records_generation + 1
                         # D: prepared immutable state/ticket publication, no I/O.
                         guard.check_current_locked()
                         handoff.stage()
                         self._records[operation] = dispatched
+                        self._records_generation = next_generation
 
             self._owners.run_guarded(claimed.source, dispatch)
             self._schedule("post_dispatch")
@@ -583,13 +601,21 @@ class ProcessLocalSourceAuthoringOperations:
                             authoring_receipt_id=publication.result.receipt.authoring_receipt_id,
                         ),
                     )
+                    records_generation = self._records_generation
+                    next_generation = records_generation + 1
                     updated = dict(self._records)
                     updated[operation] = completed
                     self._check_pending(current, "DISPATCH_AUTHORIZED")
+                    # A callback may mutate another operation even when this
+                    # one remains valid. Reject the stale whole-map copy before
+                    # publishing any owner state, preserving every tombstone.
+                    if self._records_generation != records_generation:
+                        raise SourceAuthoringOperationError("publication_conflict")
                     # F: only concrete owner pointer swaps and our prepared map.
                     guard.check_current_locked()
                     publication.publish()
                     self._records = updated
+                    self._records_generation = next_generation
 
             self._owners.run_guarded(claimed.source, commit)
             self._schedule("committed")

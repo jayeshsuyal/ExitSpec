@@ -380,6 +380,9 @@ def test_a_freely_constructed_token_cannot_publish_even_with_an_active_guard(rig
             {},
             {},
             token.result,
+            expected_registration=token._expected_registration,
+            expected_results=token._expected_results,
+            expected_attempts=token._expected_attempts,
         )
         with pytest.raises(SourceAuthoringOwnersError):
             forged.publish()
@@ -433,4 +436,106 @@ def test_final_check_detects_mutation_during_fallible_preparation(rig, monkeypat
 
     with pytest.raises(SourceAuthoringOwnersError, match="refused"):
         rig.owners.run_guarded(rig.snapshot, transaction)
+    untouched(rig)
+
+
+@pytest.mark.parametrize("human_review", [False, True])
+def test_nested_independent_a3_publication_survives_outer_prepared_commit(
+    rig, human_review
+):
+    service = rig.server.assisted_authoring_service
+    review = rig.server.proposal_review_service
+    second = rig.server.poc_source_intake.capture_source(
+        poc_id=rig.poc_id,
+        source=POCSourceInput(
+            source_kind=SourceKind.DOCUMENT,
+            content="The throughput must exceed 175 requests per second.",
+        ),
+        idempotency_key="independent-source",
+    )
+    nested = {}
+
+    def transaction(guard):
+        token = prepare(guard)
+        # This public call models an independent authoring action reentering
+        # through the final-clock seam after source A's maps were prepared.
+        authored = service.create_assisted_draft(
+            poc_id=rig.poc_id,
+            source_receipt_id=second.source_receipt_id,
+            idempotency_key="independent-authoring",
+        )
+        if human_review:
+            review.decide(
+                rig.poc_id,
+                authored.proposals[0].proposal_id,
+                ProposalDecision.KEEP_FOR_CONTRACT,
+                "human_reviewer",
+                "Retain the independent synthetic requirement.",
+                "independent-decision",
+            )
+        nested.update(
+            {
+                "result": authored,
+                "registration": review._authoring_current_proposals,
+                "results": service._results_by_request,
+                "attempts": service._source_attempts,
+                "idempotency": service._idempotency,
+                "decisions": review._decisions,
+            }
+        )
+        guard.check_current_locked()
+        token.publish()
+
+    with pytest.raises(SourceAuthoringOwnersError) as error:
+        rig.owners.run_guarded(rig.snapshot, transaction)
+    assert error.value.code == "PUBLICATION_CONFLICT"
+    assert review._authoring_current_proposals is nested["registration"]
+    assert service._results_by_request is nested["results"]
+    assert service._source_attempts is nested["attempts"]
+    assert service._idempotency is nested["idempotency"]
+    assert review._decisions is nested["decisions"]
+    assert tuple(service._results_by_request) == (
+        nested["result"].receipt.authoring_receipt_id,
+    )
+    assert (rig.poc_id, rig.snapshot.source.source_id) not in service._source_attempts
+    replay = service.create_assisted_draft(
+        poc_id=rig.poc_id,
+        source_receipt_id=second.source_receipt_id,
+        idempotency_key="independent-authoring",
+    )
+    assert (
+        replay.receipt.authoring_receipt_id
+        == nested["result"].receipt.authoring_receipt_id
+    )
+    assert replay.receipt.idempotent_replay is True
+    reviewed = [
+        p
+        for p in review.list_proposals(rig.poc_id)
+        if p.source_receipt_id == second.source_receipt_id
+    ]
+    assert reviewed[0].proposal_id == nested["result"].proposals[0].proposal_id
+    assert (reviewed[0].decision is not None) is human_review
+
+
+@pytest.mark.parametrize("map_name", ["registration", "results", "attempts"])
+def test_each_changed_owner_map_refuses_all_prepared_swaps(rig, map_name):
+    service = rig.server.assisted_authoring_service
+    review = rig.server.proposal_review_service
+
+    def transaction(guard):
+        token = prepare(guard)
+        if map_name == "registration":
+            review._authoring_current_proposals = dict(
+                review._authoring_current_proposals
+            )
+        elif map_name == "results":
+            service._results_by_request = dict(service._results_by_request)
+        else:
+            service._source_attempts = dict(service._source_attempts)
+        guard.check_current_locked()
+        token.publish()
+
+    with pytest.raises(SourceAuthoringOwnersError) as error:
+        rig.owners.run_guarded(rig.snapshot, transaction)
+    assert error.value.code == "PUBLICATION_CONFLICT"
     untouched(rig)

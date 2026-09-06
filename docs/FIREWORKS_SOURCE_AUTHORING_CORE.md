@@ -68,6 +68,11 @@ Before D, winning invalidation means zero handoff/send. After D, delivery is
 conservatively possible; cancellation is best effort and prevents publication.
 Handoff, subprocess startup/reaping and IPC occur outside owner locks.
 
+Claim revalidates the issuer-owned session and current permit record after its
+clock callback and after preparing the claimed record. A revocation during that
+callback retains its terminal receipt, clears source/body references and consumes
+zero attempts; grant/session invalidation refuses execution before worker startup.
+
 The complete nested order is source → draft → review → assisted publication →
 operation → supervisor, surrounded by a short closure mutation reservation.
 The closure lock itself is not held through the transaction or worker lifetime.
@@ -76,6 +81,14 @@ publishes prepared review/A3 pointers and the operation success map while their
 locks remain held. No callbacks or IPC occur after the first published pointer.
 Publication reuses A3's materialization and owner guards rather than duplicating
 the service. A prior A3 source result/in-flight authoring conflicts fail closed.
+
+The final check also validates the operation registry mutation generation and
+the three original review/A3 map pointers. Reentrant changes to an independent
+operation or an independent A3 publication invalidate the prepared copies and
+abort F before its first swap. This preserves other operations' revocation
+tombstones and independent results, review registrations and idempotent replay.
+An aborted claimed operation retains its consumed attempt without an automatic
+retry or refund.
 
 ## Worker and wire bounds
 
