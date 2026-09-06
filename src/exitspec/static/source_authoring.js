@@ -26,10 +26,10 @@
     choice.disabled = !ready || busy || active;
     $("source-preview").disabled = !ready || busy || active || !RECEIPT.test(choice.value);
     $("source-refresh").disabled = !ready || busy || active;
-    business.disabled = busy || state !== "PREPARED";
-    acknowledged.disabled = busy || state !== "PREPARED";
-    $("source-authorize").disabled = busy || state !== "PREPARED" || !business.checked || !acknowledged.checked || displayed !== operation;
-    $("source-run").disabled = busy || processing || state !== "AUTHORIZED";
+    business.disabled = !ready || busy || state !== "PREPARED";
+    acknowledged.disabled = !ready || busy || state !== "PREPARED";
+    $("source-authorize").disabled = !ready || busy || state !== "PREPARED" || !business.checked || !acknowledged.checked || displayed !== operation;
+    $("source-run").disabled = !ready || busy || processing || state !== "AUTHORIZED";
     // A pending Run HTTP response must not disable the separate cancellation.
     $("source-cancel").disabled = !capability || !active;
     $("source-task").setAttribute("aria-busy", String(busy));
@@ -143,7 +143,11 @@
         const value = await api("status", {operation_id: current});
         if (epoch === serial && operation === current) render(value);
       } catch (error) {
-        if (epoch === serial) { failure(error.message); ready = false; controls(); }
+        if (epoch === serial) {
+          failure(error.message); ready = false; clearSource();
+          $("source-status").textContent = "Current consent could not be verified. Reload before continuing.";
+          controls();
+        }
       }
       if (epoch === serial) poll();
     }, 750);

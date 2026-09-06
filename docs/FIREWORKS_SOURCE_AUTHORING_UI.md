@@ -69,6 +69,8 @@ receipts, logs, cookies or persistent browser storage. On page hide the page
 requests revocation with its header, aborts pending reads, clears source text,
 capability and acknowledgment, and stops polling. Refresh/back restoration issues
 a fresh page capability and requires fresh inspection and acknowledgment. An
+untrusted or failed current-status response disables consent and Run controls
+and clears the displayed source until the page is reloaded. An
 unobserved page-hide request is not a guarantee of cancellation: core expiry and
 publication guards remain authoritative, and an already completed publication
 is preserved.

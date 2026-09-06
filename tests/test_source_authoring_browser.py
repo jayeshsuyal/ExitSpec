@@ -226,7 +226,7 @@ def test_browser_midflight_cancel_and_changed_draft_clear_authority(rig):
             browser.close()
 
 
-def test_browser_oversized_untrusted_response_never_enables_run(rig):
+def test_browser_untrusted_preview_and_failed_status_never_enable_run(rig):
     from playwright.sync_api import expect, sync_playwright
 
     with sync_playwright() as playwright:
@@ -252,6 +252,27 @@ def test_browser_oversized_untrusted_response_never_enables_run(rig):
             expect(page.locator("#source-run")).to_be_disabled()
             expect(page.locator("#source-disclosure")).to_be_hidden()
             assert "PRIVATE_RESPONSE_SENTINEL" not in page.content()
+            assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._thread is None
+            page.unroute("**/source-authoring/prepare")
+            preview_and_acknowledge(page)
+            page.route(
+                "**/source-authoring/status",
+                lambda route: route.fulfill(
+                    status=403,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Cache-Control": "no-store",
+                    },
+                    body='{"code":"CAPABILITY_REFUSED"}',
+                ),
+            )
+            expect(page.locator("#source-status")).to_contain_text(
+                "could not be verified"
+            )
+            expect(page.locator("#source-run")).to_be_disabled()
+            expect(page.locator("#source-authorize")).to_be_disabled()
+            expect(page.locator("#source-disclosure")).to_be_hidden()
+            expect(page.locator("#source-redacted-text")).to_have_text("")
             assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._thread is None
         finally:
             browser.close()
