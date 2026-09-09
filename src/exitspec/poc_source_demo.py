@@ -94,9 +94,15 @@ from .poc_sources import (
 from .proofability_workspace import create_production_proofability_workspace
 from .proofability_workspace_web import handle_proofability_workspace_http
 from .review_links import ReviewInvitationError
+from .source_authoring_web import (
+    SourceAuthoringWebRuntime,
+    handle_source_authoring_http,
+    source_authoring_page_poc,
+)
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
+from .workspace_closure import ProcessLocalPOCClosureService
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -165,6 +171,9 @@ _ASSET_NAMES = frozenset(
         "assisted_authoring.html",
         "assisted_authoring.css",
         "assisted_authoring.js",
+        "source_authoring.html",
+        "source_authoring.css",
+        "source_authoring.js",
         "capability_plan.html",
         "capability_plan.css",
         "capability_plan.js",
@@ -269,6 +278,14 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         self.assisted_authoring_service.bind_draft_commit_guard(
             self.draft_poc_service.authoring_commit_guard
         )
+        self.poc_closure_service = ProcessLocalPOCClosureService(
+            evidence_resolver=lambda _: None,
+        )
+        self.source_authoring_web = SourceAuthoringWebRuntime(
+            drafts=self.draft_poc_service, intake=self.poc_source_intake,
+            assisted=self.assisted_authoring_service, review=self.proposal_review_service,
+            closure=self.poc_closure_service,
+        )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
@@ -276,6 +293,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 
     def server_close(self) -> None:
         try:
+            self.source_authoring_web.close()
             super().server_close()
         finally:
             if self._owned_evidence_artifact_root is not None:
@@ -392,6 +410,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
     def do_GET(self) -> None:
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         parsed = urlparse(self.path)
@@ -525,6 +545,13 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/app/evidence":
             self._file("evidence_library.html")
             return
+        source_authoring_poc = source_authoring_page_poc(parsed.path)
+        if source_authoring_poc is not None:
+            if self._active_draft(source_authoring_poc):
+                self._file("source_authoring.html")
+            else:
+                self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC is unavailable."})
+            return
         evidence_page_poc_id = _generic_evidence_page_poc_id(parsed.path)
         if evidence_page_poc_id is not None:
             if self._active_draft(evidence_page_poc_id):
@@ -572,6 +599,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
 
     def do_POST(self) -> None:
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         parsed = urlparse(self.path)
@@ -745,6 +774,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(response.status, response.payload)
 
     def do_PUT(self) -> None:
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
@@ -760,6 +791,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_IMPLEMENTED)
 
     def do_HEAD(self) -> None:
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         self.send_error(
@@ -770,6 +803,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     def __getattr__(self, name: str):
         if name.startswith("do_"):
             def dispatch_unknown_method() -> None:
+                if handle_source_authoring_http(self):
+                    return
                 if handle_proofability_workspace_http(self):
                     return
                 self.send_error(

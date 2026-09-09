@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>ExitSpec — Review source for proposals</title>
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+    <link rel="stylesheet" href="/source_authoring.css" />
+  </head>
+  <body class="source-authoring-page">
+    <a class="skip-link" href="#source-authoring-main">Skip to source review</a>
+    <div class="dashboard-shell">
+      <header class="global-header">
+        <a class="brand" href="/app"><span class="brand-mark" aria-hidden="true">E</span><span>ExitSpec</span></a>
+        <nav class="global-nav" aria-label="ExitSpec"><a href="/app">POCs</a><a href="/app/evidence">Evidence Packs</a><a href="/app/pocs/new">New POC</a></nav>
+        <div class="local-identity">Local synthetic run</div>
+      </header>
+      <main id="source-authoring-main" class="workbench-main source-authoring-main">
+        <header class="object-header workbench-object-header">
+          <div class="object-heading"><a id="back-to-review" href="/app">← Human review</a><p class="eyebrow">Source review · explicit consent</p><h1 id="source-poc-title">Review source for proposals</h1></div>
+          <div class="authority-boundary"><span>Human decision required</span><strong>Proposals remain NEEDS_REVIEW</strong></div>
+        </header>
+        <section class="source-mode" aria-labelledby="mode-heading">
+          <h2 id="mode-heading">Synthetic only · no provider connection</h2>
+          <p>This local run sends existing source requirements through the bounded validation worker. It makes no external inference call and spends no provider credits.</p>
+          <details><summary>Why live authoring is unavailable</summary><p>The live worker and operator launcher are not implemented. Live use also requires separate owner approval, model and schema acceptance, token and billing bounds, account and pricing checks, and approved data handling. The candidate Fireworks global profile has no regional guarantee.</p></details>
+        </section>
+        <p id="source-authoring-error" class="source-error" role="alert" hidden></p>
+        <div class="source-authoring-grid" id="source-task" aria-busy="true">
+          <section class="source-card" aria-labelledby="source-select-heading">
+            <p class="eyebrow">1 · Select</p><h2 id="source-select-heading">One current source</h2>
+            <p>Meeting text, email, a document or an existing contract. Capture permission never authorizes this action.</p>
+            <label for="source-choice">Source receipt</label><select id="source-choice" disabled><option value="">Loading sources…</option></select>
+            <button id="source-preview" type="button" disabled>Inspect exact redacted text</button>
+            <button id="source-refresh" type="button" disabled>Refresh source list</button>
+          </section>
+          <section class="source-card source-disclosure-card" aria-labelledby="disclosure-heading">
+            <p class="eyebrow">2 · Inspect and acknowledge</p><h2 id="disclosure-heading">Your source disclosure</h2>
+            <p id="source-empty">Select a source to inspect its exact redacted text and limits.</p>
+            <div id="source-disclosure" hidden>
+              <p id="source-description"></p>
+              <pre id="source-redacted-text" tabindex="0" aria-label="Exact redacted source text"></pre>
+              <dl class="source-facts">
+                <dt>Candidate provider profile</dt><dd id="source-provider"></dd>
+                <dt>Purpose</dt><dd id="source-purpose"></dd>
+                <dt>Data handling</dt><dd id="source-custody"></dd>
+                <dt>Limits</dt><dd>One attempt, a 30-second execution deadline and at most 2,000 output tokens. Source: 16 KiB; request: 64 KiB; response: 256 KiB. The synthetic ledger reserves $0.01 per claim, with ten claims / $0.10 across this runtime and at least ten seconds between claims. These are local test reservations, not verified billing bounds.</dd>
+                <dt>Consent expiry</dt><dd id="source-expiry"></dd>
+              </dl>
+              <label class="source-check"><input id="source-business-text" type="checkbox" /><span>I have inspected this exact text and attest that it is redacted business requirement or proposal material permitted for external inference. This attestation does not enable a live call.</span></label>
+              <label class="source-check"><input id="source-acknowledged" type="checkbox" /><span>I acknowledge the purpose, limits, data handling and expiry for this selected source.</span></label>
+              <button id="source-authorize" type="button" disabled>Acknowledge this disclosure</button>
+              <p>Acknowledgment alone starts nothing. Choose Run separately.</p>
+            </div>
+          </section>
+        </div>
+        <section class="source-card source-run-card" aria-labelledby="run-heading">
+          <p class="eyebrow">3 · Run and review</p><h2 id="run-heading">Validate synthetic proposals</h2>
+          <p id="source-status" role="status" aria-live="polite">Starting a fresh page session…</p>
+          <p id="source-ledger">The global synthetic ledger has not been read yet.</p>
+          <div class="source-actions"><button id="source-run" type="button" class="primary-action" disabled>Run synthetic validation</button><button id="source-cancel" type="button" disabled>Revoke consent / cancel</button><a id="source-review-result" href="/app" hidden>Open proposals for human review</a></div>
+          <p>Cancel prevents later publication when it wins. It does not erase proposals already published for human review. This action cannot confirm, freeze, issue evidence, decide a verdict or close a POC.</p>
+        </section>
+      </main>
+    </div>
+    <script src="/source_authoring.js"></script>
+  </body>
+</html>

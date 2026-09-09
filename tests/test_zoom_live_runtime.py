@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import struct
 import threading
 from contextlib import contextmanager
@@ -137,8 +138,12 @@ def finish(rig):
     assert runtime.current(POC_ID)["state"] == "CAPTURE_READY"
 
 
-def test_actual_native_text_redacts_and_attaches_once_with_lineage(rig):
+@pytest.mark.parametrize("id_contains_metric", [False, True])
+def test_actual_native_text_redacts_and_attaches_once_with_lineage(rig, id_contains_metric):
     runtime, intake, *_ = rig
+    if id_contains_metric:
+        runtime._record.session_id = "zoomsess_" + "a" * 30 + "730" + "b" * 31
+    session_id = runtime.current(POC_ID)["session_id"]
     child = start(rig)
     packet(
         child,
@@ -164,8 +169,25 @@ def test_actual_native_text_redacts_and_attaches_once_with_lineage(rig):
         p.source_receipt_id == snapshot["source_receipt_id"] for p in proposals
     )
     assert all(p.state == "NEEDS_REVIEW" for p in proposals)
-    assert "730" not in json.dumps(snapshot)
-    assert "synthetic-meeting" not in json.dumps(snapshot)
+    # Receipt metadata has an exact allowlist. Random hexadecimal identities may
+    # contain a numeric requirement by coincidence; that is not transcript text.
+    assert re.fullmatch(r"zoomsess_[a-f0-9]{64}", session_id)
+    assert re.fullmatch(r"srcpt_[a-f0-9]{32}", snapshot["source_receipt_id"])
+    assert snapshot == {
+        "schema_version": "exitspec.zoom-live/1.0",
+        "poc_id": POC_ID,
+        "session_id": session_id,
+        "state": "DRAFT_READY",
+        "transport_mode": "FAKE_ZOOM_RTMS",
+        "provider_connected": False,
+        "source_content_classification": "SYNTHETIC_REQUIREMENTS_ONLY",
+        "capture_scope": "BOUNDED_WINDOW_NOT_COMPLETE_MEETING",
+        "segment_count": 2,
+        "proposal_count": 2,
+        "source_receipt_id": snapshot["source_receipt_id"],
+        "review_url": f"/app/pocs/{POC_ID}/review",
+        "failure_code": None,
+    }
     assert (
         runtime._record.provenance["redacted_content_sha256"] == source.content_sha256
     )
