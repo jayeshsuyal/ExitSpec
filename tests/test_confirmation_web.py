@@ -179,6 +179,69 @@ def test_customer_confirmation_is_required_before_freeze_and_prove(tmp_path):
         server.server_close()
 
 
+@pytest.mark.parametrize("decision", ["CONFIRM", "REQUEST_CHANGES"])
+def test_seeded_review_projects_recorded_custom_author_without_authentication(
+    tmp_path, decision
+):
+    server, worker, base_url = _running_server(tmp_path)
+    try:
+        _close_internal_review(base_url)
+        prepared = _post_json(base_url + "/api/customer-draft", {})
+        review_api = _review_api_url(base_url, prepared["customer_review_url"])
+        pending = _get_json(review_api)
+        assert pending["review"]["status"] == "PENDING"
+        assert pending["review"]["identity"] == {
+            "display_name": "Customer approver · local synthetic demo",
+            "notice": (
+                "This local demo does not authenticate a real customer. "
+                "A hosted review must bind verified identity and permission "
+                "to this exact contract version."
+            ),
+        }
+        assert pending["confirmation"] is None
+        author = "Synthetic customer · named legacy author"
+        body = {
+            "decision": decision,
+            "agreement_acknowledged": decision == "CONFIRM",
+            "confirmer": author,
+            "rationale": "Record the named customer's exact synthetic decision.",
+            "idempotency_key": "legacy-custom-author-projection",
+        }
+        accepted = _post_json(review_api + "/decision", body)
+        recorded = _get_json(review_api)
+        expected_status = "CONFIRMED" if decision == "CONFIRM" else "CHANGES_REQUESTED"
+        assert accepted["confirmation"] == recorded["confirmation"]
+        for payload in (accepted, recorded):
+            assert payload["review"]["status"] == expected_status
+            assert payload["review"]["identity"] == {
+                "display_name": author,
+                "notice": pending["review"]["identity"]["notice"],
+            }
+            assert payload["review"]["decision"]["reviewer_display_name"] == author
+            assert payload["review"]["decision"]["synthetic"] is False
+            assert payload["confirmation"]["confirmer_identity"] == author
+            assert payload["confirmation"]["decision"] == decision
+        assert recorded["mode"] == pending["mode"] == "local_synthetic_demo"
+        assert recorded["safety"] == pending["safety"]
+        assert recorded["safety"]["synthetic_only"] is True
+        assert recorded["safety"]["not_evidence"] is True
+        assert recorded["safety"]["not_production_authorization"] is True
+
+        replayed = _post_json(review_api + "/decision", body)
+        assert replayed["idempotent_replay"] is True
+        assert replayed["confirmation"] == recorded["confirmation"]
+        assert replayed["review"]["identity"] == recorded["review"]["identity"]
+        assert _get_json(review_api) == recorded
+        assert server.session.customer_confirmation.confirmer_identity == author
+        assert server.session.frozen_contract is None
+        assert server.session.last_run is None
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+        assert not worker.is_alive()
+
+
 @pytest.mark.parametrize(
     "acknowledgement_payload",
     (

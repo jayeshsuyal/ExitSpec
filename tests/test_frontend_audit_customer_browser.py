@@ -202,6 +202,154 @@ def test_f02_reload_requires_the_recorded_confirmation_receipt(performance):
     assert _get(performance.server, performance.path)["customer_review"]["status"] == "CONFIRMED"
 
 
+def _replace_receipt_author(payload, *, replace_review_identity=False):
+    replaced_name = "Different synthetic approver"
+    current = payload["review"]
+    assert current["identity"]["display_name"] != replaced_name
+    current["decision"]["reviewer_display_name"] = replaced_name
+    if "decision" in payload:
+        payload["decision"]["reviewer_display_name"] = replaced_name
+    receipt = payload["confirmation"]
+    key = "confirmer_identity" if "confirmer_identity" in receipt else "confirmer"
+    receipt[key] = replaced_name
+    if replace_review_identity:
+        current["identity"]["display_name"] = replaced_name
+
+
+@pytest.mark.parametrize("decision", ["CONFIRM", "REQUEST_CHANGES"])
+@pytest.mark.parametrize("replace_review_identity", [False, True])
+def test_f02_receipt_author_is_bound_to_loaded_and_returned_identity(
+    performance, decision, replace_review_identity
+):
+    from playwright.sync_api import expect
+
+    page = performance.page
+    api = page.url.replace("/review/", "/api/review/")
+    original = page.request.get(api).json()["review"]
+    expected_name = original["identity"]["display_name"]
+    posts, replies = [], []
+
+    def intercept(route):
+        posts.append((route.request.post_data, route.request.headers["idempotency-key"]))
+        response = route.fetch()
+        assert response.status == 200
+        payload = response.json()
+        replies.append(payload)
+        if len(posts) == 1:
+            _replace_receipt_author(payload, replace_review_identity=replace_review_identity)
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+        else:
+            route.fulfill(response=response)
+
+    page.route("**/api/review/*/decision", intercept)
+    button = _performance_choice(page, decision)
+    button.click()
+    expect(page.locator("#terminal-state")).to_be_hidden()
+    expect(page.locator("#form-message")).to_contain_text("could not be verified")
+    expect(page.locator("#agreement-checkbox")).to_be_disabled()
+    expect(page.locator("#change-rationale")).to_be_disabled()
+    opposite = "#request-changes" if decision == "CONFIRM" else "#confirm-requirements"
+    expect(page.locator(opposite)).to_be_disabled()
+    recorded = page.request.get(api).json()["review"]
+    expected_status = "CONFIRMED" if decision == "CONFIRM" else "CHANGES_REQUESTED"
+    assert recorded["status"] == expected_status
+    assert recorded["identity"]["display_name"] == expected_name
+    assert recorded["decision"]["reviewer_display_name"] == expected_name
+    assert _get(performance.server, performance.path)["frozen_contract"] is None
+    button.click()
+    expect(page.locator("#terminal-state")).to_be_visible()
+    expect(page.locator("#terminal-reviewer")).to_have_text(expected_name)
+    expected_title = "POC agreement confirmed" if decision == "CONFIRM" else "Changes requested"
+    expect(page.locator("#terminal-title")).to_have_text(expected_title)
+    assert len(posts) == 2 and posts[0] == posts[1]
+    assert replies[-1]["idempotent_replay"] is True
+    assert page.request.get(api).json()["review"]["decision"] == recorded["decision"]
+
+
+@pytest.mark.parametrize("decision", ["CONFIRM", "REQUEST_CHANGES"])
+def test_f02_reload_rejects_author_that_contradicts_review_identity(performance, decision):
+    from playwright.sync_api import expect
+
+    page = performance.page
+    _performance_choice(page, decision).click()
+    expect(page.locator("#terminal-state")).to_be_visible()
+    api = page.url.replace("/review/", "/api/review/")
+    recorded = page.request.get(api).json()["review"]
+
+    def contradict_author(route):
+        response = route.fetch()
+        payload = response.json()
+        _replace_receipt_author(payload)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    page.route(api, contradict_author)
+    page.reload()
+    expect(page.locator("#error-state")).to_be_visible()
+    expect(page.locator("#terminal-state")).to_be_hidden()
+    assert "No decision has been recorded" not in page.locator("#error-message").inner_text()
+    assert page.request.get(api).json()["review"] == recorded
+    page.unroute(api, contradict_author)
+    page.locator("#retry-load").click()
+    expect(page.locator("#terminal-state")).to_be_visible()
+    expect(page.locator("#terminal-reviewer")).to_have_text(recorded["identity"]["display_name"])
+    assert _get(performance.server, performance.path)["frozen_contract"] is None
+
+
+@pytest.mark.parametrize("decision", ["CONFIRM", "REQUEST_CHANGES"])
+def test_f02_seeded_custom_author_remains_readable_after_reload(tmp_path, page, decision):
+    from playwright.sync_api import expect
+
+    from tests.test_confirmation_web import (
+        _close_internal_review,
+        _get_json,
+        _post_json,
+        _review_api_url,
+    )
+    from tests.test_confirmation_web import _running_server as seeded_server
+
+    server, worker, base = seeded_server(tmp_path)
+    try:
+        _close_internal_review(base)
+        prepared = _post_json(base + "/api/customer-draft", {})
+        api = _review_api_url(base, prepared["customer_review_url"])
+        page.goto(base + prepared["customer_review_url"])
+        expect(page.locator("#reviewer-identity")).to_have_text(
+            "Customer approver · local synthetic demo"
+        )
+        expect(page.locator("#agreement-checkbox")).to_be_visible()
+        body = {
+            "decision": decision,
+            "agreement_acknowledged": True,
+            "confirmer": "customer_approver",
+            "rationale": "This typed synthetic reviewer records the exact agreement choice.",
+            "idempotency_key": "custom-author-browser-reload",
+        }
+        response = page.request.post(api + "/decision", data=body)
+        assert response.status == 200
+        recorded = _get_json(api)
+        expected_status = "CONFIRMED" if decision == "CONFIRM" else "CHANGES_REQUESTED"
+        assert recorded["review"]["status"] == expected_status
+        assert recorded["confirmation"]["confirmer_identity"] == "customer_approver"
+        page.reload()
+        expect(page.locator("#terminal-state")).to_be_visible()
+        expect(page.locator("#terminal-reviewer")).to_have_text("customer_approver")
+        expected_title = "POC agreement confirmed" if decision == "CONFIRM" else "Changes requested"
+        expect(page.locator("#terminal-title")).to_have_text(expected_title)
+        assert recorded["review"]["identity"]["display_name"] == "customer_approver"
+        assert "does not authenticate a real customer" in recorded["review"]["identity"]["notice"]
+        page.reload()
+        expect(page.locator("#terminal-reviewer")).to_have_text("customer_approver")
+        assert _get_json(api) == recorded
+        state = _get_json(base + "/api/state")
+        assert state["ready_to_prove"] is False
+        assert state["proof_pack"] is None
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+        server.server_close()
+        assert not worker.is_alive()
+
+
 def _open_dynamic_review(page, base):
     page.goto(base + "/app/pocs/new")
     page.locator('input[name="first_source_choice"][value="DOCUMENT"]').check()

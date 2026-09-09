@@ -878,6 +878,7 @@
       !complete || !isDisplayString(receipt.confirmation_id, 180) ||
       !/^[a-f0-9]{64}$/.test(fingerprint) ||
       current.review_id !== expected.review_id ||
+      current.identity.display_name !== expected.identity.display_name ||
       current.contract_id !== expected.contract.id ||
       current.contract_version !== expected.contract.version ||
       current.contract.id !== expected.contract.id ||
@@ -894,6 +895,7 @@
       typeof current.decision.idempotent_replay !== "boolean" ||
       !isDisplayString(decision.reviewer_display_name, 300) ||
       reviewer !== decision.reviewer_display_name ||
+      reviewer !== expected.identity.display_name ||
       !isDisplayString(recordedAt, 80) || !Number.isFinite(Date.parse(recordedAt)) ||
       recordedAt !== decision.recorded_at ||
       typeof decision.rationale !== "string" || !decision.rationale.trim() ||

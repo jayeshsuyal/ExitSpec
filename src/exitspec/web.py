@@ -1993,7 +1993,11 @@ class DemoSession:
                 "expires_at": invitation.expires_at.isoformat(),
                 "acknowledgement_required": True,
                 "identity": {
-                    "display_name": "Customer approver · local synthetic demo",
+                    "display_name": (
+                        confirmation.confirmer_identity
+                        if confirmation is not None
+                        else "Customer approver · local synthetic demo"
+                    ),
                     "notice": (
                         "This local demo does not authenticate a real customer. "
                         "A hosted review must bind verified identity and permission "
