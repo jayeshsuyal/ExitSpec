@@ -413,6 +413,23 @@ Every behavioral PR must pass all applicable checks below.
   affected UI.
 - The normal seeded workflow does not gain accidental workflow-length scrolling.
 
+The approved acceptance-brief presentation is a scoped exception for proposal
+review (`/app/pocs/{poc_id}/review`, including its compatible review routes): its
+mineral palette and natural vertical document flow replace that surface's
+graphite/orange and fixed-height presentation. The exact source quote, normalized
+claim, authority boundary, and named decision must remain readable. At desktop,
+narrow widths, and zoom, the document must not overflow horizontally; visible
+controls must be fully reachable by ordinary scrolling, enabled controls must be
+reachable by keyboard, and focus must remain visible. The collapsed review editor
+must be opened explicitly for each proposal before entering reviewer and
+rationale. Vertical scrolling alone is not a proposal-review failure.
+
+This exception does not change other surfaces' palette or layout contracts, or
+any accessibility, source-custody, consent, security, and authority requirements.
+Keeping or discarding proposal material remains human triage only; it does not
+confirm or freeze a contract, authorize provider activity or execution, or assign
+a verdict.
+
 ### 7. Documentation
 
 - Specs, architecture, security posture, runbooks, and roadmap are updated when
@@ -906,6 +923,10 @@ review, and artifact routes remain compatible. Every 1280x720, narrow-width,
 keyboard, no-infinite-scroll, and graphite/orange rule in the frozen contract
 passes.
 ```
+
+The proposal-review presentation exception in the User experience section above
+supersedes only that route's graphite/orange and bounded-height presentation
+checks. All other frozen workspace rules and route checks remain in force.
 
 Real mailbox, live meeting, raw audio, authenticated identity, tenant
 authorization, and durable production storage remain outside this synthetic

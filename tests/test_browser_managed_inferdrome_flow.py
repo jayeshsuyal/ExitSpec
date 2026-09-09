@@ -163,6 +163,7 @@ def test_exact_a10_email_to_managed_receipt_and_handoff(tmp_path: Path) -> None:
                     expect(
                         employee_page.locator("#proposal-heading")
                     ).to_have_text(f"Proposal {position}")
+                    employee_page.locator("#review-start").click()
                     employee_page.locator("#reviewer").fill("field_engineer")
                     employee_page.locator("#rationale").fill(
                         "Keep this explicit measurable customer requirement."

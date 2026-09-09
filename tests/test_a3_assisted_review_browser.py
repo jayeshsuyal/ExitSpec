@@ -117,6 +117,7 @@ def test_dynamic_browser_a3_assisted_draft_review_named_keep_and_retained_projec
             )
             assert page.locator("#keep-proposal").is_disabled()
             assert page.locator("#discard-proposal").is_disabled()
+            page.locator("#review-start").click()
             page.locator("#reviewer").fill("named.employee")
             page.locator("#rationale").fill(
                 "Keep this exact source-bound material for A4 authoring."
@@ -212,6 +213,7 @@ def test_dynamic_browser_mixed_a2_a3_review_keeps_decision_across_reload():
             assert page.locator("#proposal-support").inner_text().startswith(
                 "Source-bound proposal material"
             )
+            page.locator("#review-start").click()
             page.locator("#reviewer").fill("named.employee")
             page.locator("#rationale").fill("Keep this exact A3 material for A4 drafting.")
             page.locator("#keep-proposal").click()

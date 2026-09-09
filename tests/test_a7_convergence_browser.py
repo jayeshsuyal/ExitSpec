@@ -194,6 +194,7 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             proposal_count = len(proposal_payload["proposals"])
             assert proposal_count == 3
             for position in range(proposal_count):
+                page.locator("#review-start").click()
                 page.locator("#reviewer").fill("a7.employee.reviewer")
                 page.locator("#rationale").fill("Retain this source-bound request for planning.")
                 old_heading = page.locator("#proposal-heading").inner_text()

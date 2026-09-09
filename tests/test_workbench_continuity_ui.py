@@ -266,9 +266,41 @@ def test_six_dynamic_pages_share_one_workbench_shell_without_losing_ids():
     for page, required_ids in DYNAMIC_PAGES.items():
         audit = _audit(page)
 
+        assert required_ids.issubset(audit.ids), page
+        if page == "proposal_review.html":
+            # The acceptance brief changes only review's document composition.
+            # Keep the shared navigation, object identity and named action
+            # contracts explicit instead of requiring the former layout hooks.
+            assert audit.stylesheets == [
+                "/dashboard.css", "/workbench.css", "/proposal_review.css"
+            ]
+            assert _one_with_class(audit, "acceptance-brief-page").tag == "body"
+            assert _one_with_class(audit, "global-header").tag == "header"
+            assert _one_with_class(audit, "global-nav").tag == "nav"
+            assert _one_with_class(audit, "proposal-navigator").tag == "nav"
+            identity = _one_with_class(audit, "document-heading")
+            assert {"poc-title", "poc-context", "poc-customer"}.issubset(
+                identity.descendant_ids
+            )
+            document = _one_with_class(audit, "acceptance-document")
+            assert required_ids - {
+                "proposal-review-main", "proposal-current-task",
+                "review-complete", "define-criteria", "proposal-review-error",
+            } <= document.descendant_ids
+            evidence = _one_with_class(audit, "proposal-evidence")
+            assert evidence.tag == "article"
+            assert {"proposal-heading", "normalized-claim", "proposal-support"} <= evidence.descendant_ids
+            source = _one_with_class(audit, "source-context")
+            assert source.tag == "aside"
+            assert {"source-kind", "source-quote", "source-excerpt", "source-receipt-id"} <= source.descendant_ids
+            decision = _one_with_class(audit, "decision-panel")
+            assert decision.tag == "form"
+            assert decision.identifier == "proposal-decision-form"
+            assert {"review-start", "review-editor", "reviewer", "rationale", "keep-proposal", "discard-proposal"} <= decision.descendant_ids
+            continue
+
         assert audit.stylesheets[-1] == "/workbench.css", page
         assert SHARED_CLASSES.issubset(audit.classes), page
-        assert required_ids.issubset(audit.ids), page
         for class_name in SHARED_SINGLETON_CLASSES:
             assert len(audit.with_class(class_name)) == 1, (page, class_name)
         assert audit.with_class("workbench-primary-slot"), page

@@ -178,6 +178,98 @@ def _assert_bounded_employee_shell(page) -> None:
     assert metrics["scrollHeight"] <= metrics["clientHeight"]
 
 
+def _assert_review_control_reachable(control) -> None:
+    geometry = control.evaluate(
+        """element => {
+          element.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'instant'});
+          const rect = element.getBoundingClientRect();
+          const inside = (left, top, right, bottom) =>
+            rect.left >= left - 1 && rect.top >= top - 1 &&
+            rect.right <= right + 1 && rect.bottom <= bottom + 1;
+          const clippedBy = [];
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            const bounds = parent.getBoundingClientRect();
+            const left = bounds.left + parent.clientLeft;
+            const top = bounds.top + parent.clientTop;
+            const clips = value => /^(auto|scroll|hidden|clip)$/.test(value);
+            if ((clips(style.overflowX) &&
+                 (rect.left < left - 1 || rect.right > left + parent.clientWidth + 1)) ||
+                (clips(style.overflowY) &&
+                 (rect.top < top - 1 || rect.bottom > top + parent.clientHeight + 1))) {
+              clippedBy.push(parent.id || parent.tagName);
+            }
+          }
+          const hit = document.elementFromPoint(
+            rect.left + rect.width / 2, rect.top + rect.height / 2
+          );
+          return {
+            control: element.id || element.getAttribute('aria-label') || element.tagName,
+            fullBounds: rect.width > 0 && rect.height > 0 &&
+              inside(0, 0, document.documentElement.clientWidth, window.innerHeight),
+            clippedBy,
+            centerHit: hit === element || element.contains(hit),
+          };
+        }"""
+    )
+    assert geometry["fullBounds"], geometry
+    assert not geometry["clippedBy"], geometry
+    assert geometry["centerHit"], geometry
+
+
+def _assert_review_document_flow(page) -> None:
+    """Allow review page scrolling while checking the controls shown in this state.
+
+    This changes only scroll and focus, never opens a disclosure or activates an
+    action. Call again with the editor open to cover the named decision fields.
+    """
+    metrics = _layout_metrics(page)
+    assert metrics["scrollWidth"] <= metrics["clientWidth"], metrics
+    control_selector = (
+        'a[href], button, input:not([type="hidden"]), select, textarea, summary'
+    )
+    controls = page.locator("#proposal-review-main").locator(control_selector)
+    keyboard_pending: set[int] = set()
+    visible_count = 0
+    for index in range(controls.count()):
+        control = controls.nth(index)
+        if not control.is_visible():
+            continue
+        visible_count += 1
+        _assert_review_control_reachable(control)
+        if control.is_enabled():
+            keyboard_pending.add(index)
+    assert visible_count, "Proposal review must expose reachable controls."
+
+    # Start at the existing skip link, then use real Tab presses rather than
+    # programmatically focusing each target (which would accept tabindex=-1).
+    page.locator(".skip-link").focus()
+    for _ in range(page.locator(control_selector).count() + 1):
+        if not keyboard_pending:
+            break
+        page.keyboard.press("Tab")
+        focused_index = controls.evaluate_all(
+            "elements => elements.indexOf(document.activeElement)"
+        )
+        if focused_index not in keyboard_pending:
+            continue
+        control = controls.nth(focused_index)
+        _assert_review_control_reachable(control)
+        focus_style = control.evaluate(
+            """element => {
+              const style = getComputedStyle(element);
+              return {outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth};
+            }"""
+        )
+        assert focus_style["outlineStyle"] != "none", focus_style
+        assert float(focus_style["outlineWidth"].removesuffix("px")) > 0, focus_style
+        keyboard_pending.remove(focused_index)
+    assert not keyboard_pending, (
+        "Visible enabled review controls must be reachable by Tab",
+        [controls.nth(index).get_attribute("id") for index in keyboard_pending],
+    )
+
+
 def _assert_narrow_keyboard_contract(expect, page) -> None:
     page.set_viewport_size({"width": 320, "height": 900})
     metrics = _layout_metrics(page)
@@ -254,6 +346,7 @@ def _capture_define_supported_email(
             f"Proposal {position}"
         )
         claim = page.locator("#normalized-claim").text_content().strip()
+        page.locator("#review-start").click()
         page.locator("#reviewer").fill("field_engineer")
         if "first token" in claim.lower() or "error rate" in claim.lower():
             expect(page.locator("#proposal-support")).to_contain_text(
@@ -416,7 +509,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 assert employee_page.locator(
                     "#assisted-authoring-link"
                 ).is_hidden()
-                _assert_bounded_employee_shell(employee_page)
+                _assert_review_document_flow(employee_page)
 
                 kept_claims: list[str] = []
                 for position in (1, 2, 3):
@@ -428,6 +521,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         .text_content()
                         .strip()
                     )
+                    employee_page.locator("#review-start").click()
                     employee_page.locator("#reviewer").fill(
                         "field_engineer"
                     )
@@ -441,6 +535,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         expect(
                             employee_page.locator("#keep-proposal")
                         ).to_be_disabled()
+                        _assert_review_document_flow(employee_page)
                         employee_page.locator("#discard-proposal").click()
                     else:
                         expect(
@@ -452,13 +547,14 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                         expect(
                             employee_page.locator("#keep-proposal")
                         ).to_be_enabled()
+                        _assert_review_document_flow(employee_page)
                         kept_claims.append(claim)
                         employee_page.locator("#keep-proposal").click()
                     if position < 3:
                         expect(
                             employee_page.locator("#proposal-heading")
                         ).to_have_text(f"Proposal {position + 1}")
-                        _assert_bounded_employee_shell(employee_page)
+                        _assert_review_document_flow(employee_page)
 
                 assert {"first token", "error rate"} == {
                     cue
@@ -1387,13 +1483,13 @@ def test_guided_meeting_session_recovers_and_reaches_human_review(tmp_path):
                     "Proposal 1"
                 )
                 expect(page.locator("#progress-copy")).to_have_text(
-                    "Proposal 1 of 2"
+                    "0 reviewed · 2 awaiting triage"
                 )
                 expect(page.locator("#normalized-claim")).to_contain_text(
                     "p95 time to first token"
                 )
                 expect(page.locator("#review-state")).to_have_count(0)
-                _assert_bounded_employee_shell(page)
+                _assert_review_document_flow(page)
 
                 start_posts = [
                     payload
