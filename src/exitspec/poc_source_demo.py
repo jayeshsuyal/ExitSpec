@@ -102,7 +102,6 @@ from .source_authoring_web import (
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
-from .workspace_closure import ProcessLocalPOCClosureService
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -278,9 +277,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         self.assisted_authoring_service.bind_draft_commit_guard(
             self.draft_poc_service.authoring_commit_guard
         )
-        self.poc_closure_service = ProcessLocalPOCClosureService(
-            evidence_resolver=lambda _: None,
-        )
+        self.poc_closure_service = self.generic_evidence_service.closure_service
         self.source_authoring_web = SourceAuthoringWebRuntime(
             drafts=self.draft_poc_service, intake=self.poc_source_intake,
             assisted=self.assisted_authoring_service, review=self.proposal_review_service,

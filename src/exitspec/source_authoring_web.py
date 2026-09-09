@@ -121,6 +121,28 @@ class SourceAuthoringWebRuntime:
         self._closure.run_if_open(poc_id, lambda: None)
         return draft
 
+    def _bootstrap(self, poc_id):
+        draft = self._active_draft(poc_id)
+        secret = secrets.token_bytes(32)
+        browser = _Browser(
+            secret, self.operations.new_synthetic_session(), poc_id
+        )
+        self._browsers.append(browser)
+        return {
+            "schema_version": "exitspec.source-authoring-web/1",
+            "capability": secret.hex(),
+            "mode": MODE,
+            "poc_id": poc_id,
+            "display_name": draft.display_name,
+            "live_enabled": False,
+            "live_missing": [
+                "live_worker_and_operator_launcher",
+                "owner_launch_approval",
+                "model_schema_token_and_billing_proof",
+                "account_pricing_and_custody_approval",
+            ],
+        }
+
     def request(self, poc_id, action, payload, capability=None):
         # The HTTP adapter validates transport and exact fields before this
         # mutation boundary. Repeat the shape check for direct library callers.
@@ -138,26 +160,9 @@ class SourceAuthoringWebRuntime:
                     raise SourceAuthoringWebError(
                         "REQUEST_REFUSED", HTTPStatus.BAD_REQUEST
                     )
-                draft = self._active_draft(poc_id)
-                secret = secrets.token_bytes(32)
-                browser = _Browser(
-                    secret, self.operations.new_synthetic_session(), poc_id
+                return self._closure.run_if_open(
+                    poc_id, lambda: self._bootstrap(poc_id)
                 )
-                self._browsers.append(browser)
-                return {
-                    "schema_version": "exitspec.source-authoring-web/1",
-                    "capability": secret.hex(),
-                    "mode": MODE,
-                    "poc_id": poc_id,
-                    "display_name": draft.display_name,
-                    "live_enabled": False,
-                    "live_missing": [
-                        "live_worker_and_operator_launcher",
-                        "owner_launch_approval",
-                        "model_schema_token_and_billing_proof",
-                        "account_pricing_and_custody_approval",
-                    ],
-                }
             browser = self._browser(capability, poc_id)
             if action == "sources":
                 self._active_draft(poc_id)

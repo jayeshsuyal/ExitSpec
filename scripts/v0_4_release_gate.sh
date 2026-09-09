@@ -9,7 +9,8 @@ adversarial_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-v0-4-adversarial.XXXXXX")
 artifact_reader_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-v0-4-artifact-reader.XXXXXX")"
 native_zoom_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-native-zoom-browser.XXXXXX")"
 source_authoring_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-source-authoring-browser.XXXXXX")"
-trap 'rm -f -- "${browser_report}" "${adversarial_report}" "${artifact_reader_report}" "${native_zoom_report}" "${source_authoring_report}"' EXIT
+source_closure_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-source-terminal-closure.XXXXXX")"
+trap 'rm -f -- "${browser_report}" "${adversarial_report}" "${artifact_reader_report}" "${native_zoom_report}" "${source_authoring_report}" "${source_closure_report}"' EXIT
 
 # The v0.3 wrapper owns the complete historical four-case Chromium and
 # engineering gate. Keep it intact, then add the exact B13 collections below.
@@ -90,3 +91,14 @@ printf 'ExitSpec source authoring synthetic Chromium acceptance gate.\n'
 "${python_command}" -c \
   'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=19; print(f"Source authoring Chromium cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
   "${source_authoring_report}"
+
+printf 'ExitSpec source authoring actual terminal-closure acceptance gate.\n'
+"${python_command}" -m pytest \
+  --strict-markers \
+  --runxfail \
+  --junitxml="${source_closure_report}" \
+  tests/test_source_authoring_terminal_closure.py
+
+"${python_command}" -c \
+  'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=22; print(f"Source authoring terminal-closure cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
+  "${source_closure_report}"

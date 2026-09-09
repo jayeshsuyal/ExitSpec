@@ -1035,6 +1035,11 @@ class ProcessLocalEvidenceOrchestrationService:
             clock=self._clock,
         )
 
+    @property
+    def closure_service(self) -> ProcessLocalPOCClosureService:
+        """The existing terminal owner, shared by server-side mutation guards."""
+        return self._closure
+
     def start(
         self,
         poc_id: object,

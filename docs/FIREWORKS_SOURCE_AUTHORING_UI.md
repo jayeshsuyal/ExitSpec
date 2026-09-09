@@ -108,7 +108,20 @@ The main app now composes the same A3 source/draft/review owners already used by
 the source-neutral demo. Its review lookup substitutes validated A3 material for
 the matching A2 source through the existing proposal-review service. Unrelated
 sources and downstream human authority are preserved. The source-neutral demo
-uses a real process-local closure reservation for the new core.
+shares the exact existing generic-evidence terminal closure owner through its
+read-only `closure_service` composition accessor. Actual `HANDOFF_COMPLETED` and
+`POC_STOPPED` records fence source authoring, including previously issued page
+capabilities and consent. Bootstrap capability/session creation stays inside
+that owner's short mutation reservation. A competing closure cannot record
+until the reservation ends; owner locks never span worker I/O. A closure that
+wins before dispatch prevents handoff, and one that wins before final publication
+prevents A3/review publication without refunding a claimed attempt.
+
+Twenty-two mandatory terminal-closure controls use genuine product evidence and
+handoff/stop records without replacing the closure service or its resolver.
+They include both real browser decision buttons, open execution, earlier
+capabilities/consent, dispatch/publication races and exception cleanup. The
+earlier standalone placeholder closure is no longer used by this composition.
 
 The test-only Zoom correction replaces a whole-JSON search for `730` with an
 exact receipt shape, fixed metadata values and separately validated random IDs.
