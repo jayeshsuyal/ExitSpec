@@ -138,6 +138,16 @@ def _fulfill(route, payload, status=200):
     route.fulfill(status=status, content_type="application/json", body=json.dumps(payload))
 
 
+def _a2_manifest_row(proposal):
+    """Declare the same pending fixture binding in the current provenance DTO."""
+    return {
+        "proposal_id": proposal["proposal_id"],
+        "origin": "INTAKE_A2",
+        "review_state": proposal["review_state"],
+        "normalized_claim": proposal["normalized_claim"],
+    }
+
+
 def _assert_no_selection_change(rig, selected_id):
     from playwright.sync_api import expect
 
@@ -318,11 +328,13 @@ def test_lost_committed_response_retry_does_not_claim_nothing_was_recorded(brief
     brief.page.locator("#discard-proposal").click()
     expect(brief.page.locator("#proposal-review-error")).to_be_visible()
     expect(brief.page.locator("#discard-proposal")).to_be_enabled()
-    brief.page.locator("#discard-proposal").click()
-    expect(brief.page.locator("#proposal-review-error")).to_contain_text(
-        re.compile(r"reload", re.IGNORECASE)
-    )
     assert "no decision was recorded" not in brief.page.locator("#proposal-review-error").inner_text().lower()
+    with brief.page.expect_response("**/proposals/*/decision") as replay:
+        brief.page.locator("#discard-proposal").click()
+    assert replay.value.status == 200
+    assert replay.value.json()["disposition"] == "IDEMPOTENT_REPLAY"
+    expect(brief.page.locator("#proposal-review-error")).to_be_hidden()
+    expect(brief.page.locator("#proposal-tabs .proposal-tab")).to_have_count(2)
     assert len(attempts) == 2 and attempts[0] == attempts[1]
     assert len(brief.server.proposal_review_service) == 1
     brief.page.reload()
@@ -348,6 +360,7 @@ def test_full_quote_and_claim_bounds_all_source_kinds_render_only_as_text(brief)
         })
     payload["proposals"] = rows
     payload["review_summary"] = {"total": 4, "needs_review": 4, "kept_for_contract": 0, "discarded": 0}
+    payload["authoring_provenance"]["proposals"] = [_a2_manifest_row(row) for row in rows]
     brief.page.route(brief.api, lambda route: _fulfill(route, payload))
     brief.page.goto(brief.url)
     expect(brief.page.locator("#proposal-tabs .proposal-tab")).to_have_count(4)
@@ -398,6 +411,10 @@ def test_nonverbatim_claim_has_no_numeric_or_keyword_highlight_fallback(brief):
     payload = deepcopy(brief.initial)
     row = payload["proposals"][0]
     row["normalized_claim"] = "Independent ordering invariant requires deterministic behavior."
+    next(
+        binding for binding in payload["authoring_provenance"]["proposals"]
+        if binding["proposal_id"] == row["proposal_id"]
+    )["normalized_claim"] = row["normalized_claim"]
     assert row["normalized_claim"] not in row["source_quote"]
     brief.page.route(brief.api, lambda route: _fulfill(route, payload))
     _open(brief)
@@ -492,6 +509,8 @@ def test_reordered_queue_keeps_unique_numbers_and_invalidates_only_changed_bindi
         ]
         payload["review_summary"]["total"] += 1
         payload["review_summary"]["needs_review"] += 1
+        # Preserve actual completed rows and add only this pending display fixture.
+        payload["authoring_provenance"]["proposals"].append(_a2_manifest_row(added))
         _fulfill(route, payload)
 
     brief.page.route(brief.api, queue)
