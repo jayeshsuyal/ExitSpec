@@ -29,6 +29,7 @@ from pydantic import ValidationError
 
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
+from .evidence_pack_library import EvidencePackLibraryProjection
 from .generic_evidence_pack import GenericEvidencePackError
 from .poc_agreement import ProcessLocalAgreementLifecycleService
 from .poc_agreement_web_api import (
@@ -176,6 +177,9 @@ _ASSET_NAMES = frozenset(
         "generic_evidence.html",
         "generic_evidence.css",
         "generic_evidence.js",
+        "evidence_library.html",
+        "evidence_library.css",
+        "evidence_library.js",
         "proofability_workspace.css",
         "proofability_workspace.js",
         "qualification.html",
@@ -353,6 +357,37 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         ).model_dump(mode="json")
 
 
+    def evidence_pack_library_payload(self) -> dict[str, object]:
+        """Navigate independently verified current and historical local packs."""
+
+        items = []
+        for draft in self.draft_poc_service.snapshots():
+            history = self.generic_evidence_service.snapshot_payload(draft.poc_id)[
+                "history"
+            ]
+            for attempt in history:
+                if attempt["evidence_pack_url"] is None:
+                    continue
+                item = self.generic_evidence_service.evidence_pack_library_item(
+                    attempt["attempt_id"]
+                )
+                publication = self.generic_evidence_service.verify_evidence_pack_publication(
+                    attempt["attempt_id"]
+                )
+                if (
+                    item.evidence_pack_url != publication.evidence_pack_url
+                    or item.evidence_pack_sha256 != publication.evidence_pack_sha256
+                ):
+                    raise GenericEvidencePackError("Evidence Pack binding changed.")
+                items.append(item.model_copy(update={
+                    "display_name": draft.display_name,
+                    "customer_label": draft.customer_label,
+                }))
+        return EvidencePackLibraryProjection(
+            packs=tuple(sorted(items, key=lambda item: (item.updated_at, item.poc_id), reverse=True))
+        ).model_dump(mode="json")
+
+
 class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
@@ -371,6 +406,17 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.server.workspace_payload(filter_value))
             except ValueError:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": "Workspace filter is invalid."})
+            return
+        if parsed.path == "/api/evidence-packs":
+            try:
+                payload = self.server.evidence_pack_library_payload()
+            except (GenericEvidencePackError, KeyError, OSError, ValueError):
+                self._json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Evidence Pack library is unavailable."},
+                )
+                return
+            self._json(HTTPStatus.OK, payload)
             return
         if parsed.path == "/api/state":
             self._json(
@@ -475,6 +521,9 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
+            return
+        if parsed.path == "/app/evidence":
+            self._file("evidence_library.html")
             return
         evidence_page_poc_id = _generic_evidence_page_poc_id(parsed.path)
         if evidence_page_poc_id is not None:

@@ -496,8 +496,11 @@
       if (!response.ok) {
         throw new Error(payload.error || "The POC workspace is unavailable.");
       }
-      if (version !== requestVersion || payload.selected_filter !== filter) {
+      if (version !== requestVersion) {
         return;
+      }
+      if (payload.selected_filter !== filter) {
+        throw new Error("The POC workspace response did not match the selected filter.");
       }
       renderWorkspace(payload);
     } catch (error) {

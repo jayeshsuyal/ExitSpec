@@ -116,7 +116,8 @@ def test_customer_review_is_a_focused_confirmation_surface():
     assert 'id="measurement-details"' in html
     assert 'id="scope-details"' in html
     assert html.count('class="review-detail-group"') == 2
-    assert "Confirmation freezes this test plan." in html
+    assert "Confirmation records approval of this test plan." in html
+    assert "The POC owner freezes it separately before any proof run." in html
     assert "Confirm POC agreement" in html
     assert "I confirm these requirements and test conditions." in html
     assert 'id="terminal-next-title"' in html

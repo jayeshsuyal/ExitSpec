@@ -9,6 +9,8 @@
   const result = document.querySelector("#review-result");
   const errorPanel = document.querySelector("#customer-review-error");
   let review = null;
+  let pendingAttempt = null;
+  let inFlight = false;
 
   function safePath(path) {
     if (typeof path !== "string") return false;
@@ -16,17 +18,60 @@
   }
   async function getJson() {
     if (!safePath(reviewApi)) throw new Error("untrusted path");
-    const response = await fetch(reviewApi, {cache: "no-store", credentials: "same-origin", headers: {Accept: "application/json"}});
+    const response = await fetch(reviewApi, {cache: "no-store", credentials: "same-origin", redirect: "error", headers: {Accept: "application/json"}});
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("request failed");
+    if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json") || !payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("request failed");
     return payload;
   }
   async function postJson(body) {
     if (!safePath(reviewApi)) throw new Error("untrusted path");
-    const response = await fetch(reviewApi, {method: "POST", cache: "no-store", credentials: "same-origin", headers: {Accept: "application/json", "Content-Type": "application/json", Origin: window.location.origin}, body: JSON.stringify(body)});
+    const response = await fetch(reviewApi, {method: "POST", cache: "no-store", credentials: "same-origin", redirect: "error", headers: {Accept: "application/json", "Content-Type": "application/json", Origin: window.location.origin}, body: JSON.stringify(body)});
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error(payload?.error || "request failed");
+    if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json") || !payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Unverified decision response");
     return payload;
+  }
+  function nonempty(value) { return typeof value === "string" && Boolean(value.trim()); }
+  function validateReview(data) {
+    const value = data?.review;
+    if (!value || !["PENDING", "CONFIRMED", "CHANGES_REQUESTED", "EXPIRED"].includes(value.status) ||
+        ![value.review_id, value.contract_id, value.contract_version, value.agreement?.customer, value.agreement?.use_case].every(nonempty) ||
+        !/^[a-f0-9]{64}$/.test(value.confirmation_fingerprint) ||
+        value.agreement.id !== value.contract_id || value.agreement.version !== value.contract_version ||
+        !Array.isArray(value.agreement.criteria) || !value.agreement.criteria.length ||
+        !Array.isArray(value.non_goals)) throw new Error("Incomplete review");
+    return value;
+  }
+  function validateDecision(data, expected, attempt = null) {
+    const value = validateReview(data);
+    const receipt = data.confirmation;
+    const decision = attempt ? data.decision : value.decision;
+    const requested = attempt?.decision || decision?.decision;
+    const fields = ["decision", "reviewer_display_name", "recorded_at", "rationale", "agreement_acknowledged", "synthetic"];
+    if (!["CONFIRM", "REQUEST_CHANGES"].includes(requested) || !receipt || !decision || !value.decision ||
+        value.review_id !== expected.review_id || value.contract_id !== expected.contract_id ||
+        value.contract_version !== expected.contract_version ||
+        value.confirmation_fingerprint !== expected.confirmation_fingerprint ||
+        value.status !== (requested === "CONFIRM" ? "CONFIRMED" : "CHANGES_REQUESTED") ||
+        !nonempty(receipt.confirmation_id) || receipt.contract_id !== expected.contract_id ||
+        receipt.contract_version !== expected.contract_version || receipt.contract_fingerprint !== expected.confirmation_fingerprint ||
+        receipt.decision !== requested || decision.decision !== requested ||
+        decision.synthetic !== false || !nonempty(decision.reviewer_display_name) ||
+        receipt.confirmer !== decision.reviewer_display_name ||
+        !nonempty(decision.recorded_at) || !Number.isFinite(Date.parse(decision.recorded_at)) ||
+        receipt.confirmed_at !== decision.recorded_at ||
+        !nonempty(decision.rationale) || receipt.rationale !== decision.rationale ||
+        receipt.agreement_acknowledged !== true || decision.agreement_acknowledged !== true ||
+        typeof decision.idempotent_replay !== "boolean" ||
+        fields.some((field) => value.decision[field] !== decision[field]) ||
+        (attempt && (data.confirmation_id !== receipt.confirmation_id || typeof data.idempotent_replay !== "boolean" ||
+          decision.rationale !== attempt.rationale))) throw new Error("Unverified decision receipt");
+  }
+  function updateControls() {
+    const blocked = inFlight || !review || review.status !== "PENDING";
+    form.querySelectorAll("input, textarea").forEach((control) => { control.disabled = blocked || Boolean(pendingAttempt); });
+    form.querySelectorAll("button").forEach((button) => {
+      button.disabled = blocked || Boolean(pendingAttempt && button.dataset.decision !== pendingAttempt.decision);
+    });
   }
   function key() { return `customer-review-${window.crypto?.randomUUID?.() || Math.random().toString(16).slice(2)}`; }
   function setError(message) { errorPanel.textContent = message; errorPanel.hidden = !message; }
@@ -50,7 +95,7 @@
     return "No executable proof is scheduled in A5. This " + criterion.planning_disposition.toLowerCase() + " item remains customer-bound: " + (criterion.planning_reason || "the A4 limitation is preserved.");
   }
   function render(data) {
-    review = data.review;
+    review = validateReview(data);
     const agreement = review.agreement;
     document.querySelector("#review-customer").textContent = `${agreement.customer} · ${agreement.use_case}`;
     document.querySelector("#review-version").textContent = `Version ${review.contract_version}`;
@@ -77,19 +122,50 @@
       const returnUrl = review.local_demo?.return_url;
       document.querySelector("#return-to-agreement").href = typeof returnUrl === "string" && /^\/app\/pocs\/poc_[a-z0-9][a-z0-9_-]{2,63}\/agreement$/.test(returnUrl) ? returnUrl : "/app";
     }
+    updateControls();
   }
   async function initialise() {
     if (!token || !TOKEN.test(token)) { setError("This customer review link is invalid."); task.setAttribute("aria-busy", "false"); return; }
-    try { render(await getJson()); task.setAttribute("aria-busy", "false"); } catch { setError("This customer review link is invalid, stale, or unavailable."); task.setAttribute("aria-busy", "false"); }
+    try {
+      const data = await getJson();
+      const current = validateReview(data);
+      if (["CONFIRMED", "CHANGES_REQUESTED"].includes(current.status)) validateDecision(data, current);
+      render(data);
+      task.setAttribute("aria-busy", "false");
+    } catch {
+      review = null;
+      setError("This customer review link is invalid, stale, or unavailable.");
+      task.setAttribute("aria-busy", "false");
+      updateControls();
+    }
   }
   form.addEventListener("submit", async (event) => {
-    event.preventDefault(); setError("");
+    event.preventDefault();
     const decision = event.submitter?.dataset.decision;
-    const acknowledged = document.querySelector("#agreement-checkbox").checked;
-    const rationale = document.querySelector("#review-rationale").value.trim();
+    if (inFlight || !review || review.status !== "PENDING" ||
+        (pendingAttempt && pendingAttempt.decision !== decision)) return;
+    setError("");
+    const acknowledged = pendingAttempt?.agreement_acknowledged ?? document.querySelector("#agreement-checkbox").checked;
+    const rationale = pendingAttempt?.rationale ?? document.querySelector("#review-rationale").value.trim();
     if (!["CONFIRM", "REQUEST_CHANGES"].includes(decision) || !acknowledged || !rationale) { setError("A checked acknowledgement and rationale are required."); return; }
-    [...form.querySelectorAll("button")].forEach((button) => { button.disabled = true; });
-    try { const payload = await postJson({review_id: review.review_id, contract_id: review.contract_id, contract_version: review.contract_version, confirmation_fingerprint: review.confirmation_fingerprint, decision, agreement_acknowledged: true, rationale, idempotency_key: key()}); render(payload); } catch (error) { setError(error.message || "The decision was refused safely."); [...form.querySelectorAll("button")].forEach((button) => { button.disabled = false; }); }
+    if (!pendingAttempt) {
+      pendingAttempt = Object.freeze({review_id: review.review_id, contract_id: review.contract_id, contract_version: review.contract_version, confirmation_fingerprint: review.confirmation_fingerprint, decision, agreement_acknowledged: true, rationale, idempotency_key: key()});
+    }
+    const attempt = pendingAttempt;
+    inFlight = true;
+    updateControls();
+    try {
+      const payload = await postJson(attempt);
+      validateDecision(payload, review, attempt);
+      pendingAttempt = null;
+      render(payload);
+    } catch {
+      setError("The decision could not be verified. It may already be recorded. Retry the same decision with its original details and request key, or reload to check its recorded state.");
+    } finally {
+      inFlight = false;
+      updateControls();
+    }
   });
+  updateControls();
   initialise();
 })();

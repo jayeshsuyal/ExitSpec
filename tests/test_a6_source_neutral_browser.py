@@ -216,7 +216,11 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
             page.locator("#handoff-evidence").click()
             page.wait_for_function("window.__releaseEvidenceRefresh !== null")
             assert page.locator("#evidence-acknowledgement").is_hidden()
-            assert page.locator("#handoff-evidence").is_visible()
+            recorded = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
+            assert recorded["closure"]["decision"] == "HANDOFF_COMPLETED"
+            assert recorded["closure"]["evidence_binding"]["run_id"] == recorded["current"]["run_id"]
+            assert page.locator("#evidence-task-heading").inner_text() == "Human decision recorded"
+            assert page.locator("#handoff-evidence").is_hidden()
             assert page.locator("#handoff-evidence").is_disabled()
             page.evaluate("window.__releaseEvidenceRefresh()")
             page.wait_for_function("document.querySelector('#handoff-evidence')?.hidden === true")

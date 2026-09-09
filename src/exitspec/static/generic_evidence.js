@@ -26,6 +26,7 @@
   let snapshot = null;
   let busy = false;
   let trustedSnapshot = false;
+  let pendingStart = null;
 
   function plainObject(value) {
     return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -355,8 +356,13 @@
     return value;
   }
 
-  async function validateDecisionResponse(value, current) {
-    if (!exactKeys(value, ["poc_id", "closure"]) || value.poc_id !== pocId) {
+  async function validateDecisionResponse(value, current, decision) {
+    const expectedDecision = decision === "handoff" ? "HANDOFF_COMPLETED" : "POC_STOPPED";
+    if (
+      !exactKeys(value, ["poc_id", "closure"]) ||
+      value.poc_id !== pocId ||
+      value.closure?.decision !== expectedDecision
+    ) {
       throw new Error("Evidence response could not be trusted.");
     }
     await validateClosure(value.closure, pocId, current);
@@ -464,7 +470,7 @@
     return body;
   }
 
-  async function refresh() {
+  async function refresh(expectedAttemptId = null) {
     if (!api) throw new Error("Evidence route is invalid.");
     busy = true;
     // Keep the last trusted projection visible while the replacement is
@@ -473,7 +479,17 @@
     render();
     try {
       const candidate = await request(api, { headers: {} });
-      snapshot = await validateSnapshot(candidate);
+      const nextSnapshot = await validateSnapshot(candidate);
+      if (
+        expectedAttemptId &&
+        !nextSnapshot.history.some((attempt) => attempt.attempt_id === expectedAttemptId)
+      ) {
+        throw new Error("The accepted evidence attempt was missing from the refreshed state.");
+      }
+      if (snapshot?.closure && !deepEqual(nextSnapshot.closure, snapshot.closure)) {
+        throw new Error("The recorded human decision was missing from the refreshed state.");
+      }
+      snapshot = nextSnapshot;
       trustedSnapshot = true;
     } finally {
       busy = false;
@@ -488,15 +504,19 @@
     busy = true;
     render();
     try {
-      const body = validateStartResponse(await request(api, {
-        method: "POST",
-        body: JSON.stringify({
+      if (pendingStart === null) {
+        pendingStart = {
           acknowledgement: true,
           idempotency_key: `a6-browser-${crypto.randomUUID()}`,
-        }),
+        };
+      }
+      const body = validateStartResponse(await request(api, {
+        method: "POST",
+        body: JSON.stringify(pendingStart),
       }));
       if (!body.attempt.is_current) throw new Error("Evidence response could not be trusted.");
-      await refresh();
+      await refresh(body.attempt.attempt_id);
+      pendingStart = null;
     } catch (error) { setError(error.message); }
     finally {
       busy = false;
@@ -518,17 +538,24 @@
     }
     busy = true;
     render();
+    let decisionRecorded = false;
     try {
-      await validateDecisionResponse(await request(`${api}/${current.attempt_id}/${decision}`, {
+      const response = await validateDecisionResponse(await request(`${api}/${current.attempt_id}/${decision}`, {
         method: "POST",
         body: JSON.stringify({
           decided_by: owner,
           rationale: decision === "handoff" ? rationale : "Stopped after reviewing the current evidence state.",
           idempotency_key: `a6-browser-${decision}-${crypto.randomUUID()}`,
         }),
-      }), current);
+      }), current, decision);
+      snapshot = { ...snapshot, closure: response.closure };
+      decisionRecorded = true;
       await refresh();
-    } catch (error) { setError(error.message); }
+    } catch (error) {
+      setError(decisionRecorded
+        ? "The human decision was recorded, but the evidence state could not be refreshed. Reload to verify the current state."
+        : error.message);
+    }
     finally {
       busy = false;
       render();
