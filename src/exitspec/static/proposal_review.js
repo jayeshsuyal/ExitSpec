@@ -54,8 +54,16 @@
   const completionPanel = document.querySelector("#review-complete");
   const defineCriteriaLink = document.querySelector("#define-criteria");
   const planCapabilitiesLink = document.querySelector("#plan-capabilities");
+  const proposalTabs = document.querySelector("#proposal-tabs");
+  const proposalPicker = document.querySelector("#proposal-picker");
+  const reviewStart = document.querySelector("#review-start");
+  const reviewEditor = document.querySelector("#review-editor");
+  const reviewCancel = document.querySelector("#review-cancel");
 
   let proposals = [];
+  let selectedProposalId = null;
+  const reviewDrafts = new Map();
+  const proposalNumbers = new Map();
   let initialCount = 0;
   let keptCount = 0;
   let discardedCount = 0;
@@ -66,6 +74,16 @@
   let a3Proposals = new Map();
   let inFlight = false;
   let pendingAttempt = null;
+  let blocked = true;
+  let pageEpoch = 0;
+  let pageActive = true;
+  let requestController = new AbortController();
+
+  class StalePageError extends Error {}
+
+  function assertCurrentPage(epoch) {
+    if (!pageActive || epoch !== pageEpoch) throw new StalePageError();
+  }
 
   class SafeRequestError extends Error {
     constructor(statusCode, retrySameAttempt) {
@@ -515,6 +533,8 @@
   }
 
   async function requestJson(path, options = {}) {
+    const epoch = pageEpoch;
+    assertCurrentPage(epoch);
     if (!isTrustedApiPath(path)) {
       throw new SafeRequestError(null, true);
     }
@@ -523,6 +543,7 @@
     try {
       response = await fetch(path, {
         ...options,
+        signal: requestController.signal,
         cache: "no-store",
         credentials: "same-origin",
         headers: {
@@ -531,8 +552,10 @@
         },
       });
     } catch {
+      assertCurrentPage(epoch);
       throw new SafeRequestError(null, true);
     }
+    assertCurrentPage(epoch);
 
     let responseUrl;
     try {
@@ -557,6 +580,7 @@
     }
 
     const payload = await response.json().catch(() => null);
+    assertCurrentPage(epoch);
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       throw new SafeRequestError(response.status, true);
     }
@@ -579,7 +603,167 @@
   }
 
   function currentProposal() {
-    return proposals[0] || null;
+    return proposals.find(
+      (proposal) => proposal.proposal_id === selectedProposalId
+    ) || null;
+  }
+
+  function sameSourceBinding(left, right) {
+    return left && right &&
+      left.proposal_id === right.proposal_id &&
+      left.source_receipt_id === right.source_receipt_id &&
+      left.source_kind === right.source_kind &&
+      left.source_quote === right.source_quote &&
+      left.normalized_claim === right.normalized_claim;
+  }
+
+  function saveReviewDraft() {
+    const proposal = currentProposal();
+    if (!proposal || blocked || inFlight || pendingAttempt) return;
+    reviewDrafts.set(proposal.proposal_id, {
+      proposal,
+      reviewer: reviewerInput.value,
+      rationale: rationaleInput.value,
+      expanded: !reviewEditor.hidden,
+    });
+  }
+
+  function reconcileSelection() {
+    const pendingIds = new Set(proposals.map((item) => item.proposal_id));
+    for (const id of reviewDrafts.keys()) {
+      const current = proposals.find((item) => item.proposal_id === id);
+      if (!sameSourceBinding(reviewDrafts.get(id).proposal, current)) {
+        reviewDrafts.delete(id);
+      }
+    }
+    if (!pendingIds.has(selectedProposalId)) {
+      selectedProposalId = proposals[0]?.proposal_id || null;
+    }
+    let nextNumber = Math.max(keptCount + discardedCount, ...proposalNumbers.values()) + 1;
+    proposals.forEach((proposal) => {
+      if (!proposalNumbers.has(proposal.proposal_id)) {
+        proposalNumbers.set(proposal.proposal_id, nextNumber);
+        nextNumber += 1;
+      }
+    });
+  }
+
+  function renderNavigator() {
+    proposalTabs.replaceChildren();
+    proposalPicker.replaceChildren();
+    for (const proposal of proposals) {
+      const label = `Proposal ${proposalNumbers.get(proposal.proposal_id)}`;
+      const metricCue = executableMetricCue(proposal);
+      const title = metricCue === "TTFT_P95_MS" ? "Time to first token"
+        : metricCue === "ERROR_RATE_PERCENT" ? "Error rate"
+          : proposal.normalized_claim.length > 64
+            ? `${proposal.normalized_claim.slice(0, 64)}…` : proposal.normalized_claim;
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "proposal-tab";
+      button.setAttribute("aria-pressed", String(proposal.proposal_id === selectedProposalId));
+      button.setAttribute("aria-controls", "proposal-evidence");
+      button.setAttribute("aria-label", `${label}: ${proposal.normalized_claim}`);
+      for (const [className, copy] of [
+        ["proposal-nav-id", label],
+        ["proposal-nav-title", title],
+        ["proposal-nav-state", "Needs review"],
+      ]) {
+        const span = document.createElement("span");
+        span.className = className;
+        span.textContent = copy;
+        button.append(span);
+      }
+      button.addEventListener("click", () => selectProposal(proposal.proposal_id));
+      item.append(button);
+      proposalTabs.append(item);
+      const option = document.createElement("option");
+      option.value = proposal.proposal_id;
+      option.textContent = `${label} · ${title}`;
+      proposalPicker.append(option);
+    }
+    proposalPicker.value = selectedProposalId || "";
+  }
+
+  function selectProposal(proposalId) {
+    if (blocked || inFlight || pendingAttempt) {
+      proposalPicker.value = selectedProposalId || "";
+      return;
+    }
+    if (!proposals.some((proposal) => proposal.proposal_id === proposalId)) return;
+    saveReviewDraft();
+    selectedProposalId = proposalId;
+    renderCurrentProposal();
+  }
+
+  function setReviewExpanded(expanded) {
+    reviewEditor.hidden = !expanded;
+    reviewStart.hidden = expanded;
+    reviewStart.setAttribute("aria-expanded", String(expanded));
+  }
+
+  // These are word-boundary display chunks, never parsed acceptance facts.
+  function sourceTextChunks(text) {
+    const chunks = [];
+    let start = null;
+    let end = 0;
+    for (const word of text.matchAll(/\S+/g)) {
+      const connective = /^(?:must|shall|should|at|across|over|within|under|below|above|for)$/i.test(word[0]);
+      if (start !== null && (word.index + word[0].length - start > 32 ||
+          (connective && end - start >= 8))) {
+        chunks.push([start, end]);
+        start = null;
+      }
+      if (start === null) start = word.index;
+      end = word.index + word[0].length;
+    }
+    if (start !== null) chunks.push([start, end]);
+    return chunks;
+  }
+
+  function renderSourceMatch(proposal) {
+    const claim = document.querySelector("#normalized-claim");
+    const excerpt = document.querySelector("#source-excerpt");
+    const note = document.querySelector("#source-match-note");
+    claim.replaceChildren();
+    excerpt.textContent = proposal.source_quote.slice(0, 112) +
+      (proposal.source_quote.length > 112 ? "…" : "");
+    note.textContent = "No exact wording match is highlighted. Compare the normalized claim with the full redacted source quote below.";
+    let cursor = 0;
+    let firstTerm = null;
+    const trace = (term, start, phrase) => {
+      if (!pageActive || !sameSourceBinding(currentProposal(), proposal)) return;
+      if (proposal.source_quote.slice(start, start + phrase.length) !== phrase) return;
+      const mark = document.createElement("mark");
+      mark.textContent = phrase;
+      excerpt.replaceChildren(mark);
+      for (const button of claim.querySelectorAll("button")) {
+        button.setAttribute("aria-pressed", String(button === term));
+      }
+      note.textContent = "Exact source excerpt. Select an underlined phrase to inspect its source.";
+    };
+    for (const [start, end] of sourceTextChunks(proposal.normalized_claim)) {
+      claim.append(document.createTextNode(proposal.normalized_claim.slice(cursor, start)));
+      const phrase = proposal.normalized_claim.slice(start, end);
+      const sourceStart = proposal.source_quote.indexOf(phrase);
+      if (phrase.length >= 8 && phrase.length <= 64 && sourceStart >= 0) {
+        const term = document.createElement("button");
+        term.type = "button";
+        term.className = "source-term";
+        term.textContent = phrase;
+        term.setAttribute("aria-controls", "source-excerpt");
+        term.setAttribute("aria-pressed", "false");
+        term.addEventListener("click", () => trace(term, sourceStart, phrase));
+        claim.append(term);
+        if (!firstTerm) firstTerm = () => trace(term, sourceStart, phrase);
+      } else {
+        claim.append(document.createTextNode(phrase));
+      }
+      cursor = end;
+    }
+    claim.append(document.createTextNode(proposal.normalized_claim.slice(cursor)));
+    firstTerm?.();
   }
 
   function executableMetricCue(proposal) {
@@ -611,7 +795,7 @@
       return "The decision was not accepted. Review the reviewer and rationale.";
     }
     if (error.statusCode === 404) {
-      return "This POC or proposal is unavailable. No decision was recorded.";
+      return "This POC or proposal is unavailable. Reload to check the recorded state before continuing.";
     }
     if (
       error.statusCode === 403 ||
@@ -642,7 +826,7 @@
 
   function updateDecisionControls() {
     const proposal = currentProposal();
-    const hasProposal = proposal !== null;
+    const hasProposal = proposal !== null && !blocked && pageActive;
     const metricCue = executableMetricCue(proposal);
     const isA3Proposal = hasProposal && a3Proposals.has(proposal.proposal_id);
     const duplicateMetric =
@@ -657,6 +841,13 @@
     const pendingDecision = pendingAttempt
       ? pendingAttempt.payload.decision
       : null;
+
+    proposalPicker.disabled = !hasProposal || inFlight || Boolean(pendingAttempt);
+    for (const button of proposalTabs.querySelectorAll("button")) {
+      button.disabled = proposalPicker.disabled;
+    }
+    reviewStart.disabled = !editable;
+    reviewCancel.disabled = !editable;
 
     setFieldAvailability(editable);
     keepButton.disabled =
@@ -678,7 +869,9 @@
         ? "Retry discard decision"
         : "Discard";
 
-    decisionStatus.textContent = inFlight
+    decisionStatus.textContent = blocked
+      ? "Proposal review is unavailable. Reload before continuing."
+      : inFlight
       ? "Recording this triage decision…"
       : pendingAttempt
         ? "The response was interrupted. Retry will use the same decision key."
@@ -692,12 +885,11 @@
               ? "The two executable slots are filled. Discard remaining claims to NOT_PROVEN."
               : fieldsValid
                 ? "Choose one triage decision."
-          : "Enter the reviewer and rationale to unlock both decisions.";
+          : "Enter the reviewer and rationale to unlock the available decisions.";
   }
 
   function renderProgress() {
     const reviewedCount = keptCount + discardedCount;
-    const currentNumber = Math.min(reviewedCount + 1, initialCount);
     const progressBar = document.querySelector("#progress-bar");
     const progressFill = document.querySelector("#progress-fill");
     const progressCopy = document.querySelector("#progress-copy");
@@ -707,7 +899,7 @@
     progressCopy.textContent =
       initialCount === 0
         ? "No proposals to review"
-        : `Proposal ${currentNumber} of ${initialCount}`;
+        : `${reviewedCount} reviewed · ${proposals.length} awaiting triage`;
     progressFill.style.width =
       initialCount === 0
         ? "100%"
@@ -722,14 +914,20 @@
     }
 
     document.querySelector("#proposal-heading").textContent =
-      `Proposal ${keptCount + discardedCount + 1}`;
+      `Proposal ${proposalNumbers.get(proposal.proposal_id)}`;
+    document.querySelector("#proposal-reference").textContent = proposal.proposal_id;
+    document.querySelector("#source-receipt-id").textContent = proposal.source_receipt_id;
     document.querySelector("#source-kind").textContent =
       SOURCE_LABELS[proposal.source_kind];
     document.querySelector("#source-quote").textContent =
       proposal.source_quote;
     document.querySelector("#normalized-claim").textContent =
       proposal.normalized_claim;
+    renderSourceMatch(proposal);
     const metricCue = executableMetricCue(proposal);
+    document.querySelector("#requirement-heading").textContent =
+      metricCue === "TTFT_P95_MS" ? "Time to first token"
+        : metricCue === "ERROR_RATE_PERCENT" ? "Error rate" : "Proposed requirement";
     const support = document.querySelector("#proposal-support");
     support.setAttribute("data-supported", String(metricCue !== null));
     support.textContent = a3Proposals.has(proposal.proposal_id)
@@ -737,10 +935,12 @@
       : metricCue === null
       ? "Not executable in this demo · discard to NOT_PROVEN"
       : `Executable candidate · ${metricCueLabel(metricCue)}`;
-    reviewerInput.value = "";
-    rationaleInput.value = "";
-    pendingAttempt = null;
+    const draft = reviewDrafts.get(proposal.proposal_id);
+    reviewerInput.value = draft?.reviewer || "";
+    rationaleInput.value = draft?.rationale || "";
+    setReviewExpanded(Boolean(draft?.expanded));
     clearError();
+    renderNavigator();
     renderProgress();
     updateDecisionControls();
     document.querySelector("#proposal-evidence").focus?.();
@@ -748,9 +948,17 @@
 
   function renderCompletion() {
     proposals = [];
+    selectedProposalId = null;
+    reviewDrafts.clear();
+    proposalNumbers.clear();
+    renderNavigator();
     document.querySelector("#source-quote").textContent = "";
     document.querySelector("#normalized-claim").textContent = "";
     document.querySelector("#proposal-support").textContent = "";
+    document.querySelector("#source-match-note").textContent = "";
+    document.querySelector("#source-excerpt").textContent = "";
+    document.querySelector("#source-receipt-id").textContent = "";
+    document.querySelector("#proposal-reference").textContent = "";
     reviewerInput.value = "";
     rationaleInput.value = "";
     pendingAttempt = null;
@@ -829,6 +1037,7 @@
     discardedCount = proposalList.review_summary.discarded;
     pocCustomerLabel = draft.customer_label;
     document.querySelector("#poc-title").textContent = draft.display_name;
+    document.querySelector("#poc-customer").textContent = draft.customer_label;
     const assistedLink = document.querySelector("#assisted-authoring-link");
     if (a3Capability) {
       assistedLink.href = `/app/pocs/${encodeURIComponent(pocId)}/assisted-authoring`;
@@ -838,13 +1047,20 @@
       assistedLink.hidden = true;
     }
     renderPOCContext(proposalList.review_summary.needs_review);
+    blocked = false;
+    currentTask.hidden = false;
+    completionPanel.hidden = true;
     currentTask.setAttribute("aria-busy", "false");
+    reconcileSelection();
     renderCurrentProposal();
   }
 
-  async function reconcileQueueAfterDecision() {
+  async function reconcileQueueAfterDecision(attempt) {
     const proposalList = await requestJson(proposalsApi);
     if (!isTrustedProposalList(proposalList)) {
+      throw new SafeRequestError(200, true);
+    }
+    if (proposalList.proposals.some((proposal) => proposal.proposal_id === attempt.proposalId)) {
       throw new SafeRequestError(200, true);
     }
     if (a3Capability) {
@@ -868,24 +1084,24 @@
     keptCount = proposalList.review_summary.kept_for_contract;
     discardedCount = proposalList.review_summary.discarded;
     renderPOCContext(proposalList.review_summary.needs_review);
+    reconcileSelection();
     renderCurrentProposal();
   }
 
   function blockReview(message) {
+    blocked = true;
     currentTask.setAttribute("aria-busy", "false");
     const assistedLink = document.querySelector("#assisted-authoring-link");
     assistedLink.href = "/app";
     assistedLink.hidden = true;
-    setFieldAvailability(false);
-    keepButton.disabled = true;
-    discardButton.disabled = true;
-    decisionStatus.textContent = "Proposal review is unavailable.";
+    updateDecisionControls();
     errorPanel.textContent = message;
     errorPanel.hidden = false;
   }
 
   reviewerInput.addEventListener("input", () => {
     if (!inFlight && !pendingAttempt) {
+      saveReviewDraft();
       clearError();
       updateDecisionControls();
     }
@@ -893,16 +1109,31 @@
 
   rationaleInput.addEventListener("input", () => {
     if (!inFlight && !pendingAttempt) {
+      saveReviewDraft();
       clearError();
       updateDecisionControls();
     }
+  });
+
+  proposalPicker.addEventListener("change", () => selectProposal(proposalPicker.value));
+  reviewStart.addEventListener("click", () => {
+    if (blocked || inFlight || pendingAttempt || !currentProposal()) return;
+    setReviewExpanded(true);
+    saveReviewDraft();
+    reviewerInput.focus();
+  });
+  reviewCancel.addEventListener("click", () => {
+    if (blocked || inFlight || pendingAttempt) return;
+    setReviewExpanded(false);
+    saveReviewDraft();
+    reviewStart.focus();
   });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const proposal = currentProposal();
     let decisionRecorded = false;
-    if (inFlight || !proposal) {
+    if (blocked || !pageActive || inFlight || !proposal) {
       return;
     }
 
@@ -912,6 +1143,9 @@
       if (
         !DECISIONS.includes(decision) ||
         !fields ||
+        reviewEditor.hidden ||
+        (decision === "KEEP_FOR_CONTRACT" && keepButton.disabled) ||
+        (decision === "DISCARD" && discardButton.disabled) ||
         !form.reportValidity()
       ) {
         decisionStatus.textContent =
@@ -944,32 +1178,37 @@
       }
     }
 
+    const attempt = pendingAttempt;
+    const epoch = pageEpoch;
     inFlight = true;
     clearError();
     updateDecisionControls();
 
     try {
-      const response = await requestJson(pendingAttempt.endpoint, {
+      const response = await requestJson(attempt.endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(pendingAttempt.payload),
+        body: JSON.stringify(attempt.payload),
       });
-      if (!isTrustedDecisionResponse(response, pendingAttempt)) {
+      assertCurrentPage(epoch);
+      if (!isTrustedDecisionResponse(response, attempt)) {
         throw new SafeRequestError(200, true);
       }
-      if (pendingAttempt.payload.decision === "KEEP_FOR_CONTRACT") {
+      if (attempt.payload.decision === "KEEP_FOR_CONTRACT") {
         const metricCue = executableMetricCue(proposal);
         if (metricCue !== null) {
           selectedMetricCues.add(metricCue);
         }
       }
       pendingAttempt = null;
-      proposals.shift();
+      proposals = proposals.filter((item) => item.proposal_id !== attempt.proposalId);
+      reviewDrafts.delete(attempt.proposalId);
       decisionRecorded = true;
-      await reconcileQueueAfterDecision();
+      await reconcileQueueAfterDecision(attempt);
     } catch (error) {
+      if (!pageActive || epoch !== pageEpoch || error instanceof StalePageError) return;
       if (decisionRecorded) {
         proposals = [];
         pendingAttempt = null;
@@ -983,10 +1222,15 @@
         !error.retrySameAttempt
       ) {
         pendingAttempt = null;
+        if ([403, 404, 409, 415].includes(error.statusCode)) {
+          blockReview(safeFailureCopy(error));
+          return;
+        }
       }
       errorPanel.textContent = safeFailureCopy(error);
       errorPanel.hidden = false;
     } finally {
+      if (!pageActive || epoch !== pageEpoch) return;
       inFlight = false;
       if (!completionPanel.hidden) {
         return;
@@ -996,6 +1240,7 @@
   });
 
   async function initialise() {
+    const epoch = pageEpoch;
     if (!pocId || !pocApi || !proposalsApi || !currentReviewApi) {
       blockReview(
         "This proposal-review address is invalid. Return to the POC workspace."
@@ -1043,7 +1288,8 @@
         throw new SafeRequestError(503, true);
       }
       applyLoadedData(draft, proposalList);
-    } catch {
+    } catch (error) {
+      if (!pageActive || epoch !== pageEpoch || error instanceof StalePageError) return;
       blockReview(
         "The draft or proposal queue could not be validated. No review action is available."
       );
@@ -1051,14 +1297,49 @@
   }
 
   window.addEventListener("pagehide", () => {
+    pageActive = false;
+    pageEpoch += 1;
+    requestController.abort();
+    blocked = true;
+    inFlight = false;
     proposals = [];
+    selectedProposalId = null;
+    reviewDrafts.clear();
+    proposalNumbers.clear();
     selectedMetricCues.clear();
+    a3Proposals.clear();
+    a3Capability = false;
+    hasA3Proposals = false;
+    initialCount = 0;
+    keptCount = 0;
+    discardedCount = 0;
     pocCustomerLabel = null;
     pendingAttempt = null;
     reviewerInput.value = "";
     rationaleInput.value = "";
     document.querySelector("#source-quote").textContent = "";
     document.querySelector("#normalized-claim").textContent = "";
+    document.querySelector("#proposal-reference").textContent = "";
+    document.querySelector("#source-receipt-id").textContent = "";
+    document.querySelector("#source-match-note").textContent = "";
+    document.querySelector("#source-excerpt").textContent = "";
+    document.querySelector("#proposal-support").textContent = "";
+    renderNavigator();
+    setReviewExpanded(false);
+    clearError();
+    updateDecisionControls();
+  });
+
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    pageActive = true;
+    requestController = new AbortController();
+    currentTask.hidden = false;
+    completionPanel.hidden = true;
+    defineCriteriaLink.hidden = true;
+    planCapabilitiesLink.hidden = true;
+    currentTask.setAttribute("aria-busy", "true");
+    initialise();
   });
 
   initialise();

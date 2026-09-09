@@ -58,6 +58,7 @@ def test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness():
             page.wait_for_url(re.compile(r"/review$"))
 
             for index in range(3):
+                page.locator("#review-start").click()
                 page.locator("#reviewer").fill("named.a4.reviewer")
                 page.locator("#rationale").fill("Retain this exact source-bound claim for A4 planning.")
                 with page.expect_response(

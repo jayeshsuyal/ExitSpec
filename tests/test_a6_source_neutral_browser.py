@@ -135,6 +135,7 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
             page.wait_for_url(re.compile(r"/review$"))
             page.wait_for_load_state("networkidle")
             for index in range(3):
+                page.locator("#review-start").click()
                 page.locator("#reviewer").fill("a6.browser.a3")
                 page.locator("#rationale").fill("Retain this fresh source-bound claim.")
                 page.locator("#keep-proposal").click()

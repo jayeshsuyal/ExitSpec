@@ -305,7 +305,8 @@ def test_post_body_has_only_decision_review_fields_and_one_idempotency_key():
     assert "rationale: fields.rationale" in payload
     assert "idempotency_key: newIdempotencyKey()" in payload
     assert payload.count("idempotency_key") == 1
-    assert "JSON.stringify(pendingAttempt.payload)" in submit
+    assert "const attempt = pendingAttempt;" in submit
+    assert "JSON.stringify(attempt.payload)" in submit
     assert 'method: "POST"' in submit
     assert '"Content-Type": "application/json"' in submit
 
@@ -354,7 +355,8 @@ def test_retry_reuses_the_same_decision_payload_and_key():
 
     assert "if (!pendingAttempt)" in submit
     assert "pendingAttempt = {" in submit
-    assert "JSON.stringify(pendingAttempt.payload)" in submit
+    assert "const attempt = pendingAttempt;" in submit
+    assert "JSON.stringify(attempt.payload)" in submit
     assert "retriedDecision !== pendingAttempt.payload.decision" in submit
     assert "!error.retrySameAttempt" in submit
     assert "pendingAttempt = null;" in submit
@@ -387,7 +389,9 @@ def test_source_content_never_enters_browser_persistence_navigation_or_logs():
         assert forbidden not in javascript
     assert 'document.querySelector("#source-quote").textContent =' in renderer
     assert 'document.querySelector("#normalized-claim").textContent =' in renderer
-    assert "proposals.shift();" in javascript
+    assert "proposals.shift();" not in javascript
+    assert "proposals.filter((item) => item.proposal_id !== attempt.proposalId)" in javascript
+    assert "reviewDrafts.delete(attempt.proposalId);" in javascript
     assert 'window.addEventListener("pagehide"' in javascript
     assert (
         javascript.count('document.querySelector("#source-quote").textContent = "";')
@@ -443,15 +447,16 @@ def test_completion_requires_an_authoritative_queue_refresh():
     )
     assert "renderCurrentProposal();" in reconcile
     assert "decisionRecorded = true;" in submit
-    assert "await reconcileQueueAfterDecision();" in submit
+    assert "await reconcileQueueAfterDecision(attempt);" in submit
+    assert "proposal.proposal_id === attempt.proposalId" in reconcile
     assert "if (decisionRecorded)" in submit
     assert (
         "The decision was recorded, but the current proposal queue could not "
         "be refreshed."
         in submit
     )
-    assert submit.index("proposals.shift();") < submit.index(
-        "await reconcileQueueAfterDecision();"
+    assert submit.index("proposals = proposals.filter(") < submit.index(
+        "await reconcileQueueAfterDecision(attempt);"
     )
 
 
@@ -505,20 +510,29 @@ def test_a3_completion_keeps_retained_projection_internal_and_returns_to_workspa
     assert 'href="/app"' in completion_html
 
 
-def test_graphite_orange_layout_is_finite_and_accessibly_reflows():
+def test_acceptance_brief_has_scoped_document_flow_and_accessible_source_context():
     css = _asset(CSS_PATH)
+    html = _asset(HTML_PATH)
 
-    assert "grid-template-rows: auto minmax(0, 1fr);" in css
-    assert "grid-template-columns: minmax(0, 1.24fr) minmax(330px, 0.76fr);" in css
-    assert "overflow: hidden;" in css
+    assert 'body class="acceptance-brief-page"' in html
+    assert "body.acceptance-brief-page" in css
+    assert "--canvas: #111e24;" in css
+    assert "--panel: #1d3035;" in css
+    assert "--orange: #b8d8c5;" in css
+    assert "height: auto;" in css
     assert "overflow: auto;" in css
-    assert "@media (max-width: 760px), (max-height: 680px)" in css
-    assert "@media (max-width: 520px)" in css
-    assert "body {\n    overflow: auto;" in css
-    assert "grid-template-columns: 1fr;" in css
-    assert "width: 100%;" in css
-    assert "var(--orange)" in css
-    assert "var(--canvas)" in css
+    assert "overflow: visible;" in css
+    assert "overflow-wrap: anywhere;" in css
+    assert "@media (max-width: 650px)" in css
+    assert ".proposal-picker-field { display: block;" in css
+    assert ".review-layout { display: block;" in css
+    assert 'class="source-full-quote"' in html
+    assert 'id="source-excerpt"' in html
+    assert 'id="source-quote"' in html
+    assert 'id="review-start" type="button"' in html
+    assert 'id="review-editor" hidden' in html
+    assert "min-height: 44px;" in css
+    assert "font-size: 16px;" in css
     assert ":focus-visible" in css
     assert "#000" not in css.lower()
     assert "gradient" not in css.lower()

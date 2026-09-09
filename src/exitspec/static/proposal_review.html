@@ -3,206 +3,125 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="Review source-anchored ExitSpec proposals before contract authoring."
-    />
-    <title>ExitSpec — Review proposals</title>
+    <meta name="description" content="Review source-anchored ExitSpec proposals before contract authoring." />
+    <title>ExitSpec — Acceptance brief</title>
     <link rel="stylesheet" href="/dashboard.css" />
-    <link rel="stylesheet" href="/proposal_review.css" />
     <link rel="stylesheet" href="/workbench.css" />
+    <link rel="stylesheet" href="/proposal_review.css" />
   </head>
-  <body>
-    <a class="skip-link" href="#proposal-review-main">
-      Skip to proposal review
-    </a>
-
+  <body class="acceptance-brief-page">
+    <a class="skip-link" href="#proposal-review-main">Skip to proposal review</a>
     <div class="dashboard-shell proposal-review-shell">
       <header class="global-header">
         <a class="brand" href="/app" aria-label="ExitSpec POCs">
-          <span class="brand-mark" aria-hidden="true">E</span>
-          <span>ExitSpec</span>
+          <span class="brand-mark" aria-hidden="true">E</span><span>ExitSpec</span>
         </a>
-
+        <span class="desk-label">Acceptance desk</span>
         <nav class="global-nav" aria-label="ExitSpec">
-          <a href="/app" aria-current="page">POCs</a>
+          <a href="/app">POCs</a>
           <a href="/app/evidence">Evidence Packs</a>
           <a href="/app/pocs/new">New POC</a>
         </nav>
-
-        <div class="local-identity">
-          <span class="identity-dot" aria-hidden="true"></span>
-          <span>Local demo</span>
-        </div>
+        <span class="local-identity">Local demo</span>
       </header>
-
-      <main class="proposal-review-main workbench-main" id="proposal-review-main">
-        <header class="object-header workbench-object-header">
-          <div class="object-heading workbench-object-identity">
-            <a class="back-link" href="/app">← POC workspace</a>
-            <p class="eyebrow">Review · Human triage</p>
-            <h1 id="poc-title">Loading draft…</h1>
-            <p id="poc-context">
-              Validating this draft and its source-anchored proposals.
-            </p>
-          </div>
-
-          <div
-            class="authority-boundary"
-            aria-label="Proposal review authority boundary"
-          >
-            <span>Review boundary</span>
-            <strong>Triage only · zero execution authority</strong>
-            <a id="assisted-authoring-link" href="/app" hidden>
-              Run explicit assisted draft
-            </a>
-          </div>
-        </header>
-
-        <section
-          class="review-current-task workbench-current-task"
-          id="proposal-current-task"
-          aria-labelledby="current-task-heading"
-          aria-busy="true"
-        >
-          <header class="task-heading">
-            <div>
-              <p class="eyebrow">Current task</p>
-              <h2 id="current-task-heading">Review one proposal</h2>
-              <p>
-                Compare the redacted source quote with the normalized claim.
-              </p>
-            </div>
-
-            <div
-              class="proposal-progress"
-              id="proposal-progress"
-              role="status"
-              aria-live="polite"
-            >
+      <main class="proposal-review-main" id="proposal-review-main">
+        <nav class="proposal-navigator" id="proposal-navigator" aria-label="Proposal navigator">
+          <div class="queue-heading">
+            <h2>Review queue</h2>
+            <div class="proposal-progress" id="proposal-progress" role="status" aria-live="polite">
               <strong id="progress-copy">Loading proposals…</strong>
-              <div
-                class="progress-track"
-                role="progressbar"
-                aria-label="Proposal review progress"
-                aria-valuemin="0"
-                aria-valuemax="1"
-                aria-valuenow="0"
-                id="progress-bar"
-              >
+              <div class="progress-track" role="progressbar" aria-label="Proposal review progress"
+                   aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" id="progress-bar">
                 <span id="progress-fill"></span>
               </div>
             </div>
-          </header>
+          </div>
+          <ol id="proposal-tabs" class="proposal-tabs"></ol>
+          <div class="proposal-picker-field">
+            <label for="proposal-picker">Proposal</label>
+            <select id="proposal-picker" disabled></select>
+          </div>
+        </nav>
 
-          <div class="review-layout">
-            <article
-              class="proposal-evidence"
-              id="proposal-evidence"
-              tabindex="-1"
-              aria-labelledby="proposal-heading"
-            >
-              <header class="proposal-header">
-                <div>
-                  <p class="eyebrow">Source-backed proposal</p>
-                  <h3 id="proposal-heading">Waiting for a trusted proposal</h3>
-                </div>
-                <span class="source-kind" id="source-kind">Validating</span>
-              </header>
-
-              <div class="evidence-section">
-                <p class="section-label">Redacted source quote</p>
-                <blockquote id="source-quote">
-                  Source content will appear only after validation.
-                </blockquote>
+        <section class="review-current-task" id="proposal-current-task"
+                 aria-labelledby="current-task-heading" aria-busy="true">
+          <div class="acceptance-document">
+            <header class="document-heading object-heading">
+              <div class="document-meta">
+                <strong id="poc-customer">Validating draft…</strong>
+                <p class="eyebrow">Review · Human triage</p>
               </div>
+              <h1 id="current-task-heading">Acceptance brief</h1>
+              <p id="poc-title">Loading draft…</p>
+              <p id="poc-context">Validating this draft and its source-anchored proposals.</p>
+            </header>
 
-              <div class="claim-section">
-                <p class="section-label">Normalized claim</p>
-                <p class="normalized-claim" id="normalized-claim">
-                  No claim loaded.
-                </p>
-                <p class="proposal-support" id="proposal-support" role="status">
-                  Checking current evaluator support…
-                </p>
-              </div>
+            <div class="review-layout">
+              <article class="proposal-evidence" id="proposal-evidence" tabindex="-1"
+                       aria-labelledby="proposal-heading">
+                <p class="requirement-label"><span id="proposal-heading">Waiting for a trusted proposal</span> · Proposed requirement</p>
+                <h2 id="requirement-heading">Proposed requirement</h2>
+                <p class="normalized-claim" id="normalized-claim">No claim loaded.</p>
+                <p class="requirement-note">Requested acceptance condition. No observed results.</p>
+                <p class="proposal-support" id="proposal-support" role="status">Checking current evaluator support…</p>
+                <details class="evidence-details">
+                  <summary>Evidence <code>NOT_PROVEN</code></summary>
+                  <p>Source material is a request, not measurement evidence. Review does not run an evaluation or issue a verdict.</p>
+                </details>
+              </article>
 
-              <p class="source-safety-note">
-                The quote is already redacted. It is displayed for this review
-                only and is not written to browser storage.
-              </p>
-            </article>
+              <aside class="source-context" aria-labelledby="source-title">
+                <h2 id="source-title">Source <span id="source-kind">Validating</span></h2>
+                <p class="source-meta">Redacted source material</p>
+                <blockquote id="source-excerpt">Source content will appear only after validation.</blockquote>
+                <p id="source-match-note">The exact source wording will be checked after validation.</p>
+                <details class="source-full-quote">
+                  <summary>Full redacted source quote</summary>
+                  <blockquote id="source-quote">Source content will appear only after validation.</blockquote>
+                </details>
+                <details class="source-handling">
+                  <summary>Source handling</summary>
+                  <p class="source-safety-note">The quote is already redacted. It is displayed for this review only and is not written to browser storage.</p>
+                  <dl><dt>Proposal</dt><dd id="proposal-reference"></dd>
+                      <dt>Source receipt</dt><dd id="source-receipt-id"></dd></dl>
+                </details>
+              </aside>
+            </div>
 
             <form class="decision-panel" id="proposal-decision-form" novalidate>
-              <header>
-                <p class="eyebrow">Human decision</p>
-                <h3>Keep or discard</h3>
-                <p>
-                  This demo executes one TTFT and one error-rate claim. Other
-                  claims stay NOT_PROVEN. KEEP remains triage only—it does not
-                  approve, freeze, run, or issue a verdict.
-                </p>
-              </header>
-
-              <div class="review-fields">
-                <div class="field-group">
-                  <label for="reviewer">Reviewer</label>
-                  <input
-                    id="reviewer"
-                    name="reviewer"
-                    type="text"
-                    maxlength="160"
-                    autocomplete="off"
-                    required
-                    disabled
-                  />
-                </div>
-
-                <div class="field-group rationale-field">
-                  <label for="rationale">Rationale</label>
-                  <textarea
-                    id="rationale"
-                    name="rationale"
-                    maxlength="2000"
-                    rows="4"
-                    autocomplete="off"
-                    required
-                    disabled
-                    placeholder="Why does this proposal belong—or not belong—in contract authoring?"
-                  ></textarea>
-                </div>
+              <div class="review-action-line">
+                <div><h2>Human review</h2><p>Keep or discard this proposed requirement.</p></div>
+                <button class="review-start" id="review-start" type="button"
+                        aria-expanded="false" aria-controls="review-editor" disabled>
+                  Review proposal <span aria-hidden="true">→</span>
+                </button>
               </div>
-
-              <div class="decision-footer">
-                <p
-                  class="decision-status"
-                  id="decision-status"
-                  role="status"
-                  aria-live="polite"
-                >
-                  Waiting for trusted proposal data.
-                </p>
-                <div class="decision-actions workbench-primary-slot">
-                  <button
-                    class="secondary-action"
-                    id="discard-proposal"
-                    type="submit"
-                    name="decision"
-                    value="DISCARD"
-                    disabled
-                  >
-                    Discard
-                  </button>
-                  <button
-                    class="primary-action"
-                    id="keep-proposal"
-                    type="submit"
-                    name="decision"
-                    value="KEEP_FOR_CONTRACT"
-                    disabled
-                  >
-                    Keep for contract
-                  </button>
+              <div id="review-editor" hidden>
+                <div class="review-fields">
+                  <div class="field-group">
+                    <label for="reviewer">Reviewer</label>
+                    <input id="reviewer" name="reviewer" type="text" maxlength="160"
+                           autocomplete="off" required disabled placeholder="Your name" />
+                  </div>
+                  <div class="field-group">
+                    <label for="rationale">Rationale</label>
+                    <textarea id="rationale" name="rationale" maxlength="2000" rows="2"
+                              autocomplete="off" required disabled placeholder="Explain your choice."></textarea>
+                  </div>
+                </div>
+                <div class="decision-actions">
+                  <button class="primary-action" id="keep-proposal" type="submit"
+                          name="decision" value="KEEP_FOR_CONTRACT" disabled>Keep for contract</button>
+                  <button class="secondary-action" id="discard-proposal" type="submit"
+                          name="decision" value="DISCARD" disabled>Discard</button>
+                  <button class="review-cancel" id="review-cancel" type="button">Cancel</button>
+                </div>
+                <p class="decision-status" id="decision-status" role="status" aria-live="polite">Waiting for trusted proposal data.</p>
+                <div class="authority-boundary" aria-label="Proposal review authority boundary">
+                  <strong>Triage only · zero execution authority</strong>
+                  <p>This demo executes one TTFT and one error-rate claim. Other
+                  claims stay NOT_PROVEN. KEEP remains triage only—it does not
+                  approve, freeze, run, or issue a verdict.</p>
                 </div>
               </div>
             </form>
@@ -250,9 +169,17 @@
           role="alert"
           hidden
         ></p>
+        <footer class="brief-footer">
+          <p>Local demo · Decisions are recorded in this server process.</p>
+          <details class="review-limits">
+            <summary>Review limits</summary>
+            <p>This is unauthenticated, process-local review. Reviewer identity is self-reported. Unsaved reviewer and rationale drafts stay only in this page; server decisions are lost when the demo process stops.</p>
+            <p>Review remains human triage. It does not approve an agreement, confirm a customer decision, freeze a contract, authorize execution, or issue a verdict.</p>
+          </details>
+          <a id="assisted-authoring-link" href="/app" hidden>Run explicit assisted draft</a>
+        </footer>
       </main>
     </div>
-
     <script src="/proposal_review.js"></script>
   </body>
 </html>

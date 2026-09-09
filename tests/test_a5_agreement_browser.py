@@ -97,6 +97,7 @@ def test_fresh_dynamic_a5_agreement_review_revision_and_freeze_journey():
                 page.locator("#proposal-review-error").inner_text()
             )
             for index in range(3):
+                page.locator("#review-start").click()
                 page.locator("#reviewer").fill("named.a3.reviewer")
                 page.locator("#rationale").fill("Retain this source-bound claim for A4 planning.")
                 page.locator("#keep-proposal").click()
@@ -220,6 +221,7 @@ def test_managed_ttft_proof_projection_shows_attempt_and_success_requirements():
             page.wait_for_url(re.compile(r"/review$"))
             page.wait_for_load_state("networkidle")
             for index in range(3):
+                page.locator("#review-start").click()
                 page.locator("#reviewer").fill("named.a3.reviewer")
                 page.locator("#rationale").fill("Retain this source-bound claim for A4 planning.")
                 page.locator("#keep-proposal").click()
