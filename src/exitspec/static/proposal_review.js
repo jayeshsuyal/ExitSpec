@@ -1016,9 +1016,7 @@
         : "/app";
       defineCriteriaLink.hidden = false;
     }
-    const progressBar = document.querySelector("#progress-bar");
-    progressBar.setAttribute("aria-valuenow", String(initialCount));
-    document.querySelector("#progress-fill").style.width = "100%";
+    renderProgress();
     completionPanel.focus();
   }
 
