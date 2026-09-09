@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from .canonical import canonical_json_bytes
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
+from .poc_assisted_authoring_web_api import handle_poc_assisted_authoring_web_api_request
 from .source_authoring_web import (
     SourceAuthoringWebRuntime,
     handle_source_authoring_http,
@@ -5198,8 +5199,44 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             return
         super().send_error(code, message, explain)
 
+    def _dispatch_source_authoring_review_read(self) -> bool:
+        # MAIN exposes only these existing A3 projections, not the authoring API.
+        parsed = urlparse(self.path)
+        if not re.fullmatch(
+            r"/api/pocs/poc_[a-z0-9][a-z0-9_-]{2,63}/assisted-authoring"
+            r"(?:/current-review)?",
+            parsed.path,
+        ):
+            return False
+        # BaseHTTPRequestHandler normalizes leading // in self.path. Compare
+        # the actual request-target too, so an alias cannot become an exact read.
+        raw_target = self.requestline.split()[1]
+        if raw_target != self.path or self.path != parsed.path:
+            status = HTTPStatus.BAD_REQUEST
+        elif self.command != "GET":
+            status = HTTPStatus.METHOD_NOT_ALLOWED
+        elif (
+            self.headers.get_all("Content-Length", []) not in ([], ["0"])
+            or self.headers.get_all("Transfer-Encoding")
+            or self.headers.get_all("Content-Encoding")
+        ):
+            status = HTTPStatus.BAD_REQUEST
+        else:
+            response = handle_poc_assisted_authoring_web_api_request(
+                method="GET", target=self.path, payload=None,
+                runtime=self.server.assisted_authoring_service,
+                review_runtime=self.server.proposal_review_service,
+            )
+            self._send_json(response.status, response.payload)
+            return True
+        self.close_connection = True
+        self._send_json(status, {"error": "Source authoring review read was refused."})
+        return True
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
         if handle_source_authoring_http(self):
+            return
+        if self._dispatch_source_authoring_review_read():
             return
         if self._dispatch_zoom_live():
             return
@@ -5449,7 +5486,15 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/state":
-            self._send_json(HTTPStatus.OK, self.server.session.state_payload())
+            payload = self.server.session.state_payload()
+            payload["source_authoring_review"] = {
+                "schema_version": "exitspec.source-authoring-review/1",
+                "receipts": "READ_ONLY",
+                "current_review": "READ_ONLY",
+                "authoring": False,
+                "capability_planner": False,
+            }
+            self._send_json(HTTPStatus.OK, payload)
             return
         if parsed.path == "/api/workspace":
             if parsed.params or parsed.fragment:
@@ -5595,6 +5640,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
         if handle_source_authoring_http(self):
+            return
+        if self._dispatch_source_authoring_review_read():
             return
         if self._dispatch_zoom_live():
             return
@@ -6259,6 +6306,8 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
 
     def _unsupported_method(self) -> None:
         if handle_source_authoring_http(self):
+            return
+        if self._dispatch_source_authoring_review_read():
             return
         if self._dispatch_reference_inference():
             return

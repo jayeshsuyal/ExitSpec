@@ -92,6 +92,84 @@ This remains a single-user loopback trust boundary, not account authentication.
 
 ## Review and validation
 
+The UI bridge preserves `mode-heading` and adds `source-mode-copy` and
+`source-live-missing`. Mode copy stays neutral until bootstrap validates the
+exact four unique known `live_missing` reasons; displayed explanations come
+from fixed local copy. Unknown, duplicate or missing reasons fail closed.
+`source-selection-reason`, `source-ack-reason` and `source-run-reason` are visible
+`aria-describedby` targets driven by the same predicates as their controls.
+Unchanged descriptions are not rewritten on polling. Pending Run never disables
+the independent cancellation control.
+
+The optional root `data-authoring-state` is presentation only: `unverified`,
+`select`, `inspect`, `acknowledged`, `starting`, `processing`, `terminal` or
+`unavailable`. It contains no identifiers or authority. Page lifecycle resets
+clear the mode claim and descriptions along with the existing consent state.
+Review's static instructions are universal; evaluator and slot copy follows
+the current validated A2/A3 membership. Action labels, values and named-reviewer
+requirements retain their existing meanings.
+
+The dedicated bridge browser collection requires exactly 210 cases with zero
+skips, failures or errors, in addition to the existing 19 source-authoring and
+32 other mandatory cases (51 preserved cases in total). It covers bootstrap validation, accessible state
+descriptions, repeated announcements, lifecycle reset, pending-Run cancellation
+and A2/A3/mixed review copy in both compositions, real named decisions, slot
+accounting, completion routes and provenance failures.
+
+MAIN preserves `local_synthetic_demo` and adds a narrow `source_authoring_review`
+capability to `/api/state`. It exposes only the existing GET receipt collection
+and current-review projection at `/api/pocs/{poc_id}/assisted-authoring` and
+`/api/pocs/{poc_id}/assisted-authoring/current-review`. Nonexact targets, wrong
+methods and body framing are refused, including leading-slash aliases normalized
+by the HTTP handler. These reads use the existing owners and
+DTOs; they do not expose broader assisted authoring, retained-proposal or source
+picker routes. MAIN's read capability does not enable the source-neutral
+authoring page or capability planner. Validated A3 keeps consume no A2 evaluator
+slots, and completion involving A3 material does not enter the A2 Define flow.
+
+The proposal collection includes an `authoring_provenance` manifest with exact
+schema `exitspec.review-authoring-provenance/1`. Every current item counted in
+the review summary, including kept and discarded rows, has exactly
+`proposal_id`, `origin`, `review_state` and `normalized_claim`. Origin is
+`INTAKE_A2` or `ASSISTED_A3` and comes only from the review owner's
+committed A3 registration. The owner obtains scope/source callbacks before its
+review lock, revalidates selected immutable bindings and committed replacement,
+and captures actual decisions and origins in one immutable snapshot. Pending
+rows, counts and the complete manifest all come from that snapshot. MAIN keeps
+its existing agreement-version filter; historical rows are not reintroduced.
+
+The browser requires exact bounded unique manifest membership and agreement
+with the receipt/current-review projections. Jointly omitted A3 provenance,
+contradictory origins and missing/unknown/stale manifests block review while
+legitimate A2-only and empty queues remain usable. Reconciliation also refuses
+disappearance of previously validated A3 records. The release gate separately
+requires all 18 new owner/API snapshot regressions with zero skips, including
+reentrant/concurrent publication, callback lock order, actual decision overlays
+and selected scope. Validated A3 records outside the current agreement scope
+do not consume current A2 slots or change its completion navigation. This checks consistency of authoritative server state; it
+does not authenticate a server that coherently forges every response. The
+manifest assigns no evaluator support or downstream decision authority. Both
+compositions always cross-check independent receipts/projections, including
+when the manifest declares only A2 origins. Primitive string IDs are required
+before syntax and uniqueness validation. State and the bounded primitive claim
+come from the same snapshot item as origin and counts, without additional owner
+lookups or disclosure of decision metadata. Each manifest state count must
+equal the summary, pending state/claim bindings must equal the queue, and A3
+state/claim bindings must equal the independent projection. Every load and
+reconciliation rebuilds A2 kept slots and metric cues from current `INTAKE_A2`
+`KEEP_FOR_CONTRACT` rows. Duplicate A2 metrics stay disabled after reload;
+distinct metrics remain eligible. Discarded, historical and A3 rows consume no
+A2 slots. Tests cover these reload cases and malformed or contradictory state,
+claim and count data before review and after a recorded decision. Reconciliation
+retains the just-acknowledged immutable selected A2 or A3 binding and previously validated
+completed A2 bindings, including discarded rows and rows loaded after reload.
+Missing or contradictory current rows require reload before another decision;
+eligibility is rebuilt only after those consistency checks. Genuine responses
+continue to permit distinct metrics and exclude discarded rows from A2 slots.
+The existing
+new-ID email journey requires exactly the two same-origin current-POC GET reads
+while retaining all decision, contract, execution, evidence and closure checks.
+
 `inspect_disclosure` is a read/preview integration seam on the core. It obtains
 the exact source through the accepted owners, rechecks the session, record,
 owner state and expiry after clock callbacks, and retains terminal invalidation
@@ -140,6 +218,32 @@ requires all nineteen with zero
 skips, failures or errors. The engineering gate includes the new code lint and
 JavaScript syntax checks. Optional browser skips in ordinary engineering runs
 are distinct from the mandatory release collections.
+
+## Integrated synthetic demo and decision replay
+
+The integration preserves the current proposal navigator, per-proposal review
+drafts, explicit review editor, page epochs and cancellation, and accepted
+completion counters. A decision attempt captures its selected ID, origin,
+claim and decision before the request; reconciliation checks that binding
+before rebuilding eligibility, including when a non-first proposal is selected.
+
+A committed proposal decision can be retried after its response is lost. The
+HTTP boundary still requires membership in the current POC/agreement scope;
+completed current rows reach the owner's existing exact request/key validation
+and replay the same immutable receipt. Conflicting requests, keys reused for a
+different proposal, stale source bindings and excluded agreement rows still
+refuse. Fifty-six mandatory HTTP/browser controls cover this boundary and
+commit-then-drop-response retries, with one receipt and unchanged request bytes.
+
+The mandatory synthetic rehearsal uses actual source-neutral product pages:
+document capture, explicit source-authoring disclosure/consent, synthetic worker,
+named A3 review, separately entered HUMAN_DECLARED planning, confirmation,
+freeze, supported deterministic proof and named terminal handoff. Unsupported
+advisory and excluded scope remains unproven. Set
+`EXITSPEC_SYNTHETIC_DEMO_EVIDENCE` to an external output directory to record its
+screenshots and content-free request/authority summary. Native Zoom is not
+composed into this server, and this rehearsal makes no live provider, spend,
+deployment or shipping claim.
 
 ## Next proposed checkpoint
 

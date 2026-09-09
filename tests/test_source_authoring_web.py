@@ -169,6 +169,142 @@ def wait(rig, capability, operation):
     raise AssertionError("Synthetic operation did not finish within test bound")
 
 
+def review_read(rig, suffix, *, method="GET", raw=b"", headers=()):
+    return call(
+        rig, "", method=method, raw=raw, headers=headers,
+        path=f"/api/pocs/{POC}/assisted-authoring{suffix}",
+    )
+
+
+def publish_for_review(rig):
+    capability = bootstrap(rig)
+    operation = prepare(rig, capability)["operation_id"]
+    authorize(rig, capability, operation)
+    assert call(rig, "run", {"operation_id": operation}, capability=capability)[0] == 200
+    result = wait(rig, capability, operation)
+    assert result["state"] == "SUCCEEDED"
+    return result
+
+
+def test_source_authoring_review_reads_bind_real_receipt_queue_and_named_decision(rig):
+    assert review_read(rig, "")[1] == {"poc_id": POC, "receipts": []}
+    assert review_read(rig, "/current-review")[1] == {"poc_id": POC, "proposals": []}
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+    result = publish_for_review(rig)
+    before = rig.runtime.operations.ledger
+    for _ in range(2):
+        status, receipts, _ = review_read(rig, "")
+        assert status == 200
+        status, projections, _ = review_read(rig, "/current-review")
+        assert status == 200
+        receipt, = receipts["receipts"]
+        projection, = projections["proposals"]
+        proposal, = rig.server.proposal_review_service.list_proposals(POC)
+        assert receipt["authoring_receipt_id"] == result["authoring_receipt_id"]
+        assert projection["authoring_receipt_id"] == receipt["authoring_receipt_id"]
+        assert receipt["proposal_ids"] == [projection["proposal_id"]] == [proposal.proposal_id]
+        assert projection["review_state"] == "NEEDS_REVIEW" and projection["decision"] is None
+        assert rig.runtime.operations.ledger == before
+    rig.server.proposal_review_service.decide(
+        POC, proposal.proposal_id, ProposalDecision.KEEP_FOR_CONTRACT,
+        "named.reviewer", "Keep this exact source material for drafting.", "review-read-decision",
+    )
+    projection, = review_read(rig, "/current-review")[1]["proposals"]
+    assert projection["review_state"] == "KEEP_FOR_CONTRACT"
+    assert projection["decision"]["reviewer"] == "named.reviewer"
+    assert projection["decision"]["rationale"] == "Keep this exact source material for drafting."
+    assert rig.runtime.operations.ledger == before
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+def test_main_review_capability_is_read_only_and_preserves_truthful_mode(rig):
+    status, state, _ = call(rig, "", method="GET", raw=b"", path="/api/state")
+    assert status == 200 and state["mode"] == "local_synthetic_demo"
+    assert state["safety"] == rig.server.session.state_payload()["safety"]
+    assert state.pop("source_authoring_review") == {
+        "schema_version": "exitspec.source-authoring-review/1",
+        "receipts": "READ_ONLY", "current_review": "READ_ONLY",
+        "authoring": False, "capability_planner": False,
+    }
+    assert state == rig.server.session.state_payload()
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+@pytest.mark.parametrize("suffix", ["?probe=1", "?", "#fragment", "#", ";parameter", "/", "%2f"])
+def test_main_review_read_routes_reject_nonexact_targets_without_mutation(rig, suffix):
+    for route in ("", "/current-review"):
+        assert review_read(rig, route + suffix)[0] in (400, 404)
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+    assert rig.server.assisted_authoring_service.list_receipts(POC) == ()
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"])
+def test_main_review_read_methods_never_reach_authoring_or_publication(rig, method):
+    for route in ("", "/current-review"):
+        assert review_read(rig, route, method=method)[0] == 405
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+    assert rig.server.assisted_authoring_service.list_receipts(POC) == ()
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+@pytest.mark.parametrize("raw,headers", [
+    (b"{}", ()), (b"", (("Content-Length", "0"),)),
+    (b"", (("Transfer-Encoding", "chunked"),)), (b"", (("Content-Encoding", "gzip"),)),
+])
+def test_main_review_reads_reject_body_and_ambiguous_framing(rig, raw, headers):
+    for route in ("", "/current-review"):
+        assert review_read(rig, route, raw=raw, headers=headers)[0] == 400
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+def test_main_review_reads_reject_head_and_absolute_form_targets(rig):
+    for suffix in ("", "/current-review"):
+        path = f"/api/pocs/{POC}/assisted-authoring{suffix}"
+        connection = HTTPConnection("127.0.0.1", rig.server.server_port, timeout=5)
+        try:
+            connection.request("HEAD", path)
+            response = connection.getresponse()
+            assert response.status == 405
+            assert response.getheader("Cache-Control") == "no-store"
+            assert response.read() == b""
+        finally:
+            connection.close()
+        assert call(rig, "", method="GET", raw=b"", path=f"http://127.0.0.1:{rig.server.server_port}{path}")[0] == 400
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+@pytest.mark.parametrize("prefix", ["//", "///"])
+def test_main_review_reads_reject_normalized_raw_targets(rig, prefix):
+    for suffix in ("", "/current-review"):
+        path = prefix + f"api/pocs/{POC}/assisted-authoring{suffix}"
+        assert call(rig, "", method="GET", raw=b"", path=path)[0] == 400
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+
+
+@pytest.mark.parametrize("rig", ["main"], indirect=True)
+def test_main_review_extension_does_not_expose_other_assisted_routes(rig, monkeypatch):
+    def forbidden(**kwargs):
+        pytest.fail("A broader assisted route reached the newly wired facade.")
+
+    monkeypatch.setattr("exitspec.web.handle_poc_assisted_authoring_web_api_request", forbidden)
+    paths = [
+        f"/api/pocs/{POC}/assisted-authoring/sources",
+        f"/api/pocs/{POC}/retained-proposals",
+        f"/api/pocs/{POC}/sources/{rig.receipt.source_receipt_id}/assisted-authoring",
+    ]
+    for path in paths:
+        for method in ("GET", "POST"):
+            # Existing source-route validation may reject a malformed subroute
+            # with 400; neither refusal may reach the assisted facade.
+            assert call(rig, "", method=method, path=path)[0] in (400, 404)
+    assert rig.runtime.operations.ledger[0] == 0 and rig.runtime._browsers == []
+    assert rig.server.assisted_authoring_service.list_receipts(POC) == ()
+
+
 def test_fractional_monotonic_clock_reaches_review_only_publication(rig):
     rig.runtime.operations._now = lambda: 1000.1
     capability = bootstrap(rig)

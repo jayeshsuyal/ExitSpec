@@ -7,6 +7,12 @@
   const KINDS = {MEETING: "Meeting text", EMAIL: "Email", DOCUMENT: "Document", EXISTING_CONTRACT: "Existing contract"};
   const STATES = new Set(["PREPARED", "AUTHORIZED", "CLAIMED", "DISPATCH_AUTHORIZED", "SUCCEEDED", "FAILED", "OUTCOME_UNKNOWN", "STALE", "EXPIRED", "REVOKED"]);
   const TERMINAL = new Set(["SUCCEEDED", "FAILED", "OUTCOME_UNKNOWN", "STALE", "EXPIRED", "REVOKED"]);
+  const LIVE_MISSING = Object.freeze({
+    live_worker_and_operator_launcher: "The live worker and operator launcher are not implemented.",
+    owner_launch_approval: "Live use requires separate owner launch approval.",
+    model_schema_token_and_billing_proof: "Live use requires exact model and schema acceptance, token accounting and billing bounds.",
+    account_pricing_and_custody_approval: "Live use requires approved account, pricing and data handling conditions. The candidate global profile has no regional guarantee.",
+  });
   const match = !location.search && !location.hash && location.pathname.match(/^\/app\/pocs\/(poc_[a-z0-9][a-z0-9_-]{2,63})\/source-authoring$/);
   const poc = match ? match[1] : null;
   const endpoint = poc ? `/api/pocs/${poc}/source-authoring/` : null;
@@ -14,6 +20,7 @@
   const choice = $("source-choice"), business = $("source-business-text"), acknowledged = $("source-acknowledged");
   let capability = null, operation = null, state = null, processing = false;
   let busy = false, ready = false, serial = 0, timer = null, displayed = null, key = null;
+  let unavailable = false;
   const pending = new Set();
   const isCurrent = (epoch, current) => epoch === serial && current === operation;
 
@@ -22,18 +29,67 @@
       Object.keys(value).sort().join("|") === keys.slice().sort().join("|");
   }
   const integer = (value, max) => Number.isInteger(value) && value >= 0 && value <= max;
+  function setText(id, text) {
+    const element = $(id);
+    if (element.textContent !== text) element.textContent = text;
+  }
+  function showMode(mode) {
+    setText("mode-heading", mode === "verified" ? "Synthetic only · no provider connection" :
+      mode === "unavailable" ? "Authoring mode unavailable" : "Checking authoring mode…");
+    setText("source-mode-copy", mode === "verified" ?
+      "This local run sends existing source requirements through the bounded validation worker. It makes no external inference call and spends no provider credits." :
+      mode === "unavailable" ? "The current page could not be validated. Reload before continuing." :
+      "Controls stay unavailable until this page validates its local session.");
+    setText("source-live-missing", mode === "verified" ? Object.values(LIVE_MISSING).join(" ") : "");
+  }
   function controls() {
-    const active = operation && !TERMINAL.has(state);
-    choice.disabled = !ready || busy || active;
-    $("source-preview").disabled = !ready || busy || active || !RECEIPT.test(choice.value);
-    $("source-refresh").disabled = !ready || busy || active;
-    business.disabled = !ready || busy || state !== "PREPARED";
-    acknowledged.disabled = !ready || busy || state !== "PREPARED";
-    $("source-authorize").disabled = !ready || busy || state !== "PREPARED" || !business.checked || !acknowledged.checked || displayed !== operation;
-    $("source-run").disabled = !ready || busy || processing || state !== "AUTHORIZED";
+    const terminal = TERMINAL.has(state), active = Boolean(operation && !terminal);
+    const selected = RECEIPT.test(choice.value), blocked = !ready || busy;
+    const selectionLocked = blocked || active, consentLocked = blocked || state !== "PREPARED";
+    const authorizeDisabled = consentLocked || !business.checked || !acknowledged.checked || displayed !== operation;
+    const runDisabled = blocked || processing || state !== "AUTHORIZED";
+    const cancelDisabled = !capability || !active;
+    choice.disabled = selectionLocked;
+    $("source-preview").disabled = selectionLocked || !selected;
+    $("source-refresh").disabled = selectionLocked;
+    business.disabled = acknowledged.disabled = consentLocked;
+    $("source-authorize").disabled = authorizeDisabled;
+    $("source-run").disabled = runDisabled;
     // A pending Run HTTP response must not disable the separate cancellation.
-    $("source-cancel").disabled = !capability || !active;
+    $("source-cancel").disabled = cancelDisabled;
     $("source-task").setAttribute("aria-busy", String(busy));
+    const waiting = unavailable ? "This page is unavailable. Reload to validate a fresh session." : "Checking the page session and source list.";
+    setText("source-selection-reason", !ready ? waiting : selectionLocked ?
+      busy ? "An action is in progress. Wait before selecting or refreshing a source." :
+      "This disclosure locks source selection. Revoke consent or wait for a terminal result before inspecting another source." :
+      selected ? "Inspect the selected source. This starts no worker." :
+      "Select a current eligible source to inspect, or capture a new source.");
+    setText("source-ack-reason", !ready ? waiting : consentLocked ?
+      busy ? "Wait for the current action before changing acknowledgment." :
+      terminal ? "This consent is terminal. Inspect a current source to acknowledge again." :
+      processing || ["CLAIMED", "DISPATCH_AUTHORIZED"].includes(state) ? "This attempt is in progress. Acknowledgment cannot be changed." :
+      state === "AUTHORIZED" ? "Acknowledgment is complete. Use the separate Run control." :
+      active ? "This disclosure is not ready. Revoke consent and inspect a current source." :
+      "Inspect a source before attesting or acknowledging." :
+      displayed !== operation ? "Wait for the exact disclosure to finish validating." :
+      !business.checked && !acknowledged.checked ? "Both attestations are required before acknowledgment." :
+      !business.checked ? "Attest that this exact text is permitted redacted business material." :
+      !acknowledged.checked ? "Acknowledge the purpose, limits, data handling and expiry." :
+      !authorizeDisabled ? "Acknowledge this disclosure. This starts no worker; Run is separate." : waiting);
+    setText("source-run-reason", !ready ? waiting : !runDisabled ?
+      "Run one synthetic validation attempt. No provider call or spend." :
+      terminal ? state === "SUCCEEDED" ? "This attempt is complete. Open proposals for human review." :
+      "This consent is no longer executable. Inspect and acknowledge again." :
+      (busy && state === "AUTHORIZED") || processing || ["CLAIMED", "DISPATCH_AUTHORIZED"].includes(state) ?
+      `The current attempt is starting or processing.${cancelDisabled ? "" : " Revoke consent / cancel remains available."}` :
+      "Inspect the exact source and acknowledge before using the separate Run control.");
+    const presentation = !ready ? unavailable ? "unavailable" : "unverified" : terminal ? "terminal" :
+      state === "AUTHORIZED" && (busy || processing) ? "starting" :
+      processing || ["CLAIMED", "DISPATCH_AUTHORIZED"].includes(state) ? "processing" :
+      state === "PREPARED" ? "inspect" : state === "AUTHORIZED" ? "acknowledged" : "select";
+    if ($("source-authoring-main").getAttribute("data-authoring-state") !== presentation) {
+      $("source-authoring-main").setAttribute("data-authoring-state", presentation);
+    }
   }
   function clearSource() {
     displayed = null;
@@ -54,7 +110,7 @@
       budget_exhausted: "This runtime has consumed all ten synthetic claims. No further claim is available.",
       grant_closed: "This runtime is closed. No operation can start.",
     };
-    $("source-authoring-error").textContent = messages[code] || "The response could not be trusted or the request was refused. No automatic retry will run. Refresh current state before continuing.";
+    setText("source-authoring-error", messages[code] || "The response could not be trusted or the request was refused. No automatic retry will run. Refresh current state before continuing.");
     $("source-authoring-error").hidden = false;
   }
   async function api(action, payload = {}) {
@@ -134,10 +190,10 @@
     if (!trustedOperation(value) || value.operation_id !== operation) throw new Error("UNTRUSTED_RESPONSE");
     if (TERMINAL.has(state) && value.state !== state) return;
     state = value.state; processing = value.processing;
-    $("source-expiry").textContent = `${value.expires_in_seconds} seconds remaining. Acknowledgment does not extend expiry.`;
-    $("source-ledger").textContent = `${value.grant_claims} of 10 synthetic claims used · $${value.grant_reserved_usd} reserved locally · no provider spend.`;
+    setText("source-expiry", `${value.expires_in_seconds} seconds remaining. Acknowledgment does not extend expiry.`);
+    setText("source-ledger", `${value.grant_claims} of 10 synthetic claims used · $${value.grant_reserved_usd} reserved locally · no provider spend.`);
     const labels = {PREPARED: "Inspect the exact text, then attest and acknowledge.", AUTHORIZED: "Acknowledged. Choose Run to start one synthetic attempt.", CLAIMED: "Processing locally. One synthetic attempt has been consumed.", DISPATCH_AUTHORIZED: "The synthetic worker is processing. You can still cancel publication.", SUCCEEDED: "Validated proposals are ready for human review. They remain NEEDS_REVIEW.", FAILED: "The attempt failed safely. No proposals were published and its consumed claim is retained.", OUTCOME_UNKNOWN: "The attempt did not finish within its bound. No new proposal is available from this operation.", STALE: "The source, draft, review or closure state changed. Inspect current source state before continuing.", EXPIRED: "This disclosure expired. Inspect the source and acknowledge a new disclosure.", REVOKED: "Consent revoked. This operation cannot run again."};
-    $("source-status").textContent = value.processing && state === "AUTHORIZED" ? "Starting the bounded synthetic worker…" : labels[state];
+    setText("source-status", value.processing && state === "AUTHORIZED" ? "Starting the bounded synthetic worker…" : labels[state]);
     if (value.code && state === "AUTHORIZED") failure(value.code);
     $("source-review-result").hidden = state !== "SUCCEEDED";
     if (TERMINAL.has(state)) { clearSource(); clearTimeout(timer); }
@@ -153,8 +209,8 @@
         if (isCurrent(epoch, current)) render(value);
       } catch (error) {
         if (isCurrent(epoch, current) && !TERMINAL.has(state)) {
-          failure(error.message); ready = false; clearSource();
-          $("source-status").textContent = "Current consent could not be verified. Reload before continuing.";
+          failure(error.message); ready = false; unavailable = true; clearSource(); showMode("unavailable");
+          setText("source-status", "Current consent could not be verified. Reload before continuing.");
           controls();
         }
       }
@@ -176,7 +232,7 @@
       const option = new Option(`${KINDS[source.source_kind]} · ${source.source_receipt_id}${source.eligible ? "" : " · unavailable for authoring"}`, source.source_receipt_id);
       option.disabled = !source.eligible; choice.append(option);
     }
-    if (!value.sources.some((s) => s.eligible)) $("source-status").textContent = "No current source is eligible. Capture new source text or return to human review.";
+    if (!value.sources.some((s) => s.eligible)) setText("source-status", "No current source is eligible. Capture new source text or return to human review.");
     return true;
   }
   async function action(task) {
@@ -190,9 +246,11 @@
   async function initialise() {
     const epoch = ++serial;
     clearTimeout(timer); capability = operation = state = key = null;
-    ready = false; busy = true; processing = false; clearSource(); controls();
+    ready = false; busy = true; unavailable = false; processing = false; clearSource(); showMode("checking"); controls();
+    setText("source-status", "Starting a fresh page session…");
+    setText("source-ledger", "The global synthetic ledger has not been read yet.");
     $("source-review-result").hidden = true;
-    if (!poc) { failure("REQUEST_REFUSED"); return; }
+    if (!poc) { unavailable = true; busy = false; showMode("unavailable"); failure("REQUEST_REFUSED"); controls(); return; }
     $("back-to-review").href = $("source-review-result").href = `/app/pocs/${poc}/review`;
     try {
       const value = await api("bootstrap");
@@ -200,13 +258,15 @@
       if (!sameKeys(value, ["schema_version", "capability", "mode", "poc_id", "display_name", "live_enabled", "live_missing"]) ||
           value.schema_version !== "exitspec.source-authoring-web/1" || !HEX.test(value.capability) || value.mode !== MODE ||
           value.poc_id !== poc || value.live_enabled !== false || typeof value.display_name !== "string" || value.display_name.length > 200 ||
-          !Array.isArray(value.live_missing) || value.live_missing.length !== 4) throw new Error("UNTRUSTED_RESPONSE");
+          !Array.isArray(value.live_missing) || value.live_missing.length !== 4 || new Set(value.live_missing).size !== 4 ||
+          value.live_missing.some((reason) => typeof reason !== "string" || !Object.hasOwn(LIVE_MISSING, reason))) throw new Error("UNTRUSTED_RESPONSE");
       capability = value.capability;
+      showMode("verified");
       $("source-poc-title").textContent = value.display_name;
-      $("source-status").textContent = "Select and inspect one current source. Nothing runs on page load.";
+      setText("source-status", "Select and inspect one current source. Nothing runs on page load.");
       const loaded = await sources(epoch);
       if (loaded && isCurrent(epoch, null)) ready = true;
-    } catch (error) { if (epoch === serial) failure(error.message); }
+    } catch (error) { if (epoch === serial) { unavailable = true; showMode("unavailable"); failure(error.message); } }
     finally { if (epoch === serial) { busy = false; controls(); } }
   }
   choice.addEventListener("change", controls);
@@ -250,7 +310,9 @@
         body: JSON.stringify({operation_id: operation}), keepalive: true, cache: "no-store", credentials: "omit", redirect: "error"}).catch(() => {});
     }
     ++serial; clearTimeout(timer); for (const controller of pending) controller.abort();
-    capability = operation = state = key = null; ready = false; busy = false; clearSource(); controls();
+    capability = operation = state = key = null; ready = false; busy = false; unavailable = false; clearSource(); showMode("checking"); controls();
+    setText("source-status", "Page session cleared. A fresh session is required.");
+    setText("source-ledger", "The global synthetic ledger has not been read yet.");
   });
   window.addEventListener("pageshow", (event) => { if (event.persisted) initialise(); });
   initialise();

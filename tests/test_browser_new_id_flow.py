@@ -441,10 +441,10 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
             customer_page = customer_context.new_page()
             employee_errors = _capture_browser_errors(employee_page)
             customer_errors = _capture_browser_errors(customer_page)
-            assisted_api_requests: list[str] = []
+            assisted_api_requests: list[tuple[str, str]] = []
             employee_page.on(
                 "request",
-                lambda request: assisted_api_requests.append(request.url)
+                lambda request: assisted_api_requests.append((request.method, request.url))
                 if "/assisted-authoring" in request.url
                 else None,
             )
@@ -785,7 +785,10 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 _assert_bounded_employee_shell(employee_page)
                 _assert_narrow_keyboard_contract(expect, employee_page)
                 assert employee_errors == []
-                assert assisted_api_requests == []
+                assert set(assisted_api_requests) == {
+                    ("GET", f"{base_url}/api/pocs/{poc_id}/assisted-authoring"),
+                    ("GET", f"{base_url}/api/pocs/{poc_id}/assisted-authoring/current-review"),
+                }
                 assert customer_errors == []
                 assert evidence_errors == []
             finally:

@@ -67,6 +67,118 @@ def _handle(runtime, method, target, payload=None):
     return response
 
 
+@pytest.mark.parametrize("origin", ["INTAKE_A2", "ASSISTED_A3"])
+def test_review_provenance_manifest_accounts_for_pending_kept_and_discarded(origin):
+    drafts, _, runtime = _services()
+    items = runtime.list_proposals(POC_ID)
+    if origin == "ASSISTED_A3":
+        with runtime.authoring_commit_guard(POC_ID, items[0].source_receipt_id) as guard:
+            guard.prepare([item.proposal_id for item in items])
+            guard.commit()
+    expected = {
+        "schema_version": "exitspec.review-authoring-provenance/1",
+        "proposals": [{
+            "proposal_id": item.proposal_id, "origin": origin,
+            "review_state": "NEEDS_REVIEW", "normalized_claim": item.normalized_claim,
+        } for item in items],
+    }
+    before_draft = drafts.get(POC_ID)
+    for index, decision in enumerate(("KEEP_FOR_CONTRACT", "DISCARD")):
+        listed = _handle(runtime, "GET", ROOT)
+        assert listed.payload["authoring_provenance"] == expected
+        assert len(runtime) == index
+        response = _handle(runtime, "POST", f"{ROOT}/{items[index].proposal_id}/decision", {
+            "decision": decision, "reviewer": "named.provenance", "rationale": "Review this exact source material.",
+            "idempotency_key": f"provenance-{index}",
+        })
+        assert response.status == 201
+        expected["proposals"][index]["review_state"] = decision
+    completed = _handle(runtime, "GET", ROOT)
+    assert completed.payload["authoring_provenance"] == expected
+    assert completed.payload["proposals"] == []
+    assert completed.payload["review_summary"] == {"total": 2, "needs_review": 0, "kept_for_contract": 1, "discarded": 1}
+    assert len(runtime) == 2 and drafts.get(POC_ID) == before_draft
+
+
+def test_review_provenance_filtered_empty_scope_does_not_reintroduce_history():
+    _, _, runtime = _services()
+    result = handle_poc_proposal_web_api_request(
+        method="GET", target=ROOT, payload=None, runtime=runtime,
+        current_proposal_lookup=lambda _: (),
+    )
+    assert result.status == 200
+    assert result.payload == {
+        "poc_id": POC_ID, "proposals": [],
+        "review_summary": {"total": 0, "needs_review": 0, "kept_for_contract": 0, "discarded": 0},
+        "authoring_provenance": {"schema_version": "exitspec.review-authoring-provenance/1", "proposals": []},
+    }
+    assert len(runtime.list_proposals(POC_ID)) == 2 and len(runtime) == 0
+
+
+def test_review_provenance_counts_use_actual_overlay_after_scope_callback():
+    _, _, runtime = _services()
+    selected = runtime.list_proposals(POC_ID)[:1]
+
+    def scope(_):
+        assert _handle(runtime, "POST", f"{ROOT}/{selected[0].proposal_id}/decision", {
+            "decision": "KEEP_FOR_CONTRACT", "reviewer": "named.snapshot", "rationale": "Keep this exact source material.",
+            "idempotency_key": "snapshot-decision",
+        }).status == 201
+        return selected
+
+    result = handle_poc_proposal_web_api_request(
+        method="GET", target=ROOT, payload=None, runtime=runtime, current_proposal_lookup=scope,
+    )
+    assert result.status == 200 and result.payload["proposals"] == []
+    assert result.payload["review_summary"] == {"total": 1, "needs_review": 0, "kept_for_contract": 1, "discarded": 0}
+    assert result.payload["authoring_provenance"]["proposals"] == [{
+        "proposal_id": selected[0].proposal_id, "origin": "INTAKE_A2",
+        "review_state": "KEEP_FOR_CONTRACT", "normalized_claim": selected[0].normalized_claim,
+    }]
+
+
+def test_review_provenance_stale_scope_cannot_label_committed_replacement_a2():
+    _, _, runtime = _services()
+    selected = runtime.list_proposals(POC_ID)
+    replacements = tuple(item.model_copy(update={"proposal_id": f"prop_replacement_{index:03d}"}) for index, item in enumerate(runtime._proposal_lookup(POC_ID)))
+
+    def scope(_):
+        with runtime.authoring_commit_guard(POC_ID, selected[0].source_receipt_id) as guard:
+            guard.prepare([item.proposal_id for item in replacements])
+            runtime._proposal_lookup = lambda _: replacements
+            guard.commit()
+        return selected
+
+    result = handle_poc_proposal_web_api_request(
+        method="GET", target=ROOT, payload=None, runtime=runtime, current_proposal_lookup=scope,
+    )
+    assert result.status == 409 and set(result.payload) == {"error"}
+    current = _handle(runtime, "GET", ROOT)
+    assert all(item["origin"] == "ASSISTED_A3" for item in current.payload["authoring_provenance"]["proposals"])
+    assert len(runtime) == 0
+
+
+def test_review_provenance_agreement_scope_excludes_historical_a3_origins():
+    _, intake, runtime = _services()
+    historical = runtime.list_proposals(POC_ID)
+    with runtime.authoring_commit_guard(POC_ID, historical[0].source_receipt_id) as guard:
+        guard.prepare([item.proposal_id for item in historical])
+        guard.commit()
+    intake.capture_document(
+        poc_id=POC_ID, document_text="TTFT must remain below 500 ms.",
+        idempotency_key="new-agreement-source",
+    )
+    historical_ids = {item.proposal_id for item in historical}
+    result = handle_poc_proposal_web_api_request(
+        method="GET", target=ROOT, payload=None, runtime=runtime,
+        current_proposal_lookup=lambda poc_id: tuple(item for item in runtime.list_proposals(poc_id) if item.proposal_id not in historical_ids),
+    )
+    assert result.status == 200 and result.payload["review_summary"]["total"] == 1
+    row, = result.payload["authoring_provenance"]["proposals"]
+    assert row["origin"] == "INTAKE_A2" and row["proposal_id"] not in historical_ids
+    assert len(runtime.list_proposals(POC_ID)) == 3 and len(runtime) == 0
+
+
 def test_unrelated_routes_are_not_claimed():
     _, _, runtime = _services()
 
@@ -155,6 +267,13 @@ def test_active_agreement_scope_excludes_prior_version_counts_and_writes():
     assert [item["proposal_id"] for item in listed.payload["proposals"]] == [
         current_id
     ]
+    assert listed.payload["authoring_provenance"] == {
+        "schema_version": "exitspec.review-authoring-provenance/1",
+        "proposals": [{
+            "proposal_id": current_id, "origin": "INTAKE_A2",
+            "review_state": "NEEDS_REVIEW", "normalized_claim": all_items[1].normalized_claim,
+        }],
+    }
 
     stale = handle_poc_proposal_web_api_request(
         method="POST",
