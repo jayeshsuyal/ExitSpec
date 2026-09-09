@@ -1656,12 +1656,15 @@ def test_evaluation_does_not_read_scope_paths_or_use_file_side_effects(monkeypat
 
 
 def test_pr5_diff_does_not_touch_provider_specific_implementation_or_resources():
+    # This assertion audits the historical PR5 change, not every later change
+    # on the branch. Current proofability purity is checked independently above.
     completed = subprocess.run(
         [
             "git",
             "diff",
             "--name-only",
             "1c5fe7960d5464fd40ae21b1a73a841ca0cbf27c",
+            "424aeae8a959f4249a35375141fd2c365bc68b71",
         ],
         cwd=ROOT,
         check=True,

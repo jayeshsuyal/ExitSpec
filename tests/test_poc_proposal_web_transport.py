@@ -456,7 +456,7 @@ def test_review_page_and_assets_are_served_only_on_exact_routes(tmp_path):
 
     assert page[0] == 200
     assert page[2].startswith("text/html")
-    assert "Review proposals" in str(page[1])
+    assert "<title>ExitSpec — Acceptance brief</title>" in str(page[1])
     assert query[:2] == (
         400,
         {"error": "Draft POC routes do not accept URL parameters."},
