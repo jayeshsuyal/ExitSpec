@@ -516,9 +516,9 @@ def test_acceptance_brief_has_scoped_document_flow_and_accessible_source_context
 
     assert 'body class="acceptance-brief-page"' in html
     assert "body.acceptance-brief-page" in css
-    assert "--canvas: #111e24;" in css
-    assert "--panel: #1d3035;" in css
-    assert "--orange: #b8d8c5;" in css
+    assert "--canvas: #191919;" in css
+    assert "--panel: #242424;" in css
+    assert "--orange: #f2a779;" in css
     assert "height: auto;" in css
     assert "overflow: auto;" in css
     assert "overflow: visible;" in css

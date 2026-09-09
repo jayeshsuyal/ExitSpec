@@ -415,8 +415,8 @@ Every behavioral PR must pass all applicable checks below.
 
 The approved acceptance-brief presentation is a scoped exception for proposal
 review (`/app/pocs/{poc_id}/review`, including its compatible review routes): its
-mineral palette and natural vertical document flow replace that surface's
-graphite/orange and fixed-height presentation. The exact source quote, normalized
+neutral charcoal/peach-orange palette and natural vertical document flow replace
+that surface's earlier graphite/orange fixed-height presentation. The exact source quote, normalized
 claim, authority boundary, and named decision must remain readable. At desktop,
 narrow widths, and zoom, the document must not overflow horizontally; visible
 controls must be fully reachable by ordinary scrolling, enabled controls must be

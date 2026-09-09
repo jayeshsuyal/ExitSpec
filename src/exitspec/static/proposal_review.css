@@ -1,14 +1,14 @@
 body.acceptance-brief-page {
-  --canvas: #111e24;
-  --panel: #1d3035;
-  --navigation: #142229;
-  --raised: #2c4242;
-  --text: #e8f1e8;
-  --text-secondary: #c2d8cd;
-  --muted: #adc6ba;
-  --orange: #b8d8c5;
-  --border: #42605f;
-  --border-strong: #86aa97;
+  --canvas: #191919;
+  --panel: #242424;
+  --navigation: #202020;
+  --raised: #303030;
+  --text: #f2f2f2;
+  --text-secondary: #cccccc;
+  --muted: #b5b5b5;
+  --orange: #f2a779;
+  --border: #4a4a4a;
+  --border-strong: #929292;
   --warning: #f1d6a2;
   --danger: #ffb6ae;
   margin: 0;
@@ -26,13 +26,13 @@ body.acceptance-brief-page {
 .acceptance-brief-page :is(h1, h2, p, blockquote, ol, dl, dd) { margin: 0; }
 .acceptance-brief-page :is(button, input, textarea, select) { font: inherit; }
 .acceptance-brief-page :is(button, a, input, textarea, select, summary):focus-visible {
-  outline: 2px solid #d1ead8;
+  outline: 2px solid #ffd0b1;
   outline-offset: 4px;
 }
 .acceptance-brief-page a { color: var(--text-secondary); }
 .acceptance-brief-page button { cursor: pointer; }
 .acceptance-brief-page button:disabled { cursor: not-allowed; opacity: .48; }
-.acceptance-brief-page .skip-link { z-index: 100; font-size: 14px; }
+.acceptance-brief-page .skip-link { z-index: 100; font-size: 14px; color: #281b13; }
 .acceptance-brief-page .proposal-review-shell {
   display: block;
   width: 100%;
@@ -53,7 +53,7 @@ body.acceptance-brief-page {
 }
 .acceptance-brief-page .brand { gap: 0; padding-right: 0; border-right: 0; font-size: 19px; letter-spacing: -.5px; }
 .acceptance-brief-page .brand-mark { display: none; }
-.acceptance-brief-page .desk-label { border-left: 1px solid #526c63; padding-left: 22px; color: var(--text-secondary); font-size: 13px; }
+.acceptance-brief-page .desk-label { border-left: 1px solid #595959; padding-left: 22px; color: var(--text-secondary); font-size: 13px; }
 .acceptance-brief-page .global-nav { display: flex; flex-wrap: wrap; gap: 18px; margin-left: auto; }
 .acceptance-brief-page .global-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; font-size: 13px; background: transparent; }
 .acceptance-brief-page .global-nav a:hover { color: var(--text); text-decoration: underline; }
@@ -64,84 +64,84 @@ body.acceptance-brief-page {
 .acceptance-brief-page .queue-heading h2 { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
 .acceptance-brief-page .proposal-progress { min-width: 0; color: var(--muted); font-size: 13px; text-align: right; }
 .acceptance-brief-page .proposal-progress strong { font-weight: 400; }
-.acceptance-brief-page .progress-track { width: 100%; height: 2px; margin-top: 5px; background: #29433f; }
+.acceptance-brief-page .progress-track { width: 100%; height: 2px; margin-top: 5px; background: #414141; }
 .acceptance-brief-page .progress-track span { display: block; width: 0; height: 100%; background: var(--orange); }
-.acceptance-brief-page .proposal-tabs { display: flex; gap: 28px; overflow-x: auto; padding: 3px 4px 0; margin: 0 -4px; list-style: none; scrollbar-color: #86aa97 #142229; }
+.acceptance-brief-page .proposal-tabs { display: flex; gap: 28px; overflow-x: auto; padding: 3px 4px 0; margin: 0 -4px; list-style: none; scrollbar-color: #929292 #202020; }
 .acceptance-brief-page .proposal-tabs li { flex: 1 0 210px; min-width: 0; max-width: 380px; }
 .acceptance-brief-page .proposal-tab { display: grid; align-content: start; gap: 4px; width: 100%; min-height: 100%; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 13px 1px 16px; color: var(--text); text-align: left; background: transparent; }
-.acceptance-brief-page .proposal-tab[aria-pressed="true"] { border-bottom-color: #b0d9bf; }
-.acceptance-brief-page .proposal-tab:hover:not(:disabled) { color: #d7f1de; background: #1b3033; }
-.acceptance-brief-page .proposal-nav-id, .acceptance-brief-page .proposal-nav-state { color: #b3cebf; font-size: 13px; font-weight: 400; }
+.acceptance-brief-page .proposal-tab[aria-pressed="true"] { border-bottom-color: #f2a779; }
+.acceptance-brief-page .proposal-tab:hover:not(:disabled) { color: #ffe2cf; background: #292929; }
+.acceptance-brief-page .proposal-nav-id, .acceptance-brief-page .proposal-nav-state { color: #bcbcbc; font-size: 13px; font-weight: 400; }
 .acceptance-brief-page .proposal-nav-title { font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
 .acceptance-brief-page .proposal-picker-field { display: none; }
 .acceptance-brief-page .review-current-task { display: block; padding: 29px 62px 25px 32px; border: 0; background: transparent; overflow: visible; min-height: 0; }
-.acceptance-brief-page .acceptance-document { min-width: 0; border: 1px solid #42605f; border-radius: 8px; padding: 29px 36px 0; background: #1d3035; box-shadow: 0 14px 35px -25px rgba(0, 0, 0, .6); }
+.acceptance-brief-page .acceptance-document { min-width: 0; border: 1px solid #4a4a4a; border-radius: 8px; padding: 29px 36px 0; background: #242424; box-shadow: 0 14px 35px -25px rgba(0, 0, 0, .6); }
 .acceptance-brief-page .document-heading { padding-bottom: 28px; }
-.acceptance-brief-page .document-meta { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 20px; color: #c7dfd2; font-size: 13px; }
+.acceptance-brief-page .document-meta { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 20px; color: #d0d0d0; font-size: 13px; }
 .acceptance-brief-page .document-meta strong { font-weight: 600; overflow-wrap: anywhere; }
-.acceptance-brief-page .eyebrow { font-size: 13px; color: #bfd7c9; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.acceptance-brief-page .eyebrow { font-size: 13px; color: #cccccc; font-weight: 400; letter-spacing: 0; text-transform: none; }
 .acceptance-brief-page .document-heading h1 { margin-top: 11px; font-family: inherit; font-size: 28px; font-weight: 600; letter-spacing: -.8px; line-height: 1.3; }
 .acceptance-brief-page #poc-title { margin-top: 7px; font-size: 14px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .acceptance-brief-page #poc-context { margin-top: 4px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .acceptance-brief-page .review-layout { display: grid; grid-template-columns: minmax(0, 1fr) 214px; align-items: start; gap: 31px; min-width: 0; }
 .acceptance-brief-page .proposal-evidence { min-width: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
 .acceptance-brief-page .proposal-evidence:focus { outline: none; }
-.acceptance-brief-page .requirement-label { color: #aacbbb; font-size: 13px; }
+.acceptance-brief-page .requirement-label { color: #bcbcbc; font-size: 13px; }
 .acceptance-brief-page #requirement-heading { margin-top: 11px; font-size: 21px; font-weight: 500; letter-spacing: -.3px; }
-.acceptance-brief-page .normalized-claim { margin-top: 15px; color: #e1ece3; font-size: 18px; line-height: 2.65; overflow-wrap: anywhere; white-space: pre-wrap; }
-.acceptance-brief-page .source-term { display: inline; max-width: 100%; min-height: 44px; padding: 8px 3px; border: 0; border-bottom: 1px solid #819f8f; border-radius: 3px 3px 0 0; background: transparent; color: inherit; font-size: inherit; font-weight: 500; line-height: 1.5; text-align: left; vertical-align: baseline; white-space: pre-wrap; overflow-wrap: anywhere; }
-.acceptance-brief-page .source-term[aria-pressed="true"] { color: #d7f1de; background: #355748; border-bottom: 2px solid #b0d9bf; }
-.acceptance-brief-page .source-term:hover { background: #314d43; }
-.acceptance-brief-page .requirement-note { margin-top: 18px; color: #a9c3b7; font-size: 13px; }
-.acceptance-brief-page .proposal-support { margin-top: 8px; color: #bfd7c9; font-size: 13px; overflow-wrap: anywhere; }
+.acceptance-brief-page .normalized-claim { margin-top: 15px; color: #ededed; font-size: 18px; line-height: 2.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.acceptance-brief-page .source-term { display: inline; max-width: 100%; min-height: 44px; padding: 8px 3px; border: 0; border-bottom: 1px solid #929292; border-radius: 3px 3px 0 0; background: transparent; color: inherit; font-size: inherit; font-weight: 500; line-height: 1.5; text-align: left; vertical-align: baseline; white-space: pre-wrap; overflow-wrap: anywhere; }
+.acceptance-brief-page .source-term[aria-pressed="true"] { color: #ffe2cf; background: #3b3b3b; border-bottom: 2px solid #f2a779; }
+.acceptance-brief-page .source-term:hover { background: #383838; }
+.acceptance-brief-page .requirement-note { margin-top: 18px; color: #b5b5b5; font-size: 13px; }
+.acceptance-brief-page .proposal-support { margin-top: 8px; color: #cccccc; font-size: 13px; overflow-wrap: anywhere; }
 .acceptance-brief-page .proposal-support[data-supported="false"] { color: #f1d6a2; }
 .acceptance-brief-page details { min-width: 0; }
-.acceptance-brief-page summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 13px; color: #c0d7c9; }
-.acceptance-brief-page details p { color: #bed1c8; font-size: 13px; overflow-wrap: anywhere; }
+.acceptance-brief-page summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 13px; color: #cccccc; }
+.acceptance-brief-page details p { color: #c6c6c6; font-size: 13px; overflow-wrap: anywhere; }
 .acceptance-brief-page .evidence-details { margin-top: 8px; }
-.acceptance-brief-page .evidence-details code { margin-left: 7px; color: #cadbd1; font-size: 13px; }
-.acceptance-brief-page .source-context { position: relative; min-width: 0; margin: 49px -62px 0 0; padding: 20px; border: 1px solid #759889; border-radius: 7px; background: #2c4242; box-shadow: 0 12px 24px -9px rgba(0, 0, 0, .5); }
-.acceptance-brief-page .source-context::before { content: ""; position: absolute; left: -18px; top: 25px; width: 17px; height: 1px; background: #a4cdb6; pointer-events: none; }
-.acceptance-brief-page .source-context h2 { font-size: 14px; font-weight: 500; color: #e0eee1; }
-.acceptance-brief-page .source-meta { margin-top: 4px; color: #b7cdbf; font-size: 13px; }
-.acceptance-brief-page #source-excerpt { margin-top: 17px; padding-left: 12px; border-left: 2px solid #afd3bc; color: #e5f0e4; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
-.acceptance-brief-page #source-excerpt mark { padding: 2px 3px; margin-left: -3px; background: #456350; color: #e6f4df; border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-.acceptance-brief-page #source-match-note { margin-top: 16px; color: #b9d1c2; font-size: 13px; }
-.acceptance-brief-page #source-quote { margin: 0 0 12px; color: #e5f0e4; font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.acceptance-brief-page .evidence-details code { margin-left: 7px; color: #d6d6d6; font-size: 13px; }
+.acceptance-brief-page .source-context { position: relative; min-width: 0; margin: 49px -62px 0 0; padding: 20px; border: 1px solid #929292; border-radius: 7px; background: #303030; box-shadow: 0 12px 24px -9px rgba(0, 0, 0, .5); }
+.acceptance-brief-page .source-context::before { content: ""; position: absolute; left: -18px; top: 25px; width: 17px; height: 1px; background: #ababab; pointer-events: none; }
+.acceptance-brief-page .source-context h2 { font-size: 14px; font-weight: 500; color: #f2f2f2; }
+.acceptance-brief-page .source-meta { margin-top: 4px; color: #bcbcbc; font-size: 13px; }
+.acceptance-brief-page #source-excerpt { margin-top: 17px; padding-left: 12px; border-left: 2px solid #bcbcbc; color: #f2f2f2; font-size: 16px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.acceptance-brief-page #source-excerpt mark { padding: 2px 3px; margin-left: -3px; background: #9c9c9c; color: #202020; border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.acceptance-brief-page #source-match-note { margin-top: 16px; color: #c6c6c6; font-size: 13px; }
+.acceptance-brief-page #source-quote { margin: 0 0 12px; color: #f2f2f2; font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
 .acceptance-brief-page .source-handling dl { margin-top: 12px; font-size: 13px; }
-.acceptance-brief-page .source-handling dt { margin-top: 8px; color: #b7cdbf; }
-.acceptance-brief-page .source-handling dd { color: #e1ece3; overflow-wrap: anywhere; }
-.acceptance-brief-page .decision-panel { display: block; min-width: 0; margin: 27px -36px 0; padding: 19px 24px 20px; border: 0; border-top: 1px solid #47675f; border-radius: 0 0 7px 7px; background: #17292e; overflow: visible; }
+.acceptance-brief-page .source-handling dt { margin-top: 8px; color: #bcbcbc; }
+.acceptance-brief-page .source-handling dd { color: #ededed; overflow-wrap: anywhere; }
+.acceptance-brief-page .decision-panel { display: block; min-width: 0; margin: 27px -36px 0; padding: 19px 24px 20px; border: 0; border-top: 1px solid #4a4a4a; border-radius: 0 0 7px 7px; background: #202020; overflow: visible; }
 .acceptance-brief-page .review-action-line { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px 22px; }
 .acceptance-brief-page .review-action-line h2 { font-size: 14px; font-weight: 500; }
-.acceptance-brief-page .review-action-line p { margin-top: 4px; color: #abc3b7; font-size: 13px; }
-.acceptance-brief-page :is(.review-start, .primary-action, .secondary-action, .review-cancel) { min-height: 44px; max-width: 100%; padding: 10px 16px; font-size: 14px; line-height: 1.4; border-radius: 5px; border: 1px solid #b8d8c5; background: #b8d8c5; color: #142b20; font-weight: 500; }
-.acceptance-brief-page :is(.review-start, .primary-action):hover:not(:disabled) { background: #cde5d5; }
+.acceptance-brief-page .review-action-line p { margin-top: 4px; color: #b5b5b5; font-size: 13px; }
+.acceptance-brief-page :is(.review-start, .primary-action, .secondary-action, .review-cancel) { min-height: 44px; max-width: 100%; padding: 10px 16px; font-size: 14px; line-height: 1.4; border-radius: 5px; border: 1px solid #f2a779; background: #f2a779; color: #281b13; font-weight: 500; }
+.acceptance-brief-page :is(.review-start, .primary-action):hover:not(:disabled) { background: #ffc39e; }
 .acceptance-brief-page .review-start span { margin-left: 16px; }
-.acceptance-brief-page .secondary-action { color: #dcece0; background: #20383a; border-color: #86aa97; font-weight: 400; }
-.acceptance-brief-page .secondary-action:hover:not(:disabled) { background: #2d4747; }
-.acceptance-brief-page .review-cancel { color: #c0d6c8; background: transparent; border-color: transparent; padding-left: 4px; padding-right: 4px; font-weight: 400; }
+.acceptance-brief-page .secondary-action { color: #ededed; background: #2b2b2b; border-color: #929292; font-weight: 400; }
+.acceptance-brief-page .secondary-action:hover:not(:disabled) { background: #363636; }
+.acceptance-brief-page .review-cancel { color: #cccccc; background: transparent; border-color: transparent; padding-left: 4px; padding-right: 4px; font-weight: 400; }
 .acceptance-brief-page .review-cancel:hover:not(:disabled) { text-decoration: underline; }
 .acceptance-brief-page #review-editor { margin-top: 17px; }
 .acceptance-brief-page .review-fields { display: grid; grid-template-columns: minmax(145px, .8fr) minmax(0, 1.5fr); gap: 15px; align-items: start; }
 .acceptance-brief-page .field-group { min-width: 0; }
-.acceptance-brief-page .field-group label { display: block; margin-bottom: 6px; font-size: 13px; color: #cce0d1; }
-.acceptance-brief-page .field-group :is(input, textarea), .acceptance-brief-page .proposal-picker-field select { width: 100%; min-width: 0; min-height: 44px; padding: 10px 11px; font-size: 16px; line-height: 1.5; border: 1px solid #86aa97; border-radius: 4px; color: #e8f1e8; background: #102127; }
+.acceptance-brief-page .field-group label { display: block; margin-bottom: 6px; font-size: 13px; color: #d6d6d6; }
+.acceptance-brief-page .field-group :is(input, textarea), .acceptance-brief-page .proposal-picker-field select { width: 100%; min-width: 0; min-height: 44px; padding: 10px 11px; font-size: 16px; line-height: 1.5; border: 1px solid #929292; border-radius: 4px; color: #f2f2f2; background: #1c1c1c; }
 .acceptance-brief-page .field-group textarea { min-height: 70px; resize: vertical; overflow-wrap: anywhere; }
-.acceptance-brief-page .field-group :is(input, textarea)::placeholder { color: #adc4b6; opacity: 1; }
+.acceptance-brief-page .field-group :is(input, textarea)::placeholder { color: #b5b5b5; opacity: 1; }
 .acceptance-brief-page .decision-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-.acceptance-brief-page .decision-status, .acceptance-brief-page .authority-boundary { margin-top: 12px; font-size: 13px; color: #bcd3c5; }
+.acceptance-brief-page .decision-status, .acceptance-brief-page .authority-boundary { margin-top: 12px; font-size: 13px; color: #c6c6c6; }
 .acceptance-brief-page .authority-boundary strong { font-size: 13px; font-weight: 500; }
 .acceptance-brief-page .authority-boundary p { margin-top: 5px; font-size: 13px; }
-.acceptance-brief-page .brief-footer { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 20px; padding: 0 32px 16px; color: #a9c3b7; font-size: 13px; }
+.acceptance-brief-page .brief-footer { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 20px; padding: 0 32px 16px; color: #b5b5b5; font-size: 13px; }
 .acceptance-brief-page .brief-footer > p { padding: 12px 0; }
 .acceptance-brief-page .review-limits[open] { flex-basis: 100%; }
 .acceptance-brief-page .review-limits p { max-width: 80ch; margin-bottom: 9px; }
 .acceptance-brief-page #assisted-authoring-link { display: inline-block; min-height: 44px; padding: 12px 0; }
-.acceptance-brief-page .review-complete { margin: 29px 32px 25px; border: 1px solid #42605f; border-radius: 8px; padding: 32px; background: #1d3035; }
+.acceptance-brief-page .review-complete { margin: 29px 32px 25px; border: 1px solid #4a4a4a; border-radius: 8px; padding: 32px; background: #242424; }
 .acceptance-brief-page .review-complete h2 { font-size: 24px; margin: 8px 0; }
 .acceptance-brief-page .review-complete p { max-width: 75ch; margin-top: 8px; color: var(--text-secondary); font-size: 14px; }
-.acceptance-brief-page .completion-next { display: inline-block; min-height: 44px; margin: 18px 12px 0 0; border: 1px solid #b8d8c5; border-radius: 5px; padding: 10px 16px; background: #b8d8c5; color: #142b20; text-decoration: none; }
+.acceptance-brief-page .completion-next { display: inline-block; min-height: 44px; margin: 18px 12px 0 0; border: 1px solid #f2a779; border-radius: 5px; padding: 10px 16px; background: #f2a779; color: #281b13; text-decoration: none; }
 .acceptance-brief-page .review-error { margin: 8px 32px 20px; border: 1px solid var(--danger); border-radius: 5px; padding: 14px 16px; background: #2c2426; color: var(--danger); font-size: 14px; overflow-wrap: anywhere; }
 @media (max-width: 850px) {
   .acceptance-brief-page .global-header { gap: 8px 18px; padding: 14px 24px; }
@@ -166,7 +166,7 @@ body.acceptance-brief-page {
   .acceptance-brief-page .queue-heading { align-items: baseline; gap: 12px; }
   .acceptance-brief-page .proposal-progress { font-size: 13px; }
   .acceptance-brief-page .proposal-picker-field { display: block; margin-top: 12px; }
-  .acceptance-brief-page .proposal-picker-field label { display: block; font-size: 13px; margin-bottom: 6px; color: #bed3c5; }
+  .acceptance-brief-page .proposal-picker-field label { display: block; font-size: 13px; margin-bottom: 6px; color: #cccccc; }
   .acceptance-brief-page .review-current-task { padding: 17px 12px 18px; }
   .acceptance-brief-page .acceptance-document { padding: 23px 20px 0; }
   .acceptance-brief-page .document-heading { padding-bottom: 26px; }
