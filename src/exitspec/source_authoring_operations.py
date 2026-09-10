@@ -1,9 +1,7 @@
-"""Synthetic-only source-authoring permits, consumed ledger and D/F lifecycle.
+"""One source-authoring claim/D/F/cleanup engine with separate authority realms.
 
-No HTTP, browser bootstrap or live launcher is wired here.  A synthetic launch
-cannot be promoted to a funded launch, even when a caller supplies real-looking
-metadata. Owner locks precede this module's operation lock; the supervisor lock
-is always last. Network-capable execution is deliberately unavailable.
+Owner locks precede the operation, issuer and supervisor locks. Only a sealed
+installation selects live execution; the installed admission registry is empty.
 """
 
 from __future__ import annotations
@@ -14,11 +12,13 @@ import math
 import secrets
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import RLock
 
+from . import source_authoring_launch as launch
 from .canonical import canonical_json_bytes
 from .source_authoring_ipc import SourceAuthoringWorkerError
 from .source_authoring_owners import (
@@ -27,15 +27,23 @@ from .source_authoring_owners import (
     SourceAuthoringSnapshot,
 )
 from .source_authoring_policy import (
+    ENDPOINT,
     REDACTION_CONFIGURATION_DIGEST,
     SourceAuthoringPolicyError,
+    _build_live_intent,
+    _LiveSourceAuthoringPolicy,
+    _validate_live_intent,
     build_body,
     build_intent,
     synthetic_policy,
     validate_intent,
     validate_output,
 )
-from .source_authoring_supervisor import SyntheticSourceAuthoringSupervisor
+from .source_authoring_supervisor import (
+    SyntheticSourceAuthoringSupervisor,
+    _BoundedLiveSupervisor,
+)
+from .source_authoring_transport import decode_response
 
 
 class SourceAuthoringOperationError(ValueError):
@@ -63,6 +71,7 @@ class _PrivateHandle:
 
 
 _ISSUER = object()
+_LIVE_ENGINES = {}
 
 
 class SyntheticBrowserSession(_PrivateHandle):
@@ -83,6 +92,25 @@ class AuthorizedSourceAuthoringRequest(_PrivateHandle):
     __slots__ = ("_operation",)
 
     def __init__(self, issuer: object = None, operation: str = "") -> None:
+        if issuer is not _ISSUER:
+            raise SourceAuthoringOperationError("private_handle")
+        self._operation = operation
+
+
+class LiveBrowserSession(_PrivateHandle):
+    __slots__ = ("_identity", "_secret")
+
+    def __init__(self, issuer=None):
+        if issuer is not _ISSUER:
+            raise SourceAuthoringOperationError("private_handle")
+        self._identity = secrets.token_hex(32)
+        self._secret = secrets.token_bytes(32)
+
+
+class LiveAuthorizedSourceAuthoringRequest(_PrivateHandle):
+    __slots__ = ("_operation",)
+
+    def __init__(self, issuer=None, operation=""):
         if issuer is not _ISSUER:
             raise SourceAuthoringOperationError("private_handle")
         self._operation = operation
@@ -119,6 +147,7 @@ class _Record:
     intent: object = None
     permit: AuthorizedSourceAuthoringRequest | None = None
     deadline: float | None = None
+    token_proof: object = None
 
 
 _TERMINAL = frozenset(
@@ -140,7 +169,7 @@ def _key(value: object) -> str:
 
 
 class ProcessLocalSourceAuthoringOperations:
-    """One synthetic grant across all POCs and sessions, with no reset API."""
+    """One grant across all POCs and sessions, with no reset API."""
 
     def __init__(
         self,
@@ -173,7 +202,23 @@ class ProcessLocalSourceAuthoringOperations:
         self._now()
 
     def __repr__(self) -> str:
-        return "<ProcessLocalSourceAuthoringOperations synthetic-only>"
+        return "<ProcessLocalSourceAuthoringOperations private>"
+
+    @property
+    def _live_lease(self):
+        return _LIVE_ENGINES.get(self)
+
+    @contextmanager
+    def _launch_guard(self):
+        lease = self._live_lease
+        if lease is None:
+            yield
+            return
+        try:
+            with launch._lease_guard(lease, self._owners):
+                yield
+        except launch.SourceAuthoringLaunchError:
+            raise SourceAuthoringOperationError("launch_revoked") from None
 
     def _now(self) -> float:
         failed = False
@@ -190,7 +235,8 @@ class ProcessLocalSourceAuthoringOperations:
     def _session(self, session: SyntheticBrowserSession) -> str:
         if self._closed:
             raise SourceAuthoringOperationError("grant_closed")
-        if type(session) is not SyntheticBrowserSession:
+        expected = LiveBrowserSession if self._live_lease is not None else SyntheticBrowserSession
+        if type(session) is not expected:
             raise SourceAuthoringOperationError("session_refused")
         identity = getattr(session, "_identity", None)
         secret = getattr(session, "_secret", None)
@@ -201,17 +247,30 @@ class ProcessLocalSourceAuthoringOperations:
             self._session_secrets.get(identity, b""), secret
         ):
             raise SourceAuthoringOperationError("session_refused")
-        return session._identity
+        with self._launch_guard():
+            return session._identity
 
     def new_synthetic_session(self) -> SyntheticBrowserSession:
         """Test/local core seam, not an HTTP bootstrap or a live grant issuer."""
         with self._lock:
+            if self._live_lease is not None:
+                raise SourceAuthoringOperationError("session_refused")
             if self._closed or len(self._sessions) >= 16:
                 raise SourceAuthoringOperationError("session_capacity")
             session = SyntheticBrowserSession(_ISSUER)
             self._sessions[session._identity] = session
             self._session_secrets[session._identity] = session._secret
             return session
+
+    def new_live_session(self):
+        with self._lock:
+            if self._live_lease is None or self._closed or len(self._sessions) >= 16:
+                raise SourceAuthoringOperationError("session_refused")
+            with self._launch_guard():
+                session = LiveBrowserSession(_ISSUER)
+                self._sessions[session._identity] = session
+                self._session_secrets[session._identity] = session._secret
+                return session
 
     @property
     def ledger(self) -> tuple[int, Decimal]:
@@ -224,11 +283,12 @@ class ProcessLocalSourceAuthoringOperations:
         with self._lock:
             identity = self._session(session)
         snapshot = self._owners.capture(poc_id, source_receipt_id)
-        body = build_body(snapshot.source, policy=self._policy)
+        body = (build_body(snapshot.source) if self._live_lease is not None
+                else build_body(snapshot.source, policy=self._policy))
         operation = secrets.token_hex(32)
 
         def publish_disclosure(guard):
-            with self._lock:
+            with self._lock, self._launch_guard():
                 self._session(session)
                 now = self._now()
                 for record in self._records.values():
@@ -318,8 +378,14 @@ class ProcessLocalSourceAuthoringOperations:
             snapshot = record.source
         assert snapshot is not None
 
+        live_intent, token_proof = None, None
+        if self._live_lease is not None:
+            # Local token evaluation is outside all owner/operation locks.
+            token_proof = launch._issue_token_proof(self._live_lease, record.body)
+            live_intent = self._make_intent(record, key, token_proof)
+
         def issue(guard):
-            with self._lock:
+            with self._lock, self._launch_guard():
                 self._session(session)
                 current = self._records[disclosure.operation_id]
                 if current.permit is not None:
@@ -330,10 +396,18 @@ class ProcessLocalSourceAuthoringOperations:
                     or self._now() >= disclosure.expires_monotonic
                 ):
                     raise SourceAuthoringOperationError("disclosure_refused")
-                intent = self._make_intent(current, key)
+                if live_intent is not None:
+                    if current is not record:
+                        raise SourceAuthoringOperationError("operation_invalidated")
+                    intent = live_intent
+                    self._validate_record_intent(replace(current, intent=intent, token_proof=token_proof))
+                else:
+                    intent = self._make_intent(current, key)
                 self._check_pending(current, "PREPARED")
                 guard.check_current_locked()
-                permit = AuthorizedSourceAuthoringRequest(
+                permit_type = (LiveAuthorizedSourceAuthoringRequest if self._live_lease is not None
+                               else AuthorizedSourceAuthoringRequest)
+                permit = permit_type(
                     _ISSUER, disclosure.operation_id
                 )
                 self._add_alias(identity, key, disclosure.operation_id)
@@ -341,6 +415,7 @@ class ProcessLocalSourceAuthoringOperations:
                     current,
                     intent=intent,
                     permit=permit,
+                    token_proof=token_proof,
                     receipt=replace(
                         current.receipt, state="AUTHORIZED", intent_sha256=intent.digest
                     ),
@@ -358,42 +433,59 @@ class ProcessLocalSourceAuthoringOperations:
             raise SourceAuthoringOperationError("alias_capacity")
         self._aliases[identity, key] = operation
 
-    def _make_intent(self, record: _Record, key: str):
+    def _make_intent(self, record: _Record, key: str, token_proof=None):
         # The strict policy factory revalidates all metadata, not just a digest.
         assert record.source is not None and record.body is not None
-        return build_intent(
-            record.source.source,
-            body=record.body,
-            policy=self._policy,
-            server_epoch=self._epoch,
-            launch_grant_id=self._grant,
-            browser_session_id=record.session,
-            consent_generation=self._consent_generation,
-            operation_id=record.disclosure.operation_id,
-            draft_generation=hashlib.sha256(
+        bindings = {
+            "server_epoch": self._epoch,
+            "launch_grant_id": self._grant,
+            "browser_session_id": record.session,
+            "consent_generation": self._consent_generation,
+            "operation_id": record.disclosure.operation_id,
+            "draft_generation": hashlib.sha256(
                 canonical_json_bytes(record.source.draft.model_dump(mode="json"))
             ).hexdigest(),
-            source_receipt_id="srcpt_"
+            "source_receipt_id": "srcpt_"
             + record.source.source.source_id.removeprefix("src_"),
-            issued_monotonic=record.issued,
-            expires_monotonic=record.disclosure.expires_monotonic,
-            issued_at=record.issued_at,
-            expires_at=record.issued_at + 300.0,
-            acknowledged_at=record.issued_at + (self._now() - record.issued),
-            acknowledged=True,
-            disclosure_digest=record.disclosure.disclosure_sha256,
-            idempotency_id=key,
-            credential_configuration_generation=0,
-            synthetic_input_tokens=8192,
-            redaction_configuration_digest=REDACTION_CONFIGURATION_DIGEST,
-            content_classification="OWNER_APPROVED_REDACTED_BUSINESS_TEXT",
-        )
+            "issued_monotonic": record.issued,
+            "expires_monotonic": record.disclosure.expires_monotonic,
+            "issued_at": record.issued_at,
+            "expires_at": record.issued_at + 300.0,
+            "acknowledged_at": record.issued_at + (self._now() - record.issued),
+            "acknowledged": True,
+            "disclosure_digest": record.disclosure.disclosure_sha256,
+            "idempotency_id": key,
+            "redaction_configuration_digest": REDACTION_CONFIGURATION_DIGEST,
+            "content_classification": "OWNER_APPROVED_REDACTED_BUSINESS_TEXT",
+        }
+        if self._live_lease is not None:
+            metadata = launch._lease_metadata(self._live_lease)
+            return _build_live_intent(
+                record.source.source, body=record.body, policy=self._policy,
+                token_metadata=launch._token_metadata(self._live_lease, token_proof, record.body),
+                credential_configuration_generation=metadata["credential_generation"], **bindings,
+            )
+        return build_intent(record.source.source, body=record.body, policy=self._policy,
+                            credential_configuration_generation=0, synthetic_input_tokens=8192, **bindings)
+
+    def _validate_record_intent(self, record):
+        if self._live_lease is None:
+            return validate_intent(record.intent, record.source.source, record.body, self._policy)
+        metadata = launch._lease_metadata(self._live_lease)
+        if (record.intent.server_epoch != metadata["epoch"] or record.intent.launch_grant_id != metadata["grant"]
+            or record.intent.policy.launch_profile_sha256 != metadata["launch_profile_sha256"]
+            or record.intent.policy.code_revision != metadata["code_revision"]
+            or record.intent.credential_configuration_generation != metadata["credential_generation"]):
+            raise SourceAuthoringOperationError("launch_binding")
+        return _validate_live_intent(record.intent, record.source.source, record.body, self._policy,
+                                     launch._token_metadata(self._live_lease, record.token_proof, record.body))
 
     def _record(
         self, session: SyntheticBrowserSession, permit: AuthorizedSourceAuthoringRequest
     ) -> _Record:
         identity = self._session(session)
-        if type(permit) is not AuthorizedSourceAuthoringRequest:
+        expected = LiveAuthorizedSourceAuthoringRequest if self._live_lease is not None else AuthorizedSourceAuthoringRequest
+        if type(permit) is not expected:
             raise SourceAuthoringOperationError("permit_refused")
         operation = getattr(permit, "_operation", None)
         if type(operation) is not str:
@@ -471,6 +563,9 @@ class ProcessLocalSourceAuthoringOperations:
         record = self._records[operation]
         if record.receipt.state in _TERMINAL:
             return
+        if (self._live_lease is not None and state == "REVOKED"
+            and record.receipt.state == "DISPATCH_AUTHORIZED"):
+            state = "OUTCOME_UNKNOWN"
         self._records[operation] = replace(
             record,
             source=None,
@@ -523,6 +618,8 @@ class ProcessLocalSourceAuthoringOperations:
             worker = self._worker
         if worker is not None:
             worker.cancel()
+        if self._live_lease is not None:
+            launch._revoke_lease(self._live_lease)
 
     def execute_synthetic(
         self,
@@ -533,48 +630,86 @@ class ProcessLocalSourceAuthoringOperations:
     ) -> SourceAuthoringOperationReceipt:
         if type(worker) is not SyntheticSourceAuthoringSupervisor:
             raise SourceAuthoringOperationError("synthetic_worker_required")
+        if self._live_lease is not None:
+            raise SourceAuthoringOperationError("synthetic_worker_required")
+        return self._execute(session, permit, worker=worker)
+
+    def execute_live(self, session, permit):
+        if self._live_lease is None:
+            raise SourceAuthoringOperationError("live_prerequisites_missing")
+        with self._lock, self._launch_guard():
+            record = self._record(session, permit)
+            if record.receipt.state != "AUTHORIZED":
+                return record.receipt
+            self._validate_record_intent(record)
+        worker = _BoundedLiveSupervisor(lease=self._live_lease)
+        return self._execute(session, permit, worker=worker)
+
+    def _execute(self, session, permit, *, worker):
         self._schedule("pre_claim")
-        with self._lock:
-            record = self._record(session, permit)
-            operation = permit._operation
-            if record.receipt.state != "AUTHORIZED":
-                return record.receipt
-            now = self._now()
-            # The clock seam may revoke this permit, close the grant, or
-            # invalidate the session while the RLock is held. Revalidate before
-            # preparing or consuming a claim; terminal tombstones stay intact.
-            record = self._record(session, permit)
-            if record.receipt.state != "AUTHORIZED":
-                return record.receipt
-            if now >= record.disclosure.expires_monotonic:
-                self._terminal(operation, "EXPIRED", "consent_expired")
-                return self._records[operation].receipt
-            if self._active is not None:
-                raise SourceAuthoringOperationError("worker_busy")
-            if self._claims >= 10:
-                raise SourceAuthoringOperationError("budget_exhausted")
-            if self._last_claim is not None and now - self._last_claim < 10:
-                raise SourceAuthoringOperationError("rate_limited")
-            claimed = replace(
-                record,
-                deadline=min(now + 30, record.disclosure.expires_monotonic),
-                receipt=replace(
-                    record.receipt,
-                    state="CLAIMED",
-                    attempts=1,
-                    reserved_usd=Decimal("0.01"),
-                ),
-            )
-            next_claims = self._claims + 1
-            next_generation = self._records_generation + 1
-            current = self._record(session, permit)
-            if current is not record:
-                return current.receipt
-            self._records[operation] = claimed
-            self._records_generation = next_generation
-            self._claims = next_claims
-            self._last_claim = now
-            self._active, self._worker = operation, worker
+        def claim(guard):
+            with self._lock, self._launch_guard():
+                record = self._record(session, permit)
+                operation = permit._operation
+                if record.receipt.state != "AUTHORIZED":
+                    return record.receipt
+                if self._live_lease is not None:
+                    self._validate_record_intent(record)
+                now = self._now()
+                # The clock seam may revoke this permit, close the grant, or
+                # invalidate the session while the RLock is held. Revalidate before
+                # preparing or consuming a claim; terminal tombstones stay intact.
+                record = self._record(session, permit)
+                if record.receipt.state != "AUTHORIZED":
+                    return record.receipt
+                if now >= record.disclosure.expires_monotonic:
+                    self._terminal(operation, "EXPIRED", "consent_expired")
+                    return self._records[operation].receipt
+                if self._active is not None:
+                    raise SourceAuthoringOperationError("worker_busy")
+                if self._claims >= 10:
+                    raise SourceAuthoringOperationError("budget_exhausted")
+                if self._last_claim is not None and now - self._last_claim < 10:
+                    raise SourceAuthoringOperationError("rate_limited")
+                claimed = replace(
+                    record,
+                    deadline=min(now + 30, record.disclosure.expires_monotonic),
+                    receipt=replace(
+                        record.receipt,
+                        state="CLAIMED",
+                        attempts=1,
+                        reserved_usd=Decimal("0.01"),
+                    ),
+                )
+                next_claims = self._claims + 1
+                next_generation = self._records_generation + 1
+                current = self._record(session, permit)
+                if current is not record:
+                    return current.receipt
+                if guard is not None:
+                    self._validate_record_intent(current)
+                    guard.check_current_locked()
+                self._records[operation] = claimed
+                self._records_generation = next_generation
+                self._claims = next_claims
+                self._last_claim = now
+                self._active, self._worker = operation, worker
+                return claimed
+
+        if self._live_lease is None:
+            claimed = claim(None)
+        else:
+            with self._lock:
+                source = self._record(session, permit).source
+            try:
+                claimed = self._owners.run_guarded(source, claim)
+            except SourceAuthoringOwnersError:
+                with self._lock:
+                    self._terminal(permit._operation, "STALE", "owner_refused")
+                    return self._records[permit._operation].receipt
+        if type(claimed) is SourceAuthoringOperationReceipt:
+            return claimed
+        operation = permit._operation
         try:
             self._schedule("claimed")
             with self._lock:
@@ -584,31 +719,39 @@ class ProcessLocalSourceAuthoringOperations:
                 and claimed.body is not None
                 and claimed.deadline is not None
             )
+            metadata = {
+                "epoch": self._epoch,
+                "grant": self._grant,
+                "operation": operation,
+                "body_sha256": claimed.intent.body_sha256,
+                "profile_sha256": claimed.intent.policy.profile_sha256,
+            }
+            if self._live_lease is not None:
+                lease_metadata = launch._lease_metadata(self._live_lease)
+                metadata.update({key: lease_metadata[key] for key in
+                                 ("launch_profile_sha256", "credential_generation", "code_revision")})
             binding = worker.prepare(
-                {
-                    "epoch": self._epoch,
-                    "grant": self._grant,
-                    "operation": operation,
-                    "body_sha256": claimed.intent.body_sha256,
-                    "profile_sha256": claimed.intent.policy.profile_sha256,
-                },
-                deadline=time.monotonic() + max(0.001, claimed.deadline - self._now()),
+                metadata, deadline=time.monotonic() + max(0.001, claimed.deadline - self._now()),
             )
-            ticket = worker.prepare_ticket(binding, claimed.body)
+            if self._live_lease is None:
+                ticket = worker.prepare_ticket(binding, claimed.body)
+            else:
+                credential, generation = launch._credential_for_ticket(
+                    self._live_lease, claimed.token_proof, claimed.body)
+                try:
+                    ticket = worker.prepare_ticket(binding, claimed.body, credential,
+                                                   credential_generation=generation)
+                finally:
+                    credential = b""
             self._schedule("pre_dispatch")
 
             def dispatch(guard):
-                with self._lock:
+                with self._lock, self._launch_guard():
                     current = self._record(session, permit)
                     self._check_pending(current, "CLAIMED")
                     if current.intent.digest != current.receipt.intent_sha256:
                         raise SourceAuthoringPolicyError("intent_mismatch")
-                    validate_intent(
-                        current.intent,
-                        claimed.source.source,
-                        claimed.body,
-                        self._policy,
-                    )
+                    self._validate_record_intent(current)
                     dispatched = replace(
                         current,
                         receipt=replace(current.receipt, state="DISPATCH_AUTHORIZED"),
@@ -626,27 +769,24 @@ class ProcessLocalSourceAuthoringOperations:
             self._schedule("post_dispatch")
             worker.handoff()
             response = worker.collect()
+            if self._live_lease is not None:
+                response = decode_response(response)
             batch = validate_output(response, claimed.source.source)
             self._schedule("pre_commit")
 
             def commit(guard):
-                with self._lock:
+                with self._lock, self._launch_guard():
                     current = self._record(session, permit)
                     self._check_pending(current, "DISPATCH_AUTHORIZED")
                     if current.intent.digest != current.receipt.intent_sha256:
                         raise SourceAuthoringPolicyError("intent_mismatch")
-                    validate_intent(
-                        current.intent,
-                        claimed.source.source,
-                        claimed.body,
-                        self._policy,
-                    )
+                    self._validate_record_intent(current)
                     publication = guard.prepare(
                         batch,
                         request_sha256=current.receipt.intent_sha256,
-                        provider="synthetic-source-authoring",
+                        provider=("synthetic-source-authoring" if self._live_lease is None else "fireworks"),
                         model=self._policy.model,
-                        endpoint="local://exitspec/source-authoring-synthetic",
+                        endpoint=("local://exitspec/source-authoring-synthetic" if self._live_lease is None else ENDPOINT),
                         generated_at=datetime.now(UTC),
                     )
                     completed = replace(
@@ -700,6 +840,10 @@ class ProcessLocalSourceAuthoringOperations:
                         terminal, code = "FAILED", "invalid_output_or_binding"
                     elif isinstance(error, SourceAuthoringOwnersError):
                         terminal, code = "STALE", "owner_refused"
+                    elif (isinstance(error, launch.SourceAuthoringLaunchError)
+                          or type(error) is SourceAuthoringOperationError and error.code == "launch_revoked"):
+                        terminal = "OUTCOME_UNKNOWN" if state == "DISPATCH_AUTHORIZED" else "REVOKED"
+                        code = "launch_revoked"
                     elif isinstance(error, SourceAuthoringWorkerError):
                         terminal = (
                             "OUTCOME_UNKNOWN"
@@ -732,12 +876,31 @@ class ProcessLocalSourceAuthoringOperations:
             or self._records.get(record.disclosure.operation_id) is not record
         ):
             raise SourceAuthoringOperationError("operation_invalidated")
+        with self._launch_guard():
+            pass
         if now >= record.disclosure.expires_monotonic:
             raise SourceAuthoringOperationError("consent_expired")
         if record.deadline is not None and now >= record.deadline:
             raise SourceAuthoringOperationError("operation_timeout")
 
 
-def create_live_source_authoring_operations(**kwargs):
-    """No owner-approved live profile exists in this synthetic checkpoint."""
-    raise SourceAuthoringOperationError("live_prerequisites_missing")
+def create_live_source_authoring_operations(*, owners=None, installation=None, **refused):
+    """Consume one sealed installation; callers cannot provide execution seams."""
+    if refused:
+        raise SourceAuthoringOperationError("live_prerequisites_missing")
+    lease = None
+    try:
+        lease = launch._bind_runtime_install(installation, owners)
+        metadata = launch._lease_metadata(lease)
+        policy = _LiveSourceAuthoringPolicy(**launch._lease_policy_values(lease))
+        engine = ProcessLocalSourceAuthoringOperations(owners=owners)
+        engine._epoch, engine._grant, engine._policy = metadata["epoch"], metadata["grant"], policy
+        _LIVE_ENGINES[engine] = lease
+        launch._register_cancel(lease, engine.shutdown)
+        return engine
+    except Exception:  # noqa: BLE001 - installation failures disclose no launch metadata
+        if lease is not None:
+            launch._close_install(installation)
+        else:
+            launch._abort_reserved_install(installation)
+        raise SourceAuthoringOperationError("live_prerequisites_missing") from None

@@ -1,6 +1,10 @@
 (() => {
   "use strict";
   const MODE = "SYNTHETIC_NO_NETWORK";
+  const MODES = new Set([MODE, "QUALIFIED_FIREWORKS", "OFFLINE_FAKE_FIREWORKS"]);
+  let runtimeMode = null;
+  const isSynthetic = () => runtimeMode === MODE;
+  const isOffline = () => runtimeMode === "OFFLINE_FAKE_FIREWORKS";
   const HEADER = "X-ExitSpec-Authoring-Capability";
   const HEX = /^[a-f0-9]{64}$/;
   const RECEIPT = /^srcpt_[a-z0-9][a-z0-9_-]{7,95}$/;
@@ -8,7 +12,7 @@
   const STATES = new Set(["PREPARED", "AUTHORIZED", "CLAIMED", "DISPATCH_AUTHORIZED", "SUCCEEDED", "FAILED", "OUTCOME_UNKNOWN", "STALE", "EXPIRED", "REVOKED"]);
   const TERMINAL = new Set(["SUCCEEDED", "FAILED", "OUTCOME_UNKNOWN", "STALE", "EXPIRED", "REVOKED"]);
   const LIVE_MISSING = Object.freeze({
-    live_worker_and_operator_launcher: "The live worker and operator launcher are not implemented.",
+    live_worker_and_operator_launcher: "An admitted live source-authoring installation is unavailable.",
     owner_launch_approval: "Live use requires separate owner launch approval.",
     model_schema_token_and_billing_proof: "Live use requires exact model and schema acceptance, token accounting and billing bounds.",
     account_pricing_and_custody_approval: "Live use requires approved account, pricing and data handling conditions. The candidate global profile has no regional guarantee.",
@@ -40,7 +44,19 @@
       "This local run sends existing source requirements through the bounded validation worker. It makes no external inference call and spends no provider credits." :
       mode === "unavailable" ? "The current page could not be validated. Reload before continuing." :
       "Controls stay unavailable until this page validates its local session.");
-    setText("source-live-missing", mode === "verified" ? Object.values(LIVE_MISSING).join(" ") : "");
+    setText("source-live-missing", mode === "verified" && isSynthetic() ? Object.values(LIVE_MISSING).join(" ") : "");
+    if (mode === "verified" && !isSynthetic()) {
+      setText("mode-heading", isOffline() ? "Offline fake Fireworks transport" : "Fireworks · admitted operator launch");
+      setText("source-mode-copy", isOffline() ?
+        "This integration rehearsal uses fake credentials and local fake transport. It makes no provider call or spend and does not qualify a live account." :
+        "Run sends this exact redacted source to Fireworks under this operator launch. Review the disclosure and acknowledge before each attempt.");
+      setText("run-heading", isOffline() ? "Draft proposals with offline fake transport" : "Draft proposals with Fireworks");
+      setText("source-run", isOffline() ? "Run offline fake attempt" : "Run Fireworks authoring");
+      $("source-business-text").nextElementSibling.textContent = "I have inspected this exact text and attest that it is redacted business requirement or proposal material permitted for this disclosed inference attempt.";
+      $("source-disclosure").querySelector("dt:nth-of-type(4) + dd").textContent =
+        "One attempt, a 30-second deadline and at most 2,000 output tokens. Source: 16 KiB; request: 64 KiB; response: 256 KiB. The ledger reserves $0.01 per claim, at most ten claims / $0.10 per runtime, with ten seconds between claims. " +
+        (isOffline() ? "These are offline test reservations; billing and account prerequisites remain unverified." : "The admitted profile binds the request and launch budgets. No automatic retry is permitted.");
+    }
   }
   function controls() {
     const terminal = TERMINAL.has(state), active = Boolean(operation && !terminal);
@@ -77,7 +93,9 @@
       !acknowledged.checked ? "Acknowledge the purpose, limits, data handling and expiry." :
       !authorizeDisabled ? "Acknowledge this disclosure. This starts no worker; Run is separate." : waiting);
     setText("source-run-reason", !ready ? waiting : !runDisabled ?
-      "Run one synthetic validation attempt. No provider call or spend." :
+      (isSynthetic() ? "Run one synthetic validation attempt. No provider call or spend." :
+       isOffline() ? "Run one offline fake attempt. No provider call or spend." :
+       "Send this exact redacted source to Fireworks for one bounded authoring attempt.") :
       terminal ? state === "SUCCEEDED" ? "This attempt is complete. Open proposals for human review." :
       "This consent is no longer executable. Inspect and acknowledge again." :
       (busy && state === "AUTHORIZED") || processing || ["CLAIMED", "DISPATCH_AUTHORIZED"].includes(state) ?
@@ -107,7 +125,7 @@
       CONSENT_REFUSED: "Consent is no longer current. Inspect the source again before a new explicit action.",
       WORKER_BUSY: "Another operation occupies this runtime's only worker. Wait for it to finish.",
       rate_limited: "The ten-second claim interval has not elapsed. Run again explicitly when ready.",
-      budget_exhausted: "This runtime has consumed all ten synthetic claims. No further claim is available.",
+      budget_exhausted: "This runtime has consumed all ten claims. No further claim is available.",
       grant_closed: "This runtime is closed. No operation can start.",
     };
     setText("source-authoring-error", messages[code] || "The response could not be trusted or the request was refused. No automatic retry will run. Refresh current state before continuing.");
@@ -146,7 +164,7 @@
   function trustedOperation(value) {
     const keys = ["mode", "poc_id", "operation_id", "state", "processing", "attempts", "reserved_usd", "grant_claims", "grant_reserved_usd", "expires_in_seconds", "code", "authoring_receipt_id"];
     if (value && Object.hasOwn(value, "disclosure")) keys.push("disclosure");
-    return sameKeys(value, keys) && value.mode === MODE && value.poc_id === poc && HEX.test(value.operation_id) &&
+    return sameKeys(value, keys) && value.mode === runtimeMode && value.poc_id === poc && HEX.test(value.operation_id) &&
       STATES.has(value.state) && typeof value.processing === "boolean" && integer(value.attempts, 1) && integer(value.grant_claims, 10) &&
       ["0.00", "0.01"].includes(value.reserved_usd) && /^0\.(?:0[0-9]|10)$/.test(value.grant_reserved_usd) &&
       integer(value.expires_in_seconds, 300) && (value.code === null || /^[A-Za-z_]{1,60}$/.test(value.code)) &&
@@ -179,7 +197,8 @@
     displayed = value.operation_id;
     $("source-description").textContent = `${KINDS[d.source_kind]} · revision ${d.source_revision} · ${d.source_receipt_id}`;
     $("source-redacted-text").textContent = d.redacted_text;
-    $("source-provider").textContent = `Fireworks · ${d.model} (candidate only; not contacted)`;
+    $("source-provider").textContent = `Fireworks · ${d.model} ` +
+      (isSynthetic() ? "(candidate only; not contacted)" : isOffline() ? "(offline fake transport; provider not contacted)" : "(one admitted provider attempt on Run)");
     $("source-purpose").textContent = d.purpose;
     $("source-custody").textContent = d.custody;
     $("source-disclosure").hidden = false;
@@ -191,9 +210,16 @@
     if (TERMINAL.has(state) && value.state !== state) return;
     state = value.state; processing = value.processing;
     setText("source-expiry", `${value.expires_in_seconds} seconds remaining. Acknowledgment does not extend expiry.`);
-    setText("source-ledger", `${value.grant_claims} of 10 synthetic claims used · $${value.grant_reserved_usd} reserved locally · no provider spend.`);
+    setText("source-ledger", `${value.grant_claims} of 10 ${isSynthetic() ? "synthetic " : isOffline() ? "offline fake " : ""}claims used · $${value.grant_reserved_usd} reserved locally${isSynthetic() || isOffline() ? " · no provider spend" : ""}.`);
     const labels = {PREPARED: "Inspect the exact text, then attest and acknowledge.", AUTHORIZED: "Acknowledged. Choose Run to start one synthetic attempt.", CLAIMED: "Processing locally. One synthetic attempt has been consumed.", DISPATCH_AUTHORIZED: "The synthetic worker is processing. You can still cancel publication.", SUCCEEDED: "Validated proposals are ready for human review. They remain NEEDS_REVIEW.", FAILED: "The attempt failed safely. No proposals were published and its consumed claim is retained.", OUTCOME_UNKNOWN: "The attempt did not finish within its bound. No new proposal is available from this operation.", STALE: "The source, draft, review or closure state changed. Inspect current source state before continuing.", EXPIRED: "This disclosure expired. Inspect the source and acknowledge a new disclosure.", REVOKED: "Consent revoked. This operation cannot run again."};
-    setText("source-status", value.processing && state === "AUTHORIZED" ? "Starting the bounded synthetic worker…" : labels[state]);
+    if (!isSynthetic()) {
+      labels.AUTHORIZED = "Acknowledged. Choose Run to start one " + (isOffline() ? "offline fake" : "Fireworks") + " attempt.";
+      labels.CLAIMED = "One attempt has been consumed. Preparing the bounded worker.";
+      labels.DISPATCH_AUTHORIZED = "Dispatch authorized. Cancellation can prevent publication but cannot undo a completed delivery.";
+      labels.OUTCOME_UNKNOWN = "The attempt's outcome is uncertain. No proposal was published. Its claim remains consumed and it will not be retried.";
+    }
+    setText("source-status", value.processing && state === "AUTHORIZED" ?
+      (isSynthetic() ? "Starting the bounded synthetic worker…" : "Starting the bounded authoring worker…") : labels[state]);
     if (value.code && state === "AUTHORIZED") failure(value.code);
     $("source-review-result").hidden = state !== "SUCCEEDED";
     if (TERMINAL.has(state)) { clearSource(); clearTimeout(timer); }
@@ -223,7 +249,7 @@
     try { value = await api("sources"); }
     catch (error) { if (!isCurrent(epoch, current)) return false; throw error; }
     if (!isCurrent(epoch, current)) return false;
-    if (!sameKeys(value, ["mode", "poc_id", "sources"]) || value.mode !== MODE || value.poc_id !== poc ||
+    if (!sameKeys(value, ["mode", "poc_id", "sources"]) || value.mode !== runtimeMode || value.poc_id !== poc ||
         !Array.isArray(value.sources) || value.sources.length > 256 || value.sources.some((s) =>
           !sameKeys(s, ["source_receipt_id", "source_kind", "eligible"]) || !RECEIPT.test(s.source_receipt_id) ||
           !Object.hasOwn(KINDS, s.source_kind) || typeof s.eligible !== "boolean")) throw new Error("UNTRUSTED_RESPONSE");
@@ -248,7 +274,7 @@
     clearTimeout(timer); capability = operation = state = key = null;
     ready = false; busy = true; unavailable = false; processing = false; clearSource(); showMode("checking"); controls();
     setText("source-status", "Starting a fresh page session…");
-    setText("source-ledger", "The global synthetic ledger has not been read yet.");
+    setText("source-ledger", "The runtime ledger has not been read yet.");
     $("source-review-result").hidden = true;
     if (!poc) { unavailable = true; busy = false; showMode("unavailable"); failure("REQUEST_REFUSED"); controls(); return; }
     $("back-to-review").href = $("source-review-result").href = `/app/pocs/${poc}/review`;
@@ -256,11 +282,12 @@
       const value = await api("bootstrap");
       if (epoch !== serial) return;
       if (!sameKeys(value, ["schema_version", "capability", "mode", "poc_id", "display_name", "live_enabled", "live_missing"]) ||
-          value.schema_version !== "exitspec.source-authoring-web/1" || !HEX.test(value.capability) || value.mode !== MODE ||
-          value.poc_id !== poc || value.live_enabled !== false || typeof value.display_name !== "string" || value.display_name.length > 200 ||
-          !Array.isArray(value.live_missing) || value.live_missing.length !== 4 || new Set(value.live_missing).size !== 4 ||
+          value.schema_version !== "exitspec.source-authoring-web/1" || !HEX.test(value.capability) || !MODES.has(value.mode) ||
+          value.poc_id !== poc || value.live_enabled !== (value.mode === "QUALIFIED_FIREWORKS") || typeof value.display_name !== "string" || value.display_name.length > 200 ||
+          !Array.isArray(value.live_missing) || value.live_missing.length !== (value.mode === MODE ? 4 : 0) || new Set(value.live_missing).size !== value.live_missing.length ||
           value.live_missing.some((reason) => typeof reason !== "string" || !Object.hasOwn(LIVE_MISSING, reason))) throw new Error("UNTRUSTED_RESPONSE");
       capability = value.capability;
+      runtimeMode = value.mode;
       showMode("verified");
       $("source-poc-title").textContent = value.display_name;
       setText("source-status", "Select and inspect one current source. Nothing runs on page load.");
@@ -312,7 +339,7 @@
     ++serial; clearTimeout(timer); for (const controller of pending) controller.abort();
     capability = operation = state = key = null; ready = false; busy = false; unavailable = false; clearSource(); showMode("checking"); controls();
     setText("source-status", "Page session cleared. A fresh session is required.");
-    setText("source-ledger", "The global synthetic ledger has not been read yet.");
+    setText("source-ledger", "The runtime ledger has not been read yet.");
   });
   window.addEventListener("pageshow", (event) => { if (event.persisted) initialise(); });
   initialise();

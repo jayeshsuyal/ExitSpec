@@ -2,11 +2,20 @@
 
 import dataclasses
 import json
+import re
 import socket
 import sys
 import time
+from pathlib import Path
 
+from exitspec import source_authoring_launch as launch
 from exitspec import source_authoring_live_worker as worker
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from source_authoring_admission import fake_profile
+
+profile = fake_profile()
+launch._PRODUCTION_PROFILES = (profile,)
 
 
 def forbidden(*args, **kwargs):
@@ -39,6 +48,16 @@ def post(body, credential, *, deadline):
         time.sleep(60)
     if scenario == "worker_error":
         raise ValueError("PRIVATE-MARKER")
+    content = '{"synthetic":true}'
+    if scenario == "authoring":
+        source = json.loads(json.loads(body)["messages"][1]["content"].split("\n", 1)[1])["text"]
+        quotes = [text.strip() for text in re.split(r"(?<=[.!?])\s+", source) if text.strip()]
+        content = json.dumps({
+            "schema_version": "exitspec.assisted-authoring-output.v1",
+            "proposals": [{"proposal_key": f"offline-{index}", "source_quote": quote,
+                           "normalized_claim": quote, "numeric_facts": None}
+                          for index, quote in enumerate(quotes[:3])],
+        })
     return json.dumps(
         {
             "id": "fake-local",
@@ -48,7 +67,7 @@ def post(body, credential, *, deadline):
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": '{"synthetic":true}'},
+                    "message": {"role": "assistant", "content": content},
                     "finish_reason": "stop",
                 }
             ],
@@ -70,6 +89,6 @@ if scenario == "stall_ticket_read":
     worker.read_live_frame = read
 
 try:
-    worker._run_protocol()
+    worker._run_protocol(profile)
 except Exception:  # noqa: BLE001 - test child follows the production silent boundary
     sys.exit(2)

@@ -461,6 +461,7 @@ def test_browser_native_zoom_text_requires_separate_authoring_consent(rig):
             )
             expect(page.locator("#zoom-live-stop")).to_be_enabled()
             page.locator("#zoom-live-stop").click()
+            expect(page.locator("#zoom-live-status")).to_contain_text("Transport stop requested")
             child.emit("stop_ack")
             child.emit("drained")
             expect(page.locator("#zoom-live-process")).to_be_enabled()

@@ -14,8 +14,9 @@ source_authoring_bridge_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-source-author
 review_snapshot_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-review-snapshot.XXXXXX")"
 proposal_replay_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-proposal-replay.XXXXXX")"
 synthetic_demo_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-synthetic-demo.XXXXXX")"
+unified_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-unified-source.XXXXXX")"
 source_transport_report="$(mktemp "${TMPDIR:-/tmp}/exitspec-source-transport.XXXXXX")"
-trap 'rm -f -- "${browser_report}" "${adversarial_report}" "${artifact_reader_report}" "${native_zoom_report}" "${source_authoring_report}" "${source_authoring_bridge_report}" "${review_snapshot_report}" "${source_closure_report}" "${proposal_replay_report}" "${synthetic_demo_report}" "${source_transport_report}"' EXIT
+trap 'rm -f -- "${browser_report}" "${adversarial_report}" "${artifact_reader_report}" "${native_zoom_report}" "${source_authoring_report}" "${source_authoring_bridge_report}" "${review_snapshot_report}" "${source_closure_report}" "${proposal_replay_report}" "${synthetic_demo_report}" "${source_transport_report}" "${unified_report}"' EXIT
 
 # The v0.3 wrapper owns the complete historical four-case Chromium and
 # engineering gate. Keep it intact, then add the exact B13 collections below.
@@ -166,3 +167,19 @@ printf 'ExitSpec bounded source transport fake-only acceptance gate.\n'
 "${python_command}" -c \
   'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=202; print(f"Source transport fake-only cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
   "${source_transport_report}"
+
+
+printf 'ExitSpec unified Zoom/source-authoring offline integration gate.\n'
+"${python_command}" -m pytest \
+  --strict-markers \
+  --runxfail \
+  --junitxml="${unified_report}" \
+  tests/test_unified_zoom_web.py tests/test_unified_zoom_shutdown.py \
+  tests/test_source_authoring_launch.py tests/test_source_authoring_operator.py \
+  tests/test_source_authoring_live_operations.py tests/test_source_authoring_live_web.py \
+  tests/test_source_authoring_live_races.py tests/test_source_authoring_live_terminal_closure.py \
+  tests/test_unified_source_capture_browser.py tests/test_unified_source_authoring_browser.py
+
+"${python_command}" -c \
+  'import sys, xml.etree.ElementTree as ET; root=ET.parse(sys.argv[1]).getroot(); cases=list(root.iter("testcase")); skipped=sum(1 for case in cases if case.find("skipped") is not None); failed=sum(1 for case in cases if case.find("failure") is not None or case.find("error") is not None); expected=248; print(f"Unified offline integration cases: {len(cases)}; skipped: {skipped}; failed: {failed}"); raise SystemExit(0 if len(cases) == expected and skipped == 0 and failed == 0 else 1)' \
+  "${unified_report}"

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from exitspec import source_authoring_launch as launch
 from exitspec import source_authoring_live_worker as worker
 from exitspec import source_authoring_supervisor as supervisors
 from exitspec.canonical import canonical_json_bytes
@@ -25,6 +26,11 @@ from exitspec.source_authoring_ipc import (
 )
 from exitspec.source_authoring_live_ipc import encode_live_frame, read_live_frame
 from exitspec.source_authoring_pins import REQUEST_PROFILE_JSON
+from tests.helpers.source_authoring_admission import (
+    bound_lease,
+    fake_profile,
+    install_fake_profile,
+)
 
 
 def body(text="Literal synthetic source only."):
@@ -43,14 +49,13 @@ def admission(request):
         "operation": "operation_test",
         "body_sha256": body_digest(request),
         "profile_sha256": worker.PROFILE_SHA256,
-        "launch_profile_sha256": "d" * 64,
+        "launch_profile_sha256": fake_profile().launch_profile_sha256,
         "credential_generation": 1,
         "code_revision": "e" * 40,
     }
 
 
 def ready(monkeypatch, scenario="success", seconds=3, request=None):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
     launches = []
 
     def spawn(self, fd):
@@ -73,7 +78,7 @@ def ready(monkeypatch, scenario="success", seconds=3, request=None):
         return subprocess.Popen(args, **kwargs)
 
     monkeypatch.setattr(supervisors._BoundedLiveSupervisor, "_spawn", spawn)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
     request = body() if request is None else request
     binding = instance.prepare(admission(request), time.monotonic() + seconds)
     return instance, binding, request, launches
@@ -108,7 +113,7 @@ def test_installed_default_refuses_before_any_side_effect(monkeypatch):
     monkeypatch.setenv("EXITSPEC_LIVE_PROFILE", "fake")
     monkeypatch.setenv("FIREWORKS_API_KEY", "SYNTHETIC-KEY")
     monkeypatch.setattr(sys, "argv", ["worker", "--fake", "--profile=fake"])
-    assert worker._PRODUCTION_PROFILES == ()
+    assert launch._PRODUCTION_PROFILES == ()
     assert worker.main() == 2
     with pytest.raises(SourceAuthoringWorkerError):
         supervisors._BoundedLiveSupervisor()
@@ -328,6 +333,7 @@ def test_stalled_ticket_reader_handoff_stops_within_one_second(monkeypatch):
 def test_private_protocol_rejects_both_pipes_before_transport(monkeypatch, fault):
     from exitspec.source_authoring_live_ipc import LiveBinding
 
+    profile = install_fake_profile(monkeypatch)
     request = body()
     binding = LiveBinding(**admission(request), generation="1" * 64, nonce="2" * 64)
     deadline = time.monotonic() + 1.5
@@ -341,7 +347,7 @@ def test_private_protocol_rejects_both_pipes_before_transport(monkeypatch, fault
 
     def child():
         try:
-            worker._run_protocol(input_read, output_write)
+            worker._run_protocol(profile, input_read, output_write)
         except (SourceAuthoringWorkerError, OSError):
             failed.append(True)
         finally:
@@ -406,8 +412,7 @@ def test_private_protocol_rejects_both_pipes_before_transport(monkeypatch, fault
 
 @pytest.mark.parametrize("observed", [False, True])
 def test_single_cleanup_owner_bounded_term_kill_and_unknown_slot(monkeypatch, observed):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
     actions = []
 
     class Process:
@@ -453,8 +458,7 @@ def test_single_cleanup_owner_bounded_term_kill_and_unknown_slot(monkeypatch, ob
 
 
 def test_startup_failure_closes_both_inherited_pipe_ends(monkeypatch):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
     inherited = []
 
     def fail(self, fd):
@@ -472,8 +476,7 @@ def test_startup_failure_closes_both_inherited_pipe_ends(monkeypatch):
 
 
 def test_partial_nonblocking_writes_preserve_exact_wire_and_chunk_cap(monkeypatch):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
     read_fd, write_fd = os.pipe()
     stream = os.fdopen(write_fd, "wb", buffering=0)
     sizes, captured = [], bytearray()
@@ -501,8 +504,7 @@ def test_partial_nonblocking_writes_preserve_exact_wire_and_chunk_cap(monkeypatc
 
 
 def test_prepared_live_profile_mismatch_fails_before_pipe(monkeypatch):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
     calls = []
     monkeypatch.setattr(os, "pipe", lambda: calls.append(True))
     fields = admission(body()) | {"profile_sha256": "0" * 64}

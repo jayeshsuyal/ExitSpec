@@ -1,7 +1,7 @@
 """Disabled installed live entrypoint; private protocol is exercised by fake tests.
 
-Production admission intentionally always refuses before touching descriptors,
-secret input, processes or networking. ZF3b authority wiring is not implemented.
+Production admission refuses before descriptor access while the central
+qualified-profile registry is empty. No command-line or environment admission.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import stat
 import sys
 import time
 
+from . import source_authoring_launch as _launch
 from .source_authoring_ipc import (
     SourceAuthoringWorkerError,
     body_digest,
@@ -27,22 +28,22 @@ from .source_authoring_live_ipc import (
 from .source_authoring_policy import PROFILE_SHA256
 from .source_authoring_transport import _post_exact, validate_request_body
 
-_PRODUCTION_PROFILES = ()
-
 
 def _require_production_profile():
-    # There is deliberately no argument/configuration/registration mechanism.
-    # A future reviewed issuer must bind an approved profile and exact revision.
-    raise SourceAuthoringWorkerError("live_prerequisites_missing")
+    try:
+        return _launch._require_worker_profile()
+    except _launch.SourceAuthoringLaunchError:
+        raise SourceAuthoringWorkerError("live_prerequisites_missing") from None
 
 
 def run():
-    _require_production_profile()
-    _run_protocol()
+    profile = _require_production_profile()
+    _run_protocol(profile)
 
 
-def _run_protocol(input_fd=0, output_fd=1):
+def _run_protocol(profile, input_fd=0, output_fd=1):
     """Private mechanism only. Tests replace transport inside a test-only child."""
+    _launch._require_profile(profile)
     credential_fd = None
     credential = b""
     try:
@@ -54,6 +55,7 @@ def _run_protocol(input_fd=0, output_fd=1):
         binding = live_binding_from(metadata["binding"])
         if binding.profile_sha256 != PROFILE_SHA256:
             raise SourceAuthoringWorkerError("worker_profile")
+        _launch._check_worker_binding(profile, binding)
         deadline = check_deadline(metadata["deadline"], admission=True)
         candidate_fd = metadata["credential_fd"]
         if candidate_fd in {input_fd, output_fd} or not stat.S_ISFIFO(

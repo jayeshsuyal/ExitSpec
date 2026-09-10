@@ -8,6 +8,7 @@ control outside all owner locks and retains the slot until observed exit.
 
 from __future__ import annotations
 
+import hmac
 import os
 import secrets
 import select
@@ -19,6 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import source_authoring_launch as _launch
 from . import source_authoring_live_worker as _live_worker
 from .source_authoring_ipc import (
     MAX_BODY_BYTES,
@@ -399,15 +401,16 @@ class _LiveStageGuard:
 
 
 class _BoundedLiveSupervisor:
-    """Separate disabled mechanism, awaiting ZF3b issuer/engine composition.
+    """Fixed live mechanism admitted only through a sealed issuer lease.
 
     The only successful admission currently lives in test monkeypatches.
     No public option, environment field or synthetic claim activates this class.
     D/F remain the operation owner's responsibility; this class cannot publish.
     """
 
-    def __init__(self):
-        _live_worker._require_production_profile()
+    def __init__(self, *, lease=None):
+        self._lease = lease
+        self._check_launch()
         self._lock = threading.RLock()
         self._io_lock = threading.Lock()
         self._state = "NEW"
@@ -419,6 +422,23 @@ class _BoundedLiveSupervisor:
         self._reading = False
         self._cancelled = threading.Event()
         self._exited = threading.Event()
+
+    def _check_launch(self, binding=None, credential=None):
+        try:
+            with _launch._lease_guard(self._lease) as record:
+                if binding is not None and (
+                    binding.epoch != record.epoch or binding.grant != record.grant
+                    or binding.profile_sha256 != _live_worker.PROFILE_SHA256
+                    or binding.launch_profile_sha256 != record.profile.launch_profile_sha256
+                    or binding.code_revision != record.profile.code_revision
+                    or binding.credential_generation != record.generation
+                ):
+                    raise _launch.SourceAuthoringLaunchError()
+                if credential is not None and (type(credential) is not bytes
+                    or not hmac.compare_digest(credential, record.credential)):
+                    raise _launch.SourceAuthoringLaunchError()
+        except _launch.SourceAuthoringLaunchError:
+            raise SourceAuthoringWorkerError("live_prerequisites_missing") from None
 
     @property
     def slot_occupied(self):
@@ -468,6 +488,7 @@ class _BoundedLiveSupervisor:
         )
         if bound.profile_sha256 != _live_worker.PROFILE_SHA256:
             raise SourceAuthoringWorkerError("worker_profile")
+        self._check_launch(bound)
         with self._lock:
             if self._state != "NEW":
                 raise SourceAuthoringWorkerError("worker_state")
@@ -536,6 +557,7 @@ class _BoundedLiveSupervisor:
             raise SourceAuthoringWorkerError("worker_ticket")
         validate_request_body(body)
         validate_credential(credential)
+        self._check_launch(binding, credential)
         with self._lock:
             if (
                 self._state != "READY_NO_SEND"
@@ -566,6 +588,7 @@ class _BoundedLiveSupervisor:
 
     @contextmanager
     def dispatch_guard(self, ticket):
+        self._check_launch(self._binding)
         with self._lock:
             if (
                 self._state != "READY_NO_SEND"
@@ -618,6 +641,7 @@ class _BoundedLiveSupervisor:
                     pass
 
     def handoff(self):
+        self._check_launch(self._binding)
         with self._lock:
             if (
                 self._state != "DISPATCH_AUTHORIZED"
@@ -635,11 +659,13 @@ class _BoundedLiveSupervisor:
         failed = False
         try:
             handoff_deadline = min(ticket.deadline, time.monotonic() + 1)
+            self._check_launch(ticket.binding)
             self._write_parent(process.stdin, ticket.wire, handoff_deadline)
             self._close_writer(process.stdin)
             # Rotation/revocation use cancel; no replacement generation is accepted.
             if self._cancelled.is_set():
                 raise SourceAuthoringWorkerError("worker_state")
+            self._check_launch(ticket.binding)
             self._write_parent(
                 self._credential_writer, credential_wire, handoff_deadline
             )
@@ -654,6 +680,7 @@ class _BoundedLiveSupervisor:
             raise SourceAuthoringWorkerError("worker_handoff")
 
     def collect(self):
+        self._check_launch(self._binding)
         with self._lock:
             if self._state != "HANDED_OFF" or self._cancelled.is_set():
                 raise SourceAuthoringWorkerError("worker_state")

@@ -14,6 +14,7 @@ from exitspec import source_authoring_transport as transport
 from exitspec.canonical import canonical_json_bytes
 from exitspec.source_authoring_ipc import SourceAuthoringWorkerError
 from exitspec.source_authoring_pins import REQUEST_PROFILE_JSON
+from tests.helpers.source_authoring_admission import bound_lease, fake_profile
 
 
 class FakeReadPipe(io.BytesIO):
@@ -26,8 +27,7 @@ class FakeReadPipe(io.BytesIO):
 def test_active_reader_closes_pipe_even_when_child_exit_is_unobserved(
     monkeypatch, exit_observed
 ):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
 
     class FakeProcess:
         def __init__(self):
@@ -90,8 +90,7 @@ def test_active_reader_closes_pipe_even_when_child_exit_is_unobserved(
 def test_prepare_startup_failure_closes_stdout_after_reader_unwinds(
     monkeypatch, exit_observed
 ):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
 
     class StartupFaultProcess:
         # stdin.fileno() raises, modeling failure after spawn and before watcher
@@ -123,7 +122,7 @@ def test_prepare_startup_failure_closes_stdout_after_reader_unwinds(
         "operation": "operation_test",
         "body_sha256": "c" * 64,
         "profile_sha256": worker.PROFILE_SHA256,
-        "launch_profile_sha256": "d" * 64,
+        "launch_profile_sha256": fake_profile().launch_profile_sha256,
         "credential_generation": 1,
         "code_revision": "e" * 40,
     }
@@ -321,8 +320,7 @@ def test_regression_body_reads_receive_remaining_socket_timeout(monkeypatch, clo
 
 
 def test_harmless_ready_reap_timeout_keeps_preparation_pipes_open(monkeypatch):
-    monkeypatch.setattr(worker, "_require_production_profile", lambda: None)
-    instance = supervisors._BoundedLiveSupervisor()
+    instance = supervisors._BoundedLiveSupervisor(lease=bound_lease(monkeypatch))
 
     class PreparedProcess:
         stdin = io.BytesIO()

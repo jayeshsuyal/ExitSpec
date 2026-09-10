@@ -385,3 +385,151 @@ def validate_output(raw_json: bytes, source: POCSourceSnapshot) -> SourceNeutral
     if failed:
         raise SourceAuthoringPolicyError("invalid_output") from None
     return batch
+
+
+class _LiveSourceAuthoringPolicy(_Immutable):
+    """Detached fixed policy metadata; only an issuer lease supplies authority."""
+
+    profile_sha256: Literal[PROFILE_SHA256] = PROFILE_SHA256
+    model: Literal[MODEL] = MODEL
+    endpoint: Literal[ENDPOINT] = ENDPOINT
+    schema_sha256: Literal[SCHEMA_SHA256] = SCHEMA_SHA256
+    header_policy_sha256: Literal[HEADER_POLICY_SHA256] = HEADER_POLICY_SHA256
+    redaction_configuration_digest: Literal[REDACTION_CONFIGURATION_DIGEST] = REDACTION_CONFIGURATION_DIGEST
+    launch_profile_sha256: Digest
+    code_revision: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+    approval_id: Identity
+    tokenizer_identity: Identity
+    pricing_approval: Identity
+    custody_approval: Identity
+    region_policy: Identity
+    consent_ttl_seconds: Literal[300] = 300
+    request_budget_usd: Literal["0.01"] = "0.01"
+    launch_budget_usd: Literal["0.10"] = "0.10"
+    network_enabled: Literal[True] = True
+
+    @field_validator("network_enabled", "consent_ttl_seconds", mode="before")
+    @classmethod
+    def exact_live_literals(cls, value, info):
+        expected = bool if info.field_name == "network_enabled" else int
+        if type(value) is not expected:
+            raise ValueError("Exact live policy literal required.")
+        return value
+
+    @property
+    def digest(self):
+        if type(self) is not _LiveSourceAuthoringPolicy:
+            raise SourceAuthoringPolicyError()
+        checked = _LiveSourceAuthoringPolicy.model_validate(self.model_dump(warnings=False))
+        return sha256(b"exitspec-live-source-policy-v1\0" + canonical_bytes(checked.model_dump(warnings=False)))
+
+
+class _LiveSourceAuthoringIntent(_Immutable):
+    """Live source/body/consent binding; contains no secret or authority handle."""
+
+    server_epoch: Identity
+    browser_session_id: Identity
+    idempotency_id: Digest
+    consent_generation: int = Field(ge=0, le=9007199254740991)
+    operation_id: Identity
+    draft_generation: Identity
+    poc_id: Identity
+    source_receipt_id: Identity
+    source_id: Identity
+    source_revision: int = Field(ge=1, le=9007199254740991)
+    source_kind: Literal["EMAIL", "MEETING", "DOCUMENT", "EXISTING_CONTRACT"]
+    content_classification: Literal["OWNER_APPROVED_REDACTED_BUSINESS_TEXT"]
+    source_adapter_name: Identity
+    source_adapter_version: Identity
+    source_sha256: Digest
+    redaction_policy_version: Identity
+    redaction_configuration_digest: Literal[REDACTION_CONFIGURATION_DIGEST] = REDACTION_CONFIGURATION_DIGEST
+    policy: _LiveSourceAuthoringPolicy
+    policy_digest: Digest
+    body_sha256: Digest
+    header_policy_digest: Literal[HEADER_POLICY_SHA256] = HEADER_POLICY_SHA256
+    credential_configuration_generation: int = Field(ge=1, le=9007199254740991)
+    verified_input_tokens: int = Field(ge=1, le=8192)
+    verified_token_digest: Digest
+    launch_grant_id: Identity
+    disclosure_version: Literal["source-authoring-disclosure-r2"] = "source-authoring-disclosure-r2"
+    disclosure_digest: Digest
+    issued_at: float = Field(ge=0)
+    expires_at: float = Field(ge=0)
+    issued_monotonic: float = Field(ge=0)
+    expires_monotonic: float = Field(ge=0)
+    acknowledged: Literal[True]
+    acknowledged_at: float = Field(ge=0)
+
+    @field_validator("acknowledged", mode="before")
+    @classmethod
+    def exact_live_acknowledgement(cls, value):
+        if value is not True:
+            raise ValueError("Exact acknowledgement required.")
+        return value
+
+    @field_validator("issued_at", "expires_at", "issued_monotonic", "expires_monotonic", "acknowledged_at", mode="before")
+    @classmethod
+    def exact_live_clock(cls, value):
+        if type(value) is not float:
+            raise ValueError("Clock binding requires a finite float.")
+        return value
+
+    @model_validator(mode="after")
+    def consistent_live_binding(self):
+        if (self.policy_digest != self.policy.digest
+            or self.expires_at != self.issued_at + 300
+            or self.expires_monotonic != self.issued_monotonic + 300
+            or not self.issued_at <= self.acknowledged_at < self.expires_at):
+            raise ValueError("Inconsistent live authorization binding.")
+        return self
+
+    @property
+    def digest(self):
+        if type(self) is not _LiveSourceAuthoringIntent:
+            raise SourceAuthoringPolicyError()
+        checked = _LiveSourceAuthoringIntent.model_validate(self.model_dump(warnings=False))
+        return sha256(b"exitspec-live-source-intent-v1\0" + canonical_bytes(checked.model_dump(warnings=False)))
+
+
+def _build_live_intent(source, *, body, policy, token_metadata, **bindings):
+    try:
+        if type(policy) is not _LiveSourceAuthoringPolicy or type(body) is not bytes or body != build_body(source):
+            raise ValueError()
+        if (type(token_metadata) is not dict
+            or set(token_metadata) != {"body_sha256", "input_tokens", "tokenizer_identity", "credential_generation"}
+            or token_metadata["body_sha256"] != body_digest(body)
+            or token_metadata["tokenizer_identity"] != policy.tokenizer_identity
+            or token_metadata["credential_generation"] != bindings["credential_configuration_generation"]):
+            raise ValueError()
+        expected_receipt = "srcpt_" + source.source_id.removeprefix("src_")
+        if bindings.pop("source_receipt_id", expected_receipt) != expected_receipt:
+            raise ValueError()
+        return _LiveSourceAuthoringIntent(
+            poc_id=source.poc_id, source_receipt_id=expected_receipt,
+            source_id=source.source_id, source_revision=source.source_revision,
+            source_kind=source.kind.value, source_adapter_name=source.adapter_name,
+            source_adapter_version=source.adapter_version, source_sha256=source.content_sha256,
+            redaction_policy_version=source.redaction_policy_version,
+            policy=policy, policy_digest=policy.digest, body_sha256=body_digest(body),
+            verified_input_tokens=token_metadata["input_tokens"],
+            verified_token_digest=sha256(b"exitspec-live-token-binding-v1\0" + canonical_bytes(token_metadata)),
+            **bindings,
+        )
+    except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError):
+        raise SourceAuthoringPolicyError("invalid_live_binding") from None
+
+
+def _validate_live_intent(intent, source, body, policy, token_metadata):
+    try:
+        if type(intent) is not _LiveSourceAuthoringIntent:
+            raise ValueError()
+        source_fields = {"poc_id", "source_receipt_id", "source_id", "source_revision", "source_kind",
+                         "source_adapter_name", "source_adapter_version", "source_sha256",
+                         "redaction_policy_version", "policy", "policy_digest", "body_sha256",
+                         "verified_input_tokens", "verified_token_digest"}
+        bindings = {key: value for key, value in intent.model_dump(warnings=False).items() if key not in source_fields}
+        if _build_live_intent(source, body=body, policy=policy, token_metadata=token_metadata, **bindings) != intent:
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError):
+        raise SourceAuthoringPolicyError("live_intent_mismatch") from None

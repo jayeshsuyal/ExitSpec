@@ -1,4 +1,4 @@
-"""Same-origin, process-local UI adapter for synthetic source authoring only."""
+"""Same-origin source-authoring UI; its server installation selects the realm."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from threading import RLock, Thread
 from time import monotonic
 from urllib.parse import urlparse
 
+from . import source_authoring_launch as launch
 from .assisted_authoring import ASSISTED_AUTHORING_SCHEMA_VERSION
 from .source_authoring_operations import (
     AuthorizedSourceAuthoringRequest,
@@ -20,6 +21,7 @@ from .source_authoring_operations import (
     SourceAuthoringDisclosure,
     SourceAuthoringOperationError,
     SyntheticBrowserSession,
+    create_live_source_authoring_operations,
 )
 from .source_authoring_owners import SourceAuthoringOwners, SourceAuthoringOwnersError
 from .source_authoring_policy import MODEL, SourceAuthoringPolicyError, build_body
@@ -71,13 +73,13 @@ class _Browser:
 
 
 class SourceAuthoringWebRuntime:
-    """One synthetic grant/worker/ledger shared by every POC and browser page.
+    """One installed grant/worker/ledger shared by every POC and browser page.
 
     The wrapper stores handles and content-free metadata only. Source snapshots
     are obtained from the core at each preview/run and never retained here.
     """
 
-    def __init__(self, *, drafts, intake, assisted, review, closure):
+    def __init__(self, *, drafts, intake, assisted, review, closure, installation=None):
         self._drafts, self._intake, self._closure = drafts, intake, closure
         self._owners = SourceAuthoringOwners(
             source_intake=intake,
@@ -86,7 +88,11 @@ class SourceAuthoringWebRuntime:
             review=review,
             run_if_open=closure.run_if_open,
         )
-        self.operations = ProcessLocalSourceAuthoringOperations(owners=self._owners)
+        self.operations = (
+            ProcessLocalSourceAuthoringOperations(owners=self._owners) if installation is None else
+            create_live_source_authoring_operations(owners=self._owners, installation=installation)
+        )
+        self._installation = installation
         self._lock = RLock()
         self._browsers: list[_Browser] = []
         self._running: str | None = None
@@ -94,7 +100,18 @@ class SourceAuthoringWebRuntime:
         self._closed = False
 
     def __repr__(self):
-        return "<SourceAuthoringWebRuntime synthetic-only>"
+        return "<SourceAuthoringWebRuntime private>"
+
+    @property
+    def mode(self):
+        lease = self.operations._live_lease
+        if lease is None:
+            return MODE
+        with launch._lease_guard(lease, self._owners):
+            mode = launch._display_mode(lease)
+            if mode not in {"QUALIFIED_FIREWORKS", "OFFLINE_FAKE_FIREWORKS"}:
+                raise SourceAuthoringWebError("RUNTIME_CLOSED")
+            return mode
 
     def close(self):
         with self._lock:
@@ -102,6 +119,8 @@ class SourceAuthoringWebRuntime:
             self.operations.shutdown()
             self._browsers.clear()
             thread = self._thread
+        if self._installation is not None:
+            launch._close_install(self._installation)
         if thread is not None:
             thread.join(timeout=2)
 
@@ -125,22 +144,23 @@ class SourceAuthoringWebRuntime:
         draft = self._active_draft(poc_id)
         secret = secrets.token_bytes(32)
         browser = _Browser(
-            secret, self.operations.new_synthetic_session(), poc_id
+            secret, (self.operations.new_synthetic_session() if self.operations._live_lease is None
+                     else self.operations.new_live_session()), poc_id
         )
         self._browsers.append(browser)
         return {
             "schema_version": "exitspec.source-authoring-web/1",
             "capability": secret.hex(),
-            "mode": MODE,
+            "mode": self.mode,
             "poc_id": poc_id,
             "display_name": draft.display_name,
-            "live_enabled": False,
+            "live_enabled": self.mode == "QUALIFIED_FIREWORKS",
             "live_missing": [
                 "live_worker_and_operator_launcher",
                 "owner_launch_approval",
                 "model_schema_token_and_billing_proof",
                 "account_pricing_and_custody_approval",
-            ],
+            ] if self.mode == MODE else [],
         }
 
     def request(self, poc_id, action, payload, capability=None):
@@ -186,7 +206,7 @@ class SourceAuthoringWebRuntime:
                             "eligible": eligible,
                         }
                     )
-                return {"mode": MODE, "poc_id": poc_id, "sources": rows}
+                return {"mode": self.mode, "poc_id": poc_id, "sources": rows}
             if action == "prepare":
                 source_id = payload["source_receipt_id"]
                 if type(source_id) is not str or _RECEIPT.fullmatch(source_id) is None:
@@ -235,7 +255,7 @@ class SourceAuthoringWebRuntime:
         )
         claims, reserved = self.operations.ledger
         result = {
-            "mode": MODE,
+            "mode": self.mode,
             "poc_id": browser.poc_id,
             "operation_id": receipt.operation_id,
             "state": receipt.state,
@@ -261,7 +281,13 @@ class SourceAuthoringWebRuntime:
                 "provider": "fireworks",
                 "model": MODEL,
                 "purpose": "Draft proposals for human review from this exact redacted source.",
-                "custody": "This synthetic run stays on this computer. The future global provider profile has no regional guarantee; external data handling approval is still required.",
+                "custody": (
+                    "This synthetic run stays on this computer. The future global provider profile has no regional guarantee; external data handling approval is still required."
+                    if self.mode == MODE else
+                    "Offline fake transport only. No provider call, account qualification or regional data handling guarantee has been tested."
+                    if self.mode == "OFFLINE_FAKE_FIREWORKS" else
+                    "This exact redacted source will be sent to Fireworks under the admitted account and data handling approval. The global endpoint provides no regional guarantee."
+                ),
                 "limits": {
                     "source_bytes": 16384,
                     "body_bytes": 65536,
@@ -288,32 +314,35 @@ class SourceAuthoringWebRuntime:
             raise SourceAuthoringWebError("ACKNOWLEDGEMENT_REQUIRED")
         if self._running is not None:
             raise SourceAuthoringWebError("WORKER_BUSY", HTTPStatus.TOO_MANY_REQUESTS)
-        # The fixed local fixture copies existing source-owner requirements. It
-        # never invokes an executor/provider and is validated again after IPC.
-        response = json.dumps(
-            {
-                "schema_version": ASSISTED_AUTHORING_SCHEMA_VERSION,
-                "proposals": [
-                    {
-                        "proposal_key": f"synthetic-{index}",
-                        "source_quote": candidate.source_quote,
-                        "normalized_claim": candidate.normalized_claim,
-                        "numeric_facts": None,
-                    }
-                    for index, candidate in enumerate(snapshot.source.candidates)
-                ],
-            },
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-        worker = SyntheticSourceAuthoringSupervisor(synthetic_response=response)
+        worker = None
+        if self.operations._live_lease is None:
+            # The fixed local fixture copies existing source-owner requirements. It
+            # never invokes an executor/provider and is validated again after IPC.
+            response = json.dumps(
+                {
+                    "schema_version": ASSISTED_AUTHORING_SCHEMA_VERSION,
+                    "proposals": [
+                        {
+                            "proposal_key": f"synthetic-{index}",
+                            "source_quote": candidate.source_quote,
+                            "normalized_claim": candidate.normalized_claim,
+                            "numeric_facts": None,
+                        }
+                        for index, candidate in enumerate(snapshot.source.candidates)
+                    ],
+                },
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+            worker = SyntheticSourceAuthoringSupervisor(synthetic_response=response)
         operation_id = entry.disclosure.operation_id
 
         def execute():
             try:
-                self.operations.execute_synthetic(
-                    browser.session, entry.permit, worker=worker
-                )
+                if self.operations._live_lease is None:
+                    self.operations.execute_synthetic(browser.session, entry.permit, worker=worker)
+                else:
+                    self.operations.execute_live(browser.session, entry.permit)
             except Exception as error:  # noqa: BLE001 - never expose private execution details
                 with self._lock:
                     entry.error = (

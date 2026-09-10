@@ -1,14 +1,23 @@
-# Source authoring: synthetic UI/API checkpoint
+# Unified source authoring with offline integration evidence
 
-This milestone connects the accepted core at
-`168d435b41f74eff6c56c2ec3aeec8634fa92ec2` to both installed app server
-compositions. Real activation still rejects unconditionally. There is no live
-worker, operator launcher, credential input or provider connection in this flow.
+The `--source-neutral` server composes native Zoom capture and source-bound
+Fireworks authoring into the existing review, planning, agreement, evidence and
+handoff owners. MAIN keeps its existing routes and synthetic authoring behavior.
+The source-authoring production registry is empty, and the installed default is
+`SYNTHETIC_NO_NETWORK`. There is no admitted profile or qualified real tokenizer
+implementation in this candidate. Real account, key, Zoom entitlement, model,
+billing, custody and region prerequisites have not been inspected or qualified.
+
+A private offline test composition exercises the complete installed wiring with
+fake Zoom, fake credentials and a network-disabled Fireworks-shaped child. Its
+page says `OFFLINE_FAKE_FIREWORKS`; it does not claim live provider qualification.
+A separately qualified future installation would use `QUALIFIED_FIREWORKS`.
+No browser field selects a realm or installs a launch.
 
 ## Product path
 
-After capture, open the existing human-review page and choose **Inspect source
-for synthetic proposals**. The page at `/app/pocs/{poc_id}/source-authoring`:
+After capture, open source inspection from the existing human-review page.
+The page at `/app/pocs/{poc_id}/source-authoring`:
 
 1. Lists current meeting text, email, document and existing-contract receipts.
    Reviewed, stale, archived, closed or oversized sources cannot be selected for
@@ -19,10 +28,11 @@ for synthetic proposals**. The page at `/app/pocs/{poc_id}/source-authoring`:
 3. Requires two explicit attestations: permitted redacted business-text
    classification and acknowledgment of this source disclosure. The five-minute
    expiry starts at preparation and is not extended by acknowledgment.
-4. Requires a separate **Run synthetic validation** action. A single background
-   thread uses the fixed synthetic supervisor and core D/F guards. Its local
-   fixture consists of existing source-owner requirement candidates, validated
-   again after bounded IPC. This tests custody and publication, not model quality.
+4. Requires a separate Run action whose label identifies the server-installed
+   mode. The default synthetic fixture uses existing source-owner candidates.
+   The sealed Fireworks branch uses the fixed live supervisor and never builds
+   that synthetic fixture. Both use one claim/dispatch/publication/cleanup engine.
+   Offline transport tests prove integration behavior, not model quality.
 5. Polls current status and exposes consent revocation/cancellation. Success opens
    the existing human-review queue. Proposals remain `NEEDS_REVIEW`; the existing
    named-reviewer decision is still required. No automatic confirmation, freeze,
@@ -45,7 +55,7 @@ the browser supplies Origin consistently; reads never claim or execute work.
 | `prepare` | `source_receipt_id` | Prepares the selected source's disclosure |
 | `preview` | `operation_id` | Revalidates and returns exact current disclosure text |
 | `authorize` | `operation_id`, literal `business_text: true`, literal `acknowledged: true`, bounded `idempotency_key` | Issues/replays the server-owned permit; no execution |
-| `run` | `operation_id` | Schedules at most one synthetic attempt |
+| `run` | `operation_id` | Schedules at most one attempt in the installed realm |
 | `status` | `operation_id` | Revalidates current consent and returns content-free status |
 | `revoke` | `operation_id` | Revokes this session's disclosure/operation |
 
@@ -85,8 +95,8 @@ is preserved.
 Bootstrap grants page access, not a live grant. There is no HTTP grant creation,
 reset, renewal, credential input, policy/model/endpoint selection, arbitrary body
 submission or network-mode option. One core ledger spans all POCs/pages: one
-worker, ten claims, ten seconds between claims and nonrefunded $0.01 synthetic
-reservations. These reservations are not proof of billing bounds. Capacity
+worker, ten claims, ten seconds between claims and nonrefunded $0.01
+reservations. Offline reservations are not proof of real billing bounds. Capacity
 exhaustion refuses new sessions/operations without evicting consumed permits.
 This remains a single-user loopback trust boundary, not account authentication.
 
@@ -94,8 +104,10 @@ This remains a single-user loopback trust boundary, not account authentication.
 
 The UI bridge preserves `mode-heading` and adds `source-mode-copy` and
 `source-live-missing`. Mode copy stays neutral until bootstrap validates the
-exact four unique known `live_missing` reasons; displayed explanations come
-from fixed local copy. Unknown, duplicate or missing reasons fail closed.
+exact server-derived mode/readiness shape. The installed synthetic mode has
+four unique known `live_missing` reasons; admitted and offline fake modes have
+none. Fixed local copy distinguishes them. Unknown or contradictory fields
+fail closed; fake transport is never displayed as live qualification.
 `source-selection-reason`, `source-ack-reason` and `source-run-reason` are visible
 `aria-describedby` targets driven by the same predicates as their controls.
 Unchanged descriptions are not rewritten on polling. Pending Run never disables
@@ -111,7 +123,7 @@ requirements retain their existing meanings.
 
 The dedicated bridge browser collection requires exactly 210 cases with zero
 skips, failures or errors, in addition to the existing 19 source-authoring and
-32 other mandatory cases (51 preserved cases in total). It covers bootstrap validation, accessible state
+54 other preserved mandatory cases (73 preserved cases in total). It covers bootstrap validation, accessible state
 descriptions, repeated announcements, lifecycle reset, pending-Run cancellation
 and A2/A3/mixed review copy in both compositions, real named decisions, slot
 accounting, completion routes and provenance failures.
@@ -241,21 +253,44 @@ named A3 review, separately entered HUMAN_DECLARED planning, confirmation,
 freeze, supported deterministic proof and named terminal handoff. Unsupported
 advisory and excluded scope remains unproven. Set
 `EXITSPEC_SYNTHETIC_DEMO_EVIDENCE` to an external output directory to record its
-screenshots and content-free request/authority summary. Native Zoom is not
-composed into this server, and this rehearsal makes no live provider, spend,
-deployment or shipping claim.
+screenshots and content-free request/authority summary. That document rehearsal
+remains separate from the new unified native-Zoom rehearsal, and neither makes
+a live provider, spend, deployment or shipping claim.
 
-## Next proposed checkpoint
+## Operator and unified browser path
 
-After exact-head acceptance of this UI/API milestone, implement and review the
-fixed live worker and explicit local operator launcher as a separate bounded
-change, initially tested entirely with synthetic transport. Preserve the accepted
-source/body/profile bindings, one-use ticket, total deadline, dispatch/publication
-ordering, cancellation, actual-wire bounds and retained attempt ledger.
+`python -m exitspec.source_authoring_operator --approval-id <compiled-id>
+--port <local-port> --output-root <absolute-path>` is the bounded local operator
+entrypoint. With the installed empty registry it returns a fixed refusal before
+TTY input, credential reads, file verification, runtime, pipe or socket effects.
+There is no profile file, fake flag, secret CLI option or environment fallback.
 
-Do not activate it without separately verified model/full-schema acceptance,
-tokenizer/template and total billable-token bounds, current pricing/account/rate/
-logging conditions, custody/region approval, configured credentials and an
-explicit owner launch budget. Account/API/token probes, private capture reads,
-tokenizer downloads, provider calls, spending and real E2E require their later
-explicit owner approvals. Deployment, merge, tags and release remain separate.
+An admitted launch is checked before terminal input and again afterward. The
+controlling terminal uses bounded no-echo input and restores its state on exit.
+Each response is submitted with Ctrl-J (LF); CR and credential repair are refused.
+One sealed launch installs once on one SourceNeutral server. The operator pairs
+Zoom on that same server and exact POC through the shared local pairing helper.
+Zoom prerequisites/participant capture consent and Fireworks launch/exact-source
+egress consent remain separate. Rekeying requires a new launch and new consent.
+
+SourceNeutral renders fixed display hints for the existing native Zoom panel on
+both `/sources/new` and `/capture`. Other meeting/STT compatibility endpoints are
+not probed there. The existing paste input remains available. These hints do not
+authorize pairing, capture or provider execution; MAIN retains its current behavior.
+
+The unified browser test creates one POC, captures a bounded fake native Zoom
+window, inspects the exact redacted source, acknowledges separately, runs one
+fake Fireworks attempt and completes the existing named review → HUMAN_DECLARED
+plan → customer confirmation/freeze → supported deterministic proof → named
+non-authorizing handoff. `EXITSPEC_UNIFIED_DEMO_EVIDENCE` writes screenshots and
+its request/provenance record to an external evidence directory.
+
+The release wrapper preserves the earlier 358 mandatory cases, accepted 202
+transport cases, and adds 248 unified admission/operator/engine/web/Zoom/browser
+cases, all required to have zero skips/errors/failures. The actual final run,
+commit/tree and artifact binding determine acceptance, not this collection count.
+
+Real qualification, production-profile population, provider/Zoom activity,
+credential/account inspection, downloads, spend, publishing and shipping remain
+separate work requiring explicit authorization. Offline success does not prove
+real-account readiness or imply missing real-account permissions.

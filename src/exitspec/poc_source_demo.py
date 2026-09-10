@@ -27,6 +27,7 @@ from urllib.parse import parse_qsl, unquote, urlparse
 
 from pydantic import ValidationError
 
+from . import source_authoring_launch as _source_launch
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
 from .evidence_pack_library import EvidencePackLibraryProjection
@@ -214,7 +215,12 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         static_root: Path = STATIC_ROOT,
         assisted_authoring_executor: Any | None = None,
         evidence_artifact_root: Path | None = None,
+        source_authoring_launch=None,
     ) -> None:
+        self._source_authoring_install = (
+            None if source_authoring_launch is None else
+            _source_launch._reserve_runtime_install(source_authoring_launch)
+        )
         self.source_authoring_web = None
         self.zoom_live_runtime = None
         self._owned_evidence_artifact_root = None
@@ -294,6 +300,7 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
             drafts=self.draft_poc_service, intake=self.poc_source_intake,
             assisted=self.assisted_authoring_service, review=self.proposal_review_service,
             closure=self.poc_closure_service,
+            installation=self._source_authoring_install,
         )
         self.zoom_live_runtime = ZoomLiveRuntime(
             drafts=self.draft_poc_service, intake=self.poc_source_intake,
@@ -314,12 +321,16 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
                     self.source_authoring_web.close()
             finally:
                 try:
-                    if getattr(self, "socket", None) is not None:
-                        super().server_close()
+                    if self._source_authoring_install is not None:
+                        _source_launch._close_install(self._source_authoring_install)
                 finally:
-                    if self._owned_evidence_artifact_root is not None:
-                        self._owned_evidence_artifact_root.cleanup()
-                        self._owned_evidence_artifact_root = None
+                    try:
+                        if getattr(self, "socket", None) is not None:
+                            super().server_close()
+                    finally:
+                        if self._owned_evidence_artifact_root is not None:
+                            self._owned_evidence_artifact_root.cleanup()
+                            self._owned_evidence_artifact_root = None
 
     def _frozen_contract_for_evidence(self, poc_id: str):
         snapshot = self.agreement_service.snapshot(poc_id)
@@ -1169,6 +1180,15 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
             return
         data = target.read_bytes()
+        if relative == "source_intake.html":
+            # Fixed composition hints only. Pairing and consent stay server-owned.
+            body_marker = b"<body>"
+            zoom_marker = b'data-zoom-live-enabled="false"'
+            if data.count(body_marker) != 1 or data.count(zoom_marker) != 1:
+                self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Page is unavailable."})
+                return
+            data = data.replace(body_marker, b'<body data-source-neutral="true">', 1)
+            data = data.replace(zoom_marker, b'data-zoom-live-enabled="true"', 1)
         self.send_response(HTTPStatus.OK)
         proofability_media = {
             "proofability_workspace.css": "text/css; charset=utf-8",
@@ -1275,6 +1295,7 @@ def serve_source_neutral_demo(
     *,
     open_browser: bool = False,
     evidence_artifact_root: Path | None = None,
+    source_authoring_launch=None,
 ) -> SourceNeutralPOCDemoServer:
     """Construct the local A2/A3 browser runtime; caller owns its serve loop."""
 
@@ -1283,6 +1304,7 @@ def serve_source_neutral_demo(
     server = SourceNeutralPOCDemoServer(
         (host, port),
         evidence_artifact_root=evidence_artifact_root,
+        source_authoring_launch=source_authoring_launch,
     )
     if open_browser:
         threading.Timer(

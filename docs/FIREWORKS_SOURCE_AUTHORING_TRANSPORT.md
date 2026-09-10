@@ -1,17 +1,18 @@
 # Bounded source-authoring transport mechanism
 
-This local ZF3a unit adds a separate private live-protocol mechanism and fake-only
-tests. **Production execution remains disabled.** The installed worker and
+The accepted ZF3a private live-protocol mechanism is composed into the unified
+SourceNeutral runtime and exercised with fake-only tests. **Production execution remains disabled.** The installed worker and
 public supervisor refuse before credential input, pipe/process creation or
 networking. The production profile registry is empty; there are no CLI flags,
 environment variables, JSON fields or registration APIs that select fake or
 approved operation. The private mechanism is reachable in tests by monkeypatching
 admission and invoking a test-only child that poisons real network access.
 
-The existing synthetic worker, seven-field WorkerBinding and synthetic
-operation/D/F code are unchanged. Frozen Wave-1 Fireworks and standalone STT
-transports are unchanged. This unit does not install operator/issuer/web runtime
-authority or the future qualification harness. Those require separate review.
+The existing synthetic worker and seven-field WorkerBinding remain unchanged.
+Both realms use one operation claim/D/F/cleanup engine. Frozen Wave-1 Fireworks
+and standalone STT transports remain unchanged. Sealed issuer/operator/web
+wiring is implemented; a real approved profile/tokenizer and live qualification
+are absent from the installed candidate.
 
 ## Wire and lifecycle contract
 
@@ -54,7 +55,7 @@ process control under owner locks. An unobserved exit retains the slot; it is
 never called successful cleanup. Partial handoff or post-D cancellation is an
 unknown delivery outcome, with no resend/refund promise. The mechanism revokes
 RESULT_READY on cancellation, but existing F owner validation is still required
-before any future operation integration can publish. ZF3a itself cannot publish.
+before the shared operation engine can publish. The supervisor itself cannot publish.
 
 ## Exact request and strict initial response
 
@@ -110,7 +111,9 @@ cover disabled installed defaults, successful fake requests, exact bytes,
 malformed envelope/usage, framing/EOF/binding swaps, body and credential caps,
 partial/nonblocking writes, cancellation, generation mismatch, timeouts, trickles,
 startup failure and observed/unobserved cleanup. Existing synthetic operation
-tests retain D/F regressions; they do not prove live issuer integration.
+tests retain D/F regressions. Additional private fake admission tests exercise
+issuer identity, installation, token proof, live realm D/F, source/closure races
+and one actual browser journey without provider access.
 
 Same-OS-user code remains trusted. Clearing Python references does not guarantee
 memory zeroization. Declared/observed token counters do not prove all billable
@@ -118,7 +121,14 @@ tokens; reservations are not an invoice ceiling. Public documentation is not
 account, region, custody or execution approval. No actual account, key, native
 Zoom meeting, provider request, GPU or spending qualification has run.
 
-ZF3b issuer/operator wiring remains gated on independent ZF3a acceptance. The
-separate future qualification realm remains design only. Real qualification,
-production profile population, activation, publishing and shipping each remain
-outside this local mechanism's authorization.
+The central production registry lives only in `source_authoring_launch.py` and
+remains empty. The child admits its compiled profile before descriptor access.
+Fixed profile/code fields match the admitted profile; epoch/grant/operation/body,
+nonce, worker generation and credential generation remain per-launch/attempt
+bindings validated by the parent and across every child frame. The parent checks
+its issuer lease before and between body/credential handoff, outside I/O locks.
+
+No launch factory accepts a worker, clock, schedule, tokenizer, raw token count,
+credential callback or transport factory. Tests replace private admission and
+transport seams. Real qualification, profile population, activation, publishing
+and shipping remain outside this offline integration's authorization.
