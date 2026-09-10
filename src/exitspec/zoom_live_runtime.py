@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from .canonical import canonical_json_bytes
@@ -161,6 +162,7 @@ class ZoomLiveRuntime:
         if fake_network and child_factory is ZoomPipeChild:
             raise ZoomLiveError()
         self._lock = threading.RLock()
+        self._effects = threading.local()
         self._key = secrets.token_bytes(32)
         self._record = None
         self._pending_closes = []
@@ -199,7 +201,7 @@ class ZoomLiveRuntime:
 
         def paired():
             self._draft(poc_id)
-            with self._lock:
+            with self._transaction():
                 self._require_open_locked()
                 generation = secrets.token_hex(32)
                 candidate = _Capture(
@@ -221,7 +223,7 @@ class ZoomLiveRuntime:
                 return self._snapshot(poc_id)
 
         try:
-            return self._run_if_open(poc_id, paired)
+            return self._owner_call(poc_id, paired)
         finally:
             self._drain_cleanup()
 
@@ -248,7 +250,7 @@ class ZoomLiveRuntime:
     def current(self, poc_id):
         self._draft(poc_id)
         self.tick()
-        with self._lock:
+        with self._transaction():
             return self._snapshot(poc_id)
 
     def action(self, poc_id, payload):
@@ -273,7 +275,7 @@ class ZoomLiveRuntime:
 
         def mutate():
             draft = self._draft(poc_id)
-            with self._lock:
+            with self._transaction():
                 self._require_open_locked()
                 r = self._record
                 if (
@@ -376,7 +378,7 @@ class ZoomLiveRuntime:
                 return self._snapshot(poc_id)
 
         try:
-            return self._run_if_open(poc_id, mutate)
+            return self._owner_call(poc_id, mutate)
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             refused = True
         finally:
@@ -386,7 +388,7 @@ class ZoomLiveRuntime:
 
     def receipt(self, poc_id):
         self._draft(poc_id)
-        with self._lock:
+        with self._transaction():
             r = self._record
             if r is None or r.poc_id != poc_id or r.provenance is None:
                 raise ZoomLiveError()
@@ -394,7 +396,7 @@ class ZoomLiveRuntime:
 
     def _launch(self, r):
         def admit():
-            with self._lock:
+            with self._transaction():
                 self._require_open_locked()
                 if self._record is not r or r.state != "WAITING" or r.settings is None:
                     raise ZoomLiveError()
@@ -416,9 +418,12 @@ class ZoomLiveRuntime:
                 self._launch_idle.clear()
                 return init
 
+        self._effects.launching = True
         try:
-            init = self._run_if_open(r.poc_id, admit)
+            init = self._owner_call(r.poc_id, admit)
         except Exception:  # noqa: BLE001 - admission failure has no child effect
+            self._effects.launching = False
+            self._finish_effects()
             return
 
         # A fast child can respond before the constructor returns its handle.
@@ -439,7 +444,7 @@ class ZoomLiveRuntime:
 
         try:
             child = self._factory(init, receive, lambda: self.failed(r.generation))
-            with self._lock:
+            with self._transaction():
                 if self._closed.is_set() or self._record is not r or r.state in {"FAILED", "REVOKED"}:
                     self._pending_closes.append(child)
                 else:
@@ -454,10 +459,12 @@ class ZoomLiveRuntime:
 
         finally:
             self._drain_cleanup()
-            with self._lock:
+            with self._transaction():
                 self._active_launches -= 1
                 if self._active_launches == 0:
                     self._launch_idle.set()
+            self._effects.launching = False
+            self._finish_effects()
 
     def _send_locked(self, r, command):
         try:
@@ -481,7 +488,7 @@ class ZoomLiveRuntime:
             self._drain_cleanup()
 
     def _receive(self, generation, event):
-        with self._lock:
+        with self._transaction():
             r = self._record
             if (
                 r is None
@@ -493,7 +500,7 @@ class ZoomLiveRuntime:
 
         def accept():
             self._draft(poc_id)
-            with self._lock:
+            with self._transaction():
                 if self._record is not r or r.state in {
                     "FAILED",
                     "REVOKED",
@@ -619,14 +626,14 @@ class ZoomLiveRuntime:
                         r.child = None
 
         try:
-            self._run_if_open(poc_id, accept)
+            self._owner_call(poc_id, accept)
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
-            with self._lock:
+            with self._transaction():
                 if self._record is r and r.state not in {"REVOKED", "DRAFT_READY"}:
                     self._fail_locked("INVALID_EVENT")
 
     def failed(self, generation):
-        with self._lock:
+        with self._transaction():
             if (
                 self._record
                 and self._record.generation == generation
@@ -653,7 +660,7 @@ class ZoomLiveRuntime:
             r.state = "REVOKED"
 
     def revoke(self, poc_id, reason="CLOSED"):
-        with self._lock:
+        with self._transaction():
             if self._record and self._record.poc_id == poc_id:
                 self._revoke_locked(reason)
         self._drain_cleanup()
@@ -665,7 +672,7 @@ class ZoomLiveRuntime:
             self._drain_cleanup()
 
     def _tick(self):
-        with self._lock:
+        with self._transaction():
             r = self._record
             if not r or r.state in {"FAILED", "REVOKED", "DRAFT_READY"}:
                 return
@@ -676,7 +683,7 @@ class ZoomLiveRuntime:
                 return
             poc_id = r.poc_id
         try:
-            self._run_if_open(poc_id, lambda: self._draft(poc_id))
+            self._owner_call(poc_id, lambda: self._draft(poc_id))
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             self.revoke(poc_id)
 
@@ -684,33 +691,68 @@ class ZoomLiveRuntime:
         while not self._closed.wait(0.25):
             self.tick()
 
+    @contextmanager
+    def _transaction(self):
+        self._effects.runtime_depth = getattr(self._effects, "runtime_depth", 0) + 1
+        try:
+            with self._lock:
+                yield
+        finally:
+            self._effects.runtime_depth -= 1
+            self._finish_effects()
+
+    def _owner_call(self, poc_id, callback):
+        self._effects.owner_depth = getattr(self._effects, "owner_depth", 0) + 1
+        try:
+            return self._run_if_open(poc_id, callback)
+        finally:
+            self._effects.owner_depth -= 1
+            self._finish_effects()
+
+    def _effects_deferred(self):
+        return (getattr(self._effects, "runtime_depth", 0) > 0
+                or getattr(self._effects, "owner_depth", 0) > 0
+                or getattr(self._effects, "draining", False))
+
+    def _finish_effects(self):
+        if not self._effects_deferred():
+            self._drain_cleanup()
+            self._finish_close()
+
     def _require_open_locked(self):
         if self._closed.is_set():
             raise ZoomLiveError()
 
     def _drain_cleanup(self):
-        # Detach under the runtime lock, then perform child I/O/waits after the
-        # caller's owner transaction. A child is detached only once.
-        with self._lock:
-            children, self._pending_closes = self._pending_closes, []
-        for child in children:
-            try:
-                child.close()
-            except Exception:  # noqa: BLE001 - retain unresolved cleanup without private error text
-                with self._lock:
-                    self._cleanup_uncertain = True
-                    self._closed.set()
-                    self._pending_closes.append(child)
+        if self._effects_deferred():
+            return
+        self._effects.draining = True
+        try:
+            with self._lock:
+                children, self._pending_closes = self._pending_closes, []
+            for child in children:
+                try:
+                    child.close()
+                except Exception:  # noqa: BLE001 - retain unresolved cleanup without private error text
+                    with self._lock:
+                        self._cleanup_uncertain = True
+                        self._closed.set()
+                        self._pending_closes.append(child)
+        finally:
+            self._effects.draining = False
+
+    def _finish_close(self):
+        if not self._closed.is_set() or self._effects_deferred():
+            return
+        if getattr(self._effects, "launching", False) or self._watcher is threading.current_thread():
+            return
+        self._launch_idle.wait(timeout=1)
+        self._watcher.join(timeout=1)
 
     def close(self):
-        with self._lock:
+        with self._transaction():
             self._closed.set()
             self._revoke_locked("SERVER_CLOSED")
-        self._drain_cleanup()
-        # A launch admitted before close may already be constructing its child.
-        # It cannot publish it after close and owns its eventual cleanup. Keep
-        # the pending counter if it outlives this bounded wait; never reopen.
-        self._launch_idle.wait(timeout=1)
-        self._drain_cleanup()
-        if self._watcher is not threading.current_thread():
-            self._watcher.join(timeout=1)
+        # Nested close only fences admission and detaches resources. The actual
+        # outer runtime transaction and owner reservation unwind before cleanup/waits.
+        self._finish_effects()

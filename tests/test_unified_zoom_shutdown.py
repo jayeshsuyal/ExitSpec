@@ -196,3 +196,56 @@ def test_launch_admitted_before_close_is_cleaned_without_owner_locks(composition
     finally:
         resume.set()
         thread.join(timeout=2)
+
+
+@pytest.mark.parametrize("callback", ["pair", "action", "tick"])
+def test_reentrant_close_waits_for_outer_transaction_and_reservation(composition, monkeypatch, callback):
+    server = composition
+    poc = _create_draft(server)
+    runtime = server.zoom_live_runtime
+    paired = runtime.pair(poc, settings())
+    launched = threading.Event()
+    observations, waits = [], []
+
+    def observation():
+        return (runtime._lock._is_owned(), server.poc_closure_service._active_mutations.get(poc, 0))
+
+    class ObservedChild(FakeChild):
+        def close(self):
+            observations.append(observation())
+            super().close()
+
+    def factory(*args):
+        child = ObservedChild(*args)
+        launched.set()
+        return child
+
+    monkeypatch.setattr(runtime, "_factory", factory)
+    runtime.action(poc, start_payload(paired["session_id"]))
+    assert launched.wait(1) and runtime._launch_idle.wait(1)
+    original_clock, original_wait = runtime._clock, runtime._launch_idle.wait
+    caller = threading.current_thread()
+
+    def close_in_clock():
+        if threading.current_thread() is caller:
+            runtime.close()
+            assert observations == [] and waits == []
+        return original_clock()
+
+    def wait(timeout=None):
+        waits.append(observation())
+        return original_wait(timeout)
+
+    monkeypatch.setattr(runtime, "_clock", close_in_clock)
+    monkeypatch.setattr(runtime._launch_idle, "wait", wait)
+    if callback == "pair":
+        with pytest.raises(ZoomLiveError):
+            runtime.pair(poc, settings())
+    elif callback == "action":
+        with pytest.raises(ZoomLiveError):
+            runtime.action(poc, {"action": "reset", "session_id": paired["session_id"], "idempotency_key": "nested-reset-001"})
+    else:
+        runtime.tick()
+    assert observations == [(False, 0)]
+    assert waits and all(item == (False, 0) for item in waits)
+    assert runtime._record.state == "REVOKED" and runtime._record.child is None
