@@ -27,6 +27,8 @@ class _Parser(argparse.ArgumentParser):
 def _arguments(argv):
     parser = _Parser(add_help=False, allow_abbrev=False)
     parser.add_argument("--approval-id", required=True)
+    parser.add_argument("--approval-file", required=True)
+    parser.add_argument("--approval-sha256", required=True)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--output-root", default="/tmp/exitspec-source-authoring")
     args = parser.parse_args(argv)
@@ -154,10 +156,13 @@ def main(argv=None):
     try:
         # Nothing, including argument-dependent paths or terminal input, can
         # enable an installed launch while this single registry is empty.
-        if not launch._PRODUCTION_PROFILES:
+        if not launch._QUALIFIED_SERVING_CONTRACTS:
             raise launch.SourceAuthoringLaunchError()
         args, output_root = _arguments(argv)
-        admitted = launch._admit_operator_profile(args.approval_id)
+        admitted = launch._admit_operator_profile(
+            args.approval_id, approval_file=args.approval_file,
+            expected_sha256=args.approval_sha256,
+        )
         profile = launch._admitted_profile(admitted)
         print("Source authoring: one exact-source Fireworks attempt per consent, 30 seconds,")
         print("8192 input / 2000 output tokens, $0.01 per claim, ten claims / $0.10 per launch.")
@@ -165,6 +170,7 @@ def main(argv=None):
         print("Terminal input is hidden. Submit each response with Ctrl-J (LF); CR is refused.")
         if _read_text_tty("Type APPROVED for this admitted Fireworks launch: ") != "APPROVED":
             raise launch.SourceAuthoringLaunchError()
+        launch._verify_code_and_artifacts(profile)
         credential = _read_credential_tty()
         handle = launch._issue_live_launch(admitted, credential)
         credential = b""

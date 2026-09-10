@@ -457,6 +457,7 @@ class _BoundedLiveSupervisor:
                 "-I",
                 "-m",
                 "exitspec.source_authoring_live_worker",
+                *_launch._worker_approval_arguments(self._lease),
             ],
             cwd=Path(__file__).resolve().parent,
             env={},

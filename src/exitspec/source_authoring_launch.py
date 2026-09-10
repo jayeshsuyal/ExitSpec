@@ -1,13 +1,15 @@
-"""Private source-authoring admission and custody; installed registry is empty.
+"""Private admission from an independently reviewed detached approval.
 
-No profile file, environment variable, browser field or approval string creates
-authority. Qualified metadata is inert unless it is the exact compiled entry.
+Compiled serving qualification is closed by default. The operator's independent
+expected digest binds a detached record to frozen code without a self-reference.
 This module never imports a web server, operation engine or supervisor.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
+import json
 import math
 import os
 import re
@@ -16,7 +18,7 @@ import select
 import subprocess
 import time
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from threading import RLock
 
@@ -61,7 +63,14 @@ class _QualifiedLaunchProfile:
     launch_budget_usd: str = "0.10"
 
 
+# These are runtime-issued identities, never literal profiles embedded in code.
 _PRODUCTION_PROFILES: tuple[_QualifiedLaunchProfile, ...] = ()
+_APPROVALS: dict[int, tuple[_QualifiedLaunchProfile, str, str]] = {}
+_APPROVAL_SCHEMA = "exitspec.detached-source-approval.v1"
+_APPROVAL_MAX_BYTES = 1024 * 1024
+# Populating this requires independent serving/accounting qualification. It does
+# not contain this repository's commit/tree/file hashes or an approval digest.
+_QUALIFIED_SERVING_CONTRACTS: tuple[str, ...] = ()
 _ISSUER = object()
 _LOCK = RLock()
 
@@ -137,7 +146,7 @@ def _profile_digest(profile):
 
 
 def _require_profile(profile):
-    """Only fixed, finite, complete compiled metadata can be admitted."""
+    """Only issued identities with fixed, finite, complete metadata are usable."""
     if type(profile) is not _QualifiedLaunchProfile or not any(profile is item for item in _PRODUCTION_PROFILES):
         raise SourceAuthoringLaunchError()
     try:
@@ -181,6 +190,121 @@ def _require_profile(profile):
         raise SourceAuthoringLaunchError() from None
     return profile
 
+
+
+def _approval_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError()
+        result[key] = value
+    return result
+
+
+def _approval_constant(_):
+    raise ValueError()
+
+
+def _read_approval(path, expected_sha256):
+    """Equality to the operator's independent anchor, not a signature check."""
+    descriptor = None
+    try:
+        if (type(path) is not str or not 1 <= len(path) <= 4096
+            or any(ord(c) < 32 for c in path)
+            or type(expected_sha256) is not str
+            or re.fullmatch(r"[a-f0-9]{64}", expected_sha256) is None):
+            raise ValueError()
+        target = Path(path)
+        root = Path(__file__).resolve().parents[2]
+        if (not target.is_absolute() or ".." in target.parts
+            or target.resolve().is_relative_to(root)
+            or any(part.is_symlink() for part in (target, *target.parents))):
+            raise ValueError()
+        descriptor = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        import stat
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError()
+        raw = bytearray()
+        deadline = time.monotonic() + 1
+        while len(raw) <= _APPROVAL_MAX_BYTES:
+            if time.monotonic() >= deadline:
+                raise ValueError()
+            chunk = os.read(descriptor, min(65536, _APPROVAL_MAX_BYTES + 1 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+        if (not 1 <= len(raw) <= _APPROVAL_MAX_BYTES
+            or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), expected_sha256)):
+            raise ValueError()
+        value = json.loads(bytes(raw).decode("utf-8"), object_pairs_hook=_approval_pairs,
+                           parse_constant=_approval_constant)
+        if (type(value) is not dict or set(value) != {"schema_version", "profile"}
+            or value["schema_version"] != _APPROVAL_SCHEMA
+            or type(value["profile"]) is not dict
+            or set(value["profile"]) != {item.name for item in fields(_QualifiedLaunchProfile)}):
+            raise ValueError()
+        values = value["profile"]
+        for name in ("files", "tokenizer_artifacts"):
+            entries = values[name]
+            if (type(entries) is not list or not 1 <= len(entries) <= 4096
+                or any(type(item) is not list or len(item) != 2 for item in entries)):
+                raise ValueError()
+            values[name] = tuple(tuple(item) for item in entries)
+        return _QualifiedLaunchProfile(**values)
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
+        raise SourceAuthoringLaunchError() from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _load_detached_approval(path, expected_sha256):
+    global _PRODUCTION_PROFILES
+    # No file, terminal, pipe or network effects when serving is unqualified.
+    if not _QUALIFIED_SERVING_CONTRACTS:
+        raise SourceAuthoringLaunchError()
+    profile = _read_approval(path, expected_sha256)
+    if profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS:
+        raise SourceAuthoringLaunchError()
+    with _LOCK:
+        if _PRODUCTION_PROFILES:
+            raise SourceAuthoringLaunchError()
+        _PRODUCTION_PROFILES = (profile,)
+        _APPROVALS[id(profile)] = (profile, path, expected_sha256)
+        try:
+            _require_profile(profile)
+        except Exception:
+            _PRODUCTION_PROFILES = ()
+            _APPROVALS.pop(id(profile), None)
+            raise
+    return profile
+
+
+def _verify_detached_approval(profile):
+    stored = _APPROVALS.get(id(profile))
+    if stored is None or stored[0] is not profile:
+        raise SourceAuthoringLaunchError()
+    if _read_approval(stored[1], stored[2]) != profile:
+        raise SourceAuthoringLaunchError()
+    if profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS:
+        raise SourceAuthoringLaunchError()
+
+
+def _worker_approval_arguments(lease):
+    with _lease_guard(lease) as record:
+        _verify_detached_approval(record.profile)
+        _, path, digest = _APPROVALS[id(record.profile)]
+        return ["--approval-file", path, "--approval-sha256", digest]
+
+
+def _bootstrap_worker_approval(argv):
+    if not _QUALIFIED_SERVING_CONTRACTS:
+        raise SourceAuthoringLaunchError()
+    if (type(argv) is not list or len(argv) != 4
+        or argv[0] != "--approval-file" or argv[2] != "--approval-sha256"):
+        raise SourceAuthoringLaunchError()
+    _load_detached_approval(argv[1], argv[3])
+    return _require_worker_profile()
 
 def _git_read(root, args, deadline, budget):
     """Bound aggregate Git output while reading; never buffer then cap."""
@@ -250,8 +374,9 @@ def _hash_local_file(path, deadline, budget):
 
 
 def _verify_code_and_artifacts(profile):
-    """Read only the exact compiled manifest after profile admission."""
+    """Verify the detached anchor and every frozen tracked file before effects."""
     _require_profile(profile)
+    _verify_detached_approval(profile)
     root = Path(__file__).resolve().parents[2]
     deadline = time.monotonic() + 5
     budget = [1024 * 1024]
@@ -275,20 +400,37 @@ def _verify_code_and_artifacts(profile):
         if not path.is_absolute() or _hash_local_file(path, deadline, file_budget) != expected:
             raise SourceAuthoringLaunchError()
     _verify_tokenizer_implementation(profile)
+    if time.monotonic() >= deadline:
+        raise SourceAuthoringLaunchError()
 
 
 def _verify_tokenizer_implementation(profile):
-    # No real tokenizer implementation has been qualified for the pinned model.
-    # Offline tests replace this private admission/evaluator pair, not metadata
-    # or a public integer. A later registry change alone cannot enable egress.
-    raise SourceAuthoringLaunchError()
+    from . import source_authoring_tokenizer as tokenizer
+    try:
+        if (profile.tokenizer_identity != tokenizer.TOKENIZER_ID
+            or profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS):
+            raise SourceAuthoringLaunchError()
+        tokenizer.verify(profile.tokenizer_artifacts)
+    except ValueError:
+        raise SourceAuthoringLaunchError() from None
 
 
 def _evaluate_local_tokens(profile, body):
-    raise SourceAuthoringLaunchError()
+    from . import source_authoring_tokenizer as tokenizer
+    try:
+        _require_profile(profile)
+        _verify_detached_approval(profile)
+        if (profile.tokenizer_identity != tokenizer.TOKENIZER_ID
+            or profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS):
+            raise SourceAuthoringLaunchError()
+        return tokenizer.count_tokens(profile.tokenizer_artifacts, body)
+    except ValueError:
+        raise SourceAuthoringLaunchError() from None
 
 
-def _admit_operator_profile(approval_id):
+def _admit_operator_profile(approval_id, *, approval_file=None, expected_sha256=None):
+    if approval_file is not None or expected_sha256 is not None:
+        _load_detached_approval(approval_file, expected_sha256)
     if not _PRODUCTION_PROFILES:
         raise SourceAuthoringLaunchError()
     if type(approval_id) is not str or re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", approval_id) is None:

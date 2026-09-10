@@ -31,7 +31,7 @@ from .source_authoring_transport import _post_exact, validate_request_body
 
 def _require_production_profile():
     try:
-        return _launch._require_worker_profile()
+        return _launch._bootstrap_worker_approval(sys.argv[1:])
     except _launch.SourceAuthoringLaunchError:
         raise SourceAuthoringWorkerError("live_prerequisites_missing") from None
 

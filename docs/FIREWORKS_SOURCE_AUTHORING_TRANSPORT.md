@@ -3,16 +3,17 @@
 The accepted ZF3a private live-protocol mechanism is composed into the unified
 SourceNeutral runtime and exercised with fake-only tests. **Production execution remains disabled.** The installed worker and
 public supervisor refuse before credential input, pipe/process creation or
-networking. The production profile registry is empty; there are no CLI flags,
-environment variables, JSON fields or registration APIs that select fake or
-approved operation. The private mechanism is reachable in tests by monkeypatching
+networking. The compiled serving qualification list is empty. Operator record
+arguments cannot override that refusal, select fake operation, or choose a model,
+endpoint or budget. The private mechanism is reachable in tests by monkeypatching
 admission and invoking a test-only child that poisons real network access.
 
 The existing synthetic worker and seven-field WorkerBinding remain unchanged.
 Both realms use one operation claim/D/F/cleanup engine. Frozen Wave-1 Fireworks
 and standalone STT transports remain unchanged. Sealed issuer/operator/web
-wiring is implemented; a real approved profile/tokenizer and live qualification
-are absent from the installed candidate.
+wiring and local pinned tokenizer accounting are implemented. An independently
+approved detached code/profile record and real serving qualification are absent
+from the installed candidate. See [detached approval and accounting](source-authoring-live-accounting.md).
 
 ## Wire and lifecycle contract
 
@@ -121,8 +122,12 @@ tokens; reservations are not an invoice ceiling. Public documentation is not
 account, region, custody or execution approval. No actual account, key, native
 Zoom meeting, provider request, GPU or spending qualification has run.
 
-The central production registry lives only in `source_authoring_launch.py` and
-remains empty. The child admits its compiled profile before descriptor access.
+The compiled serving qualification list in `source_authoring_launch.py` remains
+empty. Runtime profile identities can only be issued from a detached record
+matching the local operator's independent expected digest and qualified policy.
+The child rechecks that detached anchor and full frozen code before ordinary
+protocol descriptor access. The record is outside the tracked code, avoiding a
+profile embedding its own containing commit/file hash.
 Fixed profile/code fields match the admitted profile; epoch/grant/operation/body,
 nonce, worker generation and credential generation remain per-launch/attempt
 bindings validated by the parent and across every child frame. The parent checks

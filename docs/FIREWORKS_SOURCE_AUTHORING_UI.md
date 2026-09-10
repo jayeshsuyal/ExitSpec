@@ -259,13 +259,17 @@ a live provider, spend, deployment or shipping claim.
 
 ## Operator and unified browser path
 
-`python -m exitspec.source_authoring_operator --approval-id <compiled-id>
+`python -m exitspec.source_authoring_operator --approval-id <reviewed-id>
+--approval-file <absolute-detached-record> --approval-sha256 <independent-digest>
 --port <local-port> --output-root <absolute-path>` is the bounded local operator
 entrypoint. With the installed empty registry it returns a fixed refusal before
 TTY input, credential reads, file verification, runtime, pipe or socket effects.
-There is no profile file, fake flag, secret CLI option or environment fallback.
+The detached record is inert without compiled serving qualification and an
+independently reviewed digest. There is no fake flag, secret CLI option or
+environment fallback. See [detached approval and accounting](source-authoring-live-accounting.md).
 
-An admitted launch is checked before terminal input and again afterward. The
+An admitted launch is checked before terminal input, before credential input,
+and again afterward; the fixed child repeats detached record/code admission. The
 controlling terminal uses bounded no-echo input, disables and verifies byte
 transformations, discards pending input with a bounded terminal flush before
 restoring echo, and restores its original state on exit. Ctrl-C remains available.
@@ -292,7 +296,7 @@ non-authorizing handoff. `EXITSPEC_UNIFIED_DEMO_EVIDENCE` writes screenshots and
 its request/provenance record to an external evidence directory.
 
 The release wrapper preserves the earlier 358 mandatory cases, accepted 202
-transport cases, and adds 256 unified admission/operator/engine/web/Zoom/browser
+transport cases, and adds 311 unified admission/operator/engine/web/Zoom/browser
 cases, all required to have zero skips/errors/failures. The actual final run,
 commit/tree and artifact binding determine acceptance, not this collection count.
 

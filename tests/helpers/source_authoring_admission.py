@@ -21,6 +21,8 @@ def install_fake_profile(monkeypatch):
         monkeypatch.setattr(launch, "_PRODUCTION_PROFILES", (fake_profile(),))
         for name in ("_ADMISSIONS", "_LAUNCHES", "_INSTALLS", "_LEASES", "_TOKENS"):
             monkeypatch.setattr(launch, name, {})
+    monkeypatch.setattr(launch, "_QUALIFIED_SERVING_CONTRACTS", ("offline-token-evaluator",))
+    monkeypatch.setattr(launch, "_load_detached_approval", lambda *_: launch._PRODUCTION_PROFILES[0])
     monkeypatch.setattr(launch, "_verify_code_and_artifacts", lambda profile: None)
     monkeypatch.setattr(launch, "_evaluate_local_tokens", lambda profile, body: 100)
     monkeypatch.setattr(launch, "_display_mode", lambda lease: "OFFLINE_FAKE_FIREWORKS")

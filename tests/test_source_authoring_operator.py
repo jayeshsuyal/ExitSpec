@@ -102,6 +102,9 @@ def test_cli_refuses_untrusted_shapes_without_echo(monkeypatch, args, capsys):
     install_fake_profile(monkeypatch)
     effects = []
     monkeypatch.setattr(operator, "_read_text_tty", lambda *_: effects.append(True))
+    # Supply valid detached-record argument shapes so original port/path/extra
+    # switch assertions still reach their own validation, not missing-arg errors.
+    args = args + ["--approval-file", "/private/tmp/offline-approval.json", "--approval-sha256", "0" * 64]
     assert operator.main(args) == 2 and effects == []
     assert "PRIVATE-MARKER" not in capsys.readouterr().out
 
@@ -154,7 +157,8 @@ def test_operator_admits_before_secret_and_pairs_same_source_neutral_server(monk
     monkeypatch.setattr(operator, "_read_text_tty", text)
     monkeypatch.setattr(operator, "_wait_for_stop_tty", lambda: effects.append("stop"))
     monkeypatch.setattr(operator, "_read_credential_tty", credential)
-    assert operator.main(["--approval-id", profile.approval_id, "--output-root", str(tmp_path)]) == 0
+    assert operator.main(["--approval-id", profile.approval_id, "--approval-file", str(tmp_path / "approval.json"),
+                          "--approval-sha256", "0" * 64, "--output-root", str(tmp_path)]) == 0
     assert effects.count("construct") == effects.count("pair") == effects.count("close") == 1
     assert launch._LAUNCHES[installed[0]].state == "REVOKED"
     assert launch._LAUNCHES[installed[0]].credential == b""
@@ -320,7 +324,8 @@ def test_operator_browser_idle_preserves_authority_expiry_and_deliberate_cleanup
     monkeypatch.setattr(operator.termios, "tcsetattr", settings)
     monkeypatch.setattr(operator.termios, "tcflush", lambda fd, queue: None)
     monkeypatch.setattr(operator.select, "select", readiness)
-    status = operator.main(["--approval-id", profile.approval_id, "--output-root", str(tmp_path)])
+    status = operator.main(["--approval-id", profile.approval_id, "--approval-file", str(tmp_path / "approval.json"),
+                          "--approval-sha256", "0" * 64, "--output-root", str(tmp_path)])
     assert status == (0 if ending == "explicit_stop" else 2)
     assert events.index("idle") < events.index(ending) < events.index("shutdown") < events.index("close")
     assert len(handles) == 1 and profile.valid_until == expiry
