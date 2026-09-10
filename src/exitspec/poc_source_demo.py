@@ -102,6 +102,8 @@ from .source_authoring_web import (
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
+from .zoom_live_runtime import ZoomLiveRuntime
+from .zoom_live_web import handle_zoom_live_http
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -213,6 +215,16 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         assisted_authoring_executor: Any | None = None,
         evidence_artifact_root: Path | None = None,
     ) -> None:
+        self.source_authoring_web = None
+        self.zoom_live_runtime = None
+        self._owned_evidence_artifact_root = None
+        try:
+            self._initialize(address, static_root, assisted_authoring_executor, evidence_artifact_root)
+        except BaseException:
+            self.server_close()
+            raise
+
+    def _initialize(self, address, static_root, assisted_authoring_executor, evidence_artifact_root):
         self.draft_poc_service = ProcessLocalDraftPOCService()
         self.proofability_workspace = create_production_proofability_workspace(
             draft_lookup=self.draft_poc_service.get,
@@ -283,6 +295,10 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
             assisted=self.assisted_authoring_service, review=self.proposal_review_service,
             closure=self.poc_closure_service,
         )
+        self.zoom_live_runtime = ZoomLiveRuntime(
+            drafts=self.draft_poc_service, intake=self.poc_source_intake,
+            run_if_open=self.poc_closure_service.run_if_open,
+        )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
@@ -290,12 +306,20 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 
     def server_close(self) -> None:
         try:
-            self.source_authoring_web.close()
-            super().server_close()
+            if self.zoom_live_runtime is not None:
+                self.zoom_live_runtime.close()
         finally:
-            if self._owned_evidence_artifact_root is not None:
-                self._owned_evidence_artifact_root.cleanup()
-                self._owned_evidence_artifact_root = None
+            try:
+                if self.source_authoring_web is not None:
+                    self.source_authoring_web.close()
+            finally:
+                try:
+                    if getattr(self, "socket", None) is not None:
+                        super().server_close()
+                finally:
+                    if self._owned_evidence_artifact_root is not None:
+                        self._owned_evidence_artifact_root.cleanup()
+                        self._owned_evidence_artifact_root = None
 
     def _frozen_contract_for_evidence(self, poc_id: str):
         snapshot = self.agreement_service.snapshot(poc_id)
@@ -407,6 +431,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
     def do_GET(self) -> None:
+        if handle_zoom_live_http(self):
+            return
         if handle_source_authoring_http(self):
             return
         if handle_proofability_workspace_http(self):
@@ -596,6 +622,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
 
     def do_POST(self) -> None:
+        if handle_zoom_live_http(self):
+            return
         if handle_source_authoring_http(self):
             return
         if handle_proofability_workspace_http(self):
@@ -771,6 +799,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(response.status, response.payload)
 
     def do_PUT(self) -> None:
+        if handle_zoom_live_http(self):
+            return
         if handle_source_authoring_http(self):
             return
         if handle_proofability_workspace_http(self):
@@ -788,6 +818,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_IMPLEMENTED)
 
     def do_HEAD(self) -> None:
+        if handle_zoom_live_http(self):
+            return
         if handle_source_authoring_http(self):
             return
         if handle_proofability_workspace_http(self):
@@ -800,6 +832,8 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     def __getattr__(self, name: str):
         if name.startswith("do_"):
             def dispatch_unknown_method() -> None:
+                if handle_zoom_live_http(self):
+                    return
                 if handle_source_authoring_http(self):
                     return
                 if handle_proofability_workspace_http(self):

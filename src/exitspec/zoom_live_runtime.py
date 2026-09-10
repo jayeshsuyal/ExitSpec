@@ -164,7 +164,8 @@ class ZoomLiveRuntime:
         self._key = secrets.token_bytes(32)
         self._record = None
         self._closed = threading.Event()
-        threading.Thread(target=self._watch, daemon=True).start()
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
+        self._watcher.start()
 
     def _digest(self, value):
         return hmac.new(
@@ -631,5 +632,9 @@ class ZoomLiveRuntime:
 
     def close(self):
         self._closed.set()
-        with self._lock:
-            self._revoke_locked("SERVER_CLOSED")
+        try:
+            with self._lock:
+                self._revoke_locked("SERVER_CLOSED")
+        finally:
+            if self._watcher is not threading.current_thread():
+                self._watcher.join(timeout=1)
