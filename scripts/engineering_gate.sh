@@ -147,7 +147,7 @@ run_gate \
 run_gate \
   "Source authoring core, API and browser lint" \
   ruff check src/exitspec/source_authoring_*.py tests/test_source_authoring_*.py \
-  tests/test_proposal_decision_replay.py
+  tests/test_proposal_decision_replay.py tests/helpers/source_authoring_fake_worker.py
 
 run_gate \
   "Source authoring browser JavaScript syntax" \
