@@ -287,7 +287,6 @@ def test_native_browser_persisted_lifecycle_revalidates_operator_session(tmp_pat
         expect(page.locator("#zoom-live-status")).to_contain_text("interrupted")
         page.locator("#zoom-live-stop").click()
         expect(page.locator("#zoom-live-status")).to_contain_text("Transport stop requested")
-        expect(page.locator("#zoom-live-status")).to_contain_text("Transport stop requested")
         assert server.zoom_live_runtime.current(poc_id)["state"] == "STOP_REQUESTED"
 
         leave()

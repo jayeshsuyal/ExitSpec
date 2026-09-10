@@ -266,8 +266,14 @@ TTY input, credential reads, file verification, runtime, pipe or socket effects.
 There is no profile file, fake flag, secret CLI option or environment fallback.
 
 An admitted launch is checked before terminal input and again afterward. The
-controlling terminal uses bounded no-echo input and restores its state on exit.
+controlling terminal uses bounded no-echo input, disables and verifies byte
+transformations, discards pending input with a bounded terminal flush before
+restoring echo, and restores its original state on exit. Ctrl-C remains available.
 Each response is submitted with Ctrl-J (LF); CR and credential repair are refused.
+Credential and pairing answers retain the 30-second input deadline. After pairing,
+the browser session waits for a deliberate empty-line stop with bounded individual
+terminal waits; idle time does not renew profile/consent expiry or execution budgets.
+Ctrl-C, EOF and terminal errors still revoke the launch and close the server.
 One sealed launch installs once on one SourceNeutral server. The operator pairs
 Zoom on that same server and exact POC through the shared local pairing helper.
 Zoom prerequisites/participant capture consent and Fireworks launch/exact-source
@@ -286,7 +292,7 @@ non-authorizing handoff. `EXITSPEC_UNIFIED_DEMO_EVIDENCE` writes screenshots and
 its request/provenance record to an external evidence directory.
 
 The release wrapper preserves the earlier 358 mandatory cases, accepted 202
-transport cases, and adds 248 unified admission/operator/engine/web/Zoom/browser
+transport cases, and adds 256 unified admission/operator/engine/web/Zoom/browser
 cases, all required to have zero skips/errors/failures. The actual final run,
 commit/tree and artifact binding determine acceptance, not this collection count.
 

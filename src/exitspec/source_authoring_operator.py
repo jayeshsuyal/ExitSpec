@@ -37,7 +37,7 @@ def _arguments(argv):
     return args, path
 
 
-def _read_tty_line(prompt, *, maximum=4096):
+def _read_tty_line(prompt, *, maximum=4096, wait_for_input=False):
     """One unchanged bounded line; no stdin/getpass/environment/file fallback."""
     descriptor, original = None, None
     try:
@@ -47,13 +47,21 @@ def _read_tty_line(prompt, *, maximum=4096):
         original = termios.tcgetattr(descriptor)
         settings = list(original)
         settings[6] = list(original[6])
-        settings[3] &= ~(termios.ECHO | termios.ECHONL | termios.ICANON)
-        # Preserve CR bytes so validation can refuse CRLF rather than repair it.
-        settings[0] &= ~(termios.ICRNL | termios.INLCR | termios.IGNCR)
+        hidden_flags = termios.ECHO | termios.ECHONL | termios.ICANON | termios.IEXTEN
+        settings[3] &= ~hidden_flags
+        # Preserve input bytes, including CR/high bits/control bytes, for strict
+        # validation. Keep ISIG so the operator can still interrupt with Ctrl-C.
+        transform_flags = 0
+        for name in ("ICRNL", "INLCR", "IGNCR", "ISTRIP", "INPCK", "IGNPAR",
+                     "PARMRK", "IXON", "IXOFF", "IXANY", "IUCLC", "IGNBRK"):
+            transform_flags |= getattr(termios, name, 0)
+        settings[0] &= ~transform_flags
+        settings[2] = (settings[2] & ~(termios.CSIZE | termios.PARENB)) | termios.CS8
         settings[6][termios.VMIN], settings[6][termios.VTIME] = 0, 0
         termios.tcsetattr(descriptor, termios.TCSANOW, settings)
         applied = termios.tcgetattr(descriptor)
-        if applied[3] & (termios.ECHO | termios.ECHONL | termios.ICANON):
+        if (applied[3] & hidden_flags or applied[0] & transform_flags
+            or applied[2] & termios.CSIZE != termios.CS8 or applied[2] & termios.PARENB):
             raise launch.SourceAuthoringLaunchError()
         deadline = time.monotonic() + 30
         wire, offset = prompt.encode("utf-8"), 0
@@ -66,10 +74,22 @@ def _read_tty_line(prompt, *, maximum=4096):
                 raise launch.SourceAuthoringLaunchError()
             offset += count
         value = bytearray()
+        # Only the deliberate-stop prompt can idle. Each select remains bounded;
+        # the ordinary 30-second line deadline starts when stop input arrives.
+        # This does not renew the profile, launch, consent or operation budgets.
+        if wait_for_input:
+            deadline = None
         while len(value) <= maximum:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([descriptor], [], [], remaining)[0]:
+            remaining = 30 if deadline is None else deadline - time.monotonic()
+            if remaining <= 0:
                 raise launch.SourceAuthoringLaunchError()
+            ready = select.select([descriptor], [], [], remaining)[0]
+            if not ready:
+                if deadline is None:
+                    continue
+                raise launch.SourceAuthoringLaunchError()
+            if deadline is None:
+                deadline = time.monotonic() + 30
             chunk = os.read(descriptor, 1)
             if not chunk or time.monotonic() >= deadline:
                 raise launch.SourceAuthoringLaunchError()
@@ -81,15 +101,26 @@ def _read_tty_line(prompt, *, maximum=4096):
         raise launch.SourceAuthoringLaunchError() from None
     finally:
         if descriptor is not None:
-            restore_failed = False
+            cleanup_failed = False
             try:
-                if original is not None:
-                    termios.tcsetattr(descriptor, termios.TCSANOW, original)
-            except (OSError, termios.error):
-                restore_failed = True
+                try:
+                    # Discard queued secret tails with one kernel operation,
+                    # before restoring echo; never drain an unbounded stream.
+                    termios.tcflush(descriptor, termios.TCIFLUSH)
+                except (OSError, termios.error):
+                    cleanup_failed = True
+                finally:
+                    if original is not None:
+                        try:
+                            termios.tcsetattr(descriptor, termios.TCSANOW, original)
+                        except (OSError, termios.error):
+                            cleanup_failed = True
             finally:
-                os.close(descriptor)
-            if restore_failed:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    cleanup_failed = True
+            if cleanup_failed:
                 raise launch.SourceAuthoringLaunchError() from None
 
 
@@ -110,6 +141,11 @@ def _read_text_tty(prompt):
         return value.decode("ascii")
     except (ValueError, UnicodeError):
         raise launch.SourceAuthoringLaunchError() from None
+
+
+def _wait_for_stop_tty():
+    _read_tty_line("Submit an empty line with Ctrl-J to revoke this launch, pairing and server: ",
+                   maximum=0, wait_for_input=True)
 
 
 def main(argv=None):
@@ -143,7 +179,7 @@ def main(argv=None):
             raise launch.SourceAuthoringLaunchError()
         print("Capture in this POC's Zoom panel. Then inspect its exact source on the authoring page.")
         print("Fireworks Run requires separate exact-source acknowledgment; Zoom pairing grants none.")
-        _read_text_tty("Submit an empty line with Ctrl-J to revoke this launch, pairing and server: ")
+        _wait_for_stop_tty()
         return 0
     except Exception:  # noqa: BLE001 - no argv, source, credential or private traceback
         print("Operator launch unavailable or stopped; private details discarded.")
