@@ -145,7 +145,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     const deadline = arm(() => { if (current() && !accepted) fail('handshake_timeout'); },15000);
     socket.on('open', () => {
       if (!current()) return;
-      const request = {msg_type:3,protocol_version:1,meeting_uuid:meetingUuid,rtms_stream_id:streamId,
+      const request = {msg_type:3,protocol_version:1,sequence:0,meeting_uuid:meetingUuid,rtms_stream_id:streamId,
         signature:signature(),media_type:8,payload_encryption:false};
       observe('transcript_websocket_handshake',{direction:'OUTBOUND',channel:'transcript'},Buffer.from(JSON.stringify(request)));
       send(socket,request);
