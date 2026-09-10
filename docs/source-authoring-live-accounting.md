@@ -3,7 +3,8 @@
 Production execution remains disabled. `_QUALIFIED_SERVING_CONTRACTS` is empty.
 This change implements a non-circular code approval binding and an actual local
 DeepSeek V4 tokenizer. It does not establish Fireworks serving-template or billing
-parity, account/custody approval, complete runtime packaging, or draft quality.
+parity, account/custody approval, or draft quality. An optional dependency extra
+now supports a complete local tokenizer installation; that does not activate it.
 The r2 request profile, messages body, schema, endpoint and transport are unchanged.
 
 ## Freeze, review, then approve
@@ -86,11 +87,40 @@ Its 32 RECORD entries were verified; it has no `.pth`, install scripts or bundle
 LICENSE file. The upstream release points to the
 [Apache-2.0 license at source commit 88a4498](https://github.com/huggingface/tokenizers/blob/88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3/LICENSE).
 
-The separate offline compatibility environment deliberately omits the declared
-`huggingface-hub>=0.16.4,<2.0` dependency. Core import/encoding works in that
-experiment. This is not a complete or production-qualified installation. The
-application's dependency declarations remain unchanged; normal installation and
-its resolved dependency footprint need separate qualification before activation.
+### Optional installation
+
+The default installation keeps tokenizer dependencies optional. To include the
+complete declared tokenizer runtime, use a fresh supported Python environment:
+
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[source-authoring-tokenizer]'
+.venv/bin/python -m pip check
+```
+
+This installs dependencies normally; it does not acquire model data, read keys,
+contact a model/account, or grant launch authority. Supply the reviewed local
+model data separately. The installed default still refuses before an approval
+record or credential is read because compiled serving qualification is empty.
+
+The reviewed [macOS ARM64 / CPython 3.12 dependency closure](../requirements/source-authoring-tokenizer-macos-arm64-py312.txt)
+records all 16 exact versions and platform-specific wheel hashes, including the
+Hub dependency required by Tokenizers. For a reviewed offline installation, acquire
+and inspect those exact wheels first, then install the hashed requirements from
+that local wheelhouse with normal dependency resolution. ExitSpec's base
+requirements must also be satisfied; the 16-package file covers the tokenizer
+closure only. Do not use its macOS wheel hashes as a universal lock. A normal
+unconstrained installation may resolve different transitive versions and must be
+checked against the intended qualification record.
+
+The complete tokenizer closure was installed from verified wheels into a fresh
+environment with no copied/inherited site-packages. `pip check`, 584 installed
+file comparisons, isolated import origins and actual token-ID vectors passed
+with no runtime network/process attempts. The installed package files occupied
+34,198,620 bytes in that environment, excluding bootstrap pip. Hub/Xet APIs are
+not used. The earlier no-deps core experiment remains historical compatibility
+evidence; it is not the completed installation. Full application/child and final
+gate results remain bound to the exact packaging candidate's external evidence.
 
 ## Provider qualification still required
 

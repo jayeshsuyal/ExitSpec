@@ -11,9 +11,11 @@ import sys
 import sysconfig
 import tarfile
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 from exitspec.demo_data import (
     SupportAgentEmailPaths,
@@ -472,6 +474,17 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
 
     with zipfile.ZipFile(wheel) as archive:
         members = set(archive.namelist())
+        metadata_member = next(name for name in members if name.endswith(".dist-info/METADATA"))
+        metadata = BytesParser().parsebytes(archive.read(metadata_member))
+        requirements = [Requirement(value) for value in metadata.get_all("Requires-Dist", [])]
+        optional_tokenizers = [item for item in requirements if item.name == "tokenizers"]
+        assert len(optional_tokenizers) == 1
+        tokenizer_requirement = optional_tokenizers[0]
+        assert str(tokenizer_requirement.specifier) == "==0.23.2"
+        assert tokenizer_requirement.marker is not None
+        assert tokenizer_requirement.marker.evaluate({"extra": "source-authoring-tokenizer"})
+        assert not any(tokenizer_requirement.marker.evaluate({"extra": extra})
+                       for extra in ("", "dev", "browser"))
         for filename, expected_sha256 in EXPECTED_INFERDROME_SCHEMAS.items():
             member = f"exitspec/schemas/inferdrome/v1/{filename}"
             assert member in members
@@ -561,6 +574,25 @@ def test_wheel_runs_demo_and_materializes_session_data_outside_checkout(tmp_path
     isolated_env["PYTHONNOUSERSITE"] = "1"
     isolated_env["PYTHONPATH"] = str(installed_site_packages)
 
+    # Exercise the installed wheel's default path even when the test interpreter
+    # happens to have the optional packages. An accidental eager import fails.
+    _run(
+        [sys.executable, "-c", """
+import sys
+class RefuseOptionalRuntime:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in {"tokenizers", "huggingface_hub", "hf_xet"}:
+            raise RuntimeError("Default installation imported optional tokenizer runtime")
+sys.meta_path.insert(0, RefuseOptionalRuntime())
+from exitspec import source_authoring_launch as launch
+from exitspec import source_authoring_operator as operator
+assert launch._PRODUCTION_PROFILES == ()
+assert launch._QUALIFIED_SERVING_CONTRACTS == ()
+assert operator.main([]) == 2
+"""],
+        cwd=outside_checkout, env=isolated_env,
+    )
+
     demo_output = outside_checkout / "demo-runs"
     stdout = _run(
         [
@@ -602,6 +634,9 @@ import inspect
 import json
 import threading
 from pathlib import Path
+from email.parser import BytesParser
+
+from packaging.requirements import Requirement
 import exitspec
 import exitspec.proofability as proofability
 import exitspec.proofability_workspace as proofability_workspace
