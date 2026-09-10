@@ -163,6 +163,11 @@ class ZoomLiveRuntime:
         self._lock = threading.RLock()
         self._key = secrets.token_bytes(32)
         self._record = None
+        self._pending_closes = []
+        self._cleanup_uncertain = False
+        self._active_launches = 0
+        self._launch_idle = threading.Event()
+        self._launch_idle.set()
         self._closed = threading.Event()
         self._watcher = threading.Thread(target=self._watch, daemon=True)
         self._watcher.start()
@@ -195,22 +200,30 @@ class ZoomLiveRuntime:
         def paired():
             self._draft(poc_id)
             with self._lock:
-                self._revoke_locked("REPLACED")
+                self._require_open_locked()
                 generation = secrets.token_hex(32)
-                self._record = _Capture(
+                candidate = _Capture(
                     poc_id,
                     settings,
                     generation,
                     "zoomsess_" + self._digest(generation),
                     self._clock() + settings.maximum_capture_seconds,
                 )
-                self._record.authorization_summary = {
+                candidate.authorization_summary = {
                     "approved_spending_ceiling_usd": settings.budget_ceiling_usd,
                     "maximum_capture_seconds": settings.maximum_capture_seconds,
                 }
+                # Close and pairing publication serialize here, after the last
+                # settings/clock callback and before any record replacement.
+                self._require_open_locked()
+                self._revoke_locked("REPLACED")
+                self._record = candidate
                 return self._snapshot(poc_id)
 
-        return self._run_if_open(poc_id, paired)
+        try:
+            return self._run_if_open(poc_id, paired)
+        finally:
+            self._drain_cleanup()
 
     def _snapshot(self, poc_id):
         r = self._record
@@ -261,6 +274,7 @@ class ZoomLiveRuntime:
         def mutate():
             draft = self._draft(poc_id)
             with self._lock:
+                self._require_open_locked()
                 r = self._record
                 if (
                     r is None
@@ -272,6 +286,9 @@ class ZoomLiveRuntime:
                     self._revoke_locked("EXPIRED")
                     raise ZoomLiveError()
                 digest = self._digest(payload)
+                self._require_open_locked()
+                if self._record is not r:
+                    raise ZoomLiveError()
                 prior = r.operations.get(key)
                 if prior is not None:
                     if prior != digest:
@@ -362,6 +379,8 @@ class ZoomLiveRuntime:
             return self._run_if_open(poc_id, mutate)
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             refused = True
+        finally:
+            self._drain_cleanup()
         if refused:
             raise ZoomLiveError()
 
@@ -374,22 +393,34 @@ class ZoomLiveRuntime:
             return dict(r.provenance)
 
     def _launch(self, r):
-        with self._lock:
-            if self._record is not r or r.state != "WAITING":
-                return
-            s = r.settings
-            init = {
-                "command": "init",
-                "generation": r.generation,
-                "clientId": s.client_id,
-                "clientSecret": s.client_secret,
-                "webhookSecret": s.webhook_secret,
-                "expectedMeetingUuid": s.meeting_uuid,
-                "callbackPort": s.callback_port,
-                "callbackHost": s.callback_host,
-                "callbackPath": s.callback_path,
-                "_code_revision": s.code_revision,
-            }
+        def admit():
+            with self._lock:
+                self._require_open_locked()
+                if self._record is not r or r.state != "WAITING" or r.settings is None:
+                    raise ZoomLiveError()
+                s = r.settings
+                init = {
+                    "command": "init",
+                    "generation": r.generation,
+                    "clientId": s.client_id,
+                    "clientSecret": s.client_secret,
+                    "webhookSecret": s.webhook_secret,
+                    "expectedMeetingUuid": s.meeting_uuid,
+                    "callbackPort": s.callback_port,
+                    "callbackHost": s.callback_host,
+                    "callbackPath": s.callback_path,
+                    "_code_revision": s.code_revision,
+                }
+                self._require_open_locked()
+                self._active_launches += 1
+                self._launch_idle.clear()
+                return init
+
+        try:
+            init = self._run_if_open(r.poc_id, admit)
+        except Exception:  # noqa: BLE001 - admission failure has no child effect
+            return
+
         # A fast child can respond before the constructor returns its handle.
         startup_lock = threading.Lock()
         startup_events = []
@@ -409,8 +440,8 @@ class ZoomLiveRuntime:
         try:
             child = self._factory(init, receive, lambda: self.failed(r.generation))
             with self._lock:
-                if self._record is not r or r.state in {"FAILED", "REVOKED"}:
-                    child.close()
+                if self._closed.is_set() or self._record is not r or r.state in {"FAILED", "REVOKED"}:
+                    self._pending_closes.append(child)
                 else:
                     r.child = child
             with startup_lock:
@@ -420,6 +451,13 @@ class ZoomLiveRuntime:
                 ready = True
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             self.failed(r.generation)
+
+        finally:
+            self._drain_cleanup()
+            with self._lock:
+                self._active_launches -= 1
+                if self._active_launches == 0:
+                    self._launch_idle.set()
 
     def _send_locked(self, r, command):
         try:
@@ -437,6 +475,12 @@ class ZoomLiveRuntime:
 
     def receive(self, generation, event):
         """Only the callback captured by the private parent-owned child calls this."""
+        try:
+            return self._receive(generation, event)
+        finally:
+            self._drain_cleanup()
+
+    def _receive(self, generation, event):
         with self._lock:
             r = self._record
             if (
@@ -571,7 +615,8 @@ class ZoomLiveRuntime:
                     r.stop_deadline = None
                     r.settings = None
                     if r.child:
-                        r.child.close()
+                        self._pending_closes.append(r.child)
+                        r.child = None
 
         try:
             self._run_if_open(poc_id, accept)
@@ -589,13 +634,15 @@ class ZoomLiveRuntime:
                 not in {"CAPTURE_READY", "DRAFT_READY", "REVOKED"}
             ):
                 self._fail_locked("CAPTURE_FAILED")
+        self._drain_cleanup()
 
     def _fail_locked(self, code):
         r = self._record
         if r:
             r.state, r.failure, r.connected = "FAILED", code, False
             if r.child:
-                r.child.close()
+                self._pending_closes.append(r.child)
+                r.child = None
             r.packets.clear()
             r.settings = None
 
@@ -609,8 +656,15 @@ class ZoomLiveRuntime:
         with self._lock:
             if self._record and self._record.poc_id == poc_id:
                 self._revoke_locked(reason)
+        self._drain_cleanup()
 
     def tick(self):
+        try:
+            self._tick()
+        finally:
+            self._drain_cleanup()
+
+    def _tick(self):
         with self._lock:
             r = self._record
             if not r or r.state in {"FAILED", "REVOKED", "DRAFT_READY"}:
@@ -630,11 +684,33 @@ class ZoomLiveRuntime:
         while not self._closed.wait(0.25):
             self.tick()
 
+    def _require_open_locked(self):
+        if self._closed.is_set():
+            raise ZoomLiveError()
+
+    def _drain_cleanup(self):
+        # Detach under the runtime lock, then perform child I/O/waits after the
+        # caller's owner transaction. A child is detached only once.
+        with self._lock:
+            children, self._pending_closes = self._pending_closes, []
+        for child in children:
+            try:
+                child.close()
+            except Exception:  # noqa: BLE001 - retain unresolved cleanup without private error text
+                with self._lock:
+                    self._cleanup_uncertain = True
+                    self._closed.set()
+                    self._pending_closes.append(child)
+
     def close(self):
-        self._closed.set()
-        try:
-            with self._lock:
-                self._revoke_locked("SERVER_CLOSED")
-        finally:
-            if self._watcher is not threading.current_thread():
-                self._watcher.join(timeout=1)
+        with self._lock:
+            self._closed.set()
+            self._revoke_locked("SERVER_CLOSED")
+        self._drain_cleanup()
+        # A launch admitted before close may already be constructing its child.
+        # It cannot publish it after close and owns its eventual cleanup. Keep
+        # the pending counter if it outlives this bounded wait; never reopen.
+        self._launch_idle.wait(timeout=1)
+        self._drain_cleanup()
+        if self._watcher is not threading.current_thread():
+            self._watcher.join(timeout=1)
