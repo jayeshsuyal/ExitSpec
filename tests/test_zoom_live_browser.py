@@ -41,6 +41,16 @@ def install_fake(server):
     return children, launched
 
 
+def wait_fake_ready(runtime, children, launched):
+    assert launched.wait(2)
+    # Allocation happens inside the factory, before the parent publishes its
+    # handle and drains startup events. Inject only after that phase completes.
+    assert runtime._launch_idle.wait(15), "fake child startup did not finish"
+    with runtime._lock:
+        assert runtime._record.child is children[-1]
+        return runtime._record.child
+
+
 def test_native_capture_browser_to_human_confirmed_reference_evidence_pack(tmp_path):
     from playwright.sync_api import expect, sync_playwright
 
@@ -58,9 +68,8 @@ def test_native_capture_browser_to_human_confirmed_reference_evidence_pack(tmp_p
         expect(page.locator("#zoom-live-start")).to_be_disabled()
         page.locator("#zoom-live-consent").check()
         page.locator("#zoom-live-start").click()
-        assert launched.wait(2)
+        child = wait_fake_ready(server.zoom_live_runtime, children, launched)
         expect(page.locator("#zoom-live-status")).to_contain_text("Waiting")
-        child = children[-1]
         child.emit("offer")
         child.emit("listening")
         packet(
@@ -201,9 +210,8 @@ def test_native_browser_stop_failure_and_reset_never_create_proposals(tmp_path):
         )
         page.locator("#zoom-live-consent").check()
         page.locator("#zoom-live-start").click()
-        assert launched.wait(2)
+        child = wait_fake_ready(server.zoom_live_runtime, children, launched)
         expect(page.locator("#zoom-live-status")).to_contain_text("Waiting")
-        child = children[-1]
         child.emit("offer")
         child.emit("listening")
         packet(child)
@@ -273,8 +281,7 @@ def test_native_browser_persisted_lifecycle_revalidates_operator_session(tmp_pat
         ) as start:
             page.locator("#zoom-live-start").click()
         assert start.value.post_data_json["session_id"] == replacement
-        assert launched.wait(2)
-        child = children[-1]
+        child = wait_fake_ready(server.zoom_live_runtime, children, launched)
         child.emit("offer")
         child.emit("listening")
         expect(page.locator("#zoom-live-stop")).to_be_enabled()
