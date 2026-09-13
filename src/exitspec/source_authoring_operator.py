@@ -29,6 +29,7 @@ def _arguments(argv):
     parser.add_argument("--approval-id", required=True)
     parser.add_argument("--approval-file", required=True)
     parser.add_argument("--approval-sha256", required=True)
+    parser.add_argument("--enroll-metadata", action="store_true")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--output-root", default="/tmp/exitspec-source-authoring")
     args = parser.parse_args(argv)
@@ -181,7 +182,7 @@ def main(argv=None):
         thread.start()
         print(f"Open http://127.0.0.1:{server.server_port}/app to create the meeting POC.")
         if not _pair_zoom_in_server(server, profile.code_revision, read_text=_read_text_tty,
-                                    secret=_read_text_tty):
+                                    secret=_read_text_tty, enroll_metadata=args.enroll_metadata):
             raise launch.SourceAuthoringLaunchError()
         print("Capture in this POC's Zoom panel. Then inspect its exact source on the authoring page.")
         print("Fireworks Run requires separate exact-source acknowledgment; Zoom pairing grants none.")
