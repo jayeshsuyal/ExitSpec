@@ -311,6 +311,7 @@ def test_combined_enrollment_exact_source_draft_human_freeze_and_evidence(combin
                     expect(page.locator("#source-ledger")).to_contain_text("1 of 1")
                     expect(page.locator("#source-mode-copy")).to_contain_text("not a guaranteed invoice ceiling")
                     expect(page.locator("#source-preview")).to_be_disabled()
+                    expect(page.locator("#source-empty")).to_contain_text("This demo attempt is consumed")
                     capture("01b-one-attempt-result-readable")
                     assert not authoring.operations._closed
                     from exitspec.source_authoring_demo_run import consumed

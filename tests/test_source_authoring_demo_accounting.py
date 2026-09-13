@@ -160,10 +160,13 @@ def test_uncertain_delivery_preserves_unknown_usage_and_no_retry(monkeypatch, tm
     from exitspec.source_authoring_supervisor import _BoundedLiveSupervisor
     ops, session, permit, handle, profile, _path, context, _source, children = demo_setup(monkeypatch, tmp_path, 'stall_result')
     if ending == 'timeout':
-        prepare = _BoundedLiveSupervisor.prepare
-        def short(self, metadata, *, deadline):
-            return prepare(self, metadata, deadline=min(deadline, time.monotonic() + 0.3))
-        monkeypatch.setattr(_BoundedLiveSupervisor, 'prepare', short)
+        collect = _BoundedLiveSupervisor.collect
+        def short(self):
+            # Handoff already completed; shorten only the collection wait so
+            # process startup load cannot turn this into a pre-dispatch test.
+            self._deadline = min(self._deadline, time.monotonic() + 0.1)
+            return collect(self)
+        monkeypatch.setattr(_BoundedLiveSupervisor, 'collect', short)
     else:
         handoff = _BoundedLiveSupervisor.handoff
         def cancel(self):

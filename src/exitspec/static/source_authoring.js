@@ -125,6 +125,7 @@
     $("source-redacted-text").textContent = "";
     $("source-disclosure").hidden = true;
     $("source-empty").hidden = false;
+    if (isDemo() && demoConsumed) setText("source-empty", "This demo attempt is consumed. Continue to human review or handoff.");
   }
   function failure(code) {
     const messages = {
