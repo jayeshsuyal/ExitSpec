@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from threading import RLock
 
+from . import source_authoring_demo_run as demo_run
 from . import source_authoring_launch as launch
 from .canonical import canonical_json_bytes
 from .source_authoring_ipc import SourceAuthoringWorkerError
@@ -43,7 +44,7 @@ from .source_authoring_supervisor import (
     SyntheticSourceAuthoringSupervisor,
     _BoundedLiveSupervisor,
 )
-from .source_authoring_transport import decode_response
+from .source_authoring_transport import decode_response, observe_response
 
 
 class SourceAuthoringOperationError(ValueError):
@@ -148,6 +149,7 @@ class _Record:
     permit: AuthorizedSourceAuthoringRequest | None = None
     deadline: float | None = None
     token_proof: object = None
+    consumption_digest: str | None = None
 
 
 _TERMINAL = frozenset(
@@ -194,6 +196,7 @@ class ProcessLocalSourceAuthoringOperations:
         self._records_generation = 0
         self._aliases: dict[tuple[str, str], str] = {}
         self._claims = 0
+        self._demo_run_profile = None
         self._last_claim: float | None = None
         self._active: str | None = None
         self._worker: SyntheticSourceAuthoringSupervisor | None = None
@@ -272,16 +275,31 @@ class ProcessLocalSourceAuthoringOperations:
                 self._session_secrets[session._identity] = session._secret
                 return session
 
+    def _demo_admission(self):
+        profile = launch._demo_profile(self._live_lease)
+        if profile is not None:
+            try:
+                if self._claims >= 1 or demo_run.consumed(profile):
+                    raise SourceAuthoringOperationError("demo_consumed")
+            except demo_run.DemoRunError:
+                raise SourceAuthoringOperationError("demo_run_unavailable") from None
+        return profile
+
     @property
     def ledger(self) -> tuple[int, Decimal]:
         with self._lock:
-            return self._claims, Decimal(self._claims) * Decimal("0.01")
+            claims = self._claims
+            profile = self._demo_run_profile
+            if profile is not None and demo_run.consumed(profile):
+                claims = 1
+            return claims, Decimal(claims) * Decimal("0.01")
 
     def prepare(
         self, session: SyntheticBrowserSession, poc_id: str, source_receipt_id: str
     ) -> SourceAuthoringDisclosure:
         with self._lock:
             identity = self._session(session)
+            self._demo_admission()
         snapshot = self._owners.capture(poc_id, source_receipt_id)
         body = (build_body(snapshot.source) if self._live_lease is not None
                 else build_body(snapshot.source, policy=self._policy))
@@ -305,6 +323,7 @@ class ProcessLocalSourceAuthoringOperations:
                             record.disclosure.operation_id, "EXPIRED", "consent_expired"
                         )
                         break
+                self._demo_admission()
                 if len(self._records) >= 1024:
                     raise SourceAuthoringOperationError("operation_capacity")
                 disclosure = SourceAuthoringDisclosure(
@@ -321,6 +340,9 @@ class ProcessLocalSourceAuthoringOperations:
                             "issued": now,
                             "expires": now + 300,
                             "classification": "OWNER_APPROVED_REDACTED_BUSINESS_TEXT",
+                            **({"demo_contract": demo_run.CONTRACT, "purpose": demo_run.PURPOSE,
+                                "custody": demo_run.CUSTODY, "policy": self._policy.digest}
+                               if launch._demo_profile(self._live_lease) is not None else {}),
                         },
                     ),
                     snapshot.source.content_sha256,
@@ -403,6 +425,7 @@ class ProcessLocalSourceAuthoringOperations:
                     self._validate_record_intent(replace(current, intent=intent, token_proof=token_proof))
                 else:
                     intent = self._make_intent(current, key)
+                self._demo_admission()
                 self._check_pending(current, "PREPARED")
                 guard.check_current_locked()
                 permit_type = (LiveAuthorizedSourceAuthoringRequest if self._live_lease is not None
@@ -671,8 +694,20 @@ class ProcessLocalSourceAuthoringOperations:
                     raise SourceAuthoringOperationError("budget_exhausted")
                 if self._last_claim is not None and now - self._last_claim < 10:
                     raise SourceAuthoringOperationError("rate_limited")
+                demo_profile = self._demo_admission()
+                consumption_digest = None
+                if demo_profile is not None:
+                    try:
+                        consumption_digest = launch._consume_demo(
+                            self._live_lease, operation=operation,
+                            source_sha256=record.source.source.content_sha256,
+                            body_sha256=record.intent.body_sha256,
+                        )
+                    except (demo_run.DemoRunError, launch.SourceAuthoringLaunchError):
+                        raise SourceAuthoringOperationError("demo_run_unavailable") from None
                 claimed = replace(
                     record,
+                    consumption_digest=consumption_digest,
                     deadline=min(now + 30, record.disclosure.expires_monotonic),
                     receipt=replace(
                         record.receipt,
@@ -770,6 +805,13 @@ class ProcessLocalSourceAuthoringOperations:
             worker.handoff()
             response = worker.collect()
             if self._live_lease is not None:
+                if claimed.consumption_digest is not None:
+                    # Observation is not acceptance. Durable receipt precedes all
+                    # response/content/source validation and guarded publication.
+                    try:
+                        demo_run.observe(launch._demo_profile(self._live_lease), claimed.consumption_digest, observe_response(response))
+                    except demo_run.DemoRunError:
+                        raise SourceAuthoringOperationError("demo_receipt_failed") from None
                 response = decode_response(response)
             batch = validate_output(response, claimed.source.source)
             self._schedule("pre_commit")
@@ -896,6 +938,7 @@ def create_live_source_authoring_operations(*, owners=None, installation=None, *
         engine = ProcessLocalSourceAuthoringOperations(owners=owners)
         engine._epoch, engine._grant, engine._policy = metadata["epoch"], metadata["grant"], policy
         _LIVE_ENGINES[engine] = lease
+        engine._demo_run_profile = launch._demo_profile(lease)
         launch._register_cancel(lease, engine.shutdown)
         return engine
     except Exception:  # noqa: BLE001 - installation failures disclose no launch metadata

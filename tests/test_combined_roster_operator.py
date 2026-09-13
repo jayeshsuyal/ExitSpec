@@ -24,11 +24,21 @@ from tests.test_zoom_live_runtime import FakeChild, packet, settings
 
 
 @pytest.fixture
-def combined(monkeypatch, tmp_path):
-    profile = install_fake_profile(monkeypatch)
+def combined(monkeypatch, tmp_path, request):
+    demo_mode = getattr(request, "param", False)
+    if demo_mode:
+        from tests.helpers.source_authoring_demo import install_demo_profile
+        profile, approval_path, approval_digest = install_demo_profile(monkeypatch, tmp_path)
+    else:
+        profile = install_fake_profile(monkeypatch)
     state = SimpleNamespace(servers=[], zooms=[], children=[], handles=[], now=0,
                             mode=None, ending=None, prompts=[], stop=None, checks=[])
-    state.providers = fake_transport(monkeypatch)
+    state.demo_mode = demo_mode
+    if demo_mode:
+        from tests.helpers.source_authoring_demo import fake_demo_transport
+        state.providers = fake_demo_transport(monkeypatch, approval_path, scenario="demo_delayed")
+    else:
+        state.providers = fake_transport(monkeypatch)
     runtime_type, serve = demo.ZoomLiveRuntime, operator.serve_source_neutral_demo
 
     class Child(FakeChild):
@@ -75,7 +85,11 @@ def combined(monkeypatch, tmp_path):
     def construct(**kwargs):
         state.handles.append(kwargs["source_authoring_launch"])
         kwargs["port"] = 0  # Real loopback server; no fixed port or browser launch.
-        server = serve(**kwargs)
+        try:
+            server = serve(**kwargs)
+        except BaseException as error:
+            state.checks.append(error)
+            raise
         state.servers.append(server)
         return server
 
@@ -138,6 +152,10 @@ def combined(monkeypatch, tmp_path):
         state.ending, state.stop = ending, check
         args = ["--approval-id", profile.approval_id, "--approval-file", str(tmp_path / "approval.json"),
                 "--approval-sha256", "0" * 64, "--output-root", str(tmp_path)]
+        if demo_mode:
+            args = ["--demo", "--approval-id", profile.approval_id,
+                    "--approval-file", str(approval_path), "--approval-sha256", approval_digest,
+                    "--output-root", str(tmp_path)]
         if enroll:
             args.append("--enroll-metadata")
         result = operator.main(args)
@@ -208,6 +226,7 @@ def test_installed_registry_refuses_before_arguments_paths_or_tty(monkeypatch, a
 
 
 @pytest.mark.skipif(os.environ.get("EXITSPEC_BROWSER_E2E") != "1", reason="combined synthetic Chromium flow")
+@pytest.mark.parametrize("combined", [False, True], indirect=True)
 def test_combined_enrollment_exact_source_draft_human_freeze_and_evidence(combined):
     from playwright.sync_api import expect, sync_playwright
 
@@ -229,7 +248,7 @@ def test_combined_enrollment_exact_source_draft_human_freeze_and_evidence(combin
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.on("response", lambda response: responses.append((response.status, response.url)))
             output = os.environ.get("EXITSPEC_COMBINED_EVIDENCE")
-            evidence_root = Path(output) if output else None
+            evidence_root = (Path(output) / ("demo" if state.demo_mode else "baseline")) if output else None
             def capture(name):
                 if evidence_root:
                     evidence_root.mkdir(parents=True, exist_ok=True)
@@ -271,9 +290,13 @@ def test_combined_enrollment_exact_source_draft_human_freeze_and_evidence(combin
                 page.locator("#source-authorize").click()
                 expect(page.locator("#source-run")).to_be_enabled()
                 assert state.providers == []
+                if state.demo_mode:
+                    expect(page.locator("#mode-heading")).to_have_text("Fireworks · one-attempt demo")
+                    expect(page.locator("#source-ledger")).to_contain_text("0 of 1")
+                    expect(page.locator("#source-purpose")).to_contain_text("ONE")
                 capture("01-separate-exact-source-consent")
                 page.locator("#source-run").click()
-                expect(page.locator("#source-review-result")).to_be_visible()
+                expect(page.locator("#source-review-result")).to_be_visible(timeout=15000)
                 assert len(state.providers) == authoring.operations.ledger[0] == 1
                 entry = next(item for item in authoring.operations._records.values() if item.receipt.state == "SUCCEEDED")
                 assert entry.disclosure.source_sha256 == runtime.receipt(poc)["redacted_content_sha256"]
@@ -284,6 +307,14 @@ def test_combined_enrollment_exact_source_draft_human_freeze_and_evidence(combin
                 active = next(item for item in authoring._browsers if entry.disclosure.operation_id in item.operations)
                 authoring.request(poc, "run", {"operation_id": entry.disclosure.operation_id}, active.secret.hex())
                 assert len(state.providers) == authoring.operations.ledger[0] == 1
+                if state.demo_mode:
+                    expect(page.locator("#source-ledger")).to_contain_text("1 of 1")
+                    expect(page.locator("#source-mode-copy")).to_contain_text("not a guaranteed invoice ceiling")
+                    expect(page.locator("#source-preview")).to_be_disabled()
+                    capture("01b-one-attempt-result-readable")
+                    assert not authoring.operations._closed
+                    from exitspec.source_authoring_demo_run import consumed
+                    assert consumed(launch._demo_profile(authoring.operations._live_lease))
                 page.locator("#source-review-result").click()
                 for index in range(3):
                     page.locator("#review-start").click()

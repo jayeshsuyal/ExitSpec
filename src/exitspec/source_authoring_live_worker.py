@@ -1,7 +1,7 @@
-"""Disabled installed live entrypoint; private protocol is exercised by fake tests.
+"""Production-closed worker with separately admitted one-attempt demo contract.
 
-Production admission refuses before descriptor access while the central
-qualified-profile registry is empty. No command-line or environment admission.
+Default production admission refuses before descriptor access with an empty
+serving registry. Demo admission requires an exact detached record; no env bypass.
 """
 
 from __future__ import annotations
@@ -78,6 +78,10 @@ def _run_protocol(profile, input_fd=0, output_fd=1):
             raise SourceAuthoringWorkerError()
         require_eof(input_fd, deadline=deadline)
         validate_request_body(body)
+        if _launch._is_demo(profile):
+            from .source_authoring_demo_run import claim_dispatch
+            claim_dispatch(profile, binding)
+            check_deadline(deadline, admission=True)
         secret_metadata, credential = read_live_frame(
             credential_fd, event="CREDENTIAL", deadline=deadline
         )
@@ -91,7 +95,8 @@ def _run_protocol(profile, input_fd=0, output_fd=1):
         os.close(credential_fd)
         credential_fd = None
         check_deadline(deadline, admission=True)
-        response = _post_exact(body, credential, deadline=deadline)
+        response = _post_exact(body, credential, deadline=deadline,
+                               **({"demo_observation": True} if _launch._is_demo(profile) else {}))
         credential = b""
         write_wire(
             output_fd, encode_live_frame("RESULT", binding, response), deadline=deadline

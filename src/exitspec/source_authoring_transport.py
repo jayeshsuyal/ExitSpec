@@ -71,6 +71,38 @@ def _metadata_text(value):
         raise ValueError
 
 
+def observe_response(raw):
+    """Untrusted provider-reported counters; no draft acceptance or invoice claim."""
+    import hashlib
+    observation = {"response_sha256": hashlib.sha256(raw).hexdigest(),
+                   "usage_status": "MALFORMED", "provider_usage": None,
+                   "billing_status": "UNKNOWN"}
+    try:
+        value = _json(raw, MAX_RESPONSE_BYTES)
+        if type(value) is not dict or value.get("model") != _PINNED_MODEL:
+            return observation
+        _metadata_text(value.get("id"))
+        if "usage" not in value:
+            observation["usage_status"] = "ABSENT"
+            return observation
+        usage = value["usage"]
+        _keys(usage, {"prompt_tokens", "completion_tokens", "total_tokens"},
+              {"prompt_tokens_details", "completion_tokens_details"})
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            _integer(usage[key])
+        if usage["total_tokens"] != usage["prompt_tokens"] + usage["completion_tokens"]:
+            return observation
+        for key, counter, maximum in (("prompt_tokens_details", "cached_tokens", usage["prompt_tokens"]),
+                                      ("completion_tokens_details", "reasoning_tokens", usage["completion_tokens"])):
+            if key in usage:
+                _keys(usage[key], {counter})
+                _integer(usage[key][counter], maximum)
+        observation.update(usage_status="REPORTED", provider_usage=usage)
+    except (ValueError, TypeError, UnicodeError, RecursionError, KeyError):
+        pass
+    return observation
+
+
 def decode_response(raw):
     """Return content bytes only; inner source/schema validation still precedes F."""
     try:
@@ -177,7 +209,7 @@ def _remaining(deadline, connection=None):
     return remaining
 
 
-def _post_exact(body, credential, *, deadline):
+def _post_exact(body, credential, *, deadline, demo_observation=False):
     """Single fixed POST; called only after child has validated both complete pipes."""
     validate_request_body(body)
     validate_credential(credential)
@@ -279,7 +311,8 @@ def _post_exact(body, credential, *, deadline):
         raw = bytes(chunks)
         if declared_length is not None and len(raw) != declared_length:
             raise ValueError
-        decode_response(raw)
+        if not demo_observation:
+            decode_response(raw)
         result = raw
     except Exception:  # noqa: BLE001 - never expose provider, header, TLS or credential diagnostics
         result = None

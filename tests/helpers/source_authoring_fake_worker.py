@@ -15,7 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from source_authoring_admission import fake_profile
 
 profile = fake_profile()
-launch._PRODUCTION_PROFILES = (profile,)
+if len(sys.argv) == 3:
+    values = json.loads(Path(sys.argv[2]).read_bytes())["profile"]
+    for name in ("files", "tokenizer_artifacts"):
+        values[name] = tuple(tuple(item) for item in values[name])
+    profile = launch._DemoLaunchProfile(**values)
+    launch._DEMO_PROFILES = (profile,)
+else:
+    launch._PRODUCTION_PROFILES = (profile,)
 
 
 def forbidden(*args, **kwargs):
@@ -42,14 +49,14 @@ def encode(event, binding, payload, **fields):
     return wire
 
 
-def post(body, credential, *, deadline):
+def post(body, credential, *, deadline, demo_observation=False):
     assert credential == b"SYNTHETIC-KEY"
     if scenario.startswith("stall_") or scenario == "slow_trickle":
         time.sleep(60)
     if scenario == "worker_error":
         raise ValueError("PRIVATE-MARKER")
     content = '{"synthetic":true}'
-    if scenario == "authoring":
+    if scenario in {"authoring", "demo_delayed", "demo_rejected", "demo_over_limit", "demo_missing", "demo_malformed"}:
         source = json.loads(json.loads(body)["messages"][1]["content"].split("\n", 1)[1])["text"]
         quotes = [text.strip() for text in re.split(r"(?<=[.!?])\s+", source) if text.strip()]
         content = json.dumps({
@@ -58,8 +65,7 @@ def post(body, credential, *, deadline):
                            "normalized_claim": quote, "numeric_facts": None}
                           for index, quote in enumerate(quotes[:3])],
         })
-    return json.dumps(
-        {
+    response = {
             "id": "fake-local",
             "object": "chat.completion",
             "created": 0,
@@ -73,7 +79,17 @@ def post(body, credential, *, deadline):
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
         }
-    ).encode()
+    if scenario == "demo_delayed":
+        time.sleep(7)
+    if scenario == "demo_rejected":
+        response["choices"][0]["message"]["content"] = '{"schema_version":"wrong"}'
+    if scenario == "demo_over_limit":
+        response["usage"] = {"prompt_tokens": 9000, "completion_tokens": 2, "total_tokens": 9002}
+    if scenario == "demo_missing":
+        response.pop("usage")
+    if scenario == "demo_malformed":
+        response["usage"]["prompt_tokens"] = True
+    return json.dumps(response).encode()
 
 
 worker.encode_live_frame = encode

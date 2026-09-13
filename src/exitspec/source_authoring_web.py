@@ -13,6 +13,7 @@ from threading import RLock, Thread
 from time import monotonic
 from urllib.parse import urlparse
 
+from . import source_authoring_demo_run as demo_run
 from . import source_authoring_launch as launch
 from .assisted_authoring import ASSISTED_AUTHORING_SCHEMA_VERSION
 from .source_authoring_operations import (
@@ -109,7 +110,7 @@ class SourceAuthoringWebRuntime:
             return MODE
         with launch._lease_guard(lease, self._owners):
             mode = launch._display_mode(lease)
-            if mode not in {"QUALIFIED_FIREWORKS", "OFFLINE_FAKE_FIREWORKS"}:
+            if mode not in {"QUALIFIED_FIREWORKS", "OFFLINE_FAKE_FIREWORKS", "DEMO_FIREWORKS"}:
                 raise SourceAuthoringWebError("RUNTIME_CLOSED")
             return mode
 
@@ -154,7 +155,7 @@ class SourceAuthoringWebRuntime:
             "mode": self.mode,
             "poc_id": poc_id,
             "display_name": draft.display_name,
-            "live_enabled": self.mode == "QUALIFIED_FIREWORKS",
+            "live_enabled": self.mode in {"QUALIFIED_FIREWORKS", "DEMO_FIREWORKS"},
             "live_missing": [
                 "live_worker_and_operator_launcher",
                 "owner_launch_approval",
@@ -280,8 +281,9 @@ class SourceAuthoringWebRuntime:
                 "classification": CLASSIFICATION,
                 "provider": "fireworks",
                 "model": MODEL,
-                "purpose": "Draft proposals for human review from this exact redacted source.",
-                "custody": (
+                "purpose": (demo_run.PURPOSE if self.mode == "DEMO_FIREWORKS" else
+                            "Draft proposals for human review from this exact redacted source."),
+                "custody": (demo_run.CUSTODY if self.mode == "DEMO_FIREWORKS" else
                     "This synthetic run stays on this computer. The future global provider profile has no regional guarantee; external data handling approval is still required."
                     if self.mode == MODE else
                     "Offline fake transport only. No provider call, account qualification or regional data handling guarantee has been tested."
@@ -297,9 +299,9 @@ class SourceAuthoringWebRuntime:
                     "consent_seconds": 300,
                     "attempts": 1,
                     "claim_interval_seconds": 10,
-                    "grant_claims": 10,
+                    "grant_claims": 1 if self.mode == "DEMO_FIREWORKS" else 10,
                     "reservation_usd": "0.01",
-                    "grant_reservation_usd": "0.10",
+                    "grant_reservation_usd": "0.01" if self.mode == "DEMO_FIREWORKS" else "0.10",
                 },
             }
         return result
@@ -349,7 +351,7 @@ class SourceAuthoringWebRuntime:
                         error.code
                         if type(error) is SourceAuthoringOperationError
                         and error.code
-                        in {"rate_limited", "budget_exhausted", "grant_closed"}
+                        in {"rate_limited", "budget_exhausted", "grant_closed", "demo_consumed", "demo_run_unavailable"}
                         else "execution_refused"
                     )
                     # Pre-claim refusal retains the same permit for an explicit
@@ -520,6 +522,8 @@ def handle_source_authoring_http(handler):
                 "operation_capacity",
                 "alias_capacity",
                 "grant_closed",
+                "demo_consumed",
+                "demo_run_unavailable",
             }
             else "CONSENT_REFUSED"
         )

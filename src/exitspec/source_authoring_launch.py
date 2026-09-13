@@ -63,6 +63,26 @@ class _QualifiedLaunchProfile:
     launch_budget_usd: str = "0.10"
 
 
+@dataclass(frozen=True, repr=False)
+class _DemoLaunchProfile(_QualifiedLaunchProfile):
+    launch_budget_usd: str = "0.01"
+    accounting_contract: str = "exitspec-demo-local-accounting-v1"
+    run_id: str = ""
+    run_directory: str = ""
+    run_device: int = 0
+    run_inode: int = 0
+    run_uid: int = -1
+    run_host: str = ""
+
+
+_DEMO_PROFILES: tuple[_DemoLaunchProfile, ...] = ()
+_DEMO_APPROVAL_SCHEMA = "exitspec.detached-demo-approval.v1"
+
+
+def _is_demo(profile):
+    return type(profile) is _DemoLaunchProfile
+
+
 # These are runtime-issued identities, never literal profiles embedded in code.
 _PRODUCTION_PROFILES: tuple[_QualifiedLaunchProfile, ...] = ()
 _APPROVALS: dict[int, tuple[_QualifiedLaunchProfile, str, str]] = {}
@@ -142,14 +162,22 @@ _TOKENS: dict[_VerifiedTokenProof, tuple[_LiveLease, int, str, int]] = {}
 def _profile_digest(profile):
     values = asdict(profile)
     values.pop("launch_profile_sha256")
-    return hashlib.sha256(b"exitspec-qualified-source-launch-v1\0" + canonical_json_bytes(values)).hexdigest()
+    domain = b"exitspec-demo-source-launch-v1\0" if _is_demo(profile) else b"exitspec-qualified-source-launch-v1\0"
+    return hashlib.sha256(domain + canonical_json_bytes(values)).hexdigest()
 
 
 def _require_profile(profile):
     """Only issued identities with fixed, finite, complete metadata are usable."""
-    if type(profile) is not _QualifiedLaunchProfile or not any(profile is item for item in _PRODUCTION_PROFILES):
+    profiles = _DEMO_PROFILES if _is_demo(profile) else _PRODUCTION_PROFILES
+    if type(profile) not in {_QualifiedLaunchProfile, _DemoLaunchProfile} or not any(profile is item for item in profiles):
         raise SourceAuthoringLaunchError()
     try:
+        if _is_demo(profile):
+            from . import source_authoring_demo_run as demo
+            if (profile.accounting_contract != demo.CONTRACT
+                or any(type(v) is not int for v in (profile.run_device, profile.run_inode, profile.run_uid))):
+                raise ValueError()
+            demo.verify(profile)
         for value in (profile.approval_id, profile.tokenizer_identity, profile.account_pricing_approval,
                       profile.custody_approval, profile.region):
             if type(value) is not str or re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", value) is None:
@@ -164,7 +192,8 @@ def _require_profile(profile):
             or profile.redaction_sha256 != REDACTION_CONFIGURATION_DIGEST
             or type(profile.input_tokens_max) is not int or profile.input_tokens_max != 8192
             or type(profile.output_tokens_max) is not int or profile.output_tokens_max != 2000
-            or profile.request_budget_usd != "0.01" or profile.launch_budget_usd != "0.10"):
+            or profile.request_budget_usd != "0.01"
+            or profile.launch_budget_usd != ("0.01" if _is_demo(profile) else "0.10")):
             raise ValueError()
         if any(type(value) is not str or re.fullmatch(r"[a-f0-9]{40}", value) is None
                for value in (profile.code_revision, profile.code_tree)):
@@ -205,7 +234,7 @@ def _approval_constant(_):
     raise ValueError()
 
 
-def _read_approval(path, expected_sha256):
+def _read_approval(path, expected_sha256, *, demo=False):
     """Equality to the operator's independent anchor, not a signature check."""
     descriptor = None
     try:
@@ -239,9 +268,9 @@ def _read_approval(path, expected_sha256):
         value = json.loads(bytes(raw).decode("utf-8"), object_pairs_hook=_approval_pairs,
                            parse_constant=_approval_constant)
         if (type(value) is not dict or set(value) != {"schema_version", "profile"}
-            or value["schema_version"] != _APPROVAL_SCHEMA
+            or value["schema_version"] != (_DEMO_APPROVAL_SCHEMA if demo else _APPROVAL_SCHEMA)
             or type(value["profile"]) is not dict
-            or set(value["profile"]) != {item.name for item in fields(_QualifiedLaunchProfile)}):
+            or set(value["profile"]) != {item.name for item in fields(_DemoLaunchProfile if demo else _QualifiedLaunchProfile)}):
             raise ValueError()
         values = value["profile"]
         for name in ("files", "tokenizer_artifacts"):
@@ -250,7 +279,7 @@ def _read_approval(path, expected_sha256):
                 or any(type(item) is not list or len(item) != 2 for item in entries)):
                 raise ValueError()
             values[name] = tuple(tuple(item) for item in entries)
-        return _QualifiedLaunchProfile(**values)
+        return (_DemoLaunchProfile if demo else _QualifiedLaunchProfile)(**values)
     except (OSError, ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
         raise SourceAuthoringLaunchError() from None
     finally:
@@ -280,13 +309,30 @@ def _load_detached_approval(path, expected_sha256):
     return profile
 
 
+def _load_demo_approval(path, expected_sha256):
+    global _DEMO_PROFILES
+    profile = _read_approval(path, expected_sha256, demo=True)
+    with _LOCK:
+        if _DEMO_PROFILES or _PRODUCTION_PROFILES:
+            raise SourceAuthoringLaunchError()
+        _DEMO_PROFILES = (profile,)
+        _APPROVALS[id(profile)] = (profile, path, expected_sha256)
+        try:
+            _require_profile(profile)
+        except Exception:
+            _DEMO_PROFILES = ()
+            _APPROVALS.pop(id(profile), None)
+            raise
+    return profile
+
+
 def _verify_detached_approval(profile):
     stored = _APPROVALS.get(id(profile))
     if stored is None or stored[0] is not profile:
         raise SourceAuthoringLaunchError()
-    if _read_approval(stored[1], stored[2]) != profile:
+    if _read_approval(stored[1], stored[2], demo=_is_demo(profile)) != profile:
         raise SourceAuthoringLaunchError()
-    if profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS:
+    if not _is_demo(profile) and profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS:
         raise SourceAuthoringLaunchError()
 
 
@@ -294,16 +340,19 @@ def _worker_approval_arguments(lease):
     with _lease_guard(lease) as record:
         _verify_detached_approval(record.profile)
         _, path, digest = _APPROVALS[id(record.profile)]
-        return ["--approval-file", path, "--approval-sha256", digest]
+        return (["--demo"] if _is_demo(record.profile) else []) + ["--approval-file", path, "--approval-sha256", digest]
 
 
 def _bootstrap_worker_approval(argv):
-    if not _QUALIFIED_SERVING_CONTRACTS:
+    demo = type(argv) is list and argv[:1] == ["--demo"]
+    if demo:
+        argv = argv[1:]
+    if not demo and not _QUALIFIED_SERVING_CONTRACTS:
         raise SourceAuthoringLaunchError()
     if (type(argv) is not list or len(argv) != 4
         or argv[0] != "--approval-file" or argv[2] != "--approval-sha256"):
         raise SourceAuthoringLaunchError()
-    _load_detached_approval(argv[1], argv[3])
+    (_load_demo_approval if demo else _load_detached_approval)(argv[1], argv[3])
     return _require_worker_profile()
 
 def _git_read(root, args, deadline, budget):
@@ -408,7 +457,7 @@ def _verify_tokenizer_implementation(profile):
     from . import source_authoring_tokenizer as tokenizer
     try:
         if (profile.tokenizer_identity != tokenizer.TOKENIZER_ID
-            or profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS):
+            or (not _is_demo(profile) and profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS)):
             raise SourceAuthoringLaunchError()
         tokenizer.verify(profile.tokenizer_artifacts)
     except ValueError:
@@ -421,25 +470,30 @@ def _evaluate_local_tokens(profile, body):
         _require_profile(profile)
         _verify_detached_approval(profile)
         if (profile.tokenizer_identity != tokenizer.TOKENIZER_ID
-            or profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS):
+            or (not _is_demo(profile) and profile.tokenizer_identity not in _QUALIFIED_SERVING_CONTRACTS)):
             raise SourceAuthoringLaunchError()
         return tokenizer.count_tokens(profile.tokenizer_artifacts, body)
     except ValueError:
         raise SourceAuthoringLaunchError() from None
 
 
-def _admit_operator_profile(approval_id, *, approval_file=None, expected_sha256=None):
+def _admit_operator_profile(approval_id, *, approval_file=None, expected_sha256=None, demo=False):
     if approval_file is not None or expected_sha256 is not None:
-        _load_detached_approval(approval_file, expected_sha256)
-    if not _PRODUCTION_PROFILES:
+        (_load_demo_approval if demo else _load_detached_approval)(approval_file, expected_sha256)
+    profiles = _DEMO_PROFILES if demo else _PRODUCTION_PROFILES
+    if not profiles:
         raise SourceAuthoringLaunchError()
     if type(approval_id) is not str or re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", approval_id) is None:
         raise SourceAuthoringLaunchError()
-    matches = [item for item in _PRODUCTION_PROFILES if item.approval_id == approval_id]
+    matches = [item for item in profiles if item.approval_id == approval_id]
     if len(matches) != 1:
         raise SourceAuthoringLaunchError()
     profile = _require_profile(matches[0])
     _verify_code_and_artifacts(profile)
+    if _is_demo(profile):
+        from .source_authoring_demo_run import consumed
+        if consumed(profile):
+            raise SourceAuthoringLaunchError()
     with _LOCK:
         _require_profile(profile)
         admitted = _AdmittedProfile(_ISSUER)
@@ -539,7 +593,8 @@ def _lease_policy_values(lease):
                 "code_revision": profile.code_revision, "approval_id": profile.approval_id,
                 "tokenizer_identity": profile.tokenizer_identity,
                 "pricing_approval": profile.account_pricing_approval,
-                "custody_approval": profile.custody_approval, "region_policy": profile.region}
+                "custody_approval": profile.custody_approval, "region_policy": profile.region,
+                **({"accounting_contract": profile.accounting_contract, "launch_budget_usd": "0.01"} if _is_demo(profile) else {})}
 
 
 def _register_cancel(lease, callback):
@@ -639,9 +694,10 @@ def _credential_for_ticket(lease, proof, body):
 
 def _require_worker_profile():
     # Admission precedes descriptor inspection and framing reads in the child.
-    if len(_PRODUCTION_PROFILES) != 1:
+    profiles = _PRODUCTION_PROFILES + _DEMO_PROFILES
+    if len(profiles) != 1:
         raise SourceAuthoringLaunchError()
-    profile = _require_profile(_PRODUCTION_PROFILES[0])
+    profile = _require_profile(profiles[0])
     _verify_code_and_artifacts(profile)
     return profile
 
@@ -655,5 +711,19 @@ def _check_worker_binding(profile, binding):
 
 
 def _display_mode(lease):
-    with _lease_guard(lease):
-        return "QUALIFIED_FIREWORKS"
+    with _lease_guard(lease) as record:
+        return "DEMO_FIREWORKS" if _is_demo(record.profile) else "QUALIFIED_FIREWORKS"
+
+
+def _demo_profile(lease):
+    if lease is None:
+        return None
+    with _lease_guard(lease) as record:
+        return record.profile if _is_demo(record.profile) else None
+
+
+def _consume_demo(lease, **bindings):
+    from .source_authoring_demo_run import consume
+    with _lease_guard(lease) as record:
+        _verify_detached_approval(record.profile)
+        return consume(record.profile, _APPROVALS[id(record.profile)][2], **bindings)

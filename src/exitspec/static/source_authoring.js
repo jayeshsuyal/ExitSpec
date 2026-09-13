@@ -1,10 +1,13 @@
 (() => {
   "use strict";
   const MODE = "SYNTHETIC_NO_NETWORK";
-  const MODES = new Set([MODE, "QUALIFIED_FIREWORKS", "OFFLINE_FAKE_FIREWORKS"]);
+  const MODES = new Set([MODE, "QUALIFIED_FIREWORKS", "OFFLINE_FAKE_FIREWORKS", "DEMO_FIREWORKS"]);
   let runtimeMode = null;
   const isSynthetic = () => runtimeMode === MODE;
   const isOffline = () => runtimeMode === "OFFLINE_FAKE_FIREWORKS";
+  const isDemo = () => runtimeMode === "DEMO_FIREWORKS";
+  const claimLimit = () => isDemo() ? 1 : 10;
+  let demoConsumed = false;
   const HEADER = "X-ExitSpec-Authoring-Capability";
   const HEX = /^[a-f0-9]{64}$/;
   const RECEIPT = /^srcpt_[a-z0-9][a-z0-9_-]{7,95}$/;
@@ -56,14 +59,21 @@
       $("source-disclosure").querySelector("dt:nth-of-type(4) + dd").textContent =
         "One attempt, a 30-second deadline and at most 2,000 output tokens. Source: 16 KiB; request: 64 KiB; response: 256 KiB. The ledger reserves $0.01 per claim, at most ten claims / $0.10 per runtime, with ten seconds between claims. " +
         (isOffline() ? "These are offline test reservations; billing and account prerequisites remain unverified." : "The admitted profile binds the request and launch budgets. No automatic retry is permitted.");
+      if (isDemo()) {
+        setText("mode-heading", "Fireworks · one-attempt demo");
+        setText("source-mode-copy", "This demo permits ONE attempt for this approved run. Local token counts do not prove server parity. Local reservations are bookkeeping, not a guaranteed invoice ceiling. Provider-reported usage is recorded separately. Review, confirmation and handoff remain available after the attempt.");
+        $("source-disclosure").querySelector("dt:nth-of-type(4) + dd").textContent =
+          "ONE attempt for this approved run; no retry or replacement after failure, cancellation or uncertainty. 30-second local deadline; at most 2,000 requested output tokens. Source: 16 KiB; request: 64 KiB; response: 256 KiB. $0.01 reserved locally, not a guaranteed invoice ceiling.";
+      }
     }
   }
   function controls() {
     const terminal = TERMINAL.has(state), active = Boolean(operation && !terminal);
     const selected = RECEIPT.test(choice.value), blocked = !ready || busy;
-    const selectionLocked = blocked || active, consentLocked = blocked || state !== "PREPARED";
+    const newAttemptClosed = isDemo() && demoConsumed;
+    const selectionLocked = blocked || active || newAttemptClosed, consentLocked = blocked || state !== "PREPARED" || newAttemptClosed;
     const authorizeDisabled = consentLocked || !business.checked || !acknowledged.checked || displayed !== operation;
-    const runDisabled = blocked || processing || state !== "AUTHORIZED";
+    const runDisabled = blocked || processing || state !== "AUTHORIZED" || newAttemptClosed;
     const cancelDisabled = !capability || !active;
     choice.disabled = selectionLocked;
     $("source-preview").disabled = selectionLocked || !selected;
@@ -75,12 +85,12 @@
     $("source-cancel").disabled = cancelDisabled;
     $("source-task").setAttribute("aria-busy", String(busy));
     const waiting = unavailable ? "This page is unavailable. Reload to validate a fresh session." : "Checking the page session and source list.";
-    setText("source-selection-reason", !ready ? waiting : selectionLocked ?
+    setText("source-selection-reason", !ready ? waiting : newAttemptClosed ? "This demo attempt is consumed. Follow its status, then continue to human review and handoff." : selectionLocked ?
       busy ? "An action is in progress. Wait before selecting or refreshing a source." :
       "This disclosure locks source selection. Revoke consent or wait for a terminal result before inspecting another source." :
       selected ? "Inspect the selected source. This starts no worker." :
       "Select a current eligible source to inspect, or capture a new source.");
-    setText("source-ack-reason", !ready ? waiting : consentLocked ?
+    setText("source-ack-reason", !ready ? waiting : newAttemptClosed ? "No new attempt is authorized for this demo run." : consentLocked ?
       busy ? "Wait for the current action before changing acknowledgment." :
       terminal ? "This consent is terminal. Inspect a current source to acknowledge again." :
       processing || ["CLAIMED", "DISPATCH_AUTHORIZED"].includes(state) ? "This attempt is in progress. Acknowledgment cannot be changed." :
@@ -97,7 +107,7 @@
        isOffline() ? "Run one offline fake attempt. No provider call or spend." :
        "Send this exact redacted source to Fireworks for one bounded authoring attempt.") :
       terminal ? state === "SUCCEEDED" ? "This attempt is complete. Open proposals for human review." :
-      "This consent is no longer executable. Inspect and acknowledge again." :
+      (isDemo() && demoConsumed ? "This demo attempt is consumed. No replacement is authorized; continue to review or handoff." : "This consent is no longer executable. Inspect and acknowledge again.") :
       (busy && state === "AUTHORIZED") || processing || ["CLAIMED", "DISPATCH_AUTHORIZED"].includes(state) ?
       `The current attempt is starting or processing.${cancelDisabled ? "" : " Revoke consent / cancel remains available."}` :
       "Inspect the exact source and acknowledge before using the separate Run control.");
@@ -127,7 +137,10 @@
       rate_limited: "The ten-second claim interval has not elapsed. Run again explicitly when ready.",
       budget_exhausted: "This runtime has consumed all ten claims. No further claim is available.",
       grant_closed: "This runtime is closed. No operation can start.",
+      demo_consumed: "This demo attempt is consumed. No new authoring attempt is authorized. Current status, human review and handoff remain available.",
+      demo_run_unavailable: "This demo run cannot admit another attempt. Its delivery and billing may be unknown. No retry is authorized.",
     };
+    if (isDemo() && ["demo_consumed", "demo_run_unavailable"].includes(code)) demoConsumed = true;
     setText("source-authoring-error", messages[code] || "The response could not be trusted or the request was refused. No automatic retry will run. Refresh current state before continuing.");
     $("source-authoring-error").hidden = false;
   }
@@ -165,7 +178,7 @@
     const keys = ["mode", "poc_id", "operation_id", "state", "processing", "attempts", "reserved_usd", "grant_claims", "grant_reserved_usd", "expires_in_seconds", "code", "authoring_receipt_id"];
     if (value && Object.hasOwn(value, "disclosure")) keys.push("disclosure");
     return sameKeys(value, keys) && value.mode === runtimeMode && value.poc_id === poc && HEX.test(value.operation_id) &&
-      STATES.has(value.state) && typeof value.processing === "boolean" && integer(value.attempts, 1) && integer(value.grant_claims, 10) &&
+      STATES.has(value.state) && typeof value.processing === "boolean" && integer(value.attempts, 1) && integer(value.grant_claims, claimLimit()) &&
       ["0.00", "0.01"].includes(value.reserved_usd) && /^0\.(?:0[0-9]|10)$/.test(value.grant_reserved_usd) &&
       integer(value.expires_in_seconds, 300) && (value.code === null || /^[A-Za-z_]{1,60}$/.test(value.code)) &&
       (value.authoring_receipt_id === null || /^arcp_[a-f0-9]{32}$/.test(value.authoring_receipt_id));
@@ -178,7 +191,7 @@
     const keys = ["disclosure_sha256", "source_receipt_id", "source_kind", "source_revision", "source_sha256", "redacted_text", "classification", "provider", "model", "purpose", "custody", "limits"];
     const expectedLimits = {source_bytes: 16384, body_bytes: 65536, response_bytes: 262144,
       output_tokens: 2000, deadline_seconds: 30, consent_seconds: 300, attempts: 1,
-      claim_interval_seconds: 10, grant_claims: 10, reservation_usd: "0.01", grant_reservation_usd: "0.10"};
+      claim_interval_seconds: 10, grant_claims: claimLimit(), reservation_usd: "0.01", grant_reservation_usd: isDemo() ? "0.01" : "0.10"};
     if (!sameKeys(d, keys) || !HEX.test(d.disclosure_sha256) || !HEX.test(d.source_sha256) ||
         !RECEIPT.test(d.source_receipt_id) || d.source_receipt_id !== choice.value || !Object.hasOwn(KINDS, d.source_kind) ||
         !integer(d.source_revision, 1000000) || d.source_revision < 1 || typeof d.redacted_text !== "string" ||
@@ -209,14 +222,18 @@
     if (!trustedOperation(value) || value.operation_id !== operation) throw new Error("UNTRUSTED_RESPONSE");
     if (TERMINAL.has(state) && value.state !== state) return;
     state = value.state; processing = value.processing;
+    if (isDemo() && value.grant_claims === 1) demoConsumed = true;
     setText("source-expiry", `${value.expires_in_seconds} seconds remaining. Acknowledgment does not extend expiry.`);
-    setText("source-ledger", `${value.grant_claims} of 10 ${isSynthetic() ? "synthetic " : isOffline() ? "offline fake " : ""}claims used · $${value.grant_reserved_usd} reserved locally${isSynthetic() || isOffline() ? " · no provider spend" : ""}.`);
+    setText("source-ledger", `${value.grant_claims} of ${claimLimit()} ${isSynthetic() ? "synthetic " : isOffline() ? "offline fake " : ""}claims used · $${value.grant_reserved_usd} reserved locally${isSynthetic() || isOffline() ? " · no provider spend" : ""}.`);
     const labels = {PREPARED: "Inspect the exact text, then attest and acknowledge.", AUTHORIZED: "Acknowledged. Choose Run to start one synthetic attempt.", CLAIMED: "Processing locally. One synthetic attempt has been consumed.", DISPATCH_AUTHORIZED: "The synthetic worker is processing. You can still cancel publication.", SUCCEEDED: "Validated proposals are ready for human review. They remain NEEDS_REVIEW.", FAILED: "The attempt failed safely. No proposals were published and its consumed claim is retained.", OUTCOME_UNKNOWN: "The attempt did not finish within its bound. No new proposal is available from this operation.", STALE: "The source, draft, review or closure state changed. Inspect current source state before continuing.", EXPIRED: "This disclosure expired. Inspect the source and acknowledge a new disclosure.", REVOKED: "Consent revoked. This operation cannot run again."};
     if (!isSynthetic()) {
       labels.AUTHORIZED = "Acknowledged. Choose Run to start one " + (isOffline() ? "offline fake" : "Fireworks") + " attempt.";
       labels.CLAIMED = "One attempt has been consumed. Preparing the bounded worker.";
       labels.DISPATCH_AUTHORIZED = "Dispatch authorized. Cancellation can prevent publication but cannot undo a completed delivery.";
       labels.OUTCOME_UNKNOWN = "The attempt's outcome is uncertain. No proposal was published. Its claim remains consumed and it will not be retried.";
+    }
+    if (isDemo() && demoConsumed && TERMINAL.has(state) && state !== "SUCCEEDED") {
+      labels[state] += " This demo attempt is consumed. No replacement is authorized.";
     }
     setText("source-status", value.processing && state === "AUTHORIZED" ?
       (isSynthetic() ? "Starting the bounded synthetic worker…" : "Starting the bounded authoring worker…") : labels[state]);
@@ -283,7 +300,7 @@
       if (epoch !== serial) return;
       if (!sameKeys(value, ["schema_version", "capability", "mode", "poc_id", "display_name", "live_enabled", "live_missing"]) ||
           value.schema_version !== "exitspec.source-authoring-web/1" || !HEX.test(value.capability) || !MODES.has(value.mode) ||
-          value.poc_id !== poc || value.live_enabled !== (value.mode === "QUALIFIED_FIREWORKS") || typeof value.display_name !== "string" || value.display_name.length > 200 ||
+          value.poc_id !== poc || value.live_enabled !== ["QUALIFIED_FIREWORKS", "DEMO_FIREWORKS"].includes(value.mode) || typeof value.display_name !== "string" || value.display_name.length > 200 ||
           !Array.isArray(value.live_missing) || value.live_missing.length !== (value.mode === MODE ? 4 : 0) || new Set(value.live_missing).size !== value.live_missing.length ||
           value.live_missing.some((reason) => typeof reason !== "string" || !Object.hasOwn(LIVE_MISSING, reason))) throw new Error("UNTRUSTED_RESPONSE");
       capability = value.capability;

@@ -1,6 +1,6 @@
 # Detached approval and local token accounting
 
-Production execution remains disabled. `_QUALIFIED_SERVING_CONTRACTS` is empty.
+Production execution remains disabled. `_QUALIFIED_SERVING_CONTRACTS` is empty. The explicit `--demo` operator path uses a separately typed, reviewed one-attempt contract without a serving-parity or guaranteed invoice-ceiling claim; see [staged-demo runbook](staged-demo-runbook.md). The production qualification requirements below remain unchanged.
 This change implements a non-circular code approval binding and an actual local
 DeepSeek V4 tokenizer. It does not establish Fireworks serving-template or billing
 parity, account/custody approval, or draft quality. An optional dependency extra

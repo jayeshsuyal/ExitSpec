@@ -695,7 +695,8 @@ class _BoundedLiveSupervisor:
             if live_binding_from(metadata["binding"]) != binding:
                 raise SourceAuthoringWorkerError()
             require_eof(process.stdout.fileno(), deadline=deadline)
-            decode_response(raw)
+            if _launch._display_mode(self._lease) != "DEMO_FIREWORKS":
+                decode_response(raw)
             if not self._exited.wait(max(0, deadline - time.monotonic())):
                 raise SourceAuthoringWorkerError("worker_timeout")
             with self._lock:

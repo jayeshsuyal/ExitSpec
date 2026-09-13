@@ -1,4 +1,4 @@
-"""Admission-first local SourceNeutral + Zoom operator; installed registry empty."""
+"""Admission-first Zoom operator; production closed, explicit detached demo only."""
 from __future__ import annotations
 
 import argparse
@@ -30,6 +30,7 @@ def _arguments(argv):
     parser.add_argument("--approval-file", required=True)
     parser.add_argument("--approval-sha256", required=True)
     parser.add_argument("--enroll-metadata", action="store_true")
+    parser.add_argument("--demo", action="store_true")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--output-root", default="/tmp/exitspec-source-authoring")
     args = parser.parse_args(argv)
@@ -155,18 +156,28 @@ def main(argv=None):
     server = thread = handle = None
     credential = b""
     try:
-        # Nothing, including argument-dependent paths or terminal input, can
-        # enable an installed launch while this single registry is empty.
-        if not launch._QUALIFIED_SERVING_CONTRACTS:
+        # Default production admission still refuses before paths/TTY. Only a
+        # leading explicit demo selection can read a distinct detached contract.
+        supplied = sys.argv[1:] if argv is None else argv
+        demo = type(supplied) is list and supplied[:1] == ["--demo"]
+        if not demo and not launch._QUALIFIED_SERVING_CONTRACTS:
             raise launch.SourceAuthoringLaunchError()
         args, output_root = _arguments(argv)
         admitted = launch._admit_operator_profile(
             args.approval_id, approval_file=args.approval_file,
-            expected_sha256=args.approval_sha256,
+            expected_sha256=args.approval_sha256, **({"demo": True} if demo else {}),
         )
         profile = launch._admitted_profile(admitted)
+        if args.demo != demo:
+            raise launch.SourceAuthoringLaunchError()
+        if demo:
+            from .source_authoring_demo_run import CUSTODY, PURPOSE
+            print(PURPOSE)
+            print(CUSTODY)
+            print("8192 local input tokens is a local preflight bound, not a provider token ceiling.")
         print("Source authoring: one exact-source Fireworks attempt per consent, 30 seconds,")
-        print("8192 input / 2000 output tokens, $0.01 per claim, ten claims / $0.10 per launch.")
+        if not demo:
+            print("8192 input / 2000 output tokens, $0.01 per claim, ten claims / $0.10 per launch.")
         print("No regional guarantee. Zoom capture requires separate prerequisites and consent.")
         print("Terminal input is hidden. Submit each response with Ctrl-J (LF); CR is refused.")
         if _read_text_tty("Type APPROVED for this admitted Fireworks launch: ") != "APPROVED":

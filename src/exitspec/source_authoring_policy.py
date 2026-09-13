@@ -400,13 +400,21 @@ class _LiveSourceAuthoringPolicy(_Immutable):
     code_revision: Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
     approval_id: Identity
     tokenizer_identity: Identity
+    accounting_contract: Literal["qualified-serving-v1", "exitspec-demo-local-accounting-v1"] = "qualified-serving-v1"
     pricing_approval: Identity
     custody_approval: Identity
     region_policy: Identity
     consent_ttl_seconds: Literal[300] = 300
     request_budget_usd: Literal["0.01"] = "0.01"
-    launch_budget_usd: Literal["0.10"] = "0.10"
+    launch_budget_usd: Literal["0.01", "0.10"] = "0.10"
     network_enabled: Literal[True] = True
+
+    @model_validator(mode="after")
+    def accounting_reservation(self):
+        expected = "0.01" if self.accounting_contract == "exitspec-demo-local-accounting-v1" else "0.10"
+        if self.launch_budget_usd != expected:
+            raise ValueError("Accounting reservation mismatch.")
+        return self
 
     @field_validator("network_enabled", "consent_ttl_seconds", mode="before")
     @classmethod
@@ -449,6 +457,7 @@ class _LiveSourceAuthoringIntent(_Immutable):
     body_sha256: Digest
     header_policy_digest: Literal[HEADER_POLICY_SHA256] = HEADER_POLICY_SHA256
     credential_configuration_generation: int = Field(ge=1, le=9007199254740991)
+    # Verified local encoding count; serving parity depends on accounting_contract.
     verified_input_tokens: int = Field(ge=1, le=8192)
     verified_token_digest: Digest
     launch_grant_id: Identity
