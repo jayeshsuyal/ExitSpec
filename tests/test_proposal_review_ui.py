@@ -91,7 +91,7 @@ def test_copy_keeps_triage_separate_from_every_authority_boundary():
         "approve, freeze, run, or issue a verdict."
     ) in " ".join(html.split())
     assert "This demo executes one TTFT and one error-rate claim." not in html
-    assert "This demo executes one TTFT and one error-rate claim." in javascript
+    assert "Direct review supports one TTFT and one error-rate claim." in javascript
     assert "No contract was created or approved." in html
     assert (
         "Contract authoring, customer confirmation, freeze, execution, and\n"

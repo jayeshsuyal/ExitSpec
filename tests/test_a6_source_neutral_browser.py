@@ -231,6 +231,19 @@ def test_fresh_source_neutral_a5_to_a6_evidence_loopback_path():
             assert page.locator("#evidence-task-kicker").inner_text() == "Decision recorded"
             assert page.locator("#evidence-task-heading").inner_text() == "Human decision recorded"
             assert page.locator(".primary-action:visible").count() == 0
+            terminal_guidance = "Handoff completed. The human decision is recorded against this Evidence Pack."
+            assert page.locator("#evidence-guidance").inner_text() == terminal_guidance
+            assert page.locator("#evidence-next-action").inner_text() == terminal_guidance
+            page.reload()
+            page.wait_for_function("document.querySelector('#evidence-task-heading')?.textContent === 'Human decision recorded'")
+            assert page.locator("#evidence-guidance").inner_text() == terminal_guidance
+            assert page.locator("#evidence-next-action").inner_text() == terminal_guidance
+            assert page.locator("#evidence-pack-link").get_attribute("href") == pack_url
+            for width in (375, 390):
+                page.set_viewport_size({"width": width, "height": 844})
+                assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+                assert page.locator("#evidence-title").evaluate("element => element.getBoundingClientRect().right <= innerWidth")
+            page.set_viewport_size({"width": 1280, "height": 820})
             page.locator("#start-evidence").dispatch_event("click")
             snapshot = page.request.get(f"{base_url}/api/pocs/{poc_id}/evidence").json()
             assert snapshot["closure"]["decision"] == "HANDOFF_COMPLETED"

@@ -386,6 +386,12 @@
 
   function render() {
     const current = trustedSnapshot && snapshot ? snapshot.current : null;
+    const closure = trustedSnapshot && snapshot ? snapshot.closure : null;
+    const terminalGuidance = closure
+      ? closure.decision === "HANDOFF_COMPLETED"
+        ? "Handoff completed. The human decision is recorded against this Evidence Pack."
+        : "POC stopped. The human decision is recorded; no further evidence action is pending."
+      : null;
     $("#generic-main").setAttribute("aria-busy", busy ? "true" : "false");
     $("#evidence-title").textContent = current
       ? `${current.contract_id} · v${current.contract_version}`
@@ -399,9 +405,9 @@
     $("#evidence-result-reason").textContent = current
       ? current.reason
       : "No admitted terminal evidence yet.";
-    $("#evidence-guidance").textContent = current
+    $("#evidence-guidance").textContent = terminalGuidance || (current
       ? current.next_action
-      : "ExitSpec selects the method from the frozen agreement.";
+      : "ExitSpec selects the method from the frozen agreement.");
     $("#evidence-authorization").textContent = trustedSnapshot && snapshot
       ? snapshot.authorization
       : "Evidence is proof, not shipping authorization.";
@@ -410,7 +416,7 @@
       : "No current contract or attempt binding.";
     const limitations = visibleLimitations(current);
     $("#evidence-limitation").textContent = limitations[0] || "No admitted evidence limitation is available yet.";
-    $("#evidence-next-action").textContent = current?.next_action || "Acknowledge the exact frozen evidence request.";
+    $("#evidence-next-action").textContent = terminalGuidance || current?.next_action || "Acknowledge the exact frozen evidence request.";
 
     const pack = current?.evidence_pack_url;
     const packLink = $("#evidence-pack-link");

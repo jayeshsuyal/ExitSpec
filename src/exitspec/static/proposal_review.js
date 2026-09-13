@@ -1027,7 +1027,17 @@
     support.setAttribute("data-supported", String(metricCue !== null));
     support.textContent = a3Proposals.has(proposal.proposal_id)
       ? "Source-bound proposal material · later classification is not assigned here"
-      : `${metricCue === null ? "Not executable in this demo · discard to NOT_PROVEN" : `Executable candidate · ${metricCueLabel(metricCue)}`} · This demo executes one TTFT and one error-rate claim. Other claims stay NOT_PROVEN.`;
+      : `${metricCue === null ? "Unsupported by this direct review route" : `Direct review candidate · ${metricCueLabel(metricCue)}`} · Direct review supports one TTFT and one error-rate claim.`;
+    if (!a3Proposals.has(proposal.proposal_id) && a3Capability) {
+      support.append(document.createTextNode(" For requests such as exact tool selection, "));
+      const planningLink = document.createElement("a");
+      planningLink.id = "proposal-planning-link";
+      planningLink.href = `/app/pocs/${encodeURIComponent(pocId)}/assisted-authoring`;
+      planningLink.textContent = "use assisted drafting and capability planning";
+      support.append(planningLink, document.createTextNode(". Review the draft and define a supported proof method before confirmation or execution."));
+    } else if (!a3Proposals.has(proposal.proposal_id) && metricCue === null) {
+      support.append(document.createTextNode(" This route cannot turn this request into executable acceptance criteria."));
+    }
     const draft = reviewDrafts.get(proposal.proposal_id);
     reviewerInput.value = draft?.reviewer || "";
     rationaleInput.value = draft?.rationale || "";

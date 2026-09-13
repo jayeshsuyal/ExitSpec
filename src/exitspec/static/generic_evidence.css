@@ -16,6 +16,12 @@
   gap: 24px;
 }
 
+.generic-evidence-main .object-identity {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .generic-evidence-main .object-phase {
   color: #ff8b43;
   font-size: .75rem;
