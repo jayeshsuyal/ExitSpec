@@ -1390,6 +1390,52 @@ def validate_prospective_handoff(path: Path) -> ProspectiveHandoffValidation:
     )
 
 
+def export_prospective_handoff(
+    path: Path, destination: Path
+) -> ProspectiveHandoffValidation:
+    """Copy an already confirmed/frozen handoff; never create approval authority."""
+    validated = validate_prospective_handoff(path)
+    root = path if path.is_dir() else path.parent
+    cases = []
+    for item in validated.manifest.cases:
+        contract = parse_contract(
+            _read_regular(
+                _safe_relative_path(
+                    root, item.contract_artifact_path, label="contract"
+                ),
+                label="contract",
+            )
+        )
+        confirmation = parse_confirmation(
+            _read_regular(
+                _safe_relative_path(
+                    root, item.confirmation_artifact_path, label="confirmation"
+                ),
+                label="confirmation",
+            ),
+            idempotency_key=confirmation_idempotency_key(item.case_id),
+        )
+        cases.append(
+            FrozenProspectiveCase(_CASE_BY_ID[item.case_id], contract, confirmation)
+        )
+    workload = _read_regular(
+        _safe_relative_path(
+            root, validated.manifest.workload_artifact_path, label="workload"
+        ),
+        label="workload",
+    )
+    if validate_prospective_handoff(path) != validated:
+        raise ProspectiveHandoffError("Handoff changed while being exported.")
+    exported = materialize_prospective_handoff(
+        destination, cases, workload_bytes=workload
+    )
+    if exported != validated:
+        raise ProspectiveHandoffError(
+            "Export differs from the supplied frozen handoff."
+        )
+    return exported
+
+
 __all__ = [
     "FrozenProspectiveCase",
     "PROSPECTIVE_CASES",
@@ -1405,6 +1451,7 @@ __all__ = [
     "confirmation_idempotency_key",
     "derive_producer_contract_link",
     "freeze_prospective_case",
+    "export_prospective_handoff",
     "materialize_prospective_handoff",
     "source_yaml_bytes",
     "validate_prospective_handoff",

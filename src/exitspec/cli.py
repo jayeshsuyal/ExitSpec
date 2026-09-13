@@ -43,6 +43,8 @@ QUALIFICATION_EXIT_OPERATIONAL = 7
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="exitspec")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    from .inferdrome_dispatch import add_cli_parser
+    add_cli_parser(subparsers)
 
     demo = subparsers.add_parser(
         "demo", help="Run the deterministic Brick 1 support-agent evidence chain."
@@ -246,6 +248,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "inferdrome-handoff":
+        from .inferdrome_dispatch import run_cli
+        return run_cli(args)
     if args.command == "demo":
         with support_agent_demo_paths() as demo_paths:
             result = run_demo(
