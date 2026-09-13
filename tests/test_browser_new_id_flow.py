@@ -350,7 +350,7 @@ def _capture_define_supported_email(
         page.locator("#reviewer").fill("field_engineer")
         if "first token" in claim.lower() or "error rate" in claim.lower():
             expect(page.locator("#proposal-support")).to_contain_text(
-                "Executable candidate"
+                "Direct review candidate"
             )
             page.locator("#rationale").fill(
                 "Keep this source-backed executable requirement."
@@ -359,7 +359,7 @@ def _capture_define_supported_email(
             page.locator("#keep-proposal").click()
         else:
             expect(page.locator("#proposal-support")).to_contain_text(
-                "Not executable in this demo"
+                "Unsupported by this direct review route"
             )
             page.locator("#rationale").fill(
                 "Retain this unsupported claim as NOT_PROVEN context."
@@ -528,7 +528,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     if "cost" in claim.lower():
                         expect(
                             employee_page.locator("#proposal-support")
-                        ).to_contain_text("Not executable in this demo")
+                        ).to_contain_text("Unsupported by this direct review route")
                         employee_page.locator("#rationale").fill(
                             "Keep this customer claim visible as NOT_PROVEN."
                         )
@@ -540,7 +540,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     else:
                         expect(
                             employee_page.locator("#proposal-support")
-                        ).to_contain_text("Executable candidate")
+                        ).to_contain_text("Direct review candidate")
                         employee_page.locator("#rationale").fill(
                             "Keep this explicit measurable inference requirement."
                         )

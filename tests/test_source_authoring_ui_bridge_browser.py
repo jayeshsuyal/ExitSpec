@@ -320,7 +320,7 @@ def test_main_review_requires_exact_read_capability_before_any_classification(ri
             expect(page.locator("#discard-proposal")).to_be_disabled()
             expect(page.locator("#reviewer")).to_be_disabled()
             expect(page.locator("#assisted-authoring-link")).to_be_hidden()
-            assert "Executable candidate" not in page.locator("#proposal-support").inner_text()
+            assert "Direct review candidate" not in page.locator("#proposal-support").inner_text()
             assert all(row.decision is None for row in rig.server.proposal_review_service.list_proposals(POC))
         finally:
             browser.close()
@@ -372,7 +372,7 @@ def test_queue_provenance_manifest_is_exact_bounded_and_agrees_with_a3(rig, faul
             expect(page.locator("#keep-proposal")).to_be_disabled()
             expect(page.locator("#discard-proposal")).to_be_disabled()
             expect(page.locator("#reviewer")).to_be_disabled()
-            assert "Executable candidate" not in page.locator("#proposal-support").inner_text()
+            assert "Direct review candidate" not in page.locator("#proposal-support").inner_text()
             assert all(row.decision is None for row in rig.server.proposal_review_service.list_proposals(POC))
         finally:
             browser.close()
@@ -431,7 +431,7 @@ def test_main_current_agreement_scope_excludes_prior_a3_from_slots_and_navigatio
             page.goto(f"http://127.0.0.1:{rig.server.server_port}/app/pocs/{POC}/review")
             for index in range(2):
                 expect(page.locator("#decision-status")).to_have_text(FALLBACK)
-                expect(page.locator("#proposal-support")).to_contain_text("Executable candidate")
+                expect(page.locator("#proposal-support")).to_contain_text("Direct review candidate")
                 _open_review_editor(page)
                 page.locator("#reviewer").fill("named.current")
                 page.locator("#rationale").fill("Keep this current agreement requirement.")
@@ -457,7 +457,7 @@ def test_main_a2_page_loads_new_a3_provenance_during_reconciliation(rig):
         page = browser.new_page()
         try:
             page.goto(f"http://127.0.0.1:{rig.server.server_port}/app/pocs/{POC}/review")
-            expect(page.locator("#proposal-support")).to_contain_text("Executable candidate")
+            expect(page.locator("#proposal-support")).to_contain_text("Direct review candidate")
             rig.receipt = rig.server.poc_source_intake.capture_source(
                 poc_id=POC, source=web.POCSourceInput(source_kind=web.SourceKind.DOCUMENT, content="TTFT must remain below 500 ms."),
                 idempotency_key="new-a3-during-review",
@@ -534,7 +534,7 @@ def test_untrusted_a3_provenance_never_falls_back_to_numeric_a2_support(rig, fau
             expect(page.locator("#discard-proposal")).to_be_disabled()
             expect(page.locator("#reviewer")).to_be_disabled()
             expect(page.locator("#plan-capabilities")).to_be_hidden()
-            assert "Executable candidate" not in page.locator("#proposal-support").inner_text()
+            assert "Direct review candidate" not in page.locator("#proposal-support").inner_text()
             assert rig.runtime.operations.ledger == before
             assert all(row.decision is None for row in rig.server.proposal_review_service.list_proposals(POC))
         finally:
@@ -702,7 +702,7 @@ def test_provenance_failure_after_named_decision_blocks_next_proposal(rig, failu
             expect(page.locator("#keep-proposal")).to_be_disabled()
             expect(page.locator("#discard-proposal")).to_be_disabled()
             expect(page.locator("#reviewer")).to_be_disabled()
-            assert "Executable candidate" not in page.locator("#proposal-support").inner_text()
+            assert "Direct review candidate" not in page.locator("#proposal-support").inner_text()
             rows = rig.server.proposal_review_service.list_proposals(POC)
             assert rows[0].decision.reviewer == "named.reconcile"
             assert rows[1].decision is None
