@@ -82,7 +82,8 @@ class _OperationFiles:
 
     def check(self):
         if (
-            self._directory_identity(self.root.lstat()) != self.identity
+            self.root.resolve() != self.root
+            or self._directory_identity(self.root.lstat()) != self.identity
             or self._directory_identity(os.fstat(self.fd)) != self.identity
         ):
             raise BridgeRejected("STORAGE_CHANGED")

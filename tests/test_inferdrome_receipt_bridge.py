@@ -724,3 +724,22 @@ def test_unit_only_cancel_after_receipt_barrier_leaves_reconcilable_receipt(
     monkeypatch.setattr(bridge._OperationFiles, "barrier", barrier)
     assert_saved(bridge.run_operation(root, pin))
     assert len(calls) == 1
+
+
+def test_unit_only_parent_symlink_swap_refuses_before_storage_publication(
+    unit_only_operation, monkeypatch
+):
+    root, pin, _, calls = unit_only_operation
+    publish = bridge._OperationFiles.publish
+    parent = root.parent
+    retained = parent.with_name("unit-only-retained-operations")
+
+    def replaced(self, name, raw):
+        parent.rename(retained)
+        parent.symlink_to(retained, target_is_directory=True)
+        publish(self, name, raw)
+
+    monkeypatch.setattr(bridge._OperationFiles, "publish", replaced)
+    result = bridge.run_operation(root, pin)
+    assert not result["receipt_saved"] and len(calls) == 1
+    assert not any((retained / root.name / name).exists() for name in bridge.FILES)
