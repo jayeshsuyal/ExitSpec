@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -44,6 +45,17 @@ if mode in ('descendant','stubborn-descendant'):
  child_code='import time; time.sleep(30)' if mode=='descendant' else 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(30)'
  subprocess.Popen([sys.executable,'-c',child_code])
  sys.exit(0)
+if mode.startswith('detached'):
+ marker=runs/(run_id+'.pid')
+ child_code='import os,pathlib,signal,sys,time; '+('signal.signal(signal.SIGTERM,signal.SIG_IGN); ' if 'stubborn' in mode else '')+'pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)'
+ subprocess.Popen([sys.executable,'-c',child_code,str(marker)],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ deadline=time.monotonic()+5
+ while not marker.exists():
+  assert time.monotonic()<deadline
+  time.sleep(.01)
+ print('offline descendant started',flush=True)
+ if 'parentloss' in mode: time.sleep(30)
+ sys.exit(7 if 'nonzero' in mode else 0)
 if mode=='flood':
  os.write(2,b'x'*100000)
  time.sleep(30)
@@ -163,8 +175,8 @@ def test_synthetic_return_is_rejected_by_existing_independent_verifier(
         ("fail", "FAILED"),
         ("sleep", "TIMED_OUT"),
         ("stubborn", "TIMED_OUT"),
-        ("descendant", "TIMED_OUT"),
-        ("stubborn-descendant", "TIMED_OUT"),
+        ("descendant", "RESULT_INVALID"),
+        ("stubborn-descendant", "RESULT_INVALID"),
         ("flood", "OUTPUT_LIMIT"),
         ("invalid", "RESULT_INVALID"),
         ("duplicate", "RESULT_INVALID"),
@@ -482,3 +494,354 @@ def test_corrupt_terminal_state_is_refused_without_reexecution(tmp_path):
         transport.status(operation, pin)
     with pytest.raises(transport.DispatchRejected, match="INVALID_HISTORY"):
         transport.dispatch(operation, pin)
+
+
+def process_is_executing(pid):
+    result = subprocess.run(
+        ["/bin/ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        timeout=1,
+        check=False,
+    )
+    assert result.returncode in (0, 1)
+    return bool(result.stdout.strip()) and result.stdout.strip()[:1] not in (b"Z", b"X")
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "detached",
+        "detached-nonzero",
+        "detached-stubborn",
+        "detached-stubborn-nonzero",
+    ],
+)
+def test_leader_exit_stops_detached_stdio_descendants_before_terminal(tmp_path, mode):
+    operation, pin, _, runs = setup(tmp_path, mode, timeout=1)
+    result = transport.dispatch(operation, pin)
+    assert result["current"]["state"] == (
+        "FAILED" if "nonzero" in mode else "RESULT_INVALID"
+    )
+    marker = runs / (result["run_id"] + ".pid")
+    assert not process_is_executing(int(marker.read_text()))
+    assert result["current"]["returncode"] == (7 if "nonzero" in mode else 0)
+    assert transport.retry(operation, pin)["current"]["state"] == "PREPARED"
+
+
+def test_retry_replays_one_child_even_after_child_dispatch(tmp_path):
+    operation, pin, _, _ = setup(tmp_path, "fail")
+    transport.dispatch(operation, pin)
+    child = transport.retry(operation, pin)
+    replay = transport.retry(operation, pin)
+    assert replay["operation"] == child["operation"]
+    assert replay["plan_sha256"] == child["plan_sha256"]
+    transport.dispatch(Path(child["operation"]), child["plan_sha256"])
+    replay = transport.retry(operation, pin)
+    assert replay["operation"] == child["operation"]
+    assert replay["current"]["state"] == "FAILED"
+    assert replay["execution_performed"] is False
+    assert len(list(operation.parent.iterdir())) == 2
+
+
+def test_concurrent_retry_has_only_one_reserved_successor(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    operation, pin, _, _ = setup(tmp_path, "fail")
+    transport.dispatch(operation, pin)
+    barrier = threading.Barrier(8)
+
+    def attempt(_):
+        barrier.wait(timeout=3)
+        try:
+            return transport.retry(operation, pin)["operation"]
+        except transport.DispatchRejected as error:
+            assert error.code == "DISPATCH_BUSY"
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(attempt, range(8)))
+    issued = {item for item in results if item}
+    assert len(issued) == 1
+    assert transport.retry(operation, pin)["operation"] in issued
+    assert len(list(operation.parent.iterdir())) == 2
+
+
+@pytest.mark.parametrize("partial_directory", [False, True])
+def test_interrupted_retry_materialization_never_allocates_siblings(
+    tmp_path, monkeypatch, partial_directory
+):
+    operation, pin, _, runs = setup(tmp_path, "fail")
+    transport.dispatch(operation, pin)
+    original = transport._prepare_plan
+
+    def interrupt(handoff, operations_root, plan):
+        if partial_directory:
+            (operations_root / plan.operation_id).mkdir(mode=0o700)
+        raise OSError("interrupted offline preparation")
+
+    monkeypatch.setattr(transport, "_prepare_plan", interrupt)
+    with pytest.raises(OSError):
+        transport.retry(operation, pin)
+    reserved = (operation / "retry.json").read_bytes()
+    identity = json.loads(reserved)["child_plan"]["operation_id"]
+    monkeypatch.setattr(transport, "_prepare_plan", original)
+    if partial_directory:
+        for _ in range(2):
+            with pytest.raises(
+                transport.DispatchRejected, match="RETRY_MATERIALIZATION_INCOMPLETE"
+            ):
+                transport.retry(operation, pin)
+    else:
+        assert Path(transport.retry(operation, pin)["operation"]).name == identity
+    assert (operation / "retry.json").read_bytes() == reserved
+    assert len(list(operation.parent.iterdir())) == 2
+    assert not list(runs.iterdir())
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "parent_plan_sha256",
+        "run_id",
+        "operation_id",
+        "retry_of",
+        "executable_sha256",
+        "timeout_seconds",
+        "manifest_sha256",
+    ],
+)
+def test_retry_reservation_replay_requires_exact_parent_config_and_child(
+    tmp_path, field
+):
+    operation, pin, _, _ = setup(tmp_path, "fail")
+    transport.dispatch(operation, pin)
+    transport.retry(operation, pin)
+    path = operation / "retry.json"
+    record = json.loads(path.read_bytes())
+    if field == "parent_plan_sha256":
+        record[field] = "0" * 64
+    elif field == "run_id":
+        record["child_plan"][field] = json.loads(
+            (operation / "plan.json").read_bytes()
+        )[field]
+    elif field == "operation_id":
+        record["child_plan"][field] = operation.name
+    elif field == "timeout_seconds":
+        record["child_plan"][field] += 1
+    else:
+        record["child_plan"][field] = (
+            "iop_" + "0" * 32 if field == "retry_of" else "0" * 64
+        )
+    path.write_text(json.dumps(record))
+    with pytest.raises(transport.DispatchRejected, match="INVALID_RETRY_RESERVATION"):
+        transport.retry(operation, pin)
+    assert len(list(operation.parent.iterdir())) == 2
+
+
+def test_retry_publication_failure_cannot_materialize_a_child(tmp_path, monkeypatch):
+    operation, pin, _, _ = setup(tmp_path, "fail")
+    transport.dispatch(operation, pin)
+    original = transport.os.rename
+
+    def interrupt(source, destination):
+        if Path(destination).name == "retry.json":
+            raise OSError("offline atomic publication failure")
+        return original(source, destination)
+
+    monkeypatch.setattr(transport.os, "rename", interrupt)
+    with pytest.raises(OSError):
+        transport.retry(operation, pin)
+    assert not (operation / "retry.json").exists()
+    assert len(list(operation.parent.iterdir())) == 1
+    assert not list(operation.glob(".record-*"))
+    monkeypatch.setattr(transport.os, "rename", original)
+    transport.retry(operation, pin)
+    assert len(list(operation.parent.iterdir())) == 2
+
+
+@pytest.mark.parametrize(
+    "raw", [b"", b"R\0", b"X\0\0\0\0", b"R\0\0\0\0extra", b"F\0\0\0\1"]
+)
+def test_invalid_or_truncated_worker_status_blocks_retry(tmp_path, monkeypatch, raw):
+    operation, pin, _, _ = setup(tmp_path, "fail")
+
+    def command(status_fd, owner_fd, argv):
+        code = (
+            "import os,signal,time; signal.signal(signal.SIGTERM,lambda *_:None); "
+            f"os.write({status_fd},{raw!r}); os.close({status_fd}); time.sleep(30)"
+        )
+        return [sys.executable, "-I", "-B", "-c", code]
+
+    monkeypatch.setattr(transport, "_worker_command", command)
+    result = transport.dispatch(operation, pin)
+    assert result["current"]["reason"] == "PROCESS_CONTROL_FAILED"
+    with pytest.raises(transport.DispatchRejected, match="NOT_RETRYABLE"):
+        transport.retry(operation, pin)
+
+
+def test_unavailable_process_inspection_blocks_retry(tmp_path, monkeypatch):
+    operation, pin, _, _ = setup(tmp_path, "detached-stubborn")
+
+    def unavailable(group):
+        raise OSError("offline process inspection unavailable")
+
+    monkeypatch.setattr(transport, "_group_is_stopped", unavailable)
+    result = transport.dispatch(operation, pin)
+    assert result["current"]["reason"] == "PROCESS_CONTROL_FAILED"
+    with pytest.raises(transport.DispatchRejected, match="NOT_RETRYABLE"):
+        transport.retry(operation, pin)
+
+
+def test_owner_control_pipe_loss_kills_anchor_and_detached_descendant(tmp_path):
+    status_read, status_write = os.pipe()
+    owner_read, owner_write = os.pipe()
+    marker = tmp_path / "child.pid"
+    child_code = (
+        "import os,pathlib,signal,sys,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
+    )
+    producer = (
+        "import subprocess,sys,time; "
+        f'subprocess.Popen([sys.executable,"-c",{child_code!r},{str(marker)!r}],'
+        "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); time.sleep(30)"
+    )
+    anchor = subprocess.Popen(
+        transport._worker_command(
+            status_write, owner_read, [sys.executable, "-c", producer]
+        ),
+        pass_fds=(status_write, owner_read),
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    os.close(status_write)
+    os.close(owner_read)
+    try:
+        deadline = time.monotonic() + 5
+        while not marker.exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        os.close(owner_write)
+        owner_write = None
+        # Keep the anchor unreaped until inspecting its reserved group.
+        deadline = time.monotonic() + 3
+        while not transport._group_is_stopped(anchor.pid):
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert not process_is_executing(int(marker.read_text()))
+    finally:
+        if owner_write is not None:
+            os.close(owner_write)
+        anchor.wait(timeout=3)
+        os.close(status_read)
+
+
+def test_dispatch_owner_death_stops_work_and_leaves_nonretryable_running_record(
+    tmp_path,
+):
+    operation, pin, _, runs = setup(tmp_path, "detached-stubborn-parentloss", 20)
+    owner = subprocess.Popen(
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "exitspec.cli",
+            "inferdrome-handoff",
+            "dispatch",
+            "--operation",
+            str(operation),
+            "--plan-sha256",
+            pin,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    marker = runs / (transport.status(operation, pin)["run_id"] + ".pid")
+    try:
+        deadline = time.monotonic() + 5
+        while not marker.exists():
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        descendant = int(marker.read_text())
+        owner.kill()
+        owner.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while process_is_executing(descendant):
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert transport.status(operation, pin)["current"]["state"] == "RUNNING"
+        with pytest.raises(transport.DispatchRejected, match="NOT_RETRYABLE"):
+            transport.retry(operation, pin)
+    finally:
+        if owner.poll() is None:
+            owner.kill()
+        owner.wait(timeout=3)
+
+
+def test_cleanup_signals_only_unreaped_anchor_group(tmp_path, monkeypatch):
+    operation, pin, _, _ = setup(tmp_path, "detached-stubborn")
+    sentinel = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    )
+    original = transport.os.killpg
+    groups = []
+
+    def checked(group, sig):
+        assert group != sentinel.pid
+        assert group != os.getpgrp()
+        # Group identity must still be reserved by our unreaped child anchor.
+        process = subprocess.run(
+            ["/bin/ps", "-o", "ppid=", "-p", str(group)],
+            capture_output=True,
+            timeout=1,
+            check=True,
+        )
+        assert int(process.stdout.strip()) == os.getpid()
+        groups.append(group)
+        return original(group, sig)
+
+    monkeypatch.setattr(transport.os, "killpg", checked)
+    try:
+        result = transport.dispatch(operation, pin)
+        assert result["current"]["state"] == "RESULT_INVALID"
+        assert len(set(groups)) == 1
+        assert sentinel.poll() is None
+    finally:
+        sentinel.kill()
+        sentinel.wait(timeout=3)
+
+
+def test_cancel_during_supervisor_startup_verifies_dead_group(tmp_path, monkeypatch):
+    operation, pin, _, _ = setup(tmp_path, "sleep", 20)
+    monkeypatch.setattr(
+        transport,
+        "_worker_command",
+        lambda *_: [sys.executable, "-I", "-B", "-c", "import time; time.sleep(30)"],
+    )
+
+    class CancelAfterSpawn:
+        calls = 0
+
+        def is_set(self):
+            self.calls += 1
+            return self.calls > 1
+
+    result = transport.dispatch(operation, pin, cancelled=CancelAfterSpawn())
+    assert result["current"]["state"] == "CANCELLED"
+    assert transport.retry(operation, pin)["current"]["state"] == "PREPARED"
+
+
+@pytest.mark.parametrize("corruption", ["reservation-truncated", "child-plan-changed"])
+def test_retry_partial_records_fail_closed_without_siblings(tmp_path, corruption):
+    operation, pin, _, _ = setup(tmp_path, "fail")
+    transport.dispatch(operation, pin)
+    child = transport.retry(operation, pin)
+    if corruption == "reservation-truncated":
+        (operation / "retry.json").write_bytes(b'{"parent_plan_sha256":')
+    else:
+        path = Path(child["operation"]) / "plan.json"
+        path.write_bytes(path.read_bytes() + b" ")
+    for _ in range(2):
+        with pytest.raises(transport.DispatchRejected):
+            transport.retry(operation, pin)
+    assert len(list(operation.parent.iterdir())) == 2

@@ -14,7 +14,9 @@ import re
 import selectors
 import signal
 import stat
+import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -328,8 +330,6 @@ def prepare(
     producer_revision: str,
     runs_root: Path,
     timeout_seconds: int = 900,
-    retry_of: str | None = None,
-    attempt_number: int = 1,
 ) -> dict:
     operations_root = _path(operations_root, directory=True)
     _path(handoff)
@@ -344,13 +344,24 @@ def prepare(
         operator_declared_producer_revision=producer_revision,
         runs_root=str(runs_root),
         timeout_seconds=timeout_seconds,
-        retry_of=retry_of,
-        attempt_number=attempt_number,
     )
     if case_id not in {c.case_id for c in PROSPECTIVE_CASES}:
         raise DispatchRejected("INVALID_CASE")
+    return _prepare_plan(handoff, operations_root, plan)
+
+
+def _prepare_plan(handoff: Path, operations_root: Path, plan: DispatchPlan) -> dict:
+    """Materialize only the already chosen identity; never replace partial work."""
+    validated = validate_prospective_handoff(handoff)
+    if validated.manifest_sha256 != plan.manifest_sha256:
+        raise DispatchRejected("HANDOFF_MISMATCH")
     root = operations_root / plan.operation_id
     root.mkdir(mode=0o700)
+    directory = os.open(operations_root, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
     # An interrupted preparation has no PREPARED event and cannot dispatch.
     exported = export_prospective_handoff(handoff, root / "handoff")
     if exported != validated:
@@ -373,106 +384,277 @@ def retry(root: Path, expected_plan_sha256: str) -> dict:
             or current["current"].get("reason") == "PROCESS_CONTROL_FAILED"
         ):
             raise DispatchRejected("NOT_RETRYABLE")
-        return prepare(
-            handoff=root / "handoff",
-            operations_root=root.parent,
-            case_id=plan.case_id,
-            executable=Path(plan.executable),
-            executable_sha256=plan.executable_sha256,
-            producer_revision=plan.operator_declared_producer_revision,
-            runs_root=Path(plan.runs_root),
-            timeout_seconds=plan.timeout_seconds,
-            retry_of=plan.operation_id,
-            attempt_number=plan.attempt_number + 1,
-        )
+        reservation = root / "retry.json"
+        if reservation.exists() or reservation.is_symlink():
+            record = _json(_read(reservation, MAX_OUTPUT_BYTES))
+            if (
+                set(record) != {"parent_plan_sha256", "child_plan"}
+                or record["parent_plan_sha256"] != expected_plan_sha256
+            ):
+                raise DispatchRejected("INVALID_RETRY_RESERVATION")
+            try:
+                child_plan = DispatchPlan.model_validate(record["child_plan"])
+            except ValidationError:
+                raise DispatchRejected("INVALID_RETRY_RESERVATION") from None
+            expected = plan.model_copy(
+                update={
+                    "operation_id": child_plan.operation_id,
+                    "run_id": child_plan.run_id,
+                    "attempt_number": plan.attempt_number + 1,
+                    "retry_of": plan.operation_id,
+                }
+            )
+            if (
+                child_plan != expected
+                or child_plan.operation_id == plan.operation_id
+                or child_plan.run_id == plan.run_id
+            ):
+                raise DispatchRejected("INVALID_RETRY_RESERVATION")
+        else:
+            child_plan = plan.model_copy(
+                update={
+                    "operation_id": "iop_" + uuid.uuid4().hex,
+                    "run_id": "run-" + uuid.uuid4().hex,
+                    "attempt_number": plan.attempt_number + 1,
+                    "retry_of": plan.operation_id,
+                }
+            )
+            # Durably reserve the one successor before creating its directory.
+            _write(
+                reservation,
+                {
+                    "parent_plan_sha256": expected_plan_sha256,
+                    "child_plan": child_plan.model_dump(mode="json"),
+                },
+            )
+        child_root = root.parent / child_plan.operation_id
+        if child_root.exists() or child_root.is_symlink():
+            child_pin = _sha(canonical_json_bytes(child_plan.model_dump(mode="json")))
+            try:
+                result = status(child_root, child_pin)
+            except DispatchRejected:
+                raise DispatchRejected("RETRY_MATERIALIZATION_INCOMPLETE") from None
+            return {**result, "execution_performed": False}
+        return _prepare_plan(root / "handoff", root.parent, child_plan)
 
 
-def _stop(child: subprocess.Popen) -> None:
-    # Includes descendants retaining the stdout/stderr pipes after the leader exits.
-    grace_deadline = time.monotonic() + 0.5
+def _group_is_stopped(group: int) -> bool:
+    """Inspect only the reserved session/group, with bounded time and output."""
+    inspector = subprocess.Popen(
+        ["/bin/ps", "-o", "pid=,pgid=,stat=", "-g", str(group)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    raw = bytearray()
+    deadline = time.monotonic() + 0.5
     try:
-        os.killpg(child.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+        with selectors.DefaultSelector() as selector:
+            os.set_blocking(inspector.stdout.fileno(), False)
+            selector.register(inspector.stdout, selectors.EVENT_READ)
+            while True:
+                if time.monotonic() >= deadline:
+                    raise subprocess.SubprocessError("PROCESS_INSPECTION_TIMEOUT")
+                if not selector.select(min(0.02, deadline - time.monotonic())):
+                    continue
+                chunk = os.read(inspector.stdout.fileno(), 4096)
+                if not chunk:
+                    break
+                raw.extend(chunk)
+                if len(raw) > MAX_OUTPUT_BYTES:
+                    raise subprocess.SubprocessError("PROCESS_INSPECTION_LIMIT")
+        if inspector.wait(timeout=0.5) != 0:
+            raise subprocess.SubprocessError("PROCESS_INSPECTION_FAILED")
+        found_anchor = False
+        live = False
+        for line in raw.splitlines():
+            fields = line.split()
+            if (
+                len(fields) != 3
+                or not fields[0].isdigit()
+                or not fields[1].isdigit()
+                or int(fields[1]) != group
+            ):
+                raise subprocess.SubprocessError("PROCESS_INSPECTION_INVALID")
+            found_anchor |= int(fields[0]) == group
+            live |= fields[2][:1] not in (b"Z", b"X")
+        if not found_anchor:
+            raise subprocess.SubprocessError("PROCESS_ANCHOR_UNVERIFIED")
+        return not live
+    finally:
+        if inspector.poll() is None:
+            inspector.kill()
+        inspector.wait(timeout=0.5)
+        inspector.stdout.close()
+
+
+def _stop(anchor: subprocess.Popen) -> None:
+    # Never poll/wait the anchor before the last signal and inspection. Its
+    # unreaped PID reserves the group identity even if the anchor has died.
     try:
-        child.wait(timeout=0.5)
-    except subprocess.TimeoutExpired:
-        pass
-    # wait() can return immediately for an exited leader. Descendants still
-    # need the grace interval to exit and be reaped before the final signal.
-    time.sleep(max(0, grace_deadline - time.monotonic()))
-    try:
-        os.killpg(child.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    child.wait(timeout=2)
+        try:
+            os.killpg(anchor.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            if _group_is_stopped(anchor.pid):
+                return
+            raise
+        time.sleep(0.5)
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                os.killpg(anchor.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                # Some hosts reject signals to zombie-only groups. A signal
+                # error is safe only with independent proof that work stopped.
+                if _group_is_stopped(anchor.pid):
+                    return
+                raise
+            if _group_is_stopped(anchor.pid):
+                return
+            if time.monotonic() >= deadline:
+                raise subprocess.SubprocessError("PROCESS_TERMINATION_UNCERTAIN")
+            time.sleep(0.02)
+    finally:
+        # No subsequent group signal is allowed after this reaps the anchor.
+        anchor.wait(timeout=0.5)
+
+
+def _worker_command(status_fd: int, owner_fd: int, argv: list[str]) -> list[str]:
+    return [
+        sys.executable,
+        "-I",
+        "-B",
+        str(Path(__file__).with_name("inferdrome_dispatch_worker.py")),
+        str(status_fd),
+        str(owner_fd),
+        *argv,
+    ]
 
 
 def _execute(argv: list[str], root: Path, seconds: int, cancelled: threading.Event):
     if cancelled.is_set():
         return "CANCELLED", None, b"", b""
+    status_read, status_write = os.pipe()
+    owner_read, owner_write = os.pipe()
     try:
-        child = subprocess.Popen(
-            argv,
-            cwd=root / "handoff",
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            close_fds=True,
-            start_new_session=True,
-            env={
-                "PATH": str(Path(argv[0]).parent) + ":/usr/bin:/bin",
-                "LANG": "C.UTF-8",
-                "PYTHONDONTWRITEBYTECODE": "1",
-            },
-        )
-    except OSError:
-        return "FAILED", None, b"", b""
-    output = [bytearray(), bytearray()]
-    deadline = time.monotonic() + seconds
-    reason = None
-    stopped = False
-    try:
-        with selectors.DefaultSelector() as selector:
-            for index, stream in enumerate((child.stdout, child.stderr)):
-                os.set_blocking(stream.fileno(), False)
-                selector.register(stream, selectors.EVENT_READ, index)
-            while selector.get_map() or child.poll() is None:
-                if cancelled.is_set():
-                    reason = "CANCELLED"
-                    break
-                if time.monotonic() >= deadline:
-                    reason = "TIMED_OUT"
-                    break
-                for key, _ in selector.select(
-                    min(0.05, max(0, deadline - time.monotonic()))
+        try:
+            anchor = subprocess.Popen(
+                _worker_command(status_write, owner_read, argv),
+                cwd=root / "handoff",
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+                pass_fds=(status_write, owner_read),
+                start_new_session=True,
+                env={
+                    "PATH": str(Path(argv[0]).parent) + ":/usr/bin:/bin",
+                    "LANG": "C.UTF-8",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+            )
+        except OSError:
+            return "FAILED", None, b"", b""
+        finally:
+            os.close(status_write)
+            os.close(owner_read)
+        output = [bytearray(), bytearray()]
+        control = bytearray()
+        deadline = time.monotonic() + seconds
+        reason = None
+        cleanup_attempted = False
+        try:
+            with selectors.DefaultSelector() as selector:
+                for index, fd in enumerate(
+                    (anchor.stdout.fileno(), anchor.stderr.fileno(), status_read)
                 ):
-                    chunk = os.read(
-                        key.fd, min(8192, MAX_OUTPUT_BYTES + 1 - sum(map(len, output)))
-                    )
-                    if not chunk:
-                        selector.unregister(key.fileobj)
-                    else:
-                        output[key.data].extend(chunk)
-                    if sum(map(len, output)) > MAX_OUTPUT_BYTES:
-                        reason = "OUTPUT_LIMIT"
+                    os.set_blocking(fd, False)
+                    selector.register(fd, selectors.EVENT_READ, index)
+                while len(control) < 5 and reason is None:
+                    if cancelled.is_set():
+                        reason = "CANCELLED"
                         break
-                if reason:
-                    break
-        if reason:
-            _stop(child)
-            stopped = True
-        return (
-            reason or ("FAILED" if child.returncode else "RETURNED"),
-            child.returncode,
-            bytes(output[0]),
-            bytes(output[1]),
-        )
+                    if time.monotonic() >= deadline:
+                        reason = "TIMED_OUT"
+                        break
+                    for key, _ in selector.select(0.02):
+                        maximum = (
+                            6 - len(control)
+                            if key.data == 2
+                            else min(8192, MAX_OUTPUT_BYTES + 1 - sum(map(len, output)))
+                        )
+                        chunk = os.read(key.fd, maximum)
+                        if not chunk:
+                            selector.unregister(key.fd)
+                            if key.data == 2:
+                                raise subprocess.SubprocessError(
+                                    "WORKER_STATUS_TRUNCATED"
+                                )
+                        elif key.data == 2:
+                            control.extend(chunk)
+                        else:
+                            output[key.data].extend(chunk)
+                        if len(control) > 5:
+                            raise subprocess.SubprocessError("WORKER_STATUS_INVALID")
+                        if sum(map(len, output)) > MAX_OUTPUT_BYTES:
+                            reason = "OUTPUT_LIMIT"
+                            break
+                cleanup_attempted = True
+                _stop(anchor)
+                # Group is stopped: drain only buffered bytes, never wait for an
+                # escaped process to close a pipe. Such launchers are unsupported.
+                for index, fd in enumerate(
+                    (anchor.stdout.fileno(), anchor.stderr.fileno(), status_read)
+                ):
+                    while True:
+                        maximum = (
+                            6 - len(control)
+                            if index == 2
+                            else min(8192, MAX_OUTPUT_BYTES + 1 - sum(map(len, output)))
+                        )
+                        if maximum <= 0:
+                            break
+                        try:
+                            chunk = os.read(fd, maximum)
+                        except BlockingIOError:
+                            break
+                        if not chunk:
+                            break
+                        (control if index == 2 else output[index]).extend(chunk)
+                if sum(map(len, output)) > MAX_OUTPUT_BYTES:
+                    reason = "OUTPUT_LIMIT"
+                if control and (
+                    len(control) != 5
+                    or control[:1] not in (b"R", b"F")
+                    or (control[:1] == b"F" and control[1:] != bytes(4))
+                ):
+                    raise subprocess.SubprocessError("WORKER_STATUS_INVALID")
+                if not reason and not control:
+                    raise subprocess.SubprocessError("WORKER_STATUS_MISSING")
+                returncode = (
+                    struct.unpack("!i", control[1:])[0]
+                    if len(control) == 5 and control[:1] == b"R"
+                    else None
+                )
+                return (
+                    reason or ("RETURNED" if returncode == 0 else "FAILED"),
+                    returncode,
+                    bytes(output[0]),
+                    bytes(output[1]),
+                )
+        finally:
+            try:
+                if not cleanup_attempted:
+                    cleanup_attempted = True
+                    _stop(anchor)
+            finally:
+                anchor.stdout.close()
+                anchor.stderr.close()
     finally:
-        if not stopped and child.poll() is None:
-            _stop(child)
-        child.stdout.close()
-        child.stderr.close()
+        os.close(status_read)
+        os.close(owner_write)
 
 
 def _returned_bundle(raw: bytes, plan: DispatchPlan, link: str) -> dict:

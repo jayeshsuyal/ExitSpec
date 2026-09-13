@@ -50,7 +50,13 @@ The operator's trusted launcher owns deployment-specific tokenizer and managed-v
 
 ## Process and operation behavior
 
-Dispatch is synchronous and POSIX-only. An exclusive advisory lock prevents concurrent claims; a durable RUNNING record precedes process creation. A prepared operation can dispatch once. The process owns a separate session; SIGINT/SIGTERM to the CLI request cancellation of that process group. A half-second grace interval precedes the final kill signal, including when the group leader has already exited. The maximum deadline is 900 seconds. Combined stdout/stderr has a 64 KiB limit with one overflow-detection byte; events retain counts and hashes, not raw logs or prompts.
+Dispatch is synchronous and POSIX-only. An exclusive advisory lock prevents concurrent claims; a durable RUNNING record precedes process creation. A prepared operation can dispatch once. A private ExitSpec supervisor owns a separate session and stays alive after the launcher exits. It reports only the launcher's exit status through a dedicated five-byte pipe. SIGINT/SIGTERM to the CLI request cancellation of that process group. Every exit path, including successful and nonzero launcher exits, stops the group with a half-second TERM grace followed by KILL and bounded process inspection. This includes descendants with detached stdin/stdout/stderr and descendants ignoring TERM.
+
+The supervisor remains unreaped until all group signals and inspection finish, reserving its PID/group identity. No recorded PID is later reused for signaling. `/bin/ps` must support `-g` group/session selection and numeric `pid,pgid,stat` output; each inspection selects only that invocation, caps output at 64 KiB and has bounded read/wait deadlines. Cleanup allows two seconds for repeated checks after the initial grace, plus a final bounded inspection/reap. Zombies are treated as stopped work. Missing, malformed or unavailable inspection, invalid supervisor status, and uncertain termination produce PROCESS_CONTROL_FAILED and block retry.
+
+The owner holds a dedicated liveness pipe; owner death or pipe loss makes the supervisor kill its own group. An unexpected supervisor error also kills that group. Deliberately creating a new session or process group escapes this ownership boundary and is **unsupported**. Launchers must keep their work inside the owned group; this is not a process sandbox or a guarantee for arbitrary daemons. A real launcher must be qualified against this restriction before use.
+
+The maximum execution deadline is 900 seconds, followed by the bounded cleanup interval. Combined stdout/stderr has a 64 KiB limit with one overflow-detection byte; events retain counts and hashes, not raw logs or prompts.
 
 The bounded history contains PREPARED, optionally RUNNING, and one terminal state:
 
@@ -65,7 +71,9 @@ The bounded history contains PREPARED, optionally RUNNING, and one terminal stat
 
 Every event has `acceptance_verdict: null` and `shipping_authorized: false`. Dispatch exits 0 only for AWAITING_ADMISSION, and 2 for unsuccessful transport or verification; exit 0 is **not** a customer PASS. No existing receipt or acceptance model is constructed.
 
-Retry creates a new PREPARED operation and fresh run ID while preserving the exact handoff and operator configuration. It never executes automatically or overwrites the previous attempt. A chain permits at most three attempts. AWAITING_ADMISSION, unclosed RUNNING operations, and PROCESS_CONTROL_FAILED results cannot retry. Changing configuration requires a new explicit preparation. A host crash or SIGKILL can leave RUNNING without a terminal record; there is no automatic recovery/replay. The operator must reconcile any producer process/output before separately preparing new work.
+Retry durably reserves one successor plan under the parent's exclusive lock before materializing its PREPARED operation and fresh run ID. It preserves the exact handoff and operator configuration. Repeated calls on that parent return the same child's current status and never issue siblings or dispatch automatically; concurrent callers either observe that child or receive DISPATCH_BUSY. Replay verifies the exact parent pin, configuration, lineage and reserved child plan. A reservation without a child directory may resume preparation with the same identity. A partial or mismatched child directory is refused without replacement. Invalid or truncated reservation records are refused. Leftover unpublished temporary records confer no execution authority.
+
+There are at most three total attempts in one prepared retry chain. Retrying the same parent does not advance the chain; retry the returned child to request its one successor. This is not a global limit on separately requested fresh preparations. AWAITING_ADMISSION, unclosed RUNNING operations, and PROCESS_CONTROL_FAILED results cannot retry. Changing configuration requires a new explicit preparation. A host crash or SIGKILL can leave RUNNING without a terminal record; there is no automatic dispatch recovery. The operator must reconcile any producer process/output before separately preparing new work.
 
 ## Producer return requirements
 
