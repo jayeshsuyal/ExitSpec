@@ -1,5 +1,9 @@
 # Offline prospective P1 admission
 
+The [CLI receipt bridge](INFERDROME_RECEIPT_BRIDGE.md) now supplies explicit
+operator-started dispatch, admission and durable local receipt retention. The
+Python functions documented here remain separately usable and do not own storage.
+
 The Python API independently checks a retained Inferdrome bundle against one
 frozen P1 agreement and returns an immutable conformance receipt. V4 identifies
 the agreement criterion; the new receipt schema is

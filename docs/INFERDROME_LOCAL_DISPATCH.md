@@ -1,5 +1,9 @@
 # Operator-only local Inferdrome transport
 
+For explicit dispatch followed by verified receipt storage, use the separate
+[one-command receipt bridge](INFERDROME_RECEIPT_BRIDGE.md). The standalone
+`dispatch` command described below retains its transport-only meaning.
+
 This increment copies the existing frozen P1 handoff and tracks one explicit local CLI invocation. It imports no Inferdrome code and does not add a browser action, accept prospective evidence, issue a receipt/verdict, or authorize deployment. It supports only the three cases already defined by `inferdrome_prospective.py`.
 
 ## Commands and local contract

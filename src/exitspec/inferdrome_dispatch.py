@@ -745,7 +745,7 @@ def dispatch(
 def add_cli_parser(subparsers) -> None:
     parser = subparsers.add_parser(
         "inferdrome-handoff",
-        help="Operator-only prospective export and local transport; no acceptance verdict.",
+        help="Operator-only handoff, local transport and explicit receipt completion.",
     )
     actions = parser.add_subparsers(dest="handoff_action", required=True)
     path = lambda value: Path(value).absolute()
@@ -774,7 +774,7 @@ def add_cli_parser(subparsers) -> None:
         help="Operator-declared revision; does not attest installed runtime dependencies.",
     )
     prepare_parser.add_argument("--timeout-seconds", type=int, default=900)
-    for name in ("preflight", "dispatch", "status", "retry"):
+    for name in ("preflight", "dispatch", "status", "retry", "run"):
         action = actions.add_parser(name)
         action.add_argument("--operation", type=path, required=True)
         action.add_argument("--plan-sha256", required=True)
@@ -807,16 +807,27 @@ def run_cli(args) -> int:
                 runs_root=args.runs_root,
                 timeout_seconds=args.timeout_seconds,
             )
-        elif args.handoff_action == "dispatch":
+        elif args.handoff_action in {"dispatch", "run"}:
             for signum in (signal.SIGINT, signal.SIGTERM):
                 previous[signum] = signal.signal(signum, lambda *_: cancelled.set())
-            result = dispatch(args.operation, args.plan_sha256, cancelled=cancelled)
+            if args.handoff_action == "run":
+                from .inferdrome_receipt_bridge import run_operation
+
+                result = run_operation(
+                    args.operation, args.plan_sha256, cancelled=cancelled
+                )
+            else:
+                result = dispatch(args.operation, args.plan_sha256, cancelled=cancelled)
         else:
             action = {"preflight": preflight, "status": status, "retry": retry}[
                 args.handoff_action
             ]
             result = action(args.operation, args.plan_sha256)
         print(json.dumps(result, sort_keys=True))
+        if args.handoff_action == "run":
+            from .inferdrome_receipt_bridge import exit_code
+
+            return exit_code(result)
         if args.handoff_action == "dispatch":
             return 0 if result["current"]["state"] == "AWAITING_ADMISSION" else 2
         return 0
