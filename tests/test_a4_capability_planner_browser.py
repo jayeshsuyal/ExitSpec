@@ -49,6 +49,7 @@ def test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness():
             )
             page.locator("#capture-source").click()
             page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/poc_[a-z0-9_-]+/review$"))
+            playwright_sync.expect(page.locator("#proposal-support")).to_contain_text("Unsupported by this direct review route")
             support = page.locator("#proposal-support").inner_text()
             assert "Unsupported by this direct review route" in support
             assert "discard to NOT_PROVEN" not in support
