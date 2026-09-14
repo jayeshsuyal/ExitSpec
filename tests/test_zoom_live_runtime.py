@@ -8,6 +8,7 @@ import json
 import re
 import struct
 import threading
+import time
 from contextlib import contextmanager
 
 import pytest
@@ -109,15 +110,14 @@ def action(runtime, kind, **updates):
 
 def start(rig):
     runtime, _, children, launched, *_ = rig
+    deadline = time.monotonic() + 2
     action(runtime, "start")
-    assert launched.wait(2)
-    # Serialize on the parent lock until _launch publishes the child handle.
-    for _ in range(100):
-        with runtime._lock:
-            if runtime._record.child is not None:
-                break
-        threading.Event().wait(0.001)
-    child = children[-1]
+    assert launched.wait(max(0, deadline - time.monotonic())), "Child factory did not start"
+    # Publication precedes startup-event draining; wait for the real launch to finish.
+    assert runtime._launch_idle.wait(max(0, deadline - time.monotonic())), "Child launch did not finish"
+    with runtime._lock:
+        child = runtime._record.child
+        assert child is children[-1], "Child launch failed before publication"
     child.emit("offer")
     child.emit("listening")
     assert runtime.current(POC_ID)["state"] == "LISTENING"
