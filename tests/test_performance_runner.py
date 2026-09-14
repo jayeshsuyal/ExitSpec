@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from exitspec import performance_probe
 from exitspec.canonical import canonical_json_bytes
 from exitspec.confirmations import (
     ConfirmationDecision,
@@ -241,9 +242,32 @@ def _run(
     )
 
 
+def _track_client_attempts(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    activity = {"active": 0, "peak_active": 0, "started": 0, "completed": 0}
+    activity_lock = threading.Lock()
+    execute_attempt = performance_probe._execute_attempt
+
+    def tracked_attempt(*args, **kwargs):
+        with activity_lock:
+            activity["active"] += 1
+            activity["started"] += 1
+            activity["peak_active"] = max(activity["peak_active"], activity["active"])
+        try:
+            return execute_attempt(*args, **kwargs)
+        finally:
+            with activity_lock:
+                activity["active"] -= 1
+                activity["completed"] += 1
+
+    monkeypatch.setattr(performance_probe, "_execute_attempt", tracked_attempt)
+    return activity
+
+
 def test_full_live_sse_loop_returns_only_recomputed_verified_pass(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    activity = _track_client_attempts(monkeypatch)
     with _endpoint() as (endpoint, state):
         bundle = tmp_path / "bundle"
         output = tmp_path / "runs"
@@ -282,7 +306,10 @@ def test_full_live_sse_loop_returns_only_recomputed_verified_pass(
     )
     assert replay.replayed is True
     assert state.request_count == calls_after_first == 111
-    assert state.peak_active <= 4
+    # Client attempts include response.close(); server cleanup can outlive [DONE].
+    assert activity["peak_active"] <= 4
+    assert activity["active"] == 0
+    assert activity["started"] == activity["completed"] == 111
     assert set(state.authorization_headers) == {"Bearer " + API_KEY}
     persisted = b"".join(first.artifacts.files.values())
     assert API_KEY.encode() not in persisted
