@@ -77,7 +77,7 @@ def test_dynamic_browser_create_attach_list_proposal_journey_without_seeded_fall
             }[source_kind]
             proposal_support = page.locator("#proposal-support").inner_text()
             assert proposal_support.startswith(
-                ("Executable candidate", "Not executable in this demo")
+                ("Direct review candidate", "Unsupported by this direct review route")
             )
             assert "poc_support_agent_demo" not in page.content()
         finally:

@@ -2056,14 +2056,19 @@
   }
 
   async function runProof() {
-    if (pocLifecycleClosed) {
+    if (pocLifecycleClosed || !pageActive || resetRunning) {
       return;
     }
+    const workflowVersion = stateRefreshVersion;
     const selected = document.querySelector('input[name="scenario"]:checked');
     selectedScenario = selected ? selected.value : "pass";
     setStatus(proveStatus, "Running POC…");
     try {
-      applyState(await request(API.prove, { method: "POST", body: JSON.stringify({ scenario: selectedScenario }) }));
+      const incoming = await request(API.prove, { method: "POST", body: JSON.stringify({ scenario: selectedScenario }) });
+      if (!pageActive || workflowVersion !== stateRefreshVersion || pocLifecycleClosed) {
+        return;
+      }
+      applyState(incoming);
       rerunMode = false;
       setStatus(proveStatus, "");
       render();
@@ -2071,8 +2076,14 @@
         $("#decide").scrollIntoView({ block: "start", behavior: "auto" });
       }
     } catch (error) {
+      if (!pageActive || workflowVersion !== stateRefreshVersion || pocLifecycleClosed) {
+        return;
+      }
       rerunMode = false;
       await refreshState();
+      if (!pageActive || workflowVersion !== stateRefreshVersion || pocLifecycleClosed) {
+        return;
+      }
       setStatus(proveStatus, error.message);
       render();
     }

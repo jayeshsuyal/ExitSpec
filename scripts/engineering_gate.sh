@@ -134,6 +134,8 @@ run_gate \
   "Native Zoom runtime lint" \
   ruff check \
   src/exitspec/zoom_live_runtime.py \
+  src/exitspec/zoom_live_web.py \
+  tests/test_unified_zoom_web.py tests/test_unified_zoom_shutdown.py \
   src/exitspec/zoom_live_ipc.py \
   src/exitspec/zoom_live_operator.py \
   tests/test_zoom_live_runtime.py \
@@ -143,6 +145,16 @@ run_gate \
 run_gate \
   "Native Zoom browser JavaScript syntax" \
   node --check src/exitspec/static/zoom_live.js
+
+run_gate \
+  "Source authoring core, API and browser lint" \
+  ruff check src/exitspec/source_authoring_*.py tests/test_source_authoring_*.py \
+  tests/test_proposal_decision_replay.py tests/helpers/source_authoring_fake_worker.py \
+  tests/helpers/source_authoring_admission.py tests/test_unified_source_*.py
+
+run_gate \
+  "Source authoring browser JavaScript syntax" \
+  node --check src/exitspec/static/source_authoring.js
 
 run_gate \
   "Employee workbench JavaScript syntax" \

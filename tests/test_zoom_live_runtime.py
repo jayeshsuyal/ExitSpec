@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import struct
 import threading
+import time
 from contextlib import contextmanager
 
 import pytest
@@ -108,15 +110,14 @@ def action(runtime, kind, **updates):
 
 def start(rig):
     runtime, _, children, launched, *_ = rig
+    deadline = time.monotonic() + 2
     action(runtime, "start")
-    assert launched.wait(2)
-    # Serialize on the parent lock until _launch publishes the child handle.
-    for _ in range(100):
-        with runtime._lock:
-            if runtime._record.child is not None:
-                break
-        threading.Event().wait(0.001)
-    child = children[-1]
+    assert launched.wait(max(0, deadline - time.monotonic())), "Child factory did not start"
+    # Publication precedes startup-event draining; wait for the real launch to finish.
+    assert runtime._launch_idle.wait(max(0, deadline - time.monotonic())), "Child launch did not finish"
+    with runtime._lock:
+        child = runtime._record.child
+        assert child is children[-1], "Child launch failed before publication"
     child.emit("offer")
     child.emit("listening")
     assert runtime.current(POC_ID)["state"] == "LISTENING"
@@ -137,8 +138,12 @@ def finish(rig):
     assert runtime.current(POC_ID)["state"] == "CAPTURE_READY"
 
 
-def test_actual_native_text_redacts_and_attaches_once_with_lineage(rig):
+@pytest.mark.parametrize("id_contains_metric", [False, True])
+def test_actual_native_text_redacts_and_attaches_once_with_lineage(rig, id_contains_metric):
     runtime, intake, *_ = rig
+    if id_contains_metric:
+        runtime._record.session_id = "zoomsess_" + "a" * 30 + "730" + "b" * 31
+    session_id = runtime.current(POC_ID)["session_id"]
     child = start(rig)
     packet(
         child,
@@ -164,8 +169,25 @@ def test_actual_native_text_redacts_and_attaches_once_with_lineage(rig):
         p.source_receipt_id == snapshot["source_receipt_id"] for p in proposals
     )
     assert all(p.state == "NEEDS_REVIEW" for p in proposals)
-    assert "730" not in json.dumps(snapshot)
-    assert "synthetic-meeting" not in json.dumps(snapshot)
+    # Receipt metadata has an exact allowlist. Random hexadecimal identities may
+    # contain a numeric requirement by coincidence; that is not transcript text.
+    assert re.fullmatch(r"zoomsess_[a-f0-9]{64}", session_id)
+    assert re.fullmatch(r"srcpt_[a-f0-9]{32}", snapshot["source_receipt_id"])
+    assert snapshot == {
+        "schema_version": "exitspec.zoom-live/1.0",
+        "poc_id": POC_ID,
+        "session_id": session_id,
+        "state": "DRAFT_READY",
+        "transport_mode": "FAKE_ZOOM_RTMS",
+        "provider_connected": False,
+        "source_content_classification": "SYNTHETIC_REQUIREMENTS_ONLY",
+        "capture_scope": "BOUNDED_WINDOW_NOT_COMPLETE_MEETING",
+        "segment_count": 2,
+        "proposal_count": 2,
+        "source_receipt_id": snapshot["source_receipt_id"],
+        "review_url": f"/app/pocs/{POC_ID}/review",
+        "failure_code": None,
+    }
     assert (
         runtime._record.provenance["redacted_content_sha256"] == source.content_sha256
     )

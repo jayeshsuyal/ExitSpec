@@ -170,8 +170,15 @@ def test_fresh_supported_source_completes_canonical_request_to_proof_spine(
             )
             poc_id = re.search(r"/pocs/(poc_[a-z0-9_-]+)/", page.url).group(1)
             assert poc_id not in {"poc_support_agent_demo", "poc_inference_latency_demo"}
-            # This shared-template server has no native Zoom runtime.
-            assert page.locator("#zoom-live-panel").is_hidden()
+            # SourceNeutral now exposes the same native runtime, unpaired.
+            # Existing pasted intake remains usable and cannot start capture.
+            if source_choice == "MEETING":
+                playwright_sync.expect(page.locator("#zoom-live-panel")).to_be_visible()
+                playwright_sync.expect(page.locator("#zoom-live-mode")).to_have_text("Disconnected")
+                playwright_sync.expect(page.locator("#zoom-live-start")).to_be_disabled()
+                playwright_sync.expect(page.locator("#zoom-live-consent")).to_be_disabled()
+            else:
+                assert page.locator("#zoom-live-panel").is_hidden()
 
             page.locator(input_selector).fill(source_text)
             page.locator("#capture-source").click()

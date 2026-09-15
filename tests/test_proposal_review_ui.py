@@ -86,10 +86,12 @@ def test_copy_keeps_triage_separate_from_every_authority_boundary():
     javascript = _asset(JS_PATH)
 
     assert (
-        "This demo executes one TTFT and one error-rate claim. Other\n"
-        "                  claims stay NOT_PROVEN. KEEP remains triage only—it does not\n"
-        "                  approve, freeze, run, or issue a verdict."
-    ) in html
+        "Keep or discard source-backed proposals for acceptance drafting. "
+        "KEEP remains triage only—it does not "
+        "approve, freeze, run, or issue a verdict."
+    ) in " ".join(html.split())
+    assert "This demo executes one TTFT and one error-rate claim." not in html
+    assert "Direct review supports one TTFT and one error-rate claim." in javascript
     assert "No contract was created or approved." in html
     assert (
         "Contract authoring, customer confirmation, freeze, execution, and\n"
@@ -173,9 +175,13 @@ def test_trusted_queue_is_exact_bounded_source_anchored_and_unique():
     assert "count >= 0 && count <= 1024" in summary_validator
     assert "summary.total ===" in summary_validator
     assert (
-        'hasExactKeys(payload, ["poc_id", "proposals", "review_summary"])'
+        'hasExactKeys(payload, ["poc_id", "proposals", "review_summary", "authoring_provenance"])'
         in queue_validator
     )
+    assert 'provenance.schema_version !== "exitspec.review-authoring-provenance/1"' in queue_validator
+    assert "provenance.proposals.length !== payload.review_summary.total" in queue_validator
+    assert "originIds.size === provenance.proposals.length" in queue_validator
+    assert "originA3Ids.size !== scopedProjectionIds.length" in queue_validator
     assert "isTrustedReviewSummary(payload.review_summary)" in queue_validator
     assert (
         "payload.review_summary.needs_review !== payload.proposals.length"
@@ -516,9 +522,9 @@ def test_acceptance_brief_has_scoped_document_flow_and_accessible_source_context
 
     assert 'body class="acceptance-brief-page"' in html
     assert "body.acceptance-brief-page" in css
-    assert "--canvas: #111e24;" in css
-    assert "--panel: #1d3035;" in css
-    assert "--orange: #b8d8c5;" in css
+    assert "--canvas: #191919;" in css
+    assert "--panel: #242424;" in css
+    assert "--orange: #f2a779;" in css
     assert "height: auto;" in css
     assert "overflow: auto;" in css
     assert "overflow: visible;" in css

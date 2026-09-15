@@ -139,7 +139,8 @@
     resolvedRouteMatch && POC_ID_PATTERN.test(resolvedRouteMatch[1])
       ? resolvedRouteMatch[1]
       : null;
-  const canonicalSourceFlow = Boolean(canonicalRouteMatch);
+  const canonicalSourceFlow = Boolean(canonicalRouteMatch) ||
+    document.body.dataset.sourceNeutral === "true";
   const pocApi = pocId ? `/api/pocs/${pocId}` : null;
   const sourcesApi = pocApi ? `${pocApi}/sources` : null;
   const sttApi = pocApi ? `${pocApi}/stt` : null;
@@ -2538,8 +2539,8 @@
       }
       applyDraft(draft, sourceList);
       if (canonicalSourceFlow) {
-        // Canonical A7 meeting intake accepts pasted or recording-derived text
-        // and never probes optional provider, Zoom, or STT compatibility routes.
+        // This composition uses pasted text here and a separate native Zoom
+        // panel; it never probes optional meeting or STT compatibility routes.
         meetingSessionUnavailable = true;
         zoomGuidedUnavailable = true;
         sttUnavailable = true;

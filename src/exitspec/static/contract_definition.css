@@ -532,11 +532,7 @@
 }
 
 .definition-error {
-  position: fixed;
-  z-index: 30;
-  right: 24px;
-  bottom: 20px;
-  max-width: 390px;
+  grid-column: 1 / -1;
   margin: 0;
   border: 1px solid var(--danger);
   padding: 10px 12px;

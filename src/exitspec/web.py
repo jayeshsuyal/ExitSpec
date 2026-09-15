@@ -34,6 +34,15 @@ import yaml
 from pydantic import ValidationError
 
 from .canonical import canonical_json_bytes
+from .assisted_authoring import ProcessLocalAssistedAuthoringService
+from .poc_assisted_authoring_web_api import handle_poc_assisted_authoring_web_api_request
+from .source_authoring_web import (
+    SourceAuthoringWebRuntime,
+    handle_source_authoring_http,
+    review_inputs,
+    source_authoring_page_poc,
+)
+from .synthetic_assisted_authoring import SyntheticSourceNeutralAssistedAuthoringExecutor
 from .adapters.deterministic_tool_selection import DeterministicToolSelectionAdapter
 from .authoring import (
     approve_draft,
@@ -84,7 +93,8 @@ from .meeting_session_web_api import (
     meeting_session_web_api_poc_id,
 )
 from .zoom_guided_handoff import ZoomGuidedHandoffService
-from .zoom_live_runtime import ZoomLiveError, ZoomLiveRuntime
+from .zoom_live_runtime import ZoomLiveRuntime
+from .zoom_live_web import handle_zoom_live_http
 from .zoom_guided_handoff_web_api import (
     handle_zoom_guided_handoff_web_api_request,
     is_zoom_guided_handoff_web_api_target,
@@ -1993,7 +2003,11 @@ class DemoSession:
                 "expires_at": invitation.expires_at.isoformat(),
                 "acknowledgement_required": True,
                 "identity": {
-                    "display_name": "Customer approver · local synthetic demo",
+                    "display_name": (
+                        confirmation.confirmer_identity
+                        if confirmation is not None
+                        else "Customer approver · local synthetic demo"
+                    ),
                     "notice": (
                         "This local demo does not authenticate a real customer. "
                         "A hosted review must bind verified identity and permission "
@@ -3106,9 +3120,22 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             source_intake=self.poc_source_intake,
             fireworks_transport=stt_fireworks_transport,
         )
-        self.proposal_review_service = ProcessLocalProposalReviewService(
-            proposal_lookup=self.poc_source_intake.proposal_inputs,
+        self.assisted_authoring_service = ProcessLocalAssistedAuthoringService(
+            source_lookup=self.poc_source_intake.source_snapshot,
+            draft_lookup=self.draft_poc_service.get,
+            executor=SyntheticSourceNeutralAssistedAuthoringExecutor(),
+            provider="synthetic",
+            endpoint="local://exitspec/source-neutral-assisted-authoring",
         )
+        self.proposal_review_service = ProcessLocalProposalReviewService(
+            proposal_lookup=lambda poc_id: review_inputs(
+                self.poc_source_intake, self.assisted_authoring_service, poc_id
+            ),
+        )
+        self.assisted_authoring_service.bind_decision_lookup(self.proposal_review_service.source_has_decision)
+        self.assisted_authoring_service.bind_review_commit_guard(self.proposal_review_service.authoring_commit_guard)
+        self.assisted_authoring_service.bind_source_commit_guard(self.poc_source_intake.authoring_commit_guard)
+        self.assisted_authoring_service.bind_draft_commit_guard(self.draft_poc_service.authoring_commit_guard)
         self.contract_definition_service = (
             ProcessLocalContractDefinitionService(
                 proposal_lookup=self.proposal_review_service.list_proposals,
@@ -3205,6 +3232,11 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
         self.session = session
         self.poc_closure_service = ProcessLocalPOCClosureService(
             evidence_resolver=self._terminal_evidence_binding,
+        )
+        self.source_authoring_web = SourceAuthoringWebRuntime(
+            drafts=self.draft_poc_service, intake=self.poc_source_intake,
+            assisted=self.assisted_authoring_service, review=self.proposal_review_service,
+            closure=self.poc_closure_service,
         )
         self.zoom_live_runtime = ZoomLiveRuntime(
             drafts=self.draft_poc_service, intake=self.poc_source_intake,
@@ -3840,6 +3872,9 @@ class ExitSpecDemoServer(ThreadingHTTPServer):
             live = getattr(self, "zoom_live_runtime", None)
             if live is not None:
                 live.close()
+            source_authoring = getattr(self, "source_authoring_web", None)
+            if source_authoring is not None:
+                source_authoring.close()
             super().server_close()
         finally:
             resource_stack = getattr(self, "_resource_stack", None)
@@ -3852,43 +3887,7 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
     server: ExitSpecDemoServer
 
     def _dispatch_zoom_live(self) -> bool:
-        parsed = urlparse(self.path)
-        match = re.fullmatch(r"/api/pocs/(poc_[a-z0-9][a-z0-9_-]{2,63})/zoom-live(-receipt)?", parsed.path)
-        if match is None:
-            return False
-        self.close_connection = True
-        def refuse(status=HTTPStatus.BAD_REQUEST):
-            self._send_json(status, {"code": "ZOOM_LIVE_REFUSED", "error": "The live Zoom operation was refused."})
-            return True
-        if parsed.query or parsed.params or parsed.fragment or self.path != parsed.path:
-            return refuse()
-        hosts = self.headers.get_all("Host") or []
-        allowed_hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
-        if len(hosts) != 1 or hosts[0] not in allowed_hosts:
-            return refuse(HTTPStatus.FORBIDDEN)
-        if not self._has_allowed_origin(require_present=self.command == "POST", exact_request_origin=True):
-            return refuse(HTTPStatus.FORBIDDEN)
-        try:
-            if self.command == "GET":
-                result = (self.server.zoom_live_runtime.receipt(match[1]) if match[2]
-                    else self.server.zoom_live_runtime.current(match[1]))
-            elif self.command == "POST":
-                if match[2]:
-                    return refuse(HTTPStatus.METHOD_NOT_ALLOWED)
-                lengths = self.headers.get_all("Content-Length") or []
-                if (not self._has_json_media_type() or len(lengths) != 1
-                    or not re.fullmatch(r"[0-9]{1,4}", lengths[0])
-                    or not 0 < int(lengths[0]) <= 4096
-                    or self.headers.get_all("Transfer-Encoding")
-                    or self.headers.get_all("Idempotency-Key")):
-                    return refuse()
-                result = self.server.zoom_live_runtime.action(match[1], self._read_poc_source_json())
-            else:
-                return refuse(HTTPStatus.METHOD_NOT_ALLOWED)
-        except (ValueError, OverflowError, ZoomLiveError):
-            return refuse(HTTPStatus.CONFLICT)
-        self._send_json(HTTPStatus.OK, result)
-        return True
+        return handle_zoom_live_http(self)
 
     def _dispatch_reference_inference(self) -> bool:
         """Serve one exact loopback-only deterministic streaming target."""
@@ -5165,7 +5164,45 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             return
         super().send_error(code, message, explain)
 
+    def _dispatch_source_authoring_review_read(self) -> bool:
+        # MAIN exposes only these existing A3 projections, not the authoring API.
+        parsed = urlparse(self.path)
+        if not re.fullmatch(
+            r"/api/pocs/poc_[a-z0-9][a-z0-9_-]{2,63}/assisted-authoring"
+            r"(?:/current-review)?",
+            parsed.path,
+        ):
+            return False
+        # BaseHTTPRequestHandler normalizes leading // in self.path. Compare
+        # the actual request-target too, so an alias cannot become an exact read.
+        raw_target = self.requestline.split()[1]
+        if raw_target != self.path or self.path != parsed.path:
+            status = HTTPStatus.BAD_REQUEST
+        elif self.command != "GET":
+            status = HTTPStatus.METHOD_NOT_ALLOWED
+        elif (
+            self.headers.get_all("Content-Length", []) not in ([], ["0"])
+            or self.headers.get_all("Transfer-Encoding")
+            or self.headers.get_all("Content-Encoding")
+        ):
+            status = HTTPStatus.BAD_REQUEST
+        else:
+            response = handle_poc_assisted_authoring_web_api_request(
+                method="GET", target=self.path, payload=None,
+                runtime=self.server.assisted_authoring_service,
+                review_runtime=self.server.proposal_review_service,
+            )
+            self._send_json(response.status, response.payload)
+            return True
+        self.close_connection = True
+        self._send_json(status, {"error": "Source authoring review read was refused."})
+        return True
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib request handler API
+        if handle_source_authoring_http(self):
+            return
+        if self._dispatch_source_authoring_review_read():
+            return
         if self._dispatch_zoom_live():
             return
         if self._dispatch_reference_inference():
@@ -5193,6 +5230,13 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         if self._dispatch_inferdrome_import_read():
             return
         parsed = urlparse(self.path)
+        source_authoring_poc = source_authoring_page_poc(parsed.path)
+        if source_authoring_poc is not None:
+            if self.path != parsed.path or source_authoring_poc not in self.server.draft_poc_service.ids():
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Draft POC is unavailable."})
+            else:
+                self._serve_static("/source_authoring.html")
+            return
         if parsed.path == EVIDENCE_LIBRARY_PAGE_PATH:
             if parsed.params or parsed.query or parsed.fragment:
                 self._send_json(
@@ -5407,7 +5451,15 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/state":
-            self._send_json(HTTPStatus.OK, self.server.session.state_payload())
+            payload = self.server.session.state_payload()
+            payload["source_authoring_review"] = {
+                "schema_version": "exitspec.source-authoring-review/1",
+                "receipts": "READ_ONLY",
+                "current_review": "READ_ONLY",
+                "authoring": False,
+                "capability_planner": False,
+            }
+            self._send_json(HTTPStatus.OK, payload)
             return
         if parsed.path == "/api/workspace":
             if parsed.params or parsed.fragment:
@@ -5552,6 +5604,10 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         self._serve_static(parsed.path, parsed.query)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib request handler API
+        if handle_source_authoring_http(self):
+            return
+        if self._dispatch_source_authoring_review_read():
+            return
         if self._dispatch_zoom_live():
             return
         if self._dispatch_reference_inference():
@@ -6214,6 +6270,12 @@ class ExitSpecDemoRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _unsupported_method(self) -> None:
+        if handle_zoom_live_http(self):
+            return
+        if handle_source_authoring_http(self):
+            return
+        if self._dispatch_source_authoring_review_read():
+            return
         if self._dispatch_reference_inference():
             return
         if self._dispatch_source_request():

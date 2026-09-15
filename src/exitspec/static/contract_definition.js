@@ -852,9 +852,30 @@
     renderCurrentProposal();
   }
 
-  async function reconcileDefinitionsAfterSave() {
+  async function reconcileDefinitionsAfterSave(receipt, savedProposal) {
     const definitionList = await requestJson(definitionsApi);
     if (!isTrustedDefinitionList(definitionList)) {
+      throw new SafeRequestError(200, true);
+    }
+    const recordedProposals = proposals.filter(
+      (proposal) => proposal.definition !== null
+    );
+    recordedProposals.push({ ...savedProposal, definition: receipt.definition });
+    const preservesRecordedDefinitions = recordedProposals.every((recorded) => {
+      const current = definitionList.proposals.find(
+        (proposal) => proposal.proposal_id === recorded.proposal_id
+      );
+      return Boolean(
+        current && current.definition &&
+        PROPOSAL_KEYS.filter((key) => key !== "definition").every(
+          (key) => current[key] === recorded[key]
+        ) &&
+        DEFINITION_KEYS.every(
+          (key) => current.definition[key] === recorded.definition[key]
+        )
+      );
+    });
+    if (!preservesRecordedDefinitions) {
       throw new SafeRequestError(200, true);
     }
     proposals = definitionList.proposals.slice();
@@ -894,6 +915,7 @@
     event.preventDefault();
     const proposal = currentProposal();
     let definitionRecorded = false;
+    let reconciliationFailed = false;
     if (inFlight || !proposal) {
       return;
     }
@@ -943,9 +965,10 @@
       }
       pendingAttempt = null;
       definitionRecorded = true;
-      await reconcileDefinitionsAfterSave();
+      await reconcileDefinitionsAfterSave(response, proposal);
     } catch (error) {
       if (definitionRecorded) {
+        reconciliationFailed = true;
         proposals = [];
         pendingAttempt = null;
         blockDefinition(
@@ -963,7 +986,7 @@
       errorPanel.hidden = false;
     } finally {
       inFlight = false;
-      if (!completionPanel.hidden) {
+      if (reconciliationFailed || !completionPanel.hidden) {
         return;
       }
       updateDefinitionControls();

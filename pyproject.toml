@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+source-authoring-tokenizer = ["tokenizers==0.23.2"]
 dev = [
   "pytest>=9.0.3,<10",
   "pip-audit>=2.9,<3",

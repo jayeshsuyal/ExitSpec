@@ -27,8 +27,10 @@ from urllib.parse import parse_qsl, unquote, urlparse
 
 from pydantic import ValidationError
 
+from . import source_authoring_launch as _source_launch
 from .assisted_authoring import ProcessLocalAssistedAuthoringService
 from .draft_workspace import project_draft_dashboard
+from .evidence_pack_library import EvidencePackLibraryProjection
 from .generic_evidence_pack import GenericEvidencePackError
 from .poc_agreement import ProcessLocalAgreementLifecycleService
 from .poc_agreement_web_api import (
@@ -93,9 +95,16 @@ from .poc_sources import (
 from .proofability_workspace import create_production_proofability_workspace
 from .proofability_workspace_web import handle_proofability_workspace_http
 from .review_links import ReviewInvitationError
+from .source_authoring_web import (
+    SourceAuthoringWebRuntime,
+    handle_source_authoring_http,
+    source_authoring_page_poc,
+)
 from .synthetic_assisted_authoring import (
     SyntheticSourceNeutralAssistedAuthoringExecutor,
 )
+from .zoom_live_runtime import ZoomLiveRuntime
+from .zoom_live_web import handle_zoom_live_http
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 MAX_REQUEST_BYTES = 128 * 1024
@@ -164,6 +173,9 @@ _ASSET_NAMES = frozenset(
         "assisted_authoring.html",
         "assisted_authoring.css",
         "assisted_authoring.js",
+        "source_authoring.html",
+        "source_authoring.css",
+        "source_authoring.js",
         "capability_plan.html",
         "capability_plan.css",
         "capability_plan.js",
@@ -176,6 +188,9 @@ _ASSET_NAMES = frozenset(
         "generic_evidence.html",
         "generic_evidence.css",
         "generic_evidence.js",
+        "evidence_library.html",
+        "evidence_library.css",
+        "evidence_library.js",
         "proofability_workspace.css",
         "proofability_workspace.js",
         "qualification.html",
@@ -200,7 +215,22 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         static_root: Path = STATIC_ROOT,
         assisted_authoring_executor: Any | None = None,
         evidence_artifact_root: Path | None = None,
+        source_authoring_launch=None,
     ) -> None:
+        self._source_authoring_install = (
+            None if source_authoring_launch is None else
+            _source_launch._reserve_runtime_install(source_authoring_launch)
+        )
+        self.source_authoring_web = None
+        self.zoom_live_runtime = None
+        self._owned_evidence_artifact_root = None
+        try:
+            self._initialize(address, static_root, assisted_authoring_executor, evidence_artifact_root)
+        except BaseException:
+            self.server_close()
+            raise
+
+    def _initialize(self, address, static_root, assisted_authoring_executor, evidence_artifact_root):
         self.draft_poc_service = ProcessLocalDraftPOCService()
         self.proofability_workspace = create_production_proofability_workspace(
             draft_lookup=self.draft_poc_service.get,
@@ -265,6 +295,17 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         self.assisted_authoring_service.bind_draft_commit_guard(
             self.draft_poc_service.authoring_commit_guard
         )
+        self.poc_closure_service = self.generic_evidence_service.closure_service
+        self.source_authoring_web = SourceAuthoringWebRuntime(
+            drafts=self.draft_poc_service, intake=self.poc_source_intake,
+            assisted=self.assisted_authoring_service, review=self.proposal_review_service,
+            closure=self.poc_closure_service,
+            installation=self._source_authoring_install,
+        )
+        self.zoom_live_runtime = ZoomLiveRuntime(
+            drafts=self.draft_poc_service, intake=self.poc_source_intake,
+            run_if_open=self.poc_closure_service.run_if_open,
+        )
         self.static_root = Path(static_root).resolve()
         if not self.static_root.is_dir():
             raise RuntimeError("ExitSpec static demo assets are unavailable.")
@@ -272,11 +313,24 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
 
     def server_close(self) -> None:
         try:
-            super().server_close()
+            if self.zoom_live_runtime is not None:
+                self.zoom_live_runtime.close()
         finally:
-            if self._owned_evidence_artifact_root is not None:
-                self._owned_evidence_artifact_root.cleanup()
-                self._owned_evidence_artifact_root = None
+            try:
+                if self.source_authoring_web is not None:
+                    self.source_authoring_web.close()
+            finally:
+                try:
+                    if self._source_authoring_install is not None:
+                        _source_launch._close_install(self._source_authoring_install)
+                finally:
+                    try:
+                        if getattr(self, "socket", None) is not None:
+                            super().server_close()
+                    finally:
+                        if self._owned_evidence_artifact_root is not None:
+                            self._owned_evidence_artifact_root.cleanup()
+                            self._owned_evidence_artifact_root = None
 
     def _frozen_contract_for_evidence(self, poc_id: str):
         snapshot = self.agreement_service.snapshot(poc_id)
@@ -353,10 +407,45 @@ class SourceNeutralPOCDemoServer(ThreadingHTTPServer):
         ).model_dump(mode="json")
 
 
+    def evidence_pack_library_payload(self) -> dict[str, object]:
+        """Navigate independently verified current and historical local packs."""
+
+        items = []
+        for draft in self.draft_poc_service.snapshots():
+            history = self.generic_evidence_service.snapshot_payload(draft.poc_id)[
+                "history"
+            ]
+            for attempt in history:
+                if attempt["evidence_pack_url"] is None:
+                    continue
+                item = self.generic_evidence_service.evidence_pack_library_item(
+                    attempt["attempt_id"]
+                )
+                publication = self.generic_evidence_service.verify_evidence_pack_publication(
+                    attempt["attempt_id"]
+                )
+                if (
+                    item.evidence_pack_url != publication.evidence_pack_url
+                    or item.evidence_pack_sha256 != publication.evidence_pack_sha256
+                ):
+                    raise GenericEvidencePackError("Evidence Pack binding changed.")
+                items.append(item.model_copy(update={
+                    "display_name": draft.display_name,
+                    "customer_label": draft.customer_label,
+                }))
+        return EvidencePackLibraryProjection(
+            packs=tuple(sorted(items, key=lambda item: (item.updated_at, item.poc_id), reverse=True))
+        ).model_dump(mode="json")
+
+
 class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     server: SourceNeutralPOCDemoServer
 
     def do_GET(self) -> None:
+        if handle_zoom_live_http(self):
+            return
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         parsed = urlparse(self.path)
@@ -371,6 +460,17 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.server.workspace_payload(filter_value))
             except ValueError:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": "Workspace filter is invalid."})
+            return
+        if parsed.path == "/api/evidence-packs":
+            try:
+                payload = self.server.evidence_pack_library_payload()
+            except (GenericEvidencePackError, KeyError, OSError, ValueError):
+                self._json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Evidence Pack library is unavailable."},
+                )
+                return
+            self._json(HTTPStatus.OK, payload)
             return
         if parsed.path == "/api/state":
             self._json(
@@ -476,6 +576,16 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/app/pocs/new":
             self._file("new_poc.html")
             return
+        if parsed.path == "/app/evidence":
+            self._file("evidence_library.html")
+            return
+        source_authoring_poc = source_authoring_page_poc(parsed.path)
+        if source_authoring_poc is not None:
+            if self._active_draft(source_authoring_poc):
+                self._file("source_authoring.html")
+            else:
+                self._json(HTTPStatus.NOT_FOUND, {"error": "Draft POC is unavailable."})
+            return
         evidence_page_poc_id = _generic_evidence_page_poc_id(parsed.path)
         if evidence_page_poc_id is not None:
             if self._active_draft(evidence_page_poc_id):
@@ -523,6 +633,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
 
     def do_POST(self) -> None:
+        if handle_zoom_live_http(self):
+            return
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         parsed = urlparse(self.path)
@@ -696,6 +810,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self._json(response.status, response.payload)
 
     def do_PUT(self) -> None:
+        if handle_zoom_live_http(self):
+            return
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         if is_poc_capability_planner_web_api_target(urlparse(self.path).path):
@@ -711,6 +829,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_IMPLEMENTED)
 
     def do_HEAD(self) -> None:
+        if handle_zoom_live_http(self):
+            return
+        if handle_source_authoring_http(self):
+            return
         if handle_proofability_workspace_http(self):
             return
         self.send_error(
@@ -721,6 +843,10 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
     def __getattr__(self, name: str):
         if name.startswith("do_"):
             def dispatch_unknown_method() -> None:
+                if handle_zoom_live_http(self):
+                    return
+                if handle_source_authoring_http(self):
+                    return
                 if handle_proofability_workspace_http(self):
                     return
                 self.send_error(
@@ -1054,6 +1180,15 @@ class SourceNeutralPOCDemoRequestHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
             return
         data = target.read_bytes()
+        if relative == "source_intake.html":
+            # Fixed composition hints only. Pairing and consent stay server-owned.
+            body_marker = b"<body>"
+            zoom_marker = b'data-zoom-live-enabled="false"'
+            if data.count(body_marker) != 1 or data.count(zoom_marker) != 1:
+                self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Page is unavailable."})
+                return
+            data = data.replace(body_marker, b'<body data-source-neutral="true">', 1)
+            data = data.replace(zoom_marker, b'data-zoom-live-enabled="true"', 1)
         self.send_response(HTTPStatus.OK)
         proofability_media = {
             "proofability_workspace.css": "text/css; charset=utf-8",
@@ -1160,6 +1295,7 @@ def serve_source_neutral_demo(
     *,
     open_browser: bool = False,
     evidence_artifact_root: Path | None = None,
+    source_authoring_launch=None,
 ) -> SourceNeutralPOCDemoServer:
     """Construct the local A2/A3 browser runtime; caller owns its serve loop."""
 
@@ -1168,6 +1304,7 @@ def serve_source_neutral_demo(
     server = SourceNeutralPOCDemoServer(
         (host, port),
         evidence_artifact_root=evidence_artifact_root,
+        source_authoring_launch=source_authoring_launch,
     )
     if open_browser:
         threading.Timer(

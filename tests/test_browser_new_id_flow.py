@@ -350,7 +350,7 @@ def _capture_define_supported_email(
         page.locator("#reviewer").fill("field_engineer")
         if "first token" in claim.lower() or "error rate" in claim.lower():
             expect(page.locator("#proposal-support")).to_contain_text(
-                "Executable candidate"
+                "Direct review candidate"
             )
             page.locator("#rationale").fill(
                 "Keep this source-backed executable requirement."
@@ -359,7 +359,7 @@ def _capture_define_supported_email(
             page.locator("#keep-proposal").click()
         else:
             expect(page.locator("#proposal-support")).to_contain_text(
-                "Not executable in this demo"
+                "Unsupported by this direct review route"
             )
             page.locator("#rationale").fill(
                 "Retain this unsupported claim as NOT_PROVEN context."
@@ -441,10 +441,10 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
             customer_page = customer_context.new_page()
             employee_errors = _capture_browser_errors(employee_page)
             customer_errors = _capture_browser_errors(customer_page)
-            assisted_api_requests: list[str] = []
+            assisted_api_requests: list[tuple[str, str]] = []
             employee_page.on(
                 "request",
-                lambda request: assisted_api_requests.append(request.url)
+                lambda request: assisted_api_requests.append((request.method, request.url))
                 if "/assisted-authoring" in request.url
                 else None,
             )
@@ -528,7 +528,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     if "cost" in claim.lower():
                         expect(
                             employee_page.locator("#proposal-support")
-                        ).to_contain_text("Not executable in this demo")
+                        ).to_contain_text("Unsupported by this direct review route")
                         employee_page.locator("#rationale").fill(
                             "Keep this customer claim visible as NOT_PROVEN."
                         )
@@ -540,7 +540,7 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                     else:
                         expect(
                             employee_page.locator("#proposal-support")
-                        ).to_contain_text("Executable candidate")
+                        ).to_contain_text("Direct review candidate")
                         employee_page.locator("#rationale").fill(
                             "Keep this explicit measurable inference requirement."
                         )
@@ -785,7 +785,10 @@ def test_new_id_email_flow_reaches_completed_pass_evidence_pack(tmp_path):
                 _assert_bounded_employee_shell(employee_page)
                 _assert_narrow_keyboard_contract(expect, employee_page)
                 assert employee_errors == []
-                assert assisted_api_requests == []
+                assert set(assisted_api_requests) == {
+                    ("GET", f"{base_url}/api/pocs/{poc_id}/assisted-authoring"),
+                    ("GET", f"{base_url}/api/pocs/{poc_id}/assisted-authoring/current-review"),
+                }
                 assert customer_errors == []
                 assert evidence_errors == []
             finally:

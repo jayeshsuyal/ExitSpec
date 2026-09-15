@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
+import threading
 
 import pytest
 from pydantic import ValidationError
@@ -93,6 +94,162 @@ def _decide(
         rationale,
         idempotency_key,
     )
+
+
+def _publish_snapshot_replacement(service, lookup, replacement):
+    with service.authoring_commit_guard(POC_ALPHA, replacement.source_receipt_id) as guard:
+        guard.prepare([replacement.proposal_id])
+        lookup.by_poc[POC_ALPHA] = (replacement,)
+        guard.commit()
+
+
+def test_review_snapshot_origin_is_committed_registration_and_rows_are_immutable():
+    lookup = _Lookup()
+    original = _proposal()
+    lookup.by_poc[POC_ALPHA] = (original,)
+    service = _service(lookup)
+    first = service.review_snapshot(POC_ALPHA)
+    assert first[0].origin == "INTAKE_A2"
+    replacement = _proposal(proposal_id="prop_assisted_001")
+    _publish_snapshot_replacement(service, lookup, replacement)
+    second = service.review_snapshot(POC_ALPHA)
+    assert second[0].origin == "ASSISTED_A3"
+    assert second[0].item.proposal_id == replacement.proposal_id
+    assert first[0].item.proposal_id == original.proposal_id and first[0].origin == "INTAKE_A2"
+    with pytest.raises((AttributeError, TypeError)):
+        second[0].origin = "INTAKE_A2"
+    with pytest.raises(ValidationError):
+        second[0].item.review_state = ProposalReviewState.KEEP_FOR_CONTRACT
+    assert len(service) == 0 and service._idempotency == {}
+
+
+def test_review_snapshot_selected_scope_excludes_history_and_uses_actual_decisions():
+    lookup = _Lookup()
+    lookup.by_poc[POC_ALPHA] = (_proposal(), _proposal(proposal_id="prop_current_001", source_receipt_id="srcpt_current_001"))
+    service = _service(lookup)
+    selected = service.list_proposals(POC_ALPHA)[1:]
+    calls = []
+
+    def scope(poc_id):
+        calls.append(poc_id)
+        _decide(service, proposal_id="prop_current_001", decision=ProposalDecision.DISCARD)
+        return selected  # deliberately predates the actual stored decision
+
+    snapshot = service.review_snapshot(POC_ALPHA, current_proposal_lookup=scope)
+    assert calls == [POC_ALPHA]
+    assert len(snapshot) == 1 and snapshot[0].item.proposal_id == "prop_current_001"
+    assert snapshot[0].item.review_state == ProposalReviewState.DISCARD
+    assert snapshot[0].item.decision.reviewer == "Jayesh Suyal"
+    assert service.review_snapshot(POC_ALPHA, current_proposal_lookup=lambda _: ()) == ()
+    assert len(service) == 1
+
+
+@pytest.mark.parametrize("fault", ["foreign", "duplicate", "unknown", "binding", "container"])
+def test_review_snapshot_rejects_invalid_selected_scope(fault):
+    lookup = _Lookup()
+    lookup.by_poc[POC_ALPHA] = (_proposal(),)
+    service = _service(lookup)
+    item, = service.list_proposals(POC_ALPHA)
+    selected = {
+        "foreign": (item.model_copy(update={"poc_id": POC_BETA}),),
+        "duplicate": (item, item),
+        "unknown": (item.model_copy(update={"proposal_id": "prop_unknown_001"}),),
+        "binding": (item.model_copy(update={"source_quote": "A different safe source claim."}),),
+        "container": {"items": [item]},
+    }[fault]
+    with pytest.raises((ProposalReviewLookupUnavailable, ProposalReviewProposalUnavailable, ProposalReviewStaleProposal)):
+        service.review_snapshot(POC_ALPHA, current_proposal_lookup=lambda _: selected)
+    assert len(service) == 0 and service._idempotency == {}
+
+
+@pytest.mark.parametrize("with_scope", [False, True])
+def test_review_snapshot_reentrant_publication_rejects_stale_a2(with_scope):
+    lookup = _Lookup()
+    lookup.by_poc[POC_ALPHA] = (_proposal(),)
+    service = _service(lookup)
+    selected = service.list_proposals(POC_ALPHA)
+    replacement = _proposal(proposal_id="prop_assisted_001")
+    entered = False
+
+    def reentrant(poc_id):
+        nonlocal entered
+        captured = lookup(poc_id)
+        if not entered:
+            entered = True
+            _publish_snapshot_replacement(service, lookup, replacement)
+        return captured
+
+    service._proposal_lookup = reentrant
+    with pytest.raises(ProposalReviewStaleProposal):
+        service.review_snapshot(POC_ALPHA, current_proposal_lookup=(lambda _: selected) if with_scope else None)
+    assert len(service) == 0
+    assert service.review_snapshot(POC_ALPHA)[0].origin == "ASSISTED_A3"
+
+
+def test_review_snapshot_concurrent_publication_wins_before_snapshot_lock():
+    lookup = _Lookup()
+    lookup.by_poc[POC_ALPHA] = (_proposal(),)
+    service = _service(lookup)
+    captured, release = threading.Event(), threading.Event()
+
+    def delayed(poc_id):
+        proposals = lookup(poc_id)
+        if threading.current_thread().name.startswith("snapshot-reader"):
+            captured.set()
+            assert release.wait(5)
+        return proposals
+
+    service._proposal_lookup = delayed
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="snapshot-reader") as pool:
+        future = pool.submit(service.review_snapshot, POC_ALPHA)
+        try:
+            assert captured.wait(5)
+            _publish_snapshot_replacement(service, lookup, _proposal(proposal_id="prop_assisted_001"))
+        finally:
+            release.set()
+        with pytest.raises(ProposalReviewStaleProposal):
+            future.result(timeout=5)
+    assert service.review_snapshot(POC_ALPHA)[0].origin == "ASSISTED_A3"
+    assert len(service) == 0
+
+
+def test_review_snapshot_callbacks_run_before_review_lock():
+    lookup = _Lookup()
+    lookup.by_poc[POC_ALPHA] = (_proposal(),)
+    service = _service(lookup)
+    selected = service.list_proposals(POC_ALPHA)
+
+    def can_take_lock():
+        acquired = service._lock.acquire(timeout=1)
+        if acquired:
+            service._lock.release()
+        return acquired
+
+    def assert_unlocked():
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            assert pool.submit(can_take_lock).result(timeout=2)
+
+    def source(poc_id):
+        assert_unlocked()
+        return lookup(poc_id)
+
+    def scope(_):
+        assert_unlocked()
+        return selected
+
+    service._proposal_lookup = source
+    assert service.review_snapshot(POC_ALPHA, current_proposal_lookup=scope)[0].origin == "INTAKE_A2"
+
+
+def test_review_snapshot_excludes_uncommitted_registration():
+    lookup = _Lookup()
+    lookup.by_poc[POC_ALPHA] = (_proposal(),)
+    service = _service(lookup)
+    with service.authoring_commit_guard(POC_ALPHA, "srcpt_meeting_001") as guard:
+        guard.prepare(["prop_assisted_001"])
+        with pytest.raises(ProposalReviewDecisionConflict):
+            service.review_snapshot(POC_ALPHA)
+    assert service.review_snapshot(POC_ALPHA)[0].origin == "INTAKE_A2"
 
 
 def test_list_exposes_only_current_source_bound_needs_review_proposals():

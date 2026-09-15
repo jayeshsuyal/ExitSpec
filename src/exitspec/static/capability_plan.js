@@ -17,6 +17,7 @@
   const errorPanel = document.querySelector("#capability-plan-error");
   const resultPanel = document.querySelector("#planning-result");
   const openAgreement = document.querySelector("#open-agreement");
+  const revisePlan = document.querySelector("#revise-plan");
   const RETAINED_PROPOSAL_KEYS = ["schema_version", "poc_id", "proposal_id", "authoring_receipt_id", "authoring_result_id", "source_receipt_id", "source_id", "source_kind", "source_content_sha256", "source_revision", "source_adapter_name", "source_adapter_version", "redaction_policy_version", "proposal_key", "source_quote", "normalized_claim", "numeric_facts", "retention_state", "reviewer", "rationale", "decided_at"];
   const SOURCE_KINDS = new Set(["EMAIL", "MEETING", "DOCUMENT", "EXISTING_CONTRACT"]);
   const RETAINED_RECEIPT = /^arcp_[a-f0-9]{32}$/;
@@ -118,6 +119,7 @@
     resultPanel.hidden = false; document.querySelector("#planning-result-heading").textContent = "Plan created";
     const ready = document.querySelector("#ready-for-agreement"); ready.textContent = plan.ready_for_agreement ? "READY FOR NEXT REVIEW" : "NOT READY"; ready.dataset.ready = String(plan.ready_for_agreement);
     openAgreement.hidden = !plan.ready_for_agreement;
+    revisePlan.hidden = plan.ready_for_agreement;
     if (plan.ready_for_agreement && pocId) openAgreement.href = `/app/pocs/${encodeURIComponent(pocId)}/agreement`;
     document.querySelector("#planning-result-summary").textContent = `${plan.records.length} requests remain visible. No POC has run yet.`;
     const output = document.querySelector("#planning-result-records"); output.textContent = "";
@@ -134,5 +136,13 @@
     } catch { retained = []; registry = []; records.textContent = ""; submit.disabled = true; errorPanel.textContent = "The approved requests or proof methods could not be verified. No plan was created."; errorPanel.hidden = false; task.setAttribute("aria-busy", "false"); }
   }
   form.addEventListener("submit", async (event) => { event.preventDefault(); clearError(); submit.disabled = true; status.textContent = "Creating the immutable process-local plan…"; try { const response = await fetch(convergenceApi, {method: "POST", cache: "no-store", credentials: "same-origin", headers: {Accept: "application/json", "Content-Type": "application/json", Origin: window.location.origin}, body: JSON.stringify({items: collect(), idempotency_key: newKey()})}); const payload = await response.json().catch(() => null); if (!response.ok || !payload?.plan) throw new Error("plan refused"); renderResult(payload.plan); } catch { errorPanel.textContent = "The plan was refused safely. Check each named field and retry; no downstream object was created."; errorPanel.hidden = false; submit.disabled = false; status.textContent = "Planning did not complete."; } });
+  revisePlan.addEventListener("click", () => {
+    resultPanel.hidden = true;
+    form.hidden = false;
+    submit.disabled = false;
+    clearError();
+    status.textContent = "Correct the retained entries and create a new plan for review.";
+    records.querySelector("input:not(:disabled), select:not(:disabled)")?.focus();
+  });
   initialise();
 })();

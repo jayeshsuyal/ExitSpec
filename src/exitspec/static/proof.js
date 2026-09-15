@@ -1452,6 +1452,9 @@
         throw new TypeError("Malformed run projection.");
       }
       run = payload;
+      if (isTerminalStatus(run.status)) {
+        clearAttempt();
+      }
       renderAll();
       schedulePoll();
     } catch {
@@ -1512,6 +1515,9 @@
         throw new TypeError("Malformed start projection.");
       }
       run = payload.operation;
+      if (isTerminalStatus(run.status)) {
+        clearAttempt();
+      }
       acknowledgement.checked = false;
       pollCount = 0;
       renderAll();

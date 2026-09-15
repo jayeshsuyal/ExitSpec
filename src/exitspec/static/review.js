@@ -89,6 +89,8 @@
   let review = null;
   let criterionIndex = 0;
   let localSynthetic = false;
+  let pendingAttempt = null;
+  let inFlight = false;
 
   function tokenFromLocation() {
     const parts = window.location.pathname.split("/").filter(Boolean);
@@ -144,13 +146,13 @@
       network: [
         "Connection interrupted",
         "We couldn’t load this review.",
-        "Nothing has changed. Check your connection and try again.",
+        "Check your connection and retry loading the recorded review state.",
         true,
       ],
       unavailable: [
         "Review unavailable",
         "We couldn’t load this agreement.",
-        "ExitSpec did not receive a complete review record. No decision has been recorded.",
+        "ExitSpec could not verify a complete review record. Reload to check its recorded state.",
         true,
       ],
     }[kind];
@@ -522,7 +524,11 @@
     // A successful API response is authoritative. Mock data never replaces it.
     if (response.ok) {
       try {
-        hydrate(normalize(payload), false);
+        const record = normalize(payload);
+        if (["CONFIRMED", "CHANGES_REQUESTED"].includes(record.status)) {
+          validateDecisionRecord(payload, record);
+        }
+        hydrate(record, false);
       } catch (_error) {
         showError("unavailable");
       }
@@ -554,12 +560,7 @@
       return;
     }
     if (status === "CONFIRMED" || status === "CHANGES_REQUESTED") {
-      showTerminal(
-        record.decision || {
-          decision: status === "CONFIRMED" ? "CONFIRM" : "REQUEST_CHANGES",
-          reviewer_display_name: record.identity.display_name,
-        }
-      );
+      showTerminal(record.decision);
       return;
     }
 
@@ -811,10 +812,13 @@
   }
 
   function setSubmitting(submitting, decision = "") {
-    [elements.confirm, elements.requestChanges, elements.ack, elements.rationale].forEach(
-      (control) => {
-        control.disabled = submitting;
-      }
+    elements.ack.disabled = submitting || Boolean(pendingAttempt);
+    elements.rationale.disabled = submitting || Boolean(pendingAttempt);
+    elements.confirm.disabled = submitting || Boolean(
+      pendingAttempt && pendingAttempt.body.decision !== "CONFIRM"
+    );
+    elements.requestChanges.disabled = submitting || Boolean(
+      pendingAttempt && pendingAttempt.body.decision !== "REQUEST_CHANGES"
     );
     elements.confirm.textContent =
       submitting && decision === "CONFIRM"
@@ -854,9 +858,80 @@
     return key;
   }
 
+  function validateDecisionRecord(payload, expected, attempt = null) {
+    const current = normalize(payload);
+    const receipt = payload.confirmation;
+    const decision = attempt ? payload.decision : current.decision;
+    const fields = ["decision", "reviewer_display_name", "recorded_at",
+      "rationale", "agreement_acknowledged", "idempotent_replay", "synthetic"];
+    const requested = attempt?.body.decision || decision?.decision;
+    const confirmationFields = ["confirmation_id", "contract_id", "contract_version",
+      "contract_fingerprint", "decision", "agreement_acknowledged", "rationale"];
+    const legacy = hasExactKeys(receipt, [...confirmationFields, "confirmer_identity", "decided_at"]);
+    const complete = legacy || hasExactKeys(receipt, [...confirmationFields, "confirmer", "confirmed_at"]);
+    const recordedAt = legacy ? receipt?.decided_at : receipt?.confirmed_at;
+    const reviewer = legacy ? receipt?.confirmer_identity : receipt?.confirmer;
+    const fingerprint = expected.confirmation_fingerprint;
+    if (
+      !["CONFIRM", "REQUEST_CHANGES"].includes(requested) ||
+      !hasExactKeys(decision, fields) || !hasExactKeys(current.decision, fields) ||
+      !complete || !isDisplayString(receipt.confirmation_id, 180) ||
+      !/^[a-f0-9]{64}$/.test(fingerprint) ||
+      current.review_id !== expected.review_id ||
+      current.identity.display_name !== expected.identity.display_name ||
+      current.contract_id !== expected.contract.id ||
+      current.contract_version !== expected.contract.version ||
+      current.contract.id !== expected.contract.id ||
+      current.contract.version !== expected.contract.version ||
+      current.confirmation_fingerprint !== fingerprint ||
+      current.contract.confirmation_fingerprint !== fingerprint ||
+      receipt.contract_id !== expected.contract.id ||
+      receipt.contract_version !== expected.contract.version ||
+      receipt.contract_fingerprint !== fingerprint ||
+      current.status !== (requested === "CONFIRM" ? "CONFIRMED" : "CHANGES_REQUESTED") ||
+      receipt.decision !== requested || decision.decision !== requested ||
+      decision.synthetic !== false || current.decision.synthetic !== false ||
+      typeof decision.idempotent_replay !== "boolean" ||
+      typeof current.decision.idempotent_replay !== "boolean" ||
+      !isDisplayString(decision.reviewer_display_name, 300) ||
+      reviewer !== decision.reviewer_display_name ||
+      reviewer !== expected.identity.display_name ||
+      !isDisplayString(recordedAt, 80) || !Number.isFinite(Date.parse(recordedAt)) ||
+      recordedAt !== decision.recorded_at ||
+      typeof decision.rationale !== "string" || !decision.rationale.trim() ||
+      decision.rationale.length > 4000 || receipt.rationale !== decision.rationale ||
+      typeof decision.agreement_acknowledged !== "boolean" ||
+      receipt.agreement_acknowledged !== decision.agreement_acknowledged ||
+      (requested === "CONFIRM" && decision.agreement_acknowledged !== true) ||
+      fields.filter((field) => field !== "idempotent_replay").some(
+        (field) => current.decision[field] !== decision[field]
+      ) ||
+      (attempt && (
+        !hasExactKeys(payload, ["confirmation", "decision", "review", "confirmation_id", "idempotent_replay"]) ||
+        payload.confirmation_id !== receipt.confirmation_id ||
+        typeof payload.idempotent_replay !== "boolean" ||
+        decision.idempotent_replay !== payload.idempotent_replay ||
+        decision.agreement_acknowledged !== attempt.body.agreement_acknowledged ||
+        (requested === "REQUEST_CHANGES" && decision.rationale !== attempt.body.rationale)
+      ))
+    ) {
+      throw new Error("Unverified customer decision receipt");
+    }
+    return decision;
+  }
+
+  function uncertainDecision() {
+    setSubmitting(false);
+    formMessage(
+      "The decision could not be verified. It may already be recorded. Retry the same decision; the original details and request key will be reused, or reload to check its recorded state."
+    );
+  }
+
   async function submitDecision(decision) {
+    if (inFlight || !review || review.status !== "PENDING" ||
+        (pendingAttempt && pendingAttempt.body.decision !== decision)) return;
     clearFormMessage();
-    const rationale = elements.rationale.value.trim();
+    const rationale = pendingAttempt?.body.rationale ?? elements.rationale.value.trim();
 
     if (isExpired(review.expires_at)) {
       showError("expired");
@@ -872,13 +947,14 @@
     if (
       decision === "CONFIRM" &&
       review.acknowledgement_required &&
-      !elements.ack.checked
+      !pendingAttempt && !elements.ack.checked
     ) {
       formMessage("Check the confirmation box before confirming this agreement.");
       elements.ack.focus();
       return;
     }
 
+    inFlight = true;
     setSubmitting(true, decision);
     formMessage(
       decision === "CONFIRM"
@@ -889,6 +965,7 @@
 
     if (localSynthetic) {
       setTimeout(() => {
+        inFlight = false;
         setSubmitting(false);
         showTerminal({
           decision,
@@ -900,14 +977,18 @@
       return;
     }
 
-    const body = {
+    const body = pendingAttempt?.body || Object.freeze({
       review_id: review.review_id,
       contract_id: review.contract.id,
       contract_version: review.contract.version,
       decision,
       agreement_acknowledged: Boolean(elements.ack.checked),
       rationale: decision === "REQUEST_CHANGES" ? rationale : null,
-    };
+    });
+    if (!pendingAttempt) {
+      pendingAttempt = Object.freeze({ body, key: idempotencyKey(decision) });
+    }
+    const attempt = pendingAttempt;
 
     try {
       const response = await fetch(`${endpoint()}/decision`, {
@@ -915,47 +996,31 @@
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey(decision),
+          "Idempotency-Key": attempt.key,
         },
         cache: "no-store",
         credentials: "omit",
+        redirect: "error",
         body: JSON.stringify(body),
       });
       const payload = await responseJson(response);
 
       if (response.ok) {
-        showTerminal(
-          payload?.decision
-            ? {
-                ...payload.decision,
-                idempotent_replay:
-                  payload.idempotent_replay ??
-                  payload.decision.idempotent_replay ??
-                  false,
-              }
-            : {
-                decision,
-                reviewer_display_name: review.identity.display_name,
-                idempotent_replay: Boolean(payload?.idempotent_replay),
-              }
-        );
-      } else if (response.status === 409 && payload?.decision) {
-        showTerminal({ ...payload.decision, idempotent_replay: true });
+        const recorded = validateDecisionRecord(payload, review, attempt);
+        pendingAttempt = null;
+        review = payload.review;
+        showTerminal(recorded);
       } else if ([401, 403, 404].includes(response.status)) {
         showError("invalid");
       } else if (response.status === 410) {
         showError("expired");
       } else {
-        setSubmitting(false);
-        formMessage(
-          "ExitSpec could not record this decision. Nothing changed; try again."
-        );
+        uncertainDecision();
       }
     } catch (_error) {
-      setSubmitting(false);
-      formMessage(
-        "The connection was interrupted. Nothing changed. Try again—the same request key will be reused."
-      );
+      uncertainDecision();
+    } finally {
+      inFlight = false;
     }
   }
 

@@ -222,7 +222,7 @@ def test_dynamic_browser_mixed_a2_a3_review_keeps_decision_across_reload():
             )
             assert page.locator("#source-kind").inner_text().casefold() == "email"
             assert page.locator("#proposal-support").inner_text().startswith(
-                "Executable candidate"
+                "Direct review candidate"
             )
 
             receipts = page.request.get(f"{base_url}/api/pocs/{poc_id}/assisted-authoring")

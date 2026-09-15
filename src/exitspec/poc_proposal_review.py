@@ -315,6 +315,14 @@ class ProposalDecisionResult(_FrozenProposalReviewModel):
         return not self.created
 
 
+@dataclass(frozen=True, slots=True)
+class ProposalReviewSnapshotItem:
+    """One immutable current row and its committed origin, never capability."""
+
+    item: ProposalReviewItem
+    origin: Literal["INTAKE_A2", "ASSISTED_A3"]
+
+
 class ProposalReviewSemantics(_FrozenProposalReviewModel):
     """Machine-readable storage and zero-authority guarantees."""
 
@@ -775,6 +783,84 @@ class ProcessLocalProposalReviewService:
             item.source_receipt_id == source_receipt_id and item.decision is not None
             for item in self.list_proposals(poc_id)
         )
+
+    def review_snapshot(
+        self,
+        poc_id: str,
+        *,
+        current_proposal_lookup: Callable[[str], Sequence[ProposalReviewItem]] | None = None,
+    ) -> tuple[ProposalReviewSnapshotItem, ...]:
+        """Capture selected current bindings, actual decisions and origins together.
+
+        Scope and source callbacks precede the review lock (the performance
+        scope callback owns its own lock). A committed A3 replacement invalidates
+        a previously selected A2 row before any origin or decision is projected.
+        """
+        validated_poc_id = _validate_poc_id(poc_id)
+        selected = None
+        if current_proposal_lookup is not None:
+            try:
+                raw = current_proposal_lookup(validated_poc_id)
+                if not isinstance(raw, (tuple, list)):
+                    raise TypeError
+                selected = tuple(raw)
+                if (
+                    len(selected) > self._max_proposals_per_poc
+                    or any(
+                        type(item) is not ProposalReviewItem
+                        or item.poc_id != validated_poc_id
+                        for item in selected
+                    )
+                    or len({item.proposal_id for item in selected}) != len(selected)
+                ):
+                    raise ValueError
+            except ProposalReviewError:
+                raise
+            except Exception as error:
+                raise ProposalReviewLookupUnavailable(
+                    "Current agreement proposal scope is unavailable."
+                ) from error
+        proposals = self._lookup(validated_poc_id)
+        selected_ids = tuple(
+            item.proposal_id for item in (proposals if selected is None else selected)
+        )
+        binding_fields = (
+            "poc_id", "proposal_id", "source_receipt_id", "source_kind",
+            "source_quote", "normalized_claim",
+        )
+        with self._lock:
+            current = []
+            for index, proposal_id in enumerate(selected_ids):
+                proposal = self._current_locked(validated_poc_id, proposals, proposal_id)
+                if selected is not None and any(
+                    getattr(selected[index], field) != getattr(proposal, field)
+                    for field in binding_fields
+                ):
+                    raise ProposalReviewStaleProposal(
+                        "The selected proposal changed its immutable source binding."
+                    )
+                if (validated_poc_id, proposal.source_receipt_id) in self._authoring_guards:
+                    raise ProposalReviewDecisionConflict("Authoring is committing this source.")
+                current.append(proposal)
+            self._reconcile_locked(validated_poc_id, tuple(current))
+            snapshot = []
+            for proposal in current:
+                receipt = self._decisions.get((validated_poc_id, proposal.proposal_id))
+                item = ProposalReviewItem(
+                    **{field: getattr(proposal, field) for field in binding_fields},
+                    review_state=(
+                        ProposalReviewState.NEEDS_REVIEW if receipt is None
+                        else ProposalReviewState(receipt.decision.value)
+                    ),
+                    decision=receipt,
+                )
+                registered = self._authoring_current_proposals.get(
+                    (validated_poc_id, proposal.source_receipt_id)
+                )
+                snapshot.append(ProposalReviewSnapshotItem(
+                    item, "INTAKE_A2" if registered is None else "ASSISTED_A3"
+                ))
+            return tuple(snapshot)
 
     @contextmanager
     def authoring_commit_guard(

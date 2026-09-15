@@ -172,11 +172,11 @@ def _dispatch(
     if method == "GET":
         if payload is not None or proposal_id is not None or action is not None:
             raise POCProposalWebAPIRequestError
-        all_proposals = _current_proposals(
-            runtime,
+        snapshot = runtime.review_snapshot(
             poc_id,
             current_proposal_lookup=current_proposal_lookup,
         )
+        all_proposals = tuple(row.item for row in snapshot)
         proposals = tuple(
             item
             for item in all_proposals
@@ -186,6 +186,18 @@ def _dispatch(
             {
                 "poc_id": poc_id,
                 "proposals": [_proposal_payload(item) for item in proposals],
+                "authoring_provenance": {
+                    "schema_version": "exitspec.review-authoring-provenance/1",
+                    "proposals": [
+                        {
+                            "proposal_id": row.item.proposal_id,
+                            "origin": row.origin,
+                            "review_state": row.item.review_state.value,
+                            "normalized_claim": row.item.normalized_claim,
+                        }
+                        for row in snapshot
+                    ],
+                },
                 "review_summary": {
                     "total": len(all_proposals),
                     "needs_review": len(proposals),
@@ -230,12 +242,15 @@ def _dispatch(
             )
             if not any(
                 item.proposal_id == proposal_id
-                and item.review_state == ProposalReviewState.NEEDS_REVIEW
                 for item in current
             ):
                 raise ProposalReviewProposalUnavailable(
                     "Proposal is not current for this agreement version."
                 )
+            # A committed decision remains in the current agreement scope.
+            # Let the owner validate its exact request/key and replay its one
+            # immutable receipt after a response is lost. Historical proposals
+            # still fail this membership guard before any replay lookup.
         result = runtime.decide(
             poc_id,
             proposal_id,

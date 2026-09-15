@@ -49,7 +49,14 @@ def test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness():
             )
             page.locator("#capture-source").click()
             page.wait_for_url(re.compile(rf"^{re.escape(base_url)}/app/pocs/poc_[a-z0-9_-]+/review$"))
-            page.locator("#assisted-authoring-link").click()
+            playwright_sync.expect(page.locator("#proposal-support")).to_contain_text("Unsupported by this direct review route")
+            support = page.locator("#proposal-support").inner_text()
+            assert "Unsupported by this direct review route" in support
+            assert "discard to NOT_PROVEN" not in support
+            assert "exact tool selection" in support
+            assert "before confirmation or execution" in support
+            assert page.locator("#proposal-planning-link").is_visible()
+            page.locator("#proposal-planning-link").click()
             page.wait_for_url(re.compile(r"/assisted-authoring$"))
             page.locator('input[name="source_receipt"]').check()
             page.locator("#authoring-submit").click()
@@ -118,6 +125,30 @@ def test_dynamic_browser_a4_plans_every_retained_claim_and_exposes_readiness():
             assert page.locator("#planning-result-records .result-record").nth(0).get_attribute("data-disposition") == "UNSUPPORTED"
             assert page.locator("#ready-for-agreement").inner_text() == "NOT READY"
             assert page.locator("#planning-result-records .result-record").count() == 3
+            assert page.locator("#open-agreement").is_hidden()
+            page.locator("#revise-plan").click()
+            assert page.locator("#planning-result").is_hidden()
+            assert first.locator('[name="scope"]').input_value() == "ADVISORY"
+            assert second.locator('[name="threshold"]').input_value() == "0.95"
+            assert third.locator('[name="reviewer"]').input_value() == "named.a4.reviewer"
+            assert third.locator('[name="rationale"]').input_value() == "Clarify the missing threshold before agreement."
+            assert third.locator('[name="operator"]').input_value() == "GTE"
+            third.locator('[name="threshold"]').fill("NaN")
+            page.locator("#planning-submit").click()
+            page.locator("#planning-result").wait_for(state="visible")
+            assert page.locator("#ready-for-agreement").inner_text() == "NOT READY"
+            assert page.locator("#open-agreement").is_hidden()
+            page.locator("#revise-plan").click()
+            assert third.locator('[name="threshold"]').input_value() == "NaN"
+            assert second.locator('[name="threshold"]').input_value() == "0.95"
+            third.locator('[name="explicit_exclusion"]').check()
+            page.locator("#planning-submit").click()
+            page.locator("#planning-result").wait_for(state="visible")
+            assert page.locator("#ready-for-agreement").inner_text() == "READY FOR NEXT REVIEW"
+            assert page.locator("#revise-plan").is_hidden()
+            assert page.locator("#open-agreement").is_visible()
+            assert page.locator("#planning-result-records .result-record").count() == 3
+            assert page.evaluate("localStorage.length + sessionStorage.length") == 0
             assert failed_responses == []
             assert browser_errors == []
 

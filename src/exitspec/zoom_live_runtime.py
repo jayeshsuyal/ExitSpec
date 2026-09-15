@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from .canonical import canonical_json_bytes
@@ -47,18 +48,7 @@ class ZoomLiveSettings:
     credits_and_budget_confirmed: bool
 
     def validate(self):
-        for value, minimum, maximum in (
-            (self.client_id, 8, 512),
-            (self.client_secret, 16, 1024),
-            (self.webhook_secret, 16, 1024),
-            (self.meeting_uuid, 1, 256),
-        ):
-            if (
-                type(value) is not str
-                or not minimum <= len(value) <= maximum
-                or any(ord(c) < 32 for c in value)
-            ):
-                raise ZoomLiveError()
+        _validate_connection(self)
         if (
             type(self.participant_ids) is not tuple
             or not 1 <= len(self.participant_ids) <= 2
@@ -68,54 +58,130 @@ class ZoomLiveSettings:
             raise ZoomLiveError()
         if len(set(self.participant_ids)) != len(self.participant_ids):
             raise ZoomLiveError()
+
+
+def _validate_connection(self):
+    for value, minimum, maximum in (
+        (self.client_id, 8, 512),
+        (self.client_secret, 16, 1024),
+        (self.webhook_secret, 16, 1024),
+        (self.meeting_uuid, 1, 256),
+    ):
         if (
-            type(self.callback_port) is not int
-            or not 1024 <= self.callback_port <= 65535
+            type(value) is not str
+            or not minimum <= len(value) <= maximum
+            or any(ord(c) < 32 for c in value)
         ):
             raise ZoomLiveError()
-        if (
-            type(self.callback_host) is not str
-            or not re.fullmatch(r"[a-z0-9.-]+(?::[0-9]{1,5})?", self.callback_host)
-            or len(self.callback_host) > 255
-        ):
+    if (
+        type(self.callback_port) is not int
+        or not 1024 <= self.callback_port <= 65535
+    ):
+        raise ZoomLiveError()
+    if (
+        type(self.callback_host) is not str
+        or not re.fullmatch(r"[a-z0-9.-]+(?::[0-9]{1,5})?", self.callback_host)
+        or len(self.callback_host) > 255
+    ):
+        raise ZoomLiveError()
+    if type(self.callback_path) is not str or not re.fullmatch(
+        r"/zoom-webhook/[a-z0-9_-]{24,96}", self.callback_path
+    ):
+        raise ZoomLiveError()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", self.owner_receipt_id):
+        raise ZoomLiveError()
+    if not re.fullmatch(r"[a-f0-9]{40}", self.code_revision):
+        raise ZoomLiveError()
+    if (
+        type(self.budget_ceiling_usd) is not str
+        or not re.fullmatch(
+            r"(?:0|[1-9][0-9]{0,3})\.[0-9]{2}", self.budget_ceiling_usd
+        )
+        or self.budget_ceiling_usd == "0.00"
+    ):
+        raise ZoomLiveError()
+    if (
+        type(self.maximum_capture_seconds) is not int
+        or not 60 <= self.maximum_capture_seconds <= 900
+    ):
+        raise ZoomLiveError()
+    if any(
+        value is not True
+        for value in (
+            self.live_network_authorized,
+            self.credential_rotation_confirmed,
+            self.synthetic_requirements_consent,
+            self.credits_and_budget_confirmed,
+        )
+    ):
+        raise ZoomLiveError()
+
+
+@dataclass(frozen=True, repr=False)
+class ZoomEnrollmentSettings:
+    """Separate authority for two-person metadata; cannot satisfy numeric pair()."""
+
+    client_id: str
+    client_secret: str
+    webhook_secret: str
+    meeting_uuid: str
+    callback_port: int
+    callback_host: str
+    callback_path: str
+    owner_receipt_id: str
+    code_revision: str
+    budget_ceiling_usd: str
+    maximum_capture_seconds: int
+    live_network_authorized: bool
+    credential_rotation_confirmed: bool
+    synthetic_requirements_consent: bool
+    credits_and_budget_confirmed: bool
+    metadata_consent_receipts: tuple[str, str]
+    metadata_custody_confirmed: bool
+
+    def validate(self):
+        _validate_connection(self)
+        receipts = self.metadata_consent_receipts
+        if (self.metadata_custody_confirmed is not True
+                or self.maximum_capture_seconds > 120
+                or type(receipts) is not tuple or len(receipts) != 2
+                or any(type(v) is not str or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", v) for v in receipts)
+                or receipts[0] == receipts[1]):
             raise ZoomLiveError()
-        if type(self.callback_path) is not str or not re.fullmatch(
-            r"/zoom-webhook/[a-z0-9_-]{24,96}", self.callback_path
-        ):
-            raise ZoomLiveError()
-        if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", self.owner_receipt_id):
-            raise ZoomLiveError()
-        if not re.fullmatch(r"[a-f0-9]{40}", self.code_revision):
-            raise ZoomLiveError()
-        if (
-            type(self.budget_ceiling_usd) is not str
-            or not re.fullmatch(
-                r"(?:0|[1-9][0-9]{0,3})\.[0-9]{2}", self.budget_ceiling_usd
-            )
-            or self.budget_ceiling_usd == "0.00"
-        ):
-            raise ZoomLiveError()
-        if (
-            type(self.maximum_capture_seconds) is not int
-            or not 60 <= self.maximum_capture_seconds <= 900
-        ):
-            raise ZoomLiveError()
-        if any(
-            value is not True
-            for value in (
-                self.live_network_authorized,
-                self.credential_rotation_confirmed,
-                self.synthetic_requirements_consent,
-                self.credits_and_budget_confirmed,
-            )
-        ):
-            raise ZoomLiveError()
+
+    def paired(self, ids):
+        values = {name: getattr(self, name) for name in ZoomLiveSettings.__dataclass_fields__ if name != "participant_ids"}
+        result = ZoomLiveSettings(**values, participant_ids=ids)
+        result.validate()
+        return result
+
+
+class _EnrollmentHandle:
+    __slots__ = ()
+
+    def __reduce__(self):
+        raise TypeError("Enrollment handles cannot be serialized.")
+
+
+@dataclass(repr=False)
+class _Enrollment:
+    handle: _EnrollmentHandle
+    expires: float
+    deadline_ms: int
+    run_deadline_ms: int
+    ready: bool = False
+    nonce: str | None = None
+    armed: bool = False
+    candidate: int | None = None
+    confirming: bool = False
+    confirmed: list[int] = field(default_factory=list)
+    observed: set[int] = field(default_factory=set)
 
 
 @dataclass(repr=False)
 class _Capture:
     poc_id: str
-    settings: ZoomLiveSettings | None
+    settings: ZoomLiveSettings | ZoomEnrollmentSettings | None
     generation: str
     session_id: str
     expires: float
@@ -136,6 +202,8 @@ class _Capture:
     consent_digest: str | None = None
     stop_deadline: float | None = None
     authorization_summary: dict = field(default_factory=dict)
+    enrollment: _Enrollment | None = None
+    enrollment_digest: str | None = None
 
 
 class ZoomLiveRuntime:
@@ -153,18 +221,27 @@ class ZoomLiveRuntime:
         run_if_open,
         child_factory=ZoomPipeChild,
         clock=time.monotonic,
+        wall_clock=time.time,
         fake_network=False,
     ):
         self._drafts, self._intake, self._run_if_open = drafts, intake, run_if_open
         self._factory, self._clock = child_factory, clock
+        self._wall_clock = wall_clock
         self._mode = "FAKE_ZOOM_RTMS" if fake_network else "LIVE_ZOOM_RTMS"
         if fake_network and child_factory is ZoomPipeChild:
             raise ZoomLiveError()
         self._lock = threading.RLock()
+        self._effects = threading.local()
         self._key = secrets.token_bytes(32)
         self._record = None
+        self._pending_closes = []
+        self._cleanup_uncertain = False
+        self._active_launches = 0
+        self._launch_idle = threading.Event()
+        self._launch_idle.set()
         self._closed = threading.Event()
-        threading.Thread(target=self._watch, daemon=True).start()
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
+        self._watcher.start()
 
     def _digest(self, value):
         return hmac.new(
@@ -193,27 +270,182 @@ class ZoomLiveRuntime:
 
         def paired():
             self._draft(poc_id)
-            with self._lock:
-                self._revoke_locked("REPLACED")
+            with self._transaction():
+                self._require_open_locked()
                 generation = secrets.token_hex(32)
-                self._record = _Capture(
+                candidate = _Capture(
                     poc_id,
                     settings,
                     generation,
                     "zoomsess_" + self._digest(generation),
                     self._clock() + settings.maximum_capture_seconds,
                 )
-                self._record.authorization_summary = {
+                candidate.authorization_summary = {
                     "approved_spending_ceiling_usd": settings.budget_ceiling_usd,
                     "maximum_capture_seconds": settings.maximum_capture_seconds,
                 }
+                # Close and pairing publication serialize here, after the last
+                # settings/clock callback and before any record replacement.
+                self._require_open_locked()
+                self._revoke_locked("REPLACED")
+                self._record = candidate
                 return self._snapshot(poc_id)
 
-        return self._run_if_open(poc_id, paired)
+        try:
+            return self._owner_call(poc_id, paired)
+        finally:
+            self._drain_cleanup()
+
+    def begin_enrollment(self, poc_id, settings):
+        """Local explicit metadata authority; absent from all HTTP routes."""
+        if type(settings) is not ZoomEnrollmentSettings:
+            raise ZoomLiveError()
+        settings.validate()
+
+        def begin():
+            self._draft(poc_id)
+            with self._transaction():
+                self._require_open_locked()
+                now, wall = self._clock(), int(self._wall_clock() * 1000)
+                generation = secrets.token_hex(32)
+                handle = _EnrollmentHandle()
+                r = _Capture(poc_id, settings, generation, "zoomsess_" + self._digest(generation),
+                             now + settings.maximum_capture_seconds, state="ENROLLING")
+                r.enrollment = _Enrollment(handle, now + 30, wall + 30000,
+                                          wall + settings.maximum_capture_seconds * 1000)
+                r.authorization_summary = {"approved_spending_ceiling_usd": settings.budget_ceiling_usd,
+                                           "maximum_capture_seconds": settings.maximum_capture_seconds}
+                self._require_open_locked()
+                self._revoke_locked("REPLACED")
+                self._record = r
+                threading.Thread(target=self._launch, args=(r,), daemon=True).start()
+                return handle
+
+        return self._owner_call(poc_id, begin)
+
+    def _enrollment_call(self, handle, fn):
+        with self._transaction():
+            r = self._record
+            if (type(handle) is not _EnrollmentHandle or not r or not r.enrollment
+                    or r.enrollment.handle is not handle):
+                raise ZoomLiveError()
+            poc_id = r.poc_id
+
+        def admitted():
+            self._draft(poc_id)
+            with self._transaction():
+                self._require_open_locked()
+                if (self._record is not r or not r.enrollment or r.enrollment.handle is not handle
+                        or r.state != "ENROLLING" or self._clock() >= min(r.expires, r.enrollment.expires)):
+                    raise ZoomLiveError()
+                result = fn(r, r.enrollment)
+                if r.state in {"FAILED", "REVOKED"}:
+                    raise ZoomLiveError()
+                return result
+        try:
+            return self._owner_call(poc_id, admitted)
+        except Exception:  # noqa: BLE001 - invalidate only this exact pending handle
+            with self._transaction():
+                if self._record is r and r.enrollment and r.enrollment.handle is handle:
+                    self._revoke_locked("ENROLLMENT_REFUSED")
+            raise ZoomLiveError() from None
+
+    def enrollment_status(self, handle):
+        def status(r, e):
+            state = ("CONFIRMING" if e.confirming else "OBSERVED" if e.candidate is not None
+                     else "ARMED" if e.armed else "ARMING" if e.nonce else "READY" if e.ready else "WAITING")
+            return {"state": state, "confirmed": len(e.confirmed), "candidate_id": e.candidate}
+        return self._enrollment_call(handle, status)
+
+    def cancel_enrollment(self, handle):
+        """Cancel only this pending capability, never a replacement pairing."""
+        with self._transaction():
+            r = self._record
+            if (type(handle) is _EnrollmentHandle and r and r.enrollment
+                    and r.enrollment.handle is handle):
+                self._revoke_locked("ENROLLMENT_CANCELLED")
+
+    def arm_enrollment(self, handle):
+        def arm(r, e):
+            if not e.ready or e.nonce or len(e.confirmed) >= 2:
+                raise ZoomLiveError()
+            e.nonce = secrets.token_hex(32)
+            self._send_locked(r, "enrollment_arm", nonce=e.nonce)
+        return self._enrollment_call(handle, arm)
+
+    def confirm_enrollment(self, handle, participant_id):
+        def confirm(r, e):
+            if (not e.armed or e.confirming or e.candidate is None
+                    or type(participant_id) is not int or participant_id != e.candidate):
+                raise ZoomLiveError()
+            e.confirming = True
+            self._send_locked(r, "enrollment_confirm", nonce=e.nonce, user_id=participant_id)
+        return self._enrollment_call(handle, confirm)
+
+    def adopt_enrollment(self, handle):
+        def adopt(r, e):
+            if len(e.confirmed) != 2 or e.nonce or e.confirming:
+                raise ZoomLiveError()
+            ids = tuple(e.confirmed)
+            settings = r.settings.paired(ids)
+            digest = self._digest({"ids": ids, "meeting": settings.meeting_uuid, "stream": r.stream_id,
+                                   "generation": r.generation, "revision": settings.code_revision,
+                                   "receipts": r.settings.metadata_consent_receipts,
+                                   "owner": settings.owner_receipt_id, "expires": r.expires})
+            self._send_locked(r, "enrollment_seal", participant_ids=list(ids))
+            if r.state != "ENROLLING":
+                raise ZoomLiveError()
+            r.settings, r.enrollment_digest = settings, digest
+            r.authorization_summary.update(metadata_enrollment_sha256=digest,
+                                           participant_association="HUMAN_ATTESTED_NOT_AUTHENTICATED_IDENTITY")
+            r.enrollment = None
+            r.state = "PAIRED"  # Same record/child/generation/stream/absolute expiry.
+            return self._snapshot(r.poc_id)
+        return self._enrollment_call(handle, adopt)
+
+    def _receive_enrollment_locked(self, r, event):
+        e = r.enrollment
+        if (r.state != "ENROLLING" or self._clock() >= e.expires
+                or event["stream_id"] != r.stream_id):
+            raise ZoomLiveError()
+        kind = event["event"]
+        if kind == "failed":
+            self._fail_locked("ENROLLMENT_FAILED")
+        elif kind == "enrollment_ready" and not e.ready:
+            e.ready = True
+        elif kind == "participant":
+            self._observe_enrollment_id(e, event["user_id"])
+        elif kind == "enrollment_armed":
+            if not e.nonce or event["nonce"] != e.nonce or e.armed:
+                raise ZoomLiveError()
+            e.armed = True
+        elif kind == "enrollment_candidate":
+            if not e.armed or e.confirming or event["nonce"] != e.nonce or e.candidate is not None:
+                raise ZoomLiveError()
+            self._observe_enrollment_id(e, event["user_id"])
+            if event["user_id"] in e.confirmed:
+                raise ZoomLiveError()
+            e.candidate = event["user_id"]
+        elif kind == "enrollment_confirmed":
+            if (not e.confirming or event["nonce"] != e.nonce or type(event["user_id"]) is not int
+                    or event["user_id"] != e.candidate):
+                raise ZoomLiveError()
+            e.confirmed.append(e.candidate)
+            e.nonce, e.candidate, e.armed, e.confirming = None, None, False, False
+        else:
+            raise ZoomLiveError()
+
+    @staticmethod
+    def _observe_enrollment_id(e, participant_id):
+        if type(participant_id) is not int or not 1 <= participant_id < 2**32:
+            raise ZoomLiveError()
+        e.observed.add(participant_id)
+        if len(e.observed) > 2:
+            raise ZoomLiveError()
 
     def _snapshot(self, poc_id):
         r = self._record
-        matched = r is not None and r.poc_id == poc_id
+        matched = r is not None and r.poc_id == poc_id and r.enrollment is None
         receipt = r.receipt if matched else None
         return {
             "schema_version": "exitspec.zoom-live/1.0",
@@ -234,7 +466,7 @@ class ZoomLiveRuntime:
     def current(self, poc_id):
         self._draft(poc_id)
         self.tick()
-        with self._lock:
+        with self._transaction():
             return self._snapshot(poc_id)
 
     def action(self, poc_id, payload):
@@ -259,7 +491,8 @@ class ZoomLiveRuntime:
 
         def mutate():
             draft = self._draft(poc_id)
-            with self._lock:
+            with self._transaction():
+                self._require_open_locked()
                 r = self._record
                 if (
                     r is None
@@ -271,6 +504,9 @@ class ZoomLiveRuntime:
                     self._revoke_locked("EXPIRED")
                     raise ZoomLiveError()
                 digest = self._digest(payload)
+                self._require_open_locked()
+                if self._record is not r:
+                    raise ZoomLiveError()
                 prior = r.operations.get(key)
                 if prior is not None:
                     if prior != digest:
@@ -296,9 +532,22 @@ class ZoomLiveRuntime:
                         }
                     )
                     r.state = "WAITING"
-                    threading.Thread(
-                        target=self._launch, args=(r,), daemon=True
-                    ).start()
+                    if r.enrollment_digest:
+                        if r.child is None or r.stream_id is None:
+                            raise ZoomLiveError()
+                        r.binding = ZoomNativeStreamBinding(
+                            process_generation_sha256=self._digest(r.generation),
+                            session_id=r.session_id, poc_id=poc_id,
+                            consent_receipt_sha256=self._digest([r.consent_digest, r.enrollment_digest]),
+                            meeting_binding_sha256=self._digest(r.settings.meeting_uuid),
+                            stream_binding_sha256=self._digest(r.stream_id),
+                            code_revision=r.settings.code_revision,
+                        )
+                        self._send_locked(r, "enrollment_capture")
+                    else:
+                        threading.Thread(
+                            target=self._launch, args=(r,), daemon=True
+                        ).start()
                 elif action == "stop":
                     if r.state not in {"LISTENING", "INTERRUPTED", "RECONNECTING"}:
                         raise ZoomLiveError()
@@ -358,37 +607,59 @@ class ZoomLiveRuntime:
                 return self._snapshot(poc_id)
 
         try:
-            return self._run_if_open(poc_id, mutate)
+            return self._owner_call(poc_id, mutate)
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             refused = True
+        finally:
+            self._drain_cleanup()
         if refused:
             raise ZoomLiveError()
 
     def receipt(self, poc_id):
         self._draft(poc_id)
-        with self._lock:
+        with self._transaction():
             r = self._record
             if r is None or r.poc_id != poc_id or r.provenance is None:
                 raise ZoomLiveError()
             return dict(r.provenance)
 
     def _launch(self, r):
-        with self._lock:
-            if self._record is not r or r.state != "WAITING":
-                return
-            s = r.settings
-            init = {
-                "command": "init",
-                "generation": r.generation,
-                "clientId": s.client_id,
-                "clientSecret": s.client_secret,
-                "webhookSecret": s.webhook_secret,
-                "expectedMeetingUuid": s.meeting_uuid,
-                "callbackPort": s.callback_port,
-                "callbackHost": s.callback_host,
-                "callbackPath": s.callback_path,
-                "_code_revision": s.code_revision,
-            }
+        def admit():
+            with self._transaction():
+                self._require_open_locked()
+                if self._record is not r or r.state not in {"WAITING", "ENROLLING"} or r.settings is None:
+                    raise ZoomLiveError()
+                s = r.settings
+                init = {
+                    "command": "init",
+                    "generation": r.generation,
+                    "clientId": s.client_id,
+                    "clientSecret": s.client_secret,
+                    "webhookSecret": s.webhook_secret,
+                    "expectedMeetingUuid": s.meeting_uuid,
+                    "callbackPort": s.callback_port,
+                    "callbackHost": s.callback_host,
+                    "callbackPath": s.callback_path,
+                    "_code_revision": s.code_revision,
+                }
+                if self._clock() >= r.expires or (r.enrollment and self._clock() >= r.enrollment.expires):
+                    raise ZoomLiveError()
+                if r.enrollment:
+                    init["enrollment"] = {"deadlineMs": r.enrollment.deadline_ms,
+                                          "runDeadlineMs": r.enrollment.run_deadline_ms}
+                self._require_open_locked()
+                self._active_launches += 1
+                self._launch_idle.clear()
+                return init
+
+        self._effects.launching = True
+        try:
+            init = self._owner_call(r.poc_id, admit)
+        except Exception:  # noqa: BLE001 - admission failure has no child effect
+            self._effects.launching = False
+            self._finish_effects()
+            return
+
         # A fast child can respond before the constructor returns its handle.
         startup_lock = threading.Lock()
         startup_events = []
@@ -407,9 +678,9 @@ class ZoomLiveRuntime:
 
         try:
             child = self._factory(init, receive, lambda: self.failed(r.generation))
-            with self._lock:
-                if self._record is not r or r.state in {"FAILED", "REVOKED"}:
-                    child.close()
+            with self._transaction():
+                if self._closed.is_set() or self._record is not r or r.state in {"FAILED", "REVOKED"}:
+                    self._pending_closes.append(child)
                 else:
                     r.child = child
             with startup_lock:
@@ -420,7 +691,16 @@ class ZoomLiveRuntime:
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             self.failed(r.generation)
 
-    def _send_locked(self, r, command):
+        finally:
+            self._drain_cleanup()
+            with self._transaction():
+                self._active_launches -= 1
+                if self._active_launches == 0:
+                    self._launch_idle.set()
+            self._effects.launching = False
+            self._finish_effects()
+
+    def _send_locked(self, r, command, **fields):
         try:
             if r.child is None:
                 raise ZoomLiveError()
@@ -429,6 +709,7 @@ class ZoomLiveRuntime:
                     "command": command,
                     "generation": r.generation,
                     "stream_id": r.stream_id,
+                    **fields,
                 }
             )
         except (ValueError, queue.Full):
@@ -436,7 +717,13 @@ class ZoomLiveRuntime:
 
     def receive(self, generation, event):
         """Only the callback captured by the private parent-owned child calls this."""
-        with self._lock:
+        try:
+            return self._receive(generation, event)
+        finally:
+            self._drain_cleanup()
+
+    def _receive(self, generation, event):
+        with self._transaction():
             r = self._record
             if (
                 r is None
@@ -448,7 +735,7 @@ class ZoomLiveRuntime:
 
         def accept():
             self._draft(poc_id)
-            with self._lock:
+            with self._transaction():
                 if self._record is not r or r.state in {
                     "FAILED",
                     "REVOKED",
@@ -474,6 +761,10 @@ class ZoomLiveRuntime:
                     "reconnecting": set(),
                     "stop_ack": set(),
                     "drained": set(),
+                    "enrollment_ready": set(),
+                    "enrollment_armed": {"nonce"},
+                    "enrollment_candidate": {"nonce", "user_id"},
+                    "enrollment_confirmed": {"nonce", "user_id"},
                 }
                 if (
                     kind not in extras
@@ -484,18 +775,21 @@ class ZoomLiveRuntime:
                 r.seq = seq
                 if (
                     kind == "failed"
-                    and r.state == "WAITING"
+                    and r.state in {"WAITING", "ENROLLING"}
                     and event["stream_id"] is None
                 ):
                     self._fail_locked("TRANSPORT_FAILED")
                     return
                 if kind == "offer":
-                    if r.state != "WAITING" or r.stream_id is not None:
+                    if r.state not in {"WAITING", "ENROLLING"} or r.stream_id is not None:
                         raise ZoomLiveError()
                     stream = event["stream_id"]
                     if type(stream) is not str or not 1 <= len(stream) <= 256:
                         raise ZoomLiveError()
                     r.stream_id = stream
+                    if r.enrollment:
+                        self._send_locked(r, "bind")
+                        return
                     s = r.settings
                     r.binding = ZoomNativeStreamBinding(
                         process_generation_sha256=self._digest(generation),
@@ -508,7 +802,12 @@ class ZoomLiveRuntime:
                     )
                     self._send_locked(r, "bind")
                     return
-                if event["stream_id"] != r.stream_id or r.binding is None:
+                if r.enrollment:
+                    self._receive_enrollment_locked(r, event)
+                    return
+                if event["stream_id"] != r.stream_id or (r.binding is None and not r.enrollment_digest):
+                    raise ZoomLiveError()
+                if kind.startswith("enrollment_"):
                     raise ZoomLiveError()
                 if kind == "failed":
                     self._fail_locked("TRANSPORT_FAILED")
@@ -570,17 +869,18 @@ class ZoomLiveRuntime:
                     r.stop_deadline = None
                     r.settings = None
                     if r.child:
-                        r.child.close()
+                        self._pending_closes.append(r.child)
+                        r.child = None
 
         try:
-            self._run_if_open(poc_id, accept)
+            self._owner_call(poc_id, accept)
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
-            with self._lock:
+            with self._transaction():
                 if self._record is r and r.state not in {"REVOKED", "DRAFT_READY"}:
                     self._fail_locked("INVALID_EVENT")
 
     def failed(self, generation):
-        with self._lock:
+        with self._transaction():
             if (
                 self._record
                 and self._record.generation == generation
@@ -588,15 +888,18 @@ class ZoomLiveRuntime:
                 not in {"CAPTURE_READY", "DRAFT_READY", "REVOKED"}
             ):
                 self._fail_locked("CAPTURE_FAILED")
+        self._drain_cleanup()
 
     def _fail_locked(self, code):
         r = self._record
         if r:
             r.state, r.failure, r.connected = "FAILED", code, False
             if r.child:
-                r.child.close()
+                self._pending_closes.append(r.child)
+                r.child = None
             r.packets.clear()
             r.settings = None
+            r.enrollment = None
 
     def _revoke_locked(self, reason):
         r = self._record
@@ -605,23 +908,30 @@ class ZoomLiveRuntime:
             r.state = "REVOKED"
 
     def revoke(self, poc_id, reason="CLOSED"):
-        with self._lock:
+        with self._transaction():
             if self._record and self._record.poc_id == poc_id:
                 self._revoke_locked(reason)
+        self._drain_cleanup()
 
     def tick(self):
-        with self._lock:
+        try:
+            self._tick()
+        finally:
+            self._drain_cleanup()
+
+    def _tick(self):
+        with self._transaction():
             r = self._record
             if not r or r.state in {"FAILED", "REVOKED", "DRAFT_READY"}:
                 return
-            if self._clock() >= r.expires or (
+            if (r.enrollment and self._clock() >= r.enrollment.expires) or self._clock() >= r.expires or (
                 r.stop_deadline is not None and self._clock() >= r.stop_deadline
             ):
                 self._revoke_locked("TIMEOUT")
                 return
             poc_id = r.poc_id
         try:
-            self._run_if_open(poc_id, lambda: self._draft(poc_id))
+            self._owner_call(poc_id, lambda: self._draft(poc_id))
         except Exception:  # noqa: BLE001 - private boundary always fails closed without error detail
             self.revoke(poc_id)
 
@@ -629,7 +939,68 @@ class ZoomLiveRuntime:
         while not self._closed.wait(0.25):
             self.tick()
 
+    @contextmanager
+    def _transaction(self):
+        self._effects.runtime_depth = getattr(self._effects, "runtime_depth", 0) + 1
+        try:
+            with self._lock:
+                yield
+        finally:
+            self._effects.runtime_depth -= 1
+            self._finish_effects()
+
+    def _owner_call(self, poc_id, callback):
+        self._effects.owner_depth = getattr(self._effects, "owner_depth", 0) + 1
+        try:
+            return self._run_if_open(poc_id, callback)
+        finally:
+            self._effects.owner_depth -= 1
+            self._finish_effects()
+
+    def _effects_deferred(self):
+        return (getattr(self._effects, "runtime_depth", 0) > 0
+                or getattr(self._effects, "owner_depth", 0) > 0
+                or getattr(self._effects, "draining", False))
+
+    def _finish_effects(self):
+        if not self._effects_deferred():
+            self._drain_cleanup()
+            self._finish_close()
+
+    def _require_open_locked(self):
+        if self._closed.is_set():
+            raise ZoomLiveError()
+
+    def _drain_cleanup(self):
+        if self._effects_deferred():
+            return
+        self._effects.draining = True
+        try:
+            with self._lock:
+                children, self._pending_closes = self._pending_closes, []
+            for child in children:
+                try:
+                    child.close()
+                except Exception:  # noqa: BLE001 - retain unresolved cleanup without private error text
+                    with self._lock:
+                        self._cleanup_uncertain = True
+                        self._closed.set()
+                        self._pending_closes.append(child)
+        finally:
+            self._effects.draining = False
+
+    def _finish_close(self):
+        if not self._closed.is_set() or self._effects_deferred():
+            return
+        if getattr(self._effects, "launching", False) or self._watcher is threading.current_thread():
+            return
+        self._launch_idle.wait(timeout=1)
+        self._watcher.join(timeout=1)
+
     def close(self):
-        self._closed.set()
-        with self._lock:
+        with self._transaction():
+            self._closed.set()
             self._revoke_locked("SERVER_CLOSED")
+        # Nested close only fences admission and detaches resources. The actual
+        # outer runtime transaction and owner reservation unwind before cleanup/waits.
+        self._finish_effects()

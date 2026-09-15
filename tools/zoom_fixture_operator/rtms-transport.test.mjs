@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {createRtmsTransport,safeZoomWebSocketUrl,MAX_PACKET_BYTES,exactFrame} from './rtms-transport.mjs';
 import {readFileSync} from 'node:fs';
+
+test('initial and replacement transcript media handshakes carry documented sequence zero',()=>{
+  const f=setup();f.start();
+  assert.equal(f.sockets[1].sent[0].msg_type,3);
+  assert.equal(f.sockets[1].sent[0].media_type,8);
+  assert.equal(f.sockets[1].sent[0].sequence,0);
+  f.stream.reconnectMedia();f.tick(3000);
+  const replacement=f.sockets.at(-1);replacement.emit('open');
+  assert.equal(replacement.sent[0].sequence,0);
+  f.stream.revoke();
+});
 class Socket extends EventEmitter {
   readyState=1; bufferedAmount=0; sent=[]; terminated=false;
   send(value) {this.sent.push(JSON.parse(value));}

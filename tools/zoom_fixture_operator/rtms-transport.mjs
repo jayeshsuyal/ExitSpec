@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import WebSocket from 'ws';
+import {createRosterEnrollment} from './roster-enrollment.mjs';
 
 // Wire fields: https://developers.zoom.us/docs/rtms/event-reference/
 // No transcript normalization here. The authenticated parent decodes exact bytes.
@@ -25,7 +26,8 @@ export function exactFrame(value) {
 }
 export function createRtmsTransport({clientId, clientSecret, meetingUuid, streamId, serverUrl,
   onEvent = () => {}, observe = () => {}, socketFactory = (url, options) => new WebSocket(url, options),
-  timers = {setTimeout, clearTimeout}, chaosDelayMs = null, networkAuthorized = false}) {
+  timers = {setTimeout, clearTimeout}, chaosDelayMs = null, networkAuthorized = false, enrollment = null, now = Date.now}) {
+  if (enrollment) observe = () => {};
   const stream = {meetingUuid, streamId, serverUrl: safeZoomWebSocketUrl(serverUrl), mediaUrl: null,
     signalingSocket: null, mediaSocket: null, transcriptCount: 0, stopped: false,
     reconnectPending: false, chaosInjected: false};
@@ -33,6 +35,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
   let reconnectScheduled = null;
   let stopping = false, acknowledged = false, listening = false, closedNormally = false;
   const pendingTimers = new Set();
+  let roster = null;
   const arm = (fn, ms) => { const timer = timers.setTimeout(() => { pendingTimers.delete(timer); fn(); }, ms); pendingTimers.add(timer); return timer; };
   const cancel = timer => { timers.clearTimeout(timer); pendingTimers.delete(timer); };
   const event = (name, detail = {}) => onEvent({event: name, ...detail});
@@ -41,7 +44,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
   const close = socket => { try { socket?.terminate(); } catch {} };
   function revoke() {
     if (stream.stopped) return;
-    stream.stopped = true; epoch++; mediaEpoch++;
+    stream.stopped = true; epoch++; mediaEpoch++; roster?.close();
     for (const timer of pendingTimers) timers.clearTimeout(timer);
     pendingTimers.clear(); close(stream.mediaSocket); close(stream.signalingSocket);
     stream.mediaSocket = stream.signalingSocket = null;
@@ -91,6 +94,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('message', data => {
       if (!current()) return;
       touch();
+      if (roster && !roster.check()) return;
       const parsed = parse(data, 'signaling'); if (!parsed) return;
       const {raw, value:m} = parsed;
       if ((m.rtms_stream_id !== undefined && m.rtms_stream_id !== streamId) ||
@@ -101,26 +105,34 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
         try { stream.mediaUrl = safeZoomWebSocketUrl(m.media_server?.server_urls?.transcript ?? m.media_server?.server_urls?.all); }
         catch { return fail('invalid_endpoint'); }
         accepted = true; cancel(deadline);
-        send(socket, {msg_type:5, events:[{event_type:3,subscribe:true},{event_type:4,subscribe:true}]});
-        connectMedia();
+        send(socket, {msg_type:5, events:[...(roster ? [{event_type:2,subscribe:true}] : []),{event_type:3,subscribe:true},{event_type:4,subscribe:true}]});
+        if (roster) event('enrollment_ready'); else connectMedia();
       } else if (!accepted) { fail('handshake_required'); }
-      else if (m.msg_type === 12) send(socket,{msg_type:13,timestamp:m.timestamp});
+      else if (m.msg_type === 12) {
+        if (roster) roster.heartbeat(m.timestamp);
+        if (!stream.stopped) send(socket,{msg_type:13,timestamp:m.timestamp});
+      }
       else if (m.msg_type === 22) {
         if (!stopping || acknowledged || m.rtms_stream_id !== streamId || m.status_code !== 0) return fail('stop_rejected');
         acknowledged = true; event('stop_ack'); finishDrain();
       } else if (m.msg_type === 6) {
         const e = m.event;
-        if (e?.event_type === 3 || e?.event_type === 4) {
+        if (roster && e?.event_type === 2) { roster.speaker(e); }
+        else if (e?.event_type === 3 || e?.event_type === 4) {
           observe('participant_lifecycle_events',{direction:'INBOUND',channel:'signaling'},raw);
           if (!Array.isArray(e.participants) || e.participants.length > 2) return fail('invalid_participant');
           for (const p of e.participants) {
             if (!Number.isInteger(p.user_id) || p.user_id < 1 || p.user_id > 0xffffffff) return fail('invalid_participant');
+            if (roster && (e.event_type === 4 || !roster.see(p.user_id))) return fail('invalid_participant');
             event(e.event_type === 3 ? 'participant' : 'participant_left',{user_id:p.user_id});
           }
         } else if (e?.event_type === 7) reconnectMedia();
       } else if (m.msg_type === 8 && m.state === 2) {
         if (m.reason === 14) reconnectMedia(); else fail('provider_interrupted');
-      } else if (m.msg_type === 9) observe('participant_lifecycle_events',{direction:'INBOUND',channel:'signaling'},raw);
+      } else if (m.msg_type === 9) {
+        if (roster && !roster.mediaAllowed && [3,4,5].includes(m.state)) return fail('enrollment_session_changed');
+        observe('participant_lifecycle_events',{direction:'INBOUND',channel:'signaling'},raw);
+      } else if (roster && [14,15,16,17,18,23,24,25,26,27].includes(m.msg_type)) fail('unexpected_media');
     });
     socket.on('close', code => {
       if (!current()) return;
@@ -131,6 +143,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('error', () => { if (current()) fail('socket_error'); });
   }
   function connectMedia() {
+    if (roster && !roster.mediaAllowed) return;
     if (networkAuthorized !== true || stream.stopped || stopping || !stream.mediaUrl || stream.mediaSocket || reconnectScheduled !== null) return;
     const ownEpoch = epoch, ownMediaEpoch = ++mediaEpoch;
     let socket;
@@ -145,7 +158,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     const deadline = arm(() => { if (current() && !accepted) fail('handshake_timeout'); },15000);
     socket.on('open', () => {
       if (!current()) return;
-      const request = {msg_type:3,protocol_version:1,meeting_uuid:meetingUuid,rtms_stream_id:streamId,
+      const request = {msg_type:3,protocol_version:1,sequence:0,meeting_uuid:meetingUuid,rtms_stream_id:streamId,
         signature:signature(),media_type:8,payload_encryption:false};
       observe('transcript_websocket_handshake',{direction:'OUTBOUND',channel:'transcript'},Buffer.from(JSON.stringify(request)));
       send(socket,request);
@@ -153,6 +166,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('message', data => {
       if (!current()) return;
       touch();
+      if (roster && !roster.check()) return;
       const parsed = parse(data,'transcript'); if (!parsed) return;
       const {raw,value:m} = parsed;
       if ((m.rtms_stream_id !== undefined && m.rtms_stream_id !== streamId) ||
@@ -184,6 +198,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     socket.on('error', () => { if (current()) fail('socket_error'); });
   }
   function reconnectMedia() {
+    if (roster && !roster.mediaAllowed) return fail('enrollment_disconnected');
     if (networkAuthorized !== true || stream.stopped || reconnectScheduled !== null) return;
     if (stopping) return fail('drain_uncertain');
     if (++retries > 3) return fail('reconnect_limit');
@@ -200,6 +215,7 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     },3000);
   }
   function reconnect(url = stream.serverUrl) {
+    if (roster && !roster.mediaAllowed) return fail('enrollment_disconnected');
     if (networkAuthorized !== true || stream.stopped || reconnectScheduled === 'signaling') return;
     if (stopping) return fail('drain_uncertain');
     if (++retries > 3) return fail('reconnect_limit');
@@ -230,5 +246,10 @@ export function createRtmsTransport({clientId, clientSecret, meetingUuid, stream
     if (!stopping) fail('stop_unacknowledged');
   }
   arm(() => fail('capture_timeout'),15 * 60 * 1000);
-  return Object.assign(stream,{start:connectSignaling,reconnect,reconnectMedia,stop,revoke,providerStopped});
+  if (enrollment) roster = createRosterEnrollment({limits:enrollment,now,timers,emit:eventValue => onEvent(eventValue),fail});
+  return Object.assign(stream,{start:connectSignaling,reconnect,reconnectMedia,stop,revoke,providerStopped,
+    armEnrollment:nonce => roster?.arm(nonce),
+    confirmEnrollment:(nonce,id) => roster?.confirm(nonce,id),
+    sealEnrollment:ids => roster?.seal(ids),
+    activateEnrollment:() => { if (roster?.activate()) connectMedia(); }});
 }

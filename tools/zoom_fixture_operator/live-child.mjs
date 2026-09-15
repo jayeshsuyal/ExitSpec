@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
+import {validEnrollment} from './roster-enrollment.mjs';
 import {pathToFileURL} from 'node:url';
 import {createRtmsTransport, safeZoomWebSocketUrl} from './rtms-transport.mjs';
 import {computeEndpointValidationResponse, verifyZoomWebhookSignature} from './operator-capture-lib.mjs';
@@ -74,9 +75,9 @@ export function createLiveChild({emit, transportFactory=createRtmsTransport, ser
   function command(m) {
     if (terminal) return;
     if (!config) {
-      if (!validInit(m)) return fail('invalid_init');
+      if (!validInit(m) || (m.enrollment !== undefined && !validEnrollment(m.enrollment, now()))) return fail('invalid_init');
       config={...m};
-      expiry=timers.setTimeout(()=>fail('capture_timeout'),15*60*1000);
+      expiry=timers.setTimeout(()=>fail('capture_timeout'),config.enrollment ? config.enrollment.runDeadlineMs-now() : 15*60*1000);
       try {
         server=serverFactory(request);
         server.requestTimeout=5000; server.headersTimeout=5000; server.keepAliveTimeout=1000; server.maxHeadersCount=24; server.maxConnections=4;
@@ -91,10 +92,15 @@ export function createLiveChild({emit, transportFactory=createRtmsTransport, ser
     if (m.command==='bind' && !transport) {
       try {
         transport=transportFactory({clientId:config.clientId,clientSecret:config.clientSecret,networkAuthorized:true,
-          meetingUuid:config.expectedMeetingUuid,streamId:offer.streamId,serverUrl:offer.serverUrl,onEvent:event});
+          meetingUuid:config.expectedMeetingUuid,streamId:offer.streamId,serverUrl:offer.serverUrl,onEvent:event,
+          ...(config.enrollment ? {enrollment:config.enrollment,now} : {})});
         transport.start();
       } catch { fail('transport_failed'); }
-    } else if (m.command==='stop' && transport) transport.stop();
+    } else if (config.enrollment && transport && m.command==='enrollment_arm' && Object.keys(m).length===4) transport.armEnrollment(m.nonce);
+    else if (config.enrollment && transport && m.command==='enrollment_confirm' && Object.keys(m).length===5) transport.confirmEnrollment(m.nonce,m.user_id);
+    else if (config.enrollment && transport && m.command==='enrollment_seal' && Object.keys(m).length===4) transport.sealEnrollment(m.participant_ids);
+    else if (config.enrollment && transport && m.command==='enrollment_capture' && Object.keys(m).length===3) transport.activateEnrollment();
+    else if (m.command==='stop' && transport) transport.stop();
     else fail('invalid_command');
   }
   function webhook(body,headers) {

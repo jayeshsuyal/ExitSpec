@@ -498,7 +498,7 @@ def test_completion_requires_authoritative_queue_refresh():
     assert "proposals = definitionList.proposals.slice();" in reconcile
     assert "renderCurrentProposal();" in reconcile
     assert "definitionRecorded = true;" in submit
-    assert "await reconcileDefinitionsAfterSave();" in submit
+    assert "await reconcileDefinitionsAfterSave(response, proposal);" in submit
     assert "if (definitionRecorded)" in submit
     assert (
         "The definition was recorded, but the current queue could not be refreshed."

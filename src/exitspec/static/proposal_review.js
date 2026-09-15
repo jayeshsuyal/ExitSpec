@@ -67,9 +67,12 @@
   let initialCount = 0;
   let keptCount = 0;
   let discardedCount = 0;
+  let a2KeptCount = 0;
   const selectedMetricCues = new Set();
+  let validatedA2Decisions = new Map();
   let pocCustomerLabel = null;
   let a3Capability = false;
+  let a3ReviewCapability = false;
   let hasA3Proposals = false;
   let a3Proposals = new Map();
   let inFlight = false;
@@ -84,6 +87,7 @@
   function assertCurrentPage(epoch) {
     if (!pageActive || epoch !== pageEpoch) throw new StalePageError();
   }
+  let acknowledgedDecision = null;
 
   class SafeRequestError extends Error {
     constructor(statusCode, retrySameAttempt) {
@@ -213,6 +217,16 @@
     );
   }
 
+  function isTrustedMainReviewCapability(payload) {
+    const capability = payload?.source_authoring_review;
+    return Boolean(
+      hasExactKeys(capability, ["schema_version", "receipts", "current_review", "authoring", "capability_planner"]) &&
+        capability.schema_version === "exitspec.source-authoring-review/1" &&
+        capability.receipts === "READ_ONLY" && capability.current_review === "READ_ONLY" &&
+        capability.authoring === false && capability.capability_planner === false
+    );
+  }
+
   function isTrustedProposal(proposal) {
     return Boolean(
       hasExactKeys(proposal, [
@@ -264,7 +278,7 @@
 
   function isTrustedProposalList(payload) {
     if (
-      !hasExactKeys(payload, ["poc_id", "proposals", "review_summary"]) ||
+      !hasExactKeys(payload, ["poc_id", "proposals", "review_summary", "authoring_provenance"]) ||
       payload.poc_id !== pocId ||
       !Array.isArray(payload.proposals) ||
       payload.proposals.length > 1024 ||
@@ -277,7 +291,33 @@
     const proposalIds = payload.proposals.map(
       (proposal) => proposal.proposal_id
     );
-    return new Set(proposalIds).size === proposalIds.length;
+    const provenance = payload.authoring_provenance;
+    if (
+      !hasExactKeys(provenance, ["schema_version", "proposals"]) ||
+      provenance.schema_version !== "exitspec.review-authoring-provenance/1" ||
+      !Array.isArray(provenance.proposals) ||
+      provenance.proposals.length !== payload.review_summary.total ||
+      !provenance.proposals.every((row) => hasExactKeys(row, ["proposal_id", "origin", "review_state", "normalized_claim"]) &&
+        typeof row.proposal_id === "string" && row.proposal_id.trim() === row.proposal_id &&
+        PROPOSAL_ID_PATTERN.test(row.proposal_id) &&
+        ["INTAKE_A2", "ASSISTED_A3"].includes(row.origin) &&
+        ["NEEDS_REVIEW", "KEEP_FOR_CONTRACT", "DISCARD"].includes(row.review_state) &&
+        isSafeBoundedText(row.normalized_claim, 2000))
+    ) return false;
+    const originIds = new Set(provenance.proposals.map((row) => row.proposal_id));
+    const rowsById = new Map(provenance.proposals.map((row) => [row.proposal_id, row]));
+    const stateCounts = { NEEDS_REVIEW: 0, KEEP_FOR_CONTRACT: 0, DISCARD: 0 };
+    for (const row of provenance.proposals) stateCounts[row.review_state] += 1;
+    return new Set(proposalIds).size === proposalIds.length &&
+      originIds.size === provenance.proposals.length &&
+      stateCounts.NEEDS_REVIEW === payload.review_summary.needs_review &&
+      stateCounts.KEEP_FOR_CONTRACT === payload.review_summary.kept_for_contract &&
+      stateCounts.DISCARD === payload.review_summary.discarded &&
+      payload.proposals.every((proposal) => {
+        const row = rowsById.get(proposal.proposal_id);
+        return row && row.review_state === proposal.review_state &&
+          row.normalized_claim === proposal.normalized_claim;
+      });
   }
 
   function sourceReceiptIdForSourceId(sourceId) {
@@ -473,7 +513,13 @@
     const projectionIds = currentReview.proposals.map(
       (projection) => projection.proposal_id
     );
+    const originA3Ids = new Set(proposalList.authoring_provenance.proposals
+      .filter((row) => row.origin === "ASSISTED_A3").map((row) => row.proposal_id));
+    const scopeIds = new Set(proposalList.authoring_provenance.proposals.map((row) => row.proposal_id));
+    const scopedProjectionIds = projectionIds.filter((id) => scopeIds.has(id));
     if (
+      originA3Ids.size !== scopedProjectionIds.length ||
+      scopedProjectionIds.some((id) => !originA3Ids.has(id)) ||
       receiptProposalIds.length !== projectionIds.length ||
       new Set(receiptProposalIds).size !== receiptProposalIds.length ||
       receiptProposalIds.some(
@@ -482,12 +528,28 @@
     ) {
       return null;
     }
+    // The complete owner manifest selects the current agreement scope. Validate
+    // every raw A3 binding first, then exclude records outside that scope.
+    for (const id of projectionIds) {
+      if (!scopeIds.has(id)) projectionsById.delete(id);
+    }
+    for (const row of proposalList.authoring_provenance.proposals) {
+      if (row.origin !== "ASSISTED_A3") continue;
+      const projection = projectionsById.get(row.proposal_id);
+      if (!projection || projection.review_state !== row.review_state ||
+          projection.normalized_claim !== row.normalized_claim) return null;
+    }
     const pendingIds = new Set(
       proposalList.proposals.map((proposal) => proposal.proposal_id)
     );
+    const assistedSources = new Set(assistedList.receipts.map((receipt) => receipt.source_receipt_id));
     for (const proposal of proposalList.proposals) {
       const projection = projectionsById.get(proposal.proposal_id);
-      if (!projection) continue; // untouched A2 material remains reviewable.
+      if (!projection) {
+        // An A3 source cannot silently fall back to A2 on a different proposal ID.
+        if (assistedSources.has(proposal.source_receipt_id)) return null;
+        continue; // untouched A2 material remains reviewable.
+      }
       if (
         projection.review_state !== "NEEDS_REVIEW" ||
         projection.source_receipt_id !== proposal.source_receipt_id ||
@@ -498,7 +560,7 @@
         return null;
       }
     }
-    for (const projection of currentReview.proposals) {
+    for (const projection of projectionsById.values()) {
       if (
         projection.review_state === "NEEDS_REVIEW" &&
         !pendingIds.has(projection.proposal_id)
@@ -512,6 +574,10 @@
         return null;
       }
     }
+    if (
+      [...projectionsById.values()].filter((p) => p.review_state === "KEEP_FOR_CONTRACT").length > proposalList.review_summary.kept_for_contract ||
+      [...projectionsById.values()].filter((p) => p.review_state === "DISCARD").length > proposalList.review_summary.discarded
+    ) return null;
     return projectionsById;
   }
 
@@ -782,6 +848,33 @@
     return metricCue === "TTFT_P95_MS" ? "TTFT" : "error rate";
   }
 
+  function hasConsistentA2Decisions(proposalList, acknowledged, previous) {
+    const rows = new Map(proposalList.authoring_provenance.proposals.map((row) => [row.proposal_id, row]));
+    const expected = previous.slice();
+    if (acknowledged) expected.push(acknowledged);
+    return expected.every((binding) => {
+      const row = rows.get(binding.proposal_id);
+      return row && row.origin === binding.origin &&
+        row.review_state === binding.review_state &&
+        row.normalized_claim === binding.normalized_claim;
+    });
+  }
+
+  function rebuildA2Eligibility(proposalList) {
+    selectedMetricCues.clear();
+    a2KeptCount = 0;
+    const completed = new Map();
+    for (const row of proposalList.authoring_provenance.proposals) {
+      if (row.origin !== "INTAKE_A2" || row.review_state === "NEEDS_REVIEW") continue;
+      completed.set(row.proposal_id, Object.freeze({ ...row }));
+      if (row.review_state !== "KEEP_FOR_CONTRACT") continue;
+      a2KeptCount += 1;
+      const metricCue = executableMetricCue(row);
+      if (metricCue !== null) selectedMetricCues.add(metricCue);
+    }
+    validatedA2Decisions = completed;
+  }
+
   function clearError() {
     errorPanel.hidden = true;
     errorPanel.textContent = "";
@@ -829,12 +922,13 @@
     const hasProposal = proposal !== null && !blocked && pageActive;
     const metricCue = executableMetricCue(proposal);
     const isA3Proposal = hasProposal && a3Proposals.has(proposal.proposal_id);
+    const isA2Proposal = hasProposal && !isA3Proposal;
     const duplicateMetric =
       metricCue !== null && selectedMetricCues.has(metricCue);
     const executableSlotAvailable = isA3Proposal || (
       metricCue !== null &&
       !duplicateMetric &&
-      keptCount < 2
+      a2KeptCount < 2
     );
     const fieldsValid = validatedReviewFields() !== null;
     const editable = hasProposal && !inFlight && !pendingAttempt;
@@ -869,7 +963,7 @@
         ? "Retry discard decision"
         : "Discard";
 
-    decisionStatus.textContent = blocked
+    const decisionCopy = blocked
       ? "Proposal review is unavailable. Reload before continuing."
       : inFlight
       ? "Recording this triage decision…"
@@ -877,15 +971,16 @@
         ? "The response was interrupted. Retry will use the same decision key."
         : isA3Proposal && fieldsValid
           ? "A3 source-bound proposal only · capability and policy classification remain a later step."
-          : fieldsValid && metricCue === null
+          : isA2Proposal && fieldsValid && metricCue === null
           ? "The current evaluator cannot execute this claim. Discard keeps it visible as NOT_PROVEN."
-          : fieldsValid && duplicateMetric
+          : isA2Proposal && fieldsValid && duplicateMetric
             ? `One ${metricCueLabel(metricCue)} claim is already selected. Discard this duplicate to NOT_PROVEN.`
-            : fieldsValid && keptCount >= 2
+            : isA2Proposal && fieldsValid && a2KeptCount >= 2
               ? "The two executable slots are filled. Discard remaining claims to NOT_PROVEN."
               : fieldsValid
                 ? "Choose one triage decision."
-          : "Enter the reviewer and rationale to unlock the available decisions.";
+          : "Enter the reviewer and rationale, then choose an available decision.";
+    if (decisionStatus.textContent !== decisionCopy) decisionStatus.textContent = decisionCopy;
   }
 
   function renderProgress() {
@@ -932,9 +1027,17 @@
     support.setAttribute("data-supported", String(metricCue !== null));
     support.textContent = a3Proposals.has(proposal.proposal_id)
       ? "Source-bound proposal material · later classification is not assigned here"
-      : metricCue === null
-      ? "Not executable in this demo · discard to NOT_PROVEN"
-      : `Executable candidate · ${metricCueLabel(metricCue)}`;
+      : `${metricCue === null ? "Unsupported by this direct review route" : `Direct review candidate · ${metricCueLabel(metricCue)}`} · Direct review supports one TTFT and one error-rate claim.`;
+    if (!a3Proposals.has(proposal.proposal_id) && a3Capability) {
+      support.append(document.createTextNode(" For requests such as exact tool selection, "));
+      const planningLink = document.createElement("a");
+      planningLink.id = "proposal-planning-link";
+      planningLink.href = `/app/pocs/${encodeURIComponent(pocId)}/assisted-authoring`;
+      planningLink.textContent = "use assisted drafting and capability planning";
+      support.append(planningLink, document.createTextNode(". Review the draft and define a supported proof method before confirmation or execution."));
+    } else if (!a3Proposals.has(proposal.proposal_id) && metricCue === null) {
+      support.append(document.createTextNode(" This route cannot turn this request into executable acceptance criteria."));
+    }
     const draft = reviewDrafts.get(proposal.proposal_id);
     reviewerInput.value = draft?.reviewer || "";
     rationaleInput.value = draft?.rationale || "";
@@ -989,7 +1092,7 @@
         defineCriteriaLink.textContent = "Return to POC workspace";
         defineCriteriaLink.href = "/app";
         defineCriteriaLink.hidden = false;
-        if (keptCount > 0) {
+        if (a3Capability && keptCount > 0) {
           planCapabilitiesLink.textContent = "Plan retained capabilities";
           planCapabilitiesLink.href = `/app/pocs/${encodeURIComponent(pocId)}/capability-plan`;
           planCapabilitiesLink.hidden = false;
@@ -1001,7 +1104,7 @@
       defineCriteriaLink.hidden = false;
       planCapabilitiesLink.textContent = "Plan retained capabilities";
       planCapabilitiesLink.href = `/app/pocs/${encodeURIComponent(pocId)}/capability-plan`;
-      planCapabilitiesLink.hidden = false;
+      planCapabilitiesLink.hidden = !a3Capability;
     } else if (hasA3Proposals) {
       defineCriteriaLink.textContent = "Return to POC workspace";
       defineCriteriaLink.href = "/app";
@@ -1016,9 +1119,7 @@
         : "/app";
       defineCriteriaLink.hidden = false;
     }
-    const progressBar = document.querySelector("#progress-bar");
-    progressBar.setAttribute("aria-valuenow", String(initialCount));
-    document.querySelector("#progress-fill").style.width = "100%";
+    renderProgress();
     completionPanel.focus();
   }
 
@@ -1031,6 +1132,7 @@
   }
 
   function applyLoadedData(draft, proposalList) {
+    rebuildA2Eligibility(proposalList);
     proposals = proposalList.proposals.slice();
     initialCount = proposalList.review_summary.total;
     keptCount = proposalList.review_summary.kept_for_contract;
@@ -1056,6 +1158,8 @@
   }
 
   async function reconcileQueueAfterDecision(attempt) {
+    const acknowledged = acknowledgedDecision;
+    const previous = [...validatedA2Decisions.values()];
     const proposalList = await requestJson(proposalsApi);
     if (!isTrustedProposalList(proposalList)) {
       throw new SafeRequestError(200, true);
@@ -1063,7 +1167,7 @@
     if (proposalList.proposals.some((proposal) => proposal.proposal_id === attempt.proposalId)) {
       throw new SafeRequestError(200, true);
     }
-    if (a3Capability) {
+    if (a3ReviewCapability) {
       const [assistedList, currentReview] = await Promise.all([
         requestJson(assistedApi),
         requestJson(currentReviewApi),
@@ -1073,12 +1177,17 @@
         currentReview,
         proposalList
       );
-      if (!projection) {
+      if (!projection || [...a3Proposals.keys()].some((id) => !projection.has(id))) {
         throw new SafeRequestError(200, true);
       }
       a3Proposals = projection;
-      hasA3Proposals = assistedList.receipts.length > 0;
+      hasA3Proposals = projection.size > 0;
     }
+    if (!hasConsistentA2Decisions(proposalList, acknowledged, previous)) {
+      throw new SafeRequestError(200, true);
+    }
+    rebuildA2Eligibility(proposalList);
+    acknowledgedDecision = null;
     proposals = proposalList.proposals.slice();
     initialCount = proposalList.review_summary.total;
     keptCount = proposalList.review_summary.kept_for_contract;
@@ -1162,6 +1271,12 @@
       pendingAttempt = {
         endpoint,
         proposalId: proposal.proposal_id,
+        binding: Object.freeze({
+          proposal_id: proposal.proposal_id,
+          origin: a3Proposals.has(proposal.proposal_id) ? "ASSISTED_A3" : "INTAKE_A2",
+          review_state: decision,
+          normalized_claim: proposal.normalized_claim,
+        }),
         payload: {
           decision,
           reviewer: fields.reviewer,
@@ -1196,12 +1311,7 @@
       if (!isTrustedDecisionResponse(response, attempt)) {
         throw new SafeRequestError(200, true);
       }
-      if (attempt.payload.decision === "KEEP_FOR_CONTRACT") {
-        const metricCue = executableMetricCue(proposal);
-        if (metricCue !== null) {
-          selectedMetricCues.add(metricCue);
-        }
-      }
+      acknowledgedDecision = attempt.binding;
       pendingAttempt = null;
       proposals = proposals.filter((item) => item.proposal_id !== attempt.proposalId);
       reviewDrafts.delete(attempt.proposalId);
@@ -1258,13 +1368,20 @@
       ) {
         throw new SafeRequestError(200, true);
       }
+      const sourceAuthoringLink = document.querySelector("#source-authoring-link");
+      if (sourceAuthoringLink) {
+        sourceAuthoringLink.href = `/app/pocs/${pocId}/source-authoring`;
+        sourceAuthoringLink.hidden = false;
+      }
       let capability = null;
       try {
         capability = await requestJson(stateApi);
       } catch {
         throw new SafeRequestError(503, true);
       }
-      if (isTrustedA3Capability(capability) && assistedApi) {
+      const fullA3Capability = isTrustedA3Capability(capability);
+      const mainReviewCapability = isTrustedLegacyCapability(capability) && isTrustedMainReviewCapability(capability);
+      if ((fullA3Capability || mainReviewCapability) && assistedApi) {
         try {
           const [assistedList, currentReview] = await Promise.all([
             requestJson(assistedApi),
@@ -1278,13 +1395,14 @@
           if (!projection) {
             throw new SafeRequestError(200, true);
           }
-          a3Capability = true;
           a3Proposals = projection;
-          hasA3Proposals = assistedList.receipts.length > 0;
+          hasA3Proposals = projection.size > 0;
+          a3Capability = fullA3Capability;
+          a3ReviewCapability = true;
         } catch {
           throw new SafeRequestError(503, true);
         }
-      } else if (!isTrustedLegacyCapability(capability)) {
+      } else {
         throw new SafeRequestError(503, true);
       }
       applyLoadedData(draft, proposalList);
@@ -1313,6 +1431,10 @@
     initialCount = 0;
     keptCount = 0;
     discardedCount = 0;
+    validatedA2Decisions.clear();
+    acknowledgedDecision = null;
+    a2KeptCount = 0;
+    a3ReviewCapability = false;
     pocCustomerLabel = null;
     pendingAttempt = null;
     reviewerInput.value = "";
